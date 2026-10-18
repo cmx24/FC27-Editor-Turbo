@@ -339,10 +339,22 @@ static void test_bodytype_thumbs() {
         spit(bt::request_file(out), "{not json");
         err.clear();
         CHECK(!bt::take_request(out, rq, &err) && !err.empty() && !fs::exists(bt::request_file(out)), "unreadable: refused and removed");
-        CHECK(!bt::parse_request(R"({"source": "camera"})", rq, &err), "a camera source without a camera refused");
+        CHECK(!bt::parse_request(R"({"source": "camera", "camera": -1})", rq, &err), "camera -1 without a mode refused");
         CHECK(!bt::parse_request(R"({"source": "mirror"})", rq, &err), "an unknown source refused");
         CHECK(!bt::parse_request(R"({"source": "camera", "camera": 99})", rq, &err), "a camera this build lacks refused");
-        CHECK(bt::parse_request(R"({"source": "lua"})", rq, &err) && rq.source.kind == bt::SourceKind::Lua && rq.source.text() == "lua", "lua");
+        CHECK(!bt::parse_request(R"({"source": "camera", "camera": -3})", rq, &err), "camera -3 refused");
+        CHECK(bt::parse_request(R"({"source": "camera", "camera": -2})", rq, &err) && rq.source.camera == -2 && rq.source.mode == -1,
+              "camera -2 (track C's kCameraBodyFull) accepted: " + err);
+        {
+            Fake game;
+            bt::SourceAdapter full(rq.source, &game);
+            CHECK(full.request(tc::body_request(254470, 95), &err) && game.requests.size() == 1 && game.requests[0].camera == -2 &&
+                      game.requests[0].mode_override == -1 && game.requests[0].extra_override == -1 && !game.requests[0].use_template,
+                  "camera -2 is sent as Request::camera, with no mode / extra overrides");
+        }
+        CHECK(!bt::parse_request(R"({"source": "lua"})", rq, &err), "lua is no source (route B dropped)");
+        CHECK(bt::parse_request(R"({"source": "camera"})", rq, &err) && rq.source.camera == bt::kCameraBodyFull, "camera alone = full body");
+        CHECK(bt::parse_request(R"({"source": "none"})", rq, &err) && rq.source.kind == bt::SourceKind::None && rq.source.text() == "none", "none");
         CHECK(bt::parse_request("{}", rq, &err) && rq.player == 0 && !rq.source_given && rq.max_steps == 0, "defaults: selected player, the proven source");
         bt::SourceChoice c;
         CHECK(!bt::read_source_file(out, c), "no source file");
@@ -508,84 +520,45 @@ static void test_bodytype_thumbs() {
         CHECK(std::string(turbo::bodytype_thumbs_busy_text()).empty(), "no busy text after the run");
     });
 
-    run_case("body-type thumbnails: source none (mode 1 is head only): nothing is made, nothing written", [&] {
+    run_case("body-type thumbnails: source none refuses; the default is the full-body camera; source.json overrides it", [&] {
         const fs::path out = fresh_dir("bodythumbs_none");
         turbo::bodytype::Catalog cat;
         load_catalog(cat, out);
         World w(out);
         bt::Generator g(w.env());
         std::string err;
-        bt::StartRequest rq;  // no source given, no source file: none
+        bt::StartRequest rq;
+        rq.source_given = true;
+        rq.source.kind = bt::SourceKind::None;  // none named explicitly
         CHECK(!g.start(cat, ref_of(254470), rq, &err) && err.find("nothing to make") != std::string::npos, "refused: " + err);
-        rq.source_given = true;  // none named explicitly
-        CHECK(!g.start(cat, ref_of(254470), rq, &err) && err.find("head and shoulders") != std::string::npos, "refused: " + err);
         CHECK(w.writes == 0 && w.svc.requests.empty() && !fs::exists(bt::manifest_file(out)), "no write, no request, no manifest");
-        bt::SourceAdapter none(bt::SourceChoice{}, &w.svc, bt::LuaHooks{});
+        bt::SourceChoice nc;
+        nc.kind = bt::SourceKind::None;
+        bt::SourceAdapter none(nc, &w.svc);
         tc::Result r;
         CHECK(!none.status().available && !none.request(tc::body_request(254470, 95), &err) && !none.poll(r), "the none source never draws");
-        // the proven source from source.json is taken when the request names none
+        // nothing named, no source.json: the full-body camera (track C's kCameraBodyFull)
+        {
+            bt::Generator gd(w.env());
+            rq = bt::StartRequest{};
+            rq.max_steps = 1;
+            CHECK(gd.start(cat, ref_of(254470), rq, &err), "default start: " + err);
+            w.run(gd);
+            CHECK(!w.svc.requests.empty() && w.svc.requests.back().camera == bt::kCameraBodyFull && w.svc.requests.back().mode_override == -1,
+                  "default = camera -2, no overrides");
+            bt::RunInfo ri;
+            CHECK(bt::read_run_info(out, ri, &err) && ri.source == "camera -2", "run record: camera -2");
+        }
+        // source.json overrides the default when the request names none
+        rq.fresh = true;
         spit(bt::folder(out) / "source.json", R"({"source": "camera", "camera": 3})");
         rq = bt::StartRequest{};
         rq.max_steps = 2;
+        rq.fresh = true;
         CHECK(g.start(cat, ref_of(254470), rq, &err), "started from source.json: " + err);
         w.run(g);
         CHECK(!w.svc.requests.empty() && w.svc.requests.back().camera == 3, "camera 3 from source.json");
         CHECK(w.db["career:LEICESTER"][254470] == 5, "his own code back");
-    });
-
-    run_case("body-type thumbnails: route B (Live Editor capture) through the adapter", [&] {
-        const fs::path out = fresh_dir("bodythumbs_lua");
-        turbo::bodytype::Catalog cat;
-        load_catalog(cat, out);
-        World w(out);
-        int32_t asked = 0;
-        int ready_calls = 0;
-        bool give = true;
-        bt::GeneratorEnv env = w.env();
-        env.lua.request = [&](int32_t pid, int32_t team, std::string*) {
-            asked = pid;
-            return team == 95;
-        };
-        env.lua.latest = [&](int32_t pid, turbo::Rgba* img, std::string* format, bool* failed, std::string*) {
-            if (!give || pid != asked) return false;
-            img->w = img->h = 300;
-            img->px.assign(size_t(300) * 300 * 4, static_cast<uint8_t>(w.db[w.career][254470]));
-            for (size_t i = 3; i < img->px.size(); i += 4) img->px[i] = 255;
-            *format = "PNG 300x300";
-            *failed = false;
-            asked = 0;
-            return true;
-        };
-        env.lua.ready = [&](std::string*) {
-            ++ready_calls;
-            return true;
-        };
-        bt::Generator g(env);
-        bt::StartRequest rq;
-        rq.source_given = true;
-        rq.source.kind = bt::SourceKind::Lua;
-        rq.max_steps = 3;
-        std::string err;
-        CHECK(g.start(cat, ref_of(254470), rq, &err), "started: " + err);
-        w.run(g);
-        bt::Manifest m;
-        CHECK(bt::load_manifest(bt::manifest_file(out), m, &err) && m.finished && m.restored && m.count("done") == 3, "3 done through the Lua route");
-        CHECK(w.svc.requests.empty(), "the game's capture service was not used");
-        CHECK(ready_calls > 0 && w.db["career:LEICESTER"][254470] == 5, "ready asked; his own code back");
-        turbo::Rgba img;
-        CHECK(turbo::load_image_file(bt::grid_file(out, 2), img) && img.w == bt::kGridWidth && img.px[0] == 2, "picture of body type 2");
-        bt::RunInfo ri;
-        CHECK(bt::read_run_info(out, ri, &err) && ri.source == "lua", "run record: lua");
-        // without route B built in, the Lua source is refused
-        bt::Generator g2(w.env());
-        rq.fresh = true;
-        CHECK(!g2.start(cat, ref_of(254470), rq, &err) && err.find("not built into") != std::string::npos, "no route B: " + err);
-        // a picture that never comes: the step fails after its timeout, the run still gives his code back
-        give = false;
-        bt::Generator g3(env);
-        CHECK(g3.start(cat, ref_of(189324), rq, &err), "second run: " + err);
-        w.run(g3, 20000);
-        CHECK(!g3.running() && w.db["career:LEICESTER"][189324] == 2, "stopped after the failures, his own code back");
     });
 
     run_case("body-type thumbnails: a crashed run is continued only with the same source", [&] {

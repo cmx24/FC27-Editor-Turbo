@@ -24,7 +24,7 @@ struct Maker {
     double next_request_check = 0.0;
     std::string message;  // last refusal or note for the section
     bool message_error = false;
-    int source = 0;  // 0 the proven source (source.json), 1 a game camera, 2 the Live Editor capture
+    int source = 0;  // 0 the full-body camera (or source.json when there is one), 1 another game camera
     int camera = capture::kCameraBody;
     int max_steps = 0;
     std::string proven;  // source.json in words, read at most every 3 s while the section is open
@@ -92,7 +92,6 @@ bt::GeneratorEnv make_env(App& app) {
         ++a->gen;
         return true;
     };
-    // route B (Live Editor's capture into files): bind env.lua.request / latest / ready to body_lua here when that route lands
     env.career = [a]() { return a->reapply.career; };
     env.clock = [a]() { return a->now; };
     env.stamp = stamp_now;
@@ -182,14 +181,12 @@ void bodytype_thumbs_section(App& app) {
         if (app.now >= g.proven_at + 3.0) {
             g.proven_at = app.now;
             bt::SourceChoice c;
-            g.proven = bt::read_source_file(app.turbo_output(), c) ? c.text() : std::string("none proven yet");
+            g.proven = bt::read_source_file(app.turbo_output(), c) ? c.text() : std::string("the full-body camera");
         }
-        ImGui::RadioButton("Proven source##btthumbsrc0", &g.source, 0);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("What the test of the full-body picture proved: %s", g.proven.c_str());
+        ImGui::RadioButton("Full body##btthumbsrc0", &g.source, 0);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game draws him head to boots: %s", g.proven.c_str());
         ImGui::SameLine();
-        ImGui::RadioButton("Game camera##btthumbsrc1", &g.source, 1);
-        ImGui::SameLine();
-        ImGui::RadioButton("Live Editor capture##btthumbsrc2", &g.source, 2);
+        ImGui::RadioButton("Another camera##btthumbsrc1", &g.source, 1);
         if (g.source == 1) {
             ImGui::SetNextItemWidth(S(120.0f));
             ImGui::InputInt("Camera##btthumbcamidx", &g.camera, 1, 1);
@@ -209,9 +206,6 @@ void bodytype_thumbs_section(App& app) {
                 rq.source_given = true;
                 rq.source.kind = bt::SourceKind::Camera;
                 rq.source.camera = g.camera;
-            } else if (g.source == 2) {
-                rq.source_given = true;
-                rq.source.kind = bt::SourceKind::Lua;
             }
             rq.max_steps = static_cast<size_t>(g.max_steps);
             start_run(app, rq, "button");
