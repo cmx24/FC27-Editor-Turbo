@@ -665,6 +665,7 @@ ui_looks_studio.cpp	Checkbox	###lsmine	1
 ui_looks_studio.cpp	InputTextWithHint	##lsbodyq	1
 ui_looks_studio.cpp	InputTextWithHint	##lsq	1
 ui_looks_studio.cpp	InputTextWithHint	##lvq	1
+ui_looks_studio.cpp	InvisibleButton	##btpic	1
 ui_looks_studio.cpp	OpenPopup	###lsask	1
 ui_looks_studio.cpp	OpenPopup	Choose a real face	1
 ui_looks_studio.cpp	RadioButton	###lsmanagers	1
