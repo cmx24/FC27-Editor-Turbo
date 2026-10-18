@@ -163,6 +163,17 @@ inline bt::Reference ref_of(int32_t pid, int gender = 0, int head_class = 0) {
     return r;
 }
 
+// A request with route A's source (a game camera; optionally the probe's mode)
+inline bt::StartRequest cam_rq(size_t max_steps, int camera = 1, int mode = -1) {
+    bt::StartRequest rq;
+    rq.source_given = true;
+    rq.source.kind = bt::SourceKind::Camera;
+    rq.source.camera = camera;
+    rq.source.mode = mode;
+    rq.max_steps = max_steps;
+    return rq;
+}
+
 inline bool same_pixels(const turbo::Rgba& a, const turbo::Rgba& b) { return a.w == b.w && a.h == b.h && a.px == b.px; }
 
 }  // namespace bodythumbs_test
@@ -318,15 +329,25 @@ static void test_bodytype_thumbs() {
         bt::StartRequest rq;
         std::string err;
         CHECK(!bt::take_request(out, rq, &err) && err.empty(), "no request");
-        spit(bt::request_file(out), R"({"player": 254470, "camera": 2, "max": 5})");
-        CHECK(bt::take_request(out, rq, &err) && rq.player == 254470 && rq.camera == 2 && rq.max_steps == 5 && !rq.fresh, "read: " + err);
+        spit(bt::request_file(out), R"({"player": 254470, "source": "camera", "camera": 2, "mode": 2, "max": 5})");
+        CHECK(bt::take_request(out, rq, &err) && rq.player == 254470 && rq.source_given && rq.source.kind == bt::SourceKind::Camera &&
+                  rq.source.camera == 2 && rq.source.mode == 2 && rq.max_steps == 5 && !rq.fresh,
+              "read: " + err);
+        CHECK(rq.source.text() == "camera 2 mode 2", "source in words: " + rq.source.text());
         CHECK(!fs::exists(bt::request_file(out)) && fs::exists(bt::folder(out) / "make.taken.json"), "taken once (renamed)");
         CHECK(!bt::take_request(out, rq, &err), "not run twice");
         spit(bt::request_file(out), "{not json");
         err.clear();
         CHECK(!bt::take_request(out, rq, &err) && !err.empty() && !fs::exists(bt::request_file(out)), "unreadable: refused and removed");
-        CHECK(!bt::parse_request(R"({"camera": 0})", rq, &err), "camera 0 refused");
-        CHECK(bt::parse_request("{}", rq, &err) && rq.player == 0 && rq.camera == tc::kCameraBody && rq.max_steps == 0, "defaults: selected player, body");
+        CHECK(!bt::parse_request(R"({"source": "camera"})", rq, &err), "a camera source without a camera refused");
+        CHECK(!bt::parse_request(R"({"source": "mirror"})", rq, &err), "an unknown source refused");
+        CHECK(!bt::parse_request(R"({"source": "camera", "camera": 99})", rq, &err), "a camera this build lacks refused");
+        CHECK(bt::parse_request(R"({"source": "lua"})", rq, &err) && rq.source.kind == bt::SourceKind::Lua && rq.source.text() == "lua", "lua");
+        CHECK(bt::parse_request("{}", rq, &err) && rq.player == 0 && !rq.source_given && rq.max_steps == 0, "defaults: selected player, the proven source");
+        bt::SourceChoice c;
+        CHECK(!bt::read_source_file(out, c), "no source file");
+        spit(bt::folder(out) / "source.json", R"({"source": "camera", "camera": 3})");
+        CHECK(bt::read_source_file(out, c, &err) && c.kind == bt::SourceKind::Camera && c.camera == 3, "source file: " + err);
     });
 
     run_case("body-type thumbnails: a full run (pictures, manifest, run log before each request, his own code back)", [&] {
@@ -335,8 +356,7 @@ static void test_bodytype_thumbs() {
         load_catalog(cat, out);
         World w(out);
         bt::Generator g(w.env());
-        bt::StartRequest rq;
-        rq.max_steps = 4;
+        bt::StartRequest rq = cam_rq(4, 2, 2);
         std::string err;
         CHECK(!bt::generator_running(), "nothing running before");
         CHECK(g.start(cat, ref_of(254470), rq, &err), "started: " + err);
@@ -356,14 +376,17 @@ static void test_bodytype_thumbs() {
             hashes.push_back(std::string(img.px.begin(), img.px.begin() + 4));
         }
         CHECK(hashes[0] != hashes[1] && hashes[1] != hashes[2], "each picture shows the body type he wore for it");
-        for (const tc::Request& r : w.svc.requests) CHECK(r.id == 254470 && r.second_id == 95 && !r.use_template && !r.manager, "body request");
+        for (const tc::Request& r : w.svc.requests)
+            CHECK(r.id == 254470 && r.second_id == 95 && !r.use_template && !r.manager && r.camera == 2 && r.mode_override == 2 && r.extra_override == -1,
+                  "body request through the chosen camera and mode");
         const std::string log = slurp(bt::log_file(out));
         const size_t wr = log.find("code 3 (Average height, stocky), attempt 1: writing it on player 254470");
         const size_t kept = log.find("code 3: picture kept");
         CHECK(wr != std::string::npos && kept != std::string::npos && wr < kept, "run log: the code is written down before its picture");
         CHECK(log.find("his own body type is back") != std::string::npos, "run log: the end");
         bt::RunInfo ri;
-        CHECK(bt::read_run_info(out, ri, &err) && ri.career == "career:LEICESTER" && ri.player == 254470, "run record: career and player");
+        CHECK(bt::read_run_info(out, ri, &err) && ri.career == "career:LEICESTER" && ri.player == 254470 && ri.source == "camera 2 mode 2",
+              "run record: career, player, source");
         bt::configure(out);
         bt::invalidate();
         CHECK(bt::thumb(3) == bt::grid_file(out, 3), "the grid finds the pictures");
@@ -383,7 +406,7 @@ static void test_bodytype_thumbs() {
         CHECK(!g.start(cat, ref_of(254470), bt::StartRequest{}, &err) && err.find("career") != std::string::npos, "no career: " + err);
         w.career = "career:LEICESTER";
         w.svc.busy = true;
-        CHECK(!g.start(cat, ref_of(254470), bt::StartRequest{}, &err) && err.find("another picture") != std::string::npos, "busy: " + err);
+        CHECK(!g.start(cat, ref_of(254470), cam_rq(0), &err) && err.find("another picture") != std::string::npos, "busy: " + err);
         w.svc.busy = false;
         turbo::bodytype::Catalog empty;
         bt::Plan p = bt::plan_steps(empty, bt::PlanOptions{});
@@ -396,8 +419,7 @@ static void test_bodytype_thumbs() {
         turbo::bodytype::Catalog cat;
         load_catalog(cat, out);
         World w(out);
-        bt::StartRequest rq;
-        rq.max_steps = 5;
+        bt::StartRequest rq = cam_rq(5);
         std::string err;
         {
             bt::Generator g(w.env());
@@ -434,8 +456,7 @@ static void test_bodytype_thumbs() {
         load_catalog(cat, out);
         World w(out);
         bt::Generator g(w.env());
-        bt::StartRequest rq;
-        rq.max_steps = 6;
+        bt::StartRequest rq = cam_rq(6);
         std::string err;
         CHECK(g.start(cat, ref_of(254470), rq, &err), "started: " + err);
         for (int n = 0; n < 5000 && g.sequence()->count("done") < 1; ++n) g.tick(), w.t += 0.1;
@@ -461,8 +482,7 @@ static void test_bodytype_thumbs() {
         turbo::bodytype::Catalog cat;
         load_catalog(cat, out);
         World w(out);
-        bt::StartRequest rq;
-        rq.max_steps = 3;
+        bt::StartRequest rq = cam_rq(3);
         std::string err;
         {
             bt::Generator g(w.env());
@@ -486,5 +506,104 @@ static void test_bodytype_thumbs() {
             if (it->path().filename().string().rfind("manifest.2026", 0) == 0) kept_aside = true;
         CHECK(kept_aside, "the old manifest is kept next to the new one");
         CHECK(std::string(turbo::bodytype_thumbs_busy_text()).empty(), "no busy text after the run");
+    });
+
+    run_case("body-type thumbnails: source none (mode 1 is head only): nothing is made, nothing written", [&] {
+        const fs::path out = fresh_dir("bodythumbs_none");
+        turbo::bodytype::Catalog cat;
+        load_catalog(cat, out);
+        World w(out);
+        bt::Generator g(w.env());
+        std::string err;
+        bt::StartRequest rq;  // no source given, no source file: none
+        CHECK(!g.start(cat, ref_of(254470), rq, &err) && err.find("nothing to make") != std::string::npos, "refused: " + err);
+        rq.source_given = true;  // none named explicitly
+        CHECK(!g.start(cat, ref_of(254470), rq, &err) && err.find("head and shoulders") != std::string::npos, "refused: " + err);
+        CHECK(w.writes == 0 && w.svc.requests.empty() && !fs::exists(bt::manifest_file(out)), "no write, no request, no manifest");
+        bt::SourceAdapter none(bt::SourceChoice{}, &w.svc, bt::LuaHooks{});
+        tc::Result r;
+        CHECK(!none.status().available && !none.request(tc::body_request(254470, 95), &err) && !none.poll(r), "the none source never draws");
+        // the proven source from source.json is taken when the request names none
+        spit(bt::folder(out) / "source.json", R"({"source": "camera", "camera": 3})");
+        rq = bt::StartRequest{};
+        rq.max_steps = 2;
+        CHECK(g.start(cat, ref_of(254470), rq, &err), "started from source.json: " + err);
+        w.run(g);
+        CHECK(!w.svc.requests.empty() && w.svc.requests.back().camera == 3, "camera 3 from source.json");
+        CHECK(w.db["career:LEICESTER"][254470] == 5, "his own code back");
+    });
+
+    run_case("body-type thumbnails: route B (Live Editor capture) through the adapter", [&] {
+        const fs::path out = fresh_dir("bodythumbs_lua");
+        turbo::bodytype::Catalog cat;
+        load_catalog(cat, out);
+        World w(out);
+        int32_t asked = 0;
+        int ready_calls = 0;
+        bool give = true;
+        bt::GeneratorEnv env = w.env();
+        env.lua.request = [&](int32_t pid, int32_t team, std::string*) {
+            asked = pid;
+            return team == 95;
+        };
+        env.lua.latest = [&](int32_t pid, turbo::Rgba* img, std::string* format, bool* failed, std::string*) {
+            if (!give || pid != asked) return false;
+            img->w = img->h = 300;
+            img->px.assign(size_t(300) * 300 * 4, static_cast<uint8_t>(w.db[w.career][254470]));
+            for (size_t i = 3; i < img->px.size(); i += 4) img->px[i] = 255;
+            *format = "PNG 300x300";
+            *failed = false;
+            asked = 0;
+            return true;
+        };
+        env.lua.ready = [&](std::string*) {
+            ++ready_calls;
+            return true;
+        };
+        bt::Generator g(env);
+        bt::StartRequest rq;
+        rq.source_given = true;
+        rq.source.kind = bt::SourceKind::Lua;
+        rq.max_steps = 3;
+        std::string err;
+        CHECK(g.start(cat, ref_of(254470), rq, &err), "started: " + err);
+        w.run(g);
+        bt::Manifest m;
+        CHECK(bt::load_manifest(bt::manifest_file(out), m, &err) && m.finished && m.restored && m.count("done") == 3, "3 done through the Lua route");
+        CHECK(w.svc.requests.empty(), "the game's capture service was not used");
+        CHECK(ready_calls > 0 && w.db["career:LEICESTER"][254470] == 5, "ready asked; his own code back");
+        turbo::Rgba img;
+        CHECK(turbo::load_image_file(bt::grid_file(out, 2), img) && img.w == bt::kGridWidth && img.px[0] == 2, "picture of body type 2");
+        bt::RunInfo ri;
+        CHECK(bt::read_run_info(out, ri, &err) && ri.source == "lua", "run record: lua");
+        // without route B built in, the Lua source is refused
+        bt::Generator g2(w.env());
+        rq.fresh = true;
+        CHECK(!g2.start(cat, ref_of(254470), rq, &err) && err.find("not built into") != std::string::npos, "no route B: " + err);
+        // a picture that never comes: the step fails after its timeout, the run still gives his code back
+        give = false;
+        bt::Generator g3(env);
+        CHECK(g3.start(cat, ref_of(189324), rq, &err), "second run: " + err);
+        w.run(g3, 20000);
+        CHECK(!g3.running() && w.db["career:LEICESTER"][189324] == 2, "stopped after the failures, his own code back");
+    });
+
+    run_case("body-type thumbnails: a crashed run is continued only with the same source", [&] {
+        const fs::path out = fresh_dir("bodythumbs_source_resume");
+        turbo::bodytype::Catalog cat;
+        load_catalog(cat, out);
+        World w(out);
+        std::string err;
+        {
+            bt::Generator g(w.env());
+            CHECK(g.start(cat, ref_of(254470), cam_rq(4, 1), &err), "started: " + err);
+            for (int n = 0; n < 5000 && g.sequence()->count("done") < 1; ++n) g.tick(), w.t += 0.1;
+        }  // the game goes down; he wears a test code
+        bt::Generator g2(w.env());
+        CHECK(!g2.start(cat, ref_of(254470), cam_rq(4, 3), &err) && err.find("did not give him his own body type back") != std::string::npos,
+              "another camera is a new run, refused while his code is not back: " + err);
+        CHECK(g2.start(cat, ref_of(254470), cam_rq(4, 1), &err), "the same source continues: " + err);
+        w.run(g2);
+        CHECK(w.db["career:LEICESTER"][254470] == 5, "his own code back");
     });
 }

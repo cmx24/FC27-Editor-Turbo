@@ -8,7 +8,11 @@
 //     bodytypecode list (generic codes first, the other gender's codes and the manager body set skipped), one full-body picture
 //     per code through capture::Sequence, the manifest after every step, resumable after a crash, his own code put back at the end.
 //     The database is reached through hooks (the UI binds a RAW range-checked write: no undo step, no kept-edit row).
-// Nothing here is proven in game: the full-body framing and the live body type are the Tester's route check (section 5).
+//   * THE SOURCE (2.17 T2): the pictures come from whichever full-body route the probe proves, chosen at run time: the game's capture
+//     service with a full-body camera (route A: a camera index such as track C's kCameraBodyFull, or the probe's mode / extra), Live
+//     Editor's Lua capture into files (route B: body_lua request / latest, bound through LuaHooks), or None: the mode-1 picture is
+//     head and shoulders only (W2202, 22:09), so with no proven source the generator makes nothing and says why.
+// Nothing here is proven in game: the full-body framing and the live body type are the Tester's route check.
 #pragma once
 #include <atomic>
 #include <cstdint>
@@ -91,6 +95,7 @@ struct RunInfo {
     std::string career;  // App's career identity ("" = unknown: never written)
     int32_t player = 0;
     int camera = capture::kCameraBody;
+    std::string source;  // SourceChoice::text() of the run (a resume needs the same source)
     std::string started;
 };
 bool write_run_info(const fs::path& turbo_output, const RunInfo& r, std::string* err = nullptr);
@@ -127,13 +132,58 @@ bool write_file_atomic(const fs::path& p, const std::string& bytes, std::string*
 // One line appended to run.log with the time, flushed and closed at once (survives the game going down)
 bool append_log(const fs::path& turbo_output, const std::string& stamp, const std::string& line);
 
+// ---------------------------------------------------------------- the picture source (route A / route B / none)
+enum class SourceKind { None, Camera, Lua };
+struct SourceChoice {
+    SourceKind kind = SourceKind::None;
+    int camera = -1;            // Camera: index into capture::cameras() (-1 = keep the request's own)
+    int mode = -1, extra = -1;  // Camera: explicit mode / extra the probe proved (-1 = the camera's own)
+    std::string text() const;   // "camera 3", "camera 1 mode 2 extra 0", "lua", "none": for run.json, the log and resume checks
+    bool operator==(const SourceChoice& o) const { return text() == o.text(); }
+};
+// {"source": "camera"|"lua"|"none", "camera": n, "mode": n, "extra": n}; false (+err) for an unknown source or a negative camera
+bool parse_source(const std::string& json_text, SourceChoice& out, std::string* err);
+// <folder>\source.json (what the probe proved, written by the Tester or a route builder); false when absent or unreadable
+bool read_source_file(const fs::path& turbo_output, SourceChoice& out, std::string* err = nullptr);
+
+// Route B's calls (body_lua request / latest), bound by the window when that route is built in; empty = not available
+struct LuaHooks {
+    std::function<bool(int32_t player, int32_t team, std::string* err)> request;
+    // the picture drawn for `player` since his request: true when there is an answer (a picture in *img, or *failed with *err)
+    std::function<bool(int32_t player, Rgba* img, std::string* format, bool* failed, std::string* err)> latest;
+    std::function<bool(std::string* why)> ready;  // can draw now (optional: true when empty)
+};
+
+// The service capture::Sequence drives: a full-body request goes to the chosen source. Camera: the game's service with the request's
+// camera / mode / extra replaced by the choice (always the default descriptor). Lua: route B's hooks, one request at a time.
+// None: never available (the head-only mode-1 picture is no body-type picture).
+class SourceAdapter : public capture::CaptureService {
+public:
+    SourceAdapter(SourceChoice choice, capture::CaptureService* game, LuaHooks lua);
+    capture::Status status() override;
+    bool request(const capture::Request& r, std::string* err) override;
+    bool poll(capture::Result& out) override;
+    void cancel() override;
+    const capture::Template* learned() override { return nullptr; }
+    const SourceChoice& choice() const { return choice_; }
+    bool usable(std::string* why) const;  // the source can be used at all here (not None, its backend present)
+
+private:
+    SourceChoice choice_;
+    capture::CaptureService* game_ = nullptr;
+    LuaHooks lua_;
+    int32_t pending_ = 0;
+    std::string pending_label_;
+};
+
 // ---------------------------------------------------------------- the Tester's start request: <folder>\make.json
-//   {"player": 254470, "camera": 1, "max": 0, "fresh": false}
-// player 0 / absent = the player selected in the window; camera 1 body (default) or 2 body in kit; max 0 = every code;
-// fresh = start over (only when the old run gave his own code back, see start_over_refusal).
+//   {"player": 254470, "source": "camera", "camera": 3, "mode": -1, "extra": -1, "max": 0, "fresh": false}
+// player 0 / absent = the player selected in the window; source / camera / mode / extra: see parse_source (absent: source.json,
+// else none = nothing is made); max 0 = every code; fresh = start over (only when the old run gave his own code back).
 struct StartRequest {
     int32_t player = 0;
-    int camera = capture::kCameraBody;
+    SourceChoice source;    // kind None = take source.json at start (none there: nothing is made)
+    bool source_given = false;
     size_t max_steps = 0;
     bool fresh = false;
 };
@@ -148,7 +198,8 @@ std::string start_over_refusal(const Manifest& old, int64_t old_current);
 // ---------------------------------------------------------------- the generator
 struct GeneratorEnv {
     fs::path turbo_output;
-    capture::CaptureService* svc = nullptr;
+    capture::CaptureService* svc = nullptr;  // the game's capture service (route A)
+    LuaHooks lua;                            // route B (empty until that route is built in)
     // his bodytypecode now / write it (range-checked, raw, read back); false + err when the record is gone or refused
     std::function<bool(int32_t player, int64_t* code, std::string* err)> read_code;
     std::function<bool(int32_t player, int64_t code, std::string* err)> write_code;
@@ -182,6 +233,7 @@ public:
     const capture::Sequence* sequence() const { return seq_.get(); }
     const Plan& plan() const { return plan_; }
     const RunInfo& run() const { return run_; }
+    const SourceAdapter* source() const { return source_.get(); }
 
 private:
     capture::StepResult write_step(int64_t code, bool first, std::string* err);
@@ -191,6 +243,7 @@ private:
     void note(const std::string& line);  // run.log + host log
 
     GeneratorEnv env_;
+    std::unique_ptr<SourceAdapter> source_;
     std::unique_ptr<capture::Sequence> seq_;
     Plan plan_;
     RunInfo run_;

@@ -24,8 +24,11 @@ struct Maker {
     double next_request_check = 0.0;
     std::string message;  // last refusal or note for the section
     bool message_error = false;
+    int source = 0;  // 0 the proven source (source.json), 1 a game camera, 2 the Live Editor capture
     int camera = capture::kCameraBody;
     int max_steps = 0;
+    std::string proven;  // source.json in words, read at most every 3 s while the section is open
+    double proven_at = -1e9;
 };
 Maker g;
 
@@ -89,6 +92,7 @@ bt::GeneratorEnv make_env(App& app) {
         ++a->gen;
         return true;
     };
+    // route B (Live Editor's capture into files): bind env.lua.request / latest / ready to body_lua here when that route lands
     env.career = [a]() { return a->reapply.career; };
     env.clock = [a]() { return a->now; };
     env.stamp = stamp_now;
@@ -153,7 +157,6 @@ void tick_bodytype_thumbs(App& app) {
     }
     if (app.now < g.next_request_check) return;
     g.next_request_check = app.now + 2.0;
-    if (!app.capture) return;
     bt::StartRequest rq;
     std::string err;
     if (bt::take_request(app.turbo_output(), rq, &err)) start_run(app, rq, "request");
@@ -176,17 +179,40 @@ void bodytype_thumbs_section(App& app) {
         if (ImGui::Button("Stop and give him his own body type back##btthumbstop")) gen.cancel();
     } else {
         ImGui::TextWrapped("Reference player: %s", p ? p->name.c_str() : "pick one in Players first (a real face)");
-        ImGui::RadioButton("Body##btthumbcam1", &g.camera, capture::kCameraBody);
+        if (app.now >= g.proven_at + 3.0) {
+            g.proven_at = app.now;
+            bt::SourceChoice c;
+            g.proven = bt::read_source_file(app.turbo_output(), c) ? c.text() : std::string("none proven yet");
+        }
+        ImGui::RadioButton("Proven source##btthumbsrc0", &g.source, 0);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("What the test of the full-body picture proved: %s", g.proven.c_str());
         ImGui::SameLine();
-        ImGui::RadioButton("Body in kit##btthumbcam2", &g.camera, capture::kCameraBodyKit);
+        ImGui::RadioButton("Game camera##btthumbsrc1", &g.source, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("Live Editor capture##btthumbsrc2", &g.source, 2);
+        if (g.source == 1) {
+            ImGui::SetNextItemWidth(S(120.0f));
+            ImGui::InputInt("Camera##btthumbcamidx", &g.camera, 1, 1);
+            if (g.camera < 0) g.camera = 0;
+            if (g.camera >= static_cast<int>(capture::cameras().size())) g.camera = static_cast<int>(capture::cameras().size()) - 1;
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", capture::cameras()[static_cast<size_t>(g.camera)].label);
+        }
         ImGui::SetNextItemWidth(S(120.0f));
         ImGui::InputInt("Only the first (0 = all)##btthumbmax", &g.max_steps, 0, 0);
         if (g.max_steps < 0) g.max_steps = 0;
-        ImGui::BeginDisabled(!p || !app.capture);
+        ImGui::BeginDisabled(!p);
         if (ImGui::Button("Make the pictures##btthumbgo")) {
             bt::StartRequest rq;
             rq.player = p ? static_cast<int32_t>(p->playerid) : 0;
-            rq.camera = g.camera;
+            if (g.source == 1) {
+                rq.source_given = true;
+                rq.source.kind = bt::SourceKind::Camera;
+                rq.source.camera = g.camera;
+            } else if (g.source == 2) {
+                rq.source_given = true;
+                rq.source.kind = bt::SourceKind::Lua;
+            }
             rq.max_steps = static_cast<size_t>(g.max_steps);
             start_run(app, rq, "button");
         }

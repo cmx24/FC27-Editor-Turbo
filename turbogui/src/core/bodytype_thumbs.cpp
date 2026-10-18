@@ -176,6 +176,7 @@ bool write_run_info(const fs::path& t, const RunInfo& r, std::string* err) {
     j["career"] = r.career;
     j["player"] = r.player;
     j["camera"] = r.camera;
+    j["source"] = r.source;
     j["started"] = r.started;
     return write_file_atomic(run_file(t), j.dump(1) + "\n", err);
 }
@@ -192,6 +193,7 @@ bool read_run_info(const fs::path& t, RunInfo& r, std::string* err) {
         r.career = j.value("career", std::string());
         r.player = j.value("player", 0);
         r.camera = j.value("camera", static_cast<int>(capture::kCameraBody));
+        r.source = j.value("source", std::string());
         r.started = j.value("started", std::string());
     } catch (const std::exception& e) {
         if (err) *err = std::string("the run record is not readable: ") + e.what();
@@ -511,6 +513,165 @@ bool append_log(const fs::path& t, const std::string& stamp, const std::string& 
     return ok;
 }
 
+// ---------------------------------------------------------------- source
+std::string SourceChoice::text() const {
+    switch (kind) {
+    case SourceKind::Camera: {
+        std::string t = "camera " + std::to_string(camera);
+        if (mode >= 0) t += " mode " + std::to_string(mode);
+        if (extra >= 0) t += " extra " + std::to_string(extra);
+        return t;
+    }
+    case SourceKind::Lua:
+        return "lua";
+    case SourceKind::None:
+        break;
+    }
+    return "none";
+}
+
+namespace {
+bool source_from_json(const json& j, SourceChoice& out, std::string* err) {
+    out = SourceChoice{};
+    const std::string k = j.value("source", std::string("none"));
+    if (k == "camera") out.kind = SourceKind::Camera;
+    else if (k == "lua") out.kind = SourceKind::Lua;
+    else if (k == "none" || k.empty()) out.kind = SourceKind::None;
+    else {
+        if (err) *err = "unknown picture source '" + k + "' (camera, lua or none)";
+        return false;
+    }
+    if (out.kind == SourceKind::Camera) {
+        out.camera = j.value("camera", -1);
+        out.mode = j.value("mode", -1);
+        out.extra = j.value("extra", -1);
+        if (out.camera < 0 && out.mode < 0) {
+            if (err) *err = "a camera source needs a camera index or a mode";
+            return false;
+        }
+        if (out.camera >= static_cast<int>(capture::cameras().size())) {
+            if (err) *err = "camera " + std::to_string(out.camera) + " is not one of this build's cameras";
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace
+
+bool parse_source(const std::string& text, SourceChoice& out, std::string* err) {
+    try {
+        const json j = json::parse(text);
+        if (!j.is_object()) {
+            if (err) *err = "the source is not an object";
+            return false;
+        }
+        return source_from_json(j, out, err);
+    } catch (const std::exception& e) {
+        if (err) *err = std::string("the source is not readable: ") + e.what();
+        return false;
+    }
+}
+
+bool read_source_file(const fs::path& t, SourceChoice& out, std::string* err) {
+    std::string text;
+    if (!read_text(folder(t) / "source.json", text)) {
+        if (err) *err = "no source file";
+        return false;
+    }
+    return parse_source(text, out, err);
+}
+
+SourceAdapter::SourceAdapter(SourceChoice choice, capture::CaptureService* game, LuaHooks lua)
+    : choice_(choice), game_(game), lua_(std::move(lua)) {}
+
+bool SourceAdapter::usable(std::string* why) const {
+    switch (choice_.kind) {
+    case SourceKind::None:
+        if (why) *why = "no full-body picture source is proven yet (the game's capture draws the head and shoulders only): nothing to make";
+        return false;
+    case SourceKind::Camera:
+        if (!game_) {
+            if (why) *why = "the game's pictures are not available here";
+            return false;
+        }
+        return true;
+    case SourceKind::Lua:
+        if (!lua_.request || !lua_.latest) {
+            if (why) *why = "the Live Editor capture is not built into this Turbo";
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+capture::Status SourceAdapter::status() {
+    capture::Status st;
+    std::string why;
+    if (!usable(&why)) {
+        st.reason = why;
+        return st;
+    }
+    if (choice_.kind == SourceKind::Camera) return game_->status();
+    st.installed = true;
+    st.dispatch = "lua";
+    st.busy = pending_ != 0;
+    st.busy_label = pending_label_;
+    std::string r;
+    st.available = !st.busy && (!lua_.ready || lua_.ready(&r));
+    if (!st.available) st.reason = st.busy ? "drawing " + pending_label_ : (r.empty() ? std::string("the Live Editor capture is not ready") : r);
+    return st;
+}
+
+bool SourceAdapter::request(const capture::Request& r, std::string* err) {
+    if (!usable(err)) return false;
+    if (choice_.kind == SourceKind::Camera) {
+        capture::Request q = r;
+        if (choice_.camera >= 0) q.camera = choice_.camera;
+        if (choice_.mode >= 0) q.mode_override = choice_.mode;
+        if (choice_.extra >= 0) q.extra_override = choice_.extra;
+        q.use_template = false;  // never the learned hub-avatar descriptor
+        return game_->request(q, err);
+    }
+    if (pending_ != 0) {
+        if (err) *err = "another picture is being drawn (" + pending_label_ + ")";
+        return false;
+    }
+    if (!lua_.request(r.id, r.second_id, err)) return false;
+    pending_ = r.id;
+    pending_label_ = r.label;
+    return true;
+}
+
+bool SourceAdapter::poll(capture::Result& out) {
+    if (choice_.kind == SourceKind::Camera) return game_ && game_->poll(out);
+    if (choice_.kind != SourceKind::Lua || pending_ == 0 || !lua_.latest) return false;
+    Rgba img;
+    std::string format, err;
+    bool failed = false;
+    if (!lua_.latest(pending_, &img, &format, &failed, &err)) return false;
+    out = capture::Result{};
+    out.id = pending_;
+    out.label = pending_label_;
+    out.ok = !failed && !img.empty();
+    if (out.ok) {
+        out.image = std::move(img);
+        out.format = format.empty() ? "Live Editor " + std::to_string(out.image.w) + "x" + std::to_string(out.image.h) : format;
+        out.bytes = out.image.px.size();
+    } else {
+        out.error = err.empty() ? std::string("the Live Editor capture gave no picture") : err;
+    }
+    pending_ = 0;
+    pending_label_.clear();
+    return true;
+}
+
+void SourceAdapter::cancel() {
+    if (choice_.kind == SourceKind::Camera && game_) game_->cancel();
+    pending_ = 0;
+    pending_label_.clear();
+}
+
 // ---------------------------------------------------------------- request
 bool parse_request(const std::string& text, StartRequest& out, std::string* err) {
     out = StartRequest{};
@@ -521,7 +682,8 @@ bool parse_request(const std::string& text, StartRequest& out, std::string* err)
             return false;
         }
         out.player = j.value("player", 0);
-        out.camera = j.value("camera", static_cast<int>(capture::kCameraBody));
+        out.source_given = j.contains("source");
+        if (out.source_given && !source_from_json(j, out.source, err)) return false;
         const int64_t mx = j.value("max", static_cast<int64_t>(0));
         out.max_steps = mx > 0 ? static_cast<size_t>(mx) : 0;
         out.fresh = j.value("fresh", false);
@@ -531,10 +693,6 @@ bool parse_request(const std::string& text, StartRequest& out, std::string* err)
     }
     if (out.player < 0) {
         if (err) *err = "the request names no player";
-        return false;
-    }
-    if (out.camera != capture::kCameraBody && out.camera != capture::kCameraBodyKit) {
-        if (err) *err = "the request's camera is not 1 (body) or 2 (body in kit)";
         return false;
     }
     return true;
@@ -634,17 +792,27 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     };
     if (running()) return refuse("a run is already going");
     if (generator_running()) return refuse("another run is already going");
-    if (!env_.svc || !env_.read_code || !env_.write_code || !env_.clock || !env_.career) return refuse("the game's pictures are not available here");
+    if (!env_.read_code || !env_.write_code || !env_.clock || !env_.career) return refuse("the game's database is not available here");
     if (ref.player <= 0) return refuse("pick a reference player first");
     if (ref.head_class != 0) return refuse("the reference player must have a real face (a scanned head): pick another player");
     const std::string career = env_.career();
     if (career.empty()) return refuse("the loaded career is not identified yet: open the career hub first");
-    const capture::Status st = env_.svc->status();
+    // the picture source: the request's, else what the probe proved (source.json), else none (head only: nothing to make)
+    SourceChoice choice = rq.source;
+    if (!rq.source_given) {
+        std::string se;
+        if (!read_source_file(env_.turbo_output, choice, &se)) choice = SourceChoice{};
+    }
+    auto adapter = std::make_unique<SourceAdapter>(choice, env_.svc, env_.lua);
+    std::string why;
+    if (!adapter->usable(&why)) return refuse(why);
+    const capture::Status st = adapter->status();
     if (st.busy) return refuse("another picture is being drawn (" + st.busy_label + "): wait until it is done");
+    if (env_.svc && env_.svc->status().busy) return refuse("another picture is being drawn: wait until it is done");
     int64_t current = -1;
     std::string e;
     if (!env_.read_code(ref.player, &current, &e) || current < 0) return refuse("his body type could not be read: " + e);
-    const int camera = rq.camera == capture::kCameraBodyKit ? capture::kCameraBodyKit : capture::kCameraBody;
+    const int camera = capture::kCameraBody;  // the Sequence's own camera; the adapter sends the chosen source's
 
     // an earlier run: continue it (same career, player and camera) or start over only when it gave his own code back
     Manifest old;
@@ -654,7 +822,8 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     const bool have_old_run = read_run_info(env_.turbo_output, old_run, nullptr);
     bool resume = false;
     if (have_old) {
-        const bool same_place = old.player == ref.player && old.camera == camera && (!have_old_run || old_run.career == career);
+        const bool same_place = old.player == ref.player && old.camera == camera &&
+                                (!have_old_run || (old_run.career == career && (old_run.source.empty() || old_run.source == choice.text())));
         if (same_place && !rq.fresh) {
             resume = true;
         } else {
@@ -684,7 +853,7 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     plan_ = plan_steps(cat, po);
     if (plan_.steps.empty()) return refuse("no body type to draw (is the body type list loaded?)");
 
-    run_ = RunInfo{career, ref.player, camera, now_stamp()};
+    run_ = RunInfo{career, ref.player, camera, choice.text(), now_stamp()};
     capture::SequenceOptions so;
     so.player = ref.player;
     so.team = ref.team;
@@ -702,7 +871,8 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     h.write_manifest = [this](const std::string& text, std::string* er) { return write_file_atomic(manifest_file(env_.turbo_output), text, er); };
     h.clock = env_.clock;
     h.stamp = env_.stamp;
-    seq_ = std::make_unique<capture::Sequence>(*env_.svc, so, plan_.steps, h);
+    source_ = std::move(adapter);
+    seq_ = std::make_unique<capture::Sequence>(*source_, so, plan_.steps, h);
     if (resume && !seq_->resume(old_text, &e)) {
         seq_.reset();
         return refuse("the earlier run could not be continued: " + e);
@@ -713,7 +883,7 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     }
     note(std::string(resume ? "continuing" : "starting") + ": " + std::to_string(plan_.steps.size()) + " body types (" +
          std::to_string(plan_.generic) + " generic) on player " + std::to_string(ref.player) + (ref.name.empty() ? "" : " (" + ref.name + ")") +
-         ", camera " + std::to_string(camera) + ", his own body type " + std::to_string(seq_->original()) + ", " +
+         ", source " + choice.text() + ", his own body type " + std::to_string(seq_->original()) + ", " +
          std::to_string(plan_.skipped.size()) + " skipped; career " + career);
     if (!seq_->start(&e)) {
         seq_.reset();
