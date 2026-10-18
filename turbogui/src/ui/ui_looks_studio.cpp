@@ -269,7 +269,7 @@ public:
         // text only: a game picture here (his miniface) looked at its files every frame (gui perf case: 4 file calls a frame)
         const ImVec2 start = ImGui::GetCursorPos();
         ImGui::SetCursorPos(ImVec2(start.x + S(12.0f), start.y + h * 0.4f));
-        centred_text("Draw him asks the game for his picture: head and shoulders, as the game draws him now.", w - S(24.0f));
+        centred_text("Draw him asks the game for his picture in the view chosen above, as the game draws him now.", w - S(24.0f));
         ImGui::SetCursorPos(ImVec2(start.x, start.y + h));
     }
 };
