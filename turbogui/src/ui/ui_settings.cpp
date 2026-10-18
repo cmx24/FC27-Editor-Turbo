@@ -46,7 +46,14 @@ void draw_settings_page(App& app) {
         ImGui::Spacing();
     }
     draw_status_health(app);  // pictures, health, technical details (collapsed)
-    if (collapsing_section(app, "settings.log", "Log", false)) {
+    draw_log_section(app, "settings.log");
+}
+
+}  // namespace
+
+// The log as a collapsing section, closed at first; Settings and the Diagnostics stand-in draw it (2.16 step 4)
+void draw_log_section(App& app, const char* key) {
+    if (collapsing_section(app, key, "Log", false)) {
         ImGui::BeginChild("##settings_log", ImVec2(0, S(260.0f)), ImGuiChildFlags_Borders);
         ImGuiListClipper clip;  // 2.16 gui/perf: only the lines in view are laid out
         clip.Begin(static_cast<int>(app.log_lines.size()));
@@ -56,8 +63,6 @@ void draw_settings_page(App& app) {
         ImGui::EndChild();
     }
 }
-
-}  // namespace
 
 TURBO_REGISTER_PAGE(shell::Page::Settings, draw_settings_page);
 

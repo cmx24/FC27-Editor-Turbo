@@ -107,6 +107,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(drawn("Scouting, development and youth academy") && drawn("Your club: transfer budget") && drawn("Transfer bans"), "the scouting, budget and bans sections are on Transfers & money");
         // Advanced: Data export and the database copy
         app.prefs.advanced_mode = true;
+        ui.frames(3);  // the Advanced tab is drawn from the next frame on
         CHECK(ui.open_page("Advanced", "Data export") && app.place() == shell::place_of(Page::AdvExport), "Advanced > Data export");
         CHECK(ui.open_page("Advanced", "Maintenance") && drawn("Career database copy"), "Advanced > Maintenance has the database copy");
         app.prefs.advanced_mode = false;
@@ -124,6 +125,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.find("Try again") != nullptr || ui.find("Reload") != nullptr, "the live standings view is drawn there");
         // the database copy (the old tab's other table) names the live table's page and opens it
         app.prefs.advanced_mode = true;  // 2.16 step 4: the database copy is a section of Advanced > Maintenance
+        ui.frames(3);
         CHECK(ui.open_page("Advanced", "Maintenance") && ui.find("Recalculate points") != nullptr, "Advanced > Maintenance: the database copy");
         CHECK(logged_frame(ui).find("Career > Standings") != std::string::npos, "its hint names the live table's page");
         CHECK(ui.click("###dbcopylive"), "the link to the live table");

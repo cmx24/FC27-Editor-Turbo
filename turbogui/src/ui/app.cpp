@@ -1556,6 +1556,11 @@ static void draw_legacy_page(App& app, shell::Page p) {
     // Transfers lived in Teams (legacy_tab_of) but the legacy request_tab 5 (Turbo Tools) lands on it (area_for): until T5's
     // page is registered it shows the Turbo Tools panel; the Teams panel, transfers included, stays under Squad
     const int lt = p == shell::Page::Transfers ? 5 : shell::legacy_tab_of(p);
+    if (p == shell::Page::AdvDiagnostics) {  // 2.16 step 4: until its own page registers, the health and the log of the old Status panel
+        draw_status_health(app);
+        draw_log_section(app, "diagnostics.log");
+        return;
+    }
     if (p == shell::Page::GameplayPresets) {
         if (app.prefs.advanced_mode) draw_unproven_banner();
         else theme::muted_text("Presets write the EA Custom slider block; the effect on play is not yet measured.");
