@@ -16,11 +16,11 @@ TURBO_REGISTER_NEW_PAGE(shell::Page::TacticPresets, draw_tactics_presets_page);
 TURBO_REGISTER_NEW_PAGE(shell::Page::TeamSheet, draw_team_sheet_page);
 TURBO_REGISTER_NEW_PAGE(shell::Page::GameplayPresets, draw_game_sliders_page);
 
-// Career and Players (My squad). Managers & staff (draw_career_staff) is NOT wired: its list and editor do file work in every frame (gui perf gate,
-// 3.25 calls per frame); the old Managers & staff panel stays until page-career fixes it.
+// Career and Players (My squad, Managers & staff)
 TURBO_REGISTER_NEW_PAGE(shell::Page::Transfers, draw_career_transfers_money);
 TURBO_REGISTER_NEW_PAGE(shell::Page::JobOffer, draw_career_manager_jobs);
 TURBO_REGISTER_NEW_PAGE(shell::Page::Squad, draw_career_my_squad);
+TURBO_REGISTER_NEW_PAGE(shell::Page::Staff, draw_career_staff);
 
 // Kits & club: the tidy Kits page, Club name / colours / crest; the old Kits body with every developer control is a page of its own (Advanced).
 // Stadium & extras keeps its registration in ui_club_page.cpp. Kit diagnostics only exists in the new navigation, so it is registered the
