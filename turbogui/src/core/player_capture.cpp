@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
+
+#include "nlohmann/json.hpp"
 
 namespace turbo {
 namespace capture {
@@ -324,6 +327,419 @@ bool decode_slice(const uint8_t* data, size_t size, Rgba& out, std::string* form
         *err = buf;
     }
     return false;
+}
+
+
+// ---------------------------------------------------------------- full-body pictures
+Request body_request(int32_t id, int32_t team, int camera, const std::string& label) {
+    Request r;
+    r.id = id;
+    r.second_id = team >= 0 ? team : -1;
+    r.manager = false;
+    r.camera = (camera == kCameraBody || camera == kCameraBodyKit) ? camera : kCameraBody;
+    r.mode_override = -1;
+    r.extra_override = -1;
+    r.use_template = false;
+    r.label = label.empty() ? ("player " + std::to_string(id)) : label;
+    return r;
+}
+
+// ---------------------------------------------------------------- Sequence
+namespace {
+using json = nlohmann::json;
+
+constexpr int kManifestVersion = 1;
+
+json entry_json(const ManifestEntry& e) {
+    json j = json::object();
+    j["label"] = e.label;
+    j["state"] = e.state;
+    j["attempts"] = e.attempts;
+    j["file"] = e.file;
+    j["w"] = e.w;
+    j["h"] = e.h;
+    j["bytes"] = e.bytes;
+    j["format"] = e.format;
+    j["error"] = e.error;
+    j["time"] = e.time;
+    return j;
+}
+
+bool known_state(const std::string& s) {
+    return s == "todo" || s == "pending" || s == "done" || s == "failed" || s == "crashed" || s == "cancelled";
+}
+
+// "123" -> 123; false for anything else (the manifest's keys are decimal codes)
+bool parse_code(const std::string& k, int64_t& out) {
+    if (k.empty() || k.size() > 18) return false;
+    size_t i = 0;
+    bool neg = false;
+    if (k[0] == '-') {
+        neg = true;
+        i = 1;
+        if (k.size() == 1) return false;
+    }
+    int64_t v = 0;
+    for (; i < k.size(); ++i) {
+        if (k[i] < '0' || k[i] > '9') return false;
+        v = v * 10 + (k[i] - '0');
+    }
+    out = neg ? -v : v;
+    return true;
+}
+}  // namespace
+
+Sequence::Sequence(CaptureService& svc, SequenceOptions opt, std::vector<SequenceStep> steps, SequenceHooks hooks)
+    : svc_(svc), opt_(std::move(opt)), hooks_(std::move(hooks)) {
+    if (opt_.camera != kCameraBody && opt_.camera != kCameraBodyKit) opt_.camera = kCameraBody;
+    if (opt_.max_attempts < 1) opt_.max_attempts = 1;
+    if (opt_.max_failures_in_row < 1) opt_.max_failures_in_row = 1;
+    for (const SequenceStep& s : steps) {
+        if (entry(s.code)) continue;  // a code twice: the first one counts
+        ManifestEntry e;
+        e.code = s.code;
+        e.label = s.label;
+        order_.push_back(entries_.size());
+        entries_.push_back(std::move(e));
+    }
+}
+
+const ManifestEntry* Sequence::entry(int64_t code) const {
+    for (const ManifestEntry& e : entries_)
+        if (e.code == code) return &e;
+    return nullptr;
+}
+
+size_t Sequence::count(const std::string& state) const {
+    size_t n = 0;
+    for (size_t i : order_)
+        if (entries_[i].state == state) ++n;
+    return n;
+}
+
+bool Sequence::running() const { return started_ && !finished_; }
+
+int64_t Sequence::current_code() const {
+    if (!running() || cursor_ >= order_.size()) return 0;
+    if (phase_ == Phase::Writing || phase_ == Phase::Requesting || phase_ == Phase::Waiting) return entries_[order_[cursor_]].code;
+    return 0;
+}
+
+std::string Sequence::manifest_text() const {
+    json j = json::object();
+    j["version"] = kManifestVersion;
+    j["player"] = opt_.player;
+    j["team"] = opt_.team;
+    j["camera"] = opt_.camera;
+    const auto& cams = cameras();
+    j["mode"] = cams[static_cast<size_t>(opt_.camera)].mode;
+    j["extra"] = cams[static_cast<size_t>(opt_.camera)].extra;
+    j["original"] = opt_.original;
+    j["finished"] = finished_;
+    j["restored"] = restored_;
+    j["updated"] = now_stamp();
+    json codes = json::object();
+    for (const ManifestEntry& e : entries_) codes[std::to_string(e.code)] = entry_json(e);
+    j["codes"] = std::move(codes);
+    return j.dump(1);
+}
+
+bool Sequence::parse_manifest(const std::string& text, std::vector<ManifestEntry>& out, std::string* err, int32_t* player, int* camera,
+                              int64_t* original) {
+    out.clear();
+    json j;
+    try {
+        j = json::parse(text);
+    } catch (const std::exception& e) {
+        if (err) *err = std::string("the manifest is not readable JSON: ") + e.what();
+        return false;
+    }
+    if (!j.is_object() || !j.contains("codes") || !j["codes"].is_object()) {
+        if (err) *err = "the manifest has no codes";
+        return false;
+    }
+    try {
+        if (j.value("version", 0) != kManifestVersion) {
+            if (err) *err = "the manifest has another version (" + std::to_string(j.value("version", 0)) + ")";
+            return false;
+        }
+        if (player) *player = j.value("player", 0);
+        if (camera) *camera = j.value("camera", -1);
+        if (original) *original = j.value("original", static_cast<int64_t>(-1));
+        for (auto it = j["codes"].begin(); it != j["codes"].end(); ++it) {
+            ManifestEntry e;
+            if (!parse_code(it.key(), e.code) || !it.value().is_object()) {
+                if (err) *err = "the manifest has a bad code entry '" + it.key() + "'";
+                out.clear();
+                return false;
+            }
+            const json& v = it.value();
+            e.label = v.value("label", std::string());
+            e.state = v.value("state", std::string("todo"));
+            if (!known_state(e.state)) e.state = "failed";
+            e.attempts = v.value("attempts", 0);
+            if (e.attempts < 0) e.attempts = 0;
+            e.file = v.value("file", std::string());
+            e.w = v.value("w", 0);
+            e.h = v.value("h", 0);
+            e.bytes = v.value("bytes", static_cast<size_t>(0));
+            e.format = v.value("format", std::string());
+            e.error = v.value("error", std::string());
+            e.time = v.value("time", std::string());
+            out.push_back(std::move(e));
+        }
+    } catch (const std::exception& e) {
+        if (err) *err = std::string("the manifest has a field of the wrong type: ") + e.what();
+        out.clear();
+        return false;
+    }
+    return true;
+}
+
+bool Sequence::resume(const std::string& manifest_text_in, std::string* err) {
+    if (started_) {
+        if (err) *err = "the run has already started";
+        return false;
+    }
+    std::vector<ManifestEntry> old;
+    int32_t player = 0;
+    int camera = -1;
+    int64_t original = -1;
+    if (!parse_manifest(manifest_text_in, old, err, &player, &camera, &original)) return false;
+    if (player != opt_.player) {
+        if (err) *err = "the manifest is for player " + std::to_string(player) + ", this run for " + std::to_string(opt_.player);
+        return false;
+    }
+    if (camera != opt_.camera) {
+        if (err) *err = "the manifest was made with camera " + std::to_string(camera) + ", this run uses " + std::to_string(opt_.camera);
+        return false;
+    }
+    for (ManifestEntry& o : old) {
+        // the code that was being drawn when the last run stopped without a word: the game (and Turbo) went down with it
+        if (o.state == "pending") {
+            o.state = o.attempts >= opt_.max_attempts ? "crashed" : "failed";
+            o.error = "the last run stopped while this code was being drawn (the game closed or crashed)";
+        }
+        bool mine = false;
+        for (ManifestEntry& e : entries_) {
+            if (e.code != o.code) continue;
+            const std::string label = e.label.empty() ? o.label : e.label;
+            e = o;
+            e.label = label;
+            mine = true;
+            break;
+        }
+        if (!mine) entries_.push_back(o);  // a code of another list: kept as it was
+    }
+    if (original >= 0) opt_.original = original;
+    return true;
+}
+
+bool Sequence::start(std::string* err) {
+    auto refuse = [&](const std::string& why) {
+        if (err) *err = why;
+        return false;
+    };
+    if (started_) return refuse("the run has already started");
+    if (!hooks_.write || !hooks_.save || !hooks_.restore || !hooks_.write_manifest || !hooks_.clock)
+        return refuse("the run is missing a step (write, save, restore, manifest or clock)");
+    if (opt_.player <= 0) return refuse("no reference player");
+    started_ = true;
+    failures_in_row_ = 0;
+    cursor_ = 0;
+    phase_ = Phase::Next;
+    message_ = "starting: " + std::to_string(order_.size()) + " code(s) on player " + std::to_string(opt_.player);
+    if (!save_manifest()) begin_restore(Phase::Aborted, message_);
+    return true;
+}
+
+bool Sequence::save_manifest() {
+    std::string e;
+    if (hooks_.write_manifest(manifest_text(), &e)) return true;
+    message_ = "stopped: the manifest could not be written (" + (e.empty() ? std::string("no reason given") : e) + ")";
+    return false;
+}
+
+// The next code to draw: one not done, not crashed, not failed max_attempts times
+void Sequence::next_step() {
+    while (cursor_ < order_.size()) {
+        const ManifestEntry& e = cur();
+        const bool spent = e.attempts >= opt_.max_attempts;
+        if (e.state == "done" || e.state == "crashed" || ((e.state == "failed" || e.state == "pending") && spent)) {
+            ++cursor_;
+            continue;
+        }
+        break;
+    }
+    if (cursor_ >= order_.size()) {
+        begin_restore(Phase::Finished, "all codes drawn: " + std::to_string(count("done")) + " done, " + std::to_string(count("failed")) +
+                                            " failed, " + std::to_string(count("crashed")) + " crashed");
+        return;
+    }
+    ManifestEntry& e = cur();
+    ++e.attempts;
+    e.state = "pending";  // recorded BEFORE the write: a crash from here on leaves "pending" in the file
+    e.error.clear();
+    e.time = now_stamp();
+    if (!save_manifest()) {
+        begin_restore(Phase::Aborted, message_);
+        return;
+    }
+    phase_ = Phase::Writing;
+    first_call_ = true;
+    t_phase_ = now();
+    message_ = "code " + std::to_string(e.code) + (e.label.empty() ? "" : " (" + e.label + ")") + ": writing";
+}
+
+void Sequence::step_done() {
+    failures_in_row_ = 0;
+    ++cursor_;
+    phase_ = Phase::Next;
+    if (!save_manifest()) begin_restore(Phase::Aborted, message_);
+}
+
+void Sequence::step_failed(const std::string& why) {
+    ManifestEntry& e = cur();
+    e.state = "failed";
+    e.error = why;
+    e.time = now_stamp();
+    message_ = "code " + std::to_string(e.code) + ": " + why;
+    ++failures_in_row_;
+    ++cursor_;
+    phase_ = Phase::Next;
+    if (!save_manifest()) {
+        begin_restore(Phase::Aborted, message_);
+        return;
+    }
+    if (failures_in_row_ >= opt_.max_failures_in_row)
+        begin_restore(Phase::Aborted, "stopped: " + std::to_string(failures_in_row_) + " codes in a row got no picture (last: " + why + ")");
+}
+
+void Sequence::begin_restore(Phase end, const std::string& why) {
+    end_phase_ = end;
+    message_ = why;
+    phase_ = Phase::Restoring;
+    first_call_ = true;
+    t_phase_ = now();
+}
+
+void Sequence::end_run() {
+    phase_ = end_phase_;
+    finished_ = true;
+    save_manifest();  // best effort: the run is over either way
+}
+
+void Sequence::tick() {
+    if (!running()) return;
+    std::string err;
+    switch (phase_) {
+    case Phase::Idle:
+    case Phase::Next:
+        next_step();
+        return;
+    case Phase::Writing: {
+        const bool first = first_call_;
+        first_call_ = false;
+        const StepResult r = hooks_.write(cur().code, first, &err);
+        if (r == StepResult::Done) {
+            phase_ = Phase::Requesting;
+            t_phase_ = now();
+            message_ = "code " + std::to_string(cur().code) + ": asking the game for the picture";
+            tick();  // straight on to the request when the service is free
+        } else if (r == StepResult::Failed) {
+            step_failed("could not write the code" + (err.empty() ? std::string() : ": " + err));
+        } else if (now() - t_phase_ > opt_.write_timeout) {
+            step_failed("the write did not finish in " + std::to_string(static_cast<int>(opt_.write_timeout)) + " s");
+        }
+        return;
+    }
+    case Phase::Requesting: {
+        if (svc_.status().busy) {
+            if (now() - t_phase_ > opt_.step_timeout)
+                step_failed("the game was busy with another picture for " + std::to_string(static_cast<int>(opt_.step_timeout)) + " s");
+            return;
+        }
+        const Request rq = body_request(opt_.player, opt_.team, opt_.camera, cur().label.empty() ? std::string() : "player " + std::to_string(opt_.player) + " as " + cur().label);
+        if (!svc_.request(rq, &err)) {
+            step_failed("the picture was refused" + (err.empty() ? std::string() : ": " + err));
+            return;
+        }
+        phase_ = Phase::Waiting;
+        t_phase_ = now();
+        return;
+    }
+    case Phase::Waiting: {
+        Result r;
+        if (svc_.poll(r)) {
+            if (r.id != opt_.player) {
+                message_ = "a picture for id " + std::to_string(r.id) + " arrived while waiting for " + std::to_string(opt_.player) + " (dropped)";
+                return;
+            }
+            if (!r.ok) {
+                step_failed(r.error.empty() ? std::string("the game gave no picture") : r.error);
+                return;
+            }
+            std::string file;
+            if (!hooks_.save(cur().code, r, &file, &err)) {
+                step_failed("could not keep the picture" + (err.empty() ? std::string() : ": " + err));
+                return;
+            }
+            ManifestEntry& e = cur();
+            e.state = "done";
+            e.file = file;
+            e.w = r.image.w;
+            e.h = r.image.h;
+            e.bytes = r.bytes;
+            e.format = r.format;
+            e.error.clear();
+            e.time = now_stamp();
+            message_ = "code " + std::to_string(e.code) + ": done (" + r.format + ")";
+            step_done();
+            return;
+        }
+        if (now() - t_phase_ > opt_.step_timeout) {
+            svc_.cancel();
+            step_failed("no picture after " + std::to_string(static_cast<int>(opt_.step_timeout)) + " s (is a menu screen open, not a match?)");
+        }
+        return;
+    }
+    case Phase::Restoring: {
+        const bool first = first_call_;
+        first_call_ = false;
+        const StepResult r = hooks_.restore(first, &err);
+        if (r == StepResult::Done) {
+            restored_ = true;
+            end_run();
+        } else if (r == StepResult::Failed) {
+            restored_ = false;
+            message_ += "; HIS OWN CODE COULD NOT BE PUT BACK" + (err.empty() ? std::string() : ": " + err);
+            end_run();
+        } else if (now() - t_phase_ > opt_.write_timeout) {
+            restored_ = false;
+            message_ += "; HIS OWN CODE WAS NOT PUT BACK IN TIME";
+            end_run();
+        }
+        return;
+    }
+    case Phase::Finished:
+    case Phase::Cancelled:
+    case Phase::Aborted:
+        return;
+    }
+}
+
+void Sequence::cancel() {
+    if (!running() || phase_ == Phase::Restoring) return;
+    if (phase_ == Phase::Waiting) svc_.cancel();
+    if ((phase_ == Phase::Writing || phase_ == Phase::Requesting || phase_ == Phase::Waiting) && cursor_ < order_.size()) {
+        ManifestEntry& e = cur();
+        e.state = "cancelled";  // not the code's fault: the attempt does not count
+        if (e.attempts > 0) --e.attempts;
+        e.error = "stopped by the user";
+        e.time = now_stamp();
+    }
+    begin_restore(Phase::Cancelled, "stopped by the user: " + std::to_string(count("done")) + " of " + std::to_string(order_.size()) + " done");
+    save_manifest();
 }
 
 }  // namespace capture
