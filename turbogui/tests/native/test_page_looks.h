@@ -156,7 +156,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
     });
 
-    run_case("Looks studio: a player's picture (camera 1, template off), never while busy, again after a change, timeout; a tile writes; Undo", [&] {
+    run_case("Looks studio: a player's full body (track C's camera, template off), never while busy, again after a change, the switch, timeout; a tile writes; Undo", [&] {
         const Table* t = app.db.table("players");
         const PlayerRow* p = app.model.player(3001);
         if (!t || !p || !t->has("bodytypecode")) {
@@ -187,7 +187,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(fake->requests.size() == 1, "one picture asked: " + std::to_string(fake->requests.size()));
         if (!fake->requests.empty()) {
             const capture::Request& r = fake->requests.back();
-            CHECK(r.id == 3001 && !r.manager && r.camera == looks::kCameraBody && !r.use_template, "full-body camera 1, learned descriptor off");
+            CHECK(r.id == 3001 && !r.manager && r.camera == capture::kCameraBodyFull && !r.use_template, "full-body camera (the default view), learned descriptor off");
             CHECK(r.second_id == (p->club > 0 ? p->club : -1), "his club as the second id");
         }
         CHECK(looks::studio_state().waiting, "the pane says it is drawing");
@@ -197,9 +197,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         fake->next.image = solid(64, 80, 30, 120, 200);
         fake->deliver = true;
         ui.frames(3);
-        CHECK(!fake->pending && looks::studio_state().picture && looks::studio_state().source == "Big picture", "the picture is drawn in the pane");
+        CHECK(!fake->pending && looks::studio_state().picture && looks::studio_state().source == "Full body" && looks::studio_state().full_view,
+              "the full-body picture is drawn in the pane");
         CHECK(ui.find("Draw again###lsdraw", "##looksstudio_test") != nullptr, "the button now says Draw again");
-        CHECK(looks::studio_state().preview_line.find("Big picture, drawn by the game at") == 0, "caption: " + looks::studio_state().preview_line);
+        CHECK(looks::studio_state().preview_line.find("Full body, drawn by the game at") == 0, "caption: " + looks::studio_state().preview_line);
 
         // a body-type tile: written through the edit path, one step of his Undo, and his picture asked again
         const int64_t b1 = body0 == 6 ? 4 : 6;
@@ -207,7 +208,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(app.db.get_int(*t, rec, "bodytypecode", 0) == b1, "body type written");
         CHECK(looks::studio_state().undo_label == "Undo: Body type", "Undo names it: " + looks::studio_state().undo_label);
-        CHECK(fake->requests.size() == 2 && fake->requests.back().camera == looks::kCameraBody, "a new picture after the change");
+        CHECK(fake->requests.size() == 2 && fake->requests.back().camera == capture::kCameraBodyFull, "a new picture after the change");
         fake->deliver = true;
         ui.frames(3);
 
@@ -239,6 +240,23 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             ui.frames(3);
         }
 
+        // the switch: Head and shoulders asks the big picture (none of him yet), Full body again asks nothing (his picture is current)
+        size_t n = fake->requests.size();
+        CHECK(ui.click("###lsviewhead", "##looksstudio_test"), "Head and shoulders");
+        ui.frames(3);
+        CHECK(fake->requests.size() == n + 1 && fake->requests.back().camera == looks::kCameraBody, "the head-and-shoulders picture is asked");
+        fake->deliver = true;
+        ui.frames(3);
+        CHECK(!looks::studio_state().full_view && looks::studio_state().source == "Head and shoulders", "the head-and-shoulders picture is shown");
+        n = fake->requests.size();
+        CHECK(ui.click("###lsviewbody", "##looksstudio_test"), "Full body");
+        ui.frames(3);
+        if (fake->pending) {  // his full-body picture was older than his look (the second Undo): asked again
+            fake->deliver = true;
+            ui.frames(3);
+        }
+        CHECK(looks::studio_state().full_view && looks::studio_state().source == "Full body" && fake->requests.size() <= n + 1, "back to the full body");
+
         // no answer: given up after the timeout, the service is freed (cancel)
         looks::looks_studio_set_timeout_for_tests(0.5);
         const int cancels = fake->cancels;
@@ -269,7 +287,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.db.set_int(*t, rec, "bodytypecode", body0);
     });
 
-    run_case("Looks studio: a manager's picture (his head id, camera 1), the page's own Undo, and his real face asks first", [&] {
+    run_case("Looks studio: a manager's picture (his head id, full body tried), the page's own Undo, and his real face asks first", [&] {
         const Table* t = app.db.table("manager");
         const auto& mgrs = app.model.managers();
         if (!t || mgrs.empty() || !t->has("bodytypecode")) {
@@ -302,7 +320,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(studio_requests() == 1, "one picture asked: " + std::to_string(studio_requests()));
         if (!fake->requests.empty()) {
             const capture::Request& r = fake->requests.back();
-            CHECK(r.manager && r.id == head && r.camera == looks::kCameraBody && !r.use_template, "by his head id, camera 1, learned descriptor off");
+            CHECK(r.manager && r.id == head && r.camera == capture::kCameraBodyFull && !r.use_template, "by his head id, full-body camera, learned descriptor off");
             CHECK(r.second_id == (mgrs[0].teamid > 0 ? mgrs[0].teamid : -1), "his club as the second id");
         }
         fake->next = capture::Result();
@@ -311,7 +329,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         fake->next.image = solid(64, 64, 200, 120, 30);
         fake->deliver = true;
         ui.frames(3);
-        CHECK(looks::studio_state().picture && looks::studio_state().source == "Big picture", "his picture is drawn in the pane");
+        CHECK(looks::studio_state().picture && looks::studio_state().source == "Full body", "his picture is drawn in the pane");
         size_t want = 0;
         for (bool kit : {false, true})
             for (const std::string& fd : looks::card_fields(true, kit)) want += t->has(fd) ? 1 : 0;
