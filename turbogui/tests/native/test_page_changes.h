@@ -73,10 +73,12 @@ static bool write_int(App& app, int64_t pid, const char* field, int64_t v) {
 }
 static int64_t read_int(App& app, int64_t pid, const char* field) {
     const Table* p = app.db.table("players");
-    return app.db.get_int(*p, app.db.find(*p, "playerid", pid), field);
+    return p ? app.db.get_int(*p, app.db.find(*p, "playerid", pid), field) : -1;
 }
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
+    // outside run_case, so it also runs when TURBO_TEST_ONLY skips the case that connects the app ("UI: connects and every main tab renders")
+    if (!app.connected()) ui.frames(5);
     run_case("Changes and undo: a player edit is one row; the global Undo takes it back, the older change of the same player waits", [&] {
         Sandbox sb(app, ui);
         changes::poll(app, true);
