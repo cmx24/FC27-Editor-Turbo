@@ -544,6 +544,7 @@ bool Sequence::start(std::string* err) {
     if (!hooks_.write || !hooks_.save || !hooks_.restore || !hooks_.write_manifest || !hooks_.clock)
         return refuse("the run is missing a step (write, save, restore, manifest or clock)");
     if (opt_.player <= 0) return refuse("no reference player");
+    if (opt_.original < 0) return refuse("his own code is not known (options.original): it is needed to put it back at the end");
     started_ = true;
     failures_in_row_ = 0;
     cursor_ = 0;
@@ -654,9 +655,15 @@ void Sequence::tick() {
         return;
     }
     case Phase::Requesting: {
-        if (svc_.status().busy) {
-            if (now() - t_phase_ > opt_.step_timeout)
-                step_failed("the game was busy with another picture for " + std::to_string(static_cast<int>(opt_.step_timeout)) + " s");
+        // wait while another picture is in flight, or while the game cannot draw (no menu renderer, or the controller is still
+        // finishing a picture Turbo stopped waiting for): a request then would only fail and spend one of the code's attempts
+        const Status st = svc_.status();
+        if (st.busy || !st.available) {
+            if (now() - t_phase_ > opt_.step_timeout) {
+                const std::string secs = std::to_string(static_cast<int>(opt_.step_timeout));
+                step_failed(st.busy ? "the game was busy with another picture for " + secs + " s"
+                                    : "the game could not draw for " + secs + " s" + (st.reason.empty() ? std::string() : ": " + st.reason));
+            }
             return;
         }
         const Request rq = body_request(opt_.player, opt_.team, opt_.camera, cur().label.empty() ? std::string() : "player " + std::to_string(opt_.player) + " as " + cur().label);

@@ -23,9 +23,12 @@ struct SeqFake : tc::CaptureService {
     bool refuse = false;
     int cancels = 0;
     int polls = 0;
+    bool can_draw = true;  // status().available (with st.busy false)
     tc::Status status() override {
         tc::Status s = st;
         s.installed = true;
+        s.available = can_draw && !s.busy;
+        if (!s.available && s.reason.empty()) s.reason = s.busy ? "rendering..." : "the game's frontend renderer is not up";
         return s;
     }
     bool request(const tc::Request& r, std::string* err) override {
@@ -424,6 +427,22 @@ static void test_capture_sequence() {
         CHECK(s3.start(&err), "start 3");
         r3.run(s3, 400);
         CHECK(r3.svc.requests.empty() && s3.entry(1)->state == "failed" && s3.entry(1)->error.find("busy") != std::string::npos, "busy too long");
+        // the game cannot draw (a match, no menu renderer): wait, then say why; once it can, the request goes
+        Rig r6;
+        const tc::Sequence* x6 = nullptr;
+        tc::Sequence s6(r6.svc, seq_opts(), seq_steps({1, 2}), r6.hooks(&x6));
+        x6 = &s6;
+        r6.svc.can_draw = false;
+        CHECK(s6.start(&err), "start 6");
+        for (int i = 0; i < 260 && s6.count("failed") == 0; ++i) {
+            s6.tick();
+            r6.t += 0.1;
+        }
+        CHECK(r6.svc.requests.empty() && s6.entry(1)->state == "failed" && s6.entry(1)->error.find("could not draw for 25 s: the game's frontend renderer is not up") != std::string::npos,
+              "cannot draw: " + s6.entry(1)->error);
+        r6.svc.can_draw = true;
+        r6.run(s6);
+        CHECK(r6.svc.requests.size() == 1 && s6.entry(2)->state == "done", "drawn once the game can");
         // a write that answers Wait a few times, then Done; one that never finishes; one that fails
         Rig r4;
         const tc::Sequence* x4 = nullptr;
@@ -512,6 +531,19 @@ static void test_capture_sequence() {
         h.restore = nullptr;
         tc::Sequence s7(r5.svc, seq_opts(), seq_steps({1}), h);
         CHECK(!s7.start(&err) && err.find("missing") != std::string::npos, "no restore hook: " + err);
+        // his own code must be known (else the end of the run cannot put it back); a resumed manifest can supply it
+        Rig r9;
+        const tc::Sequence* x9 = nullptr;
+        tc::Sequence s9(r9.svc, seq_opts(-1), seq_steps({1}), r9.hooks(&x9));
+        CHECK(!s9.start(&err) && err.find("his own code is not known") != std::string::npos && r9.calls.empty(), "unknown original: " + err);
+        Rig r10;
+        const tc::Sequence* x10 = nullptr;
+        tc::Sequence s10(r10.svc, seq_opts(-1), seq_steps({1}), r10.hooks(&x10));
+        x10 = &s10;
+        CHECK(s10.resume("{\"version\":1,\"player\":254470,\"camera\":1,\"original\":4,\"codes\":{}}", &err) && s10.original() == 4, "original from the manifest");
+        CHECK(s10.start(&err), "start with the manifest's original: " + err);
+        r10.run(s10);
+        CHECK(s10.restored() && r10.original_seen == 4, "restored to 4");
         // an empty list: straight to restore, finished
         Rig r8;
         const tc::Sequence* x8 = nullptr;

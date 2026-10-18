@@ -244,7 +244,8 @@ Request body_request(int32_t id, int32_t team, int camera = kCameraBody, const s
 // same). Per step:
 //   manifest "pending" (attempt n) -> hooks.write(code) -> request(body_request) -> poll until his Result -> hooks.save
 //   -> manifest "done" / "failed" -> next step
-// One request in flight (the capture controller is a singleton); a request is sent only while status().busy is false.
+// One request in flight (the capture controller is a singleton); a request is sent only while status() says available and
+// not busy (waiting at most step_timeout).
 // The manifest text goes to hooks.write_manifest after EVERY change, so a crash (the game's, which takes Turbo with it)
 // leaves "pending" on the code that was being drawn: resume() counts that as an attempt and marks the code "crashed" (never
 // tried again) once it has max_attempts of them. hooks.restore runs once at the end, on cancel and on abort (too many
@@ -307,7 +308,8 @@ public:
     // unreadable, or was made for another player or camera. Codes not in this run's list are kept in the manifest as they
     // were. A manifest original (>= 0) replaces options.original (after a crash he still wears a test code).
     bool resume(const std::string& manifest_text, std::string* err);
-    // false (+err) when a hook is missing, the player id is not > 0, or it already ran
+    // false (+err) when a hook is missing, the player id is not > 0, his own code is not known (original < 0 after resume()),
+    // or it already ran
     bool start(std::string* err);
     void tick();    // advance (call once per frame); does nothing unless running
     void cancel();  // stop: drops the request in flight, then restores
