@@ -20,6 +20,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "table_registry.h"
 #include "ui_kits.h"
 #include "ui_tactic_presets.h"
 #include "ui_theme.h"
@@ -513,7 +514,7 @@ void card_this_session(App& app) {
         theme::muted_text("Nothing changed yet. Edit a player, kit or tactic and it shows up here with an Undo.");
         return;
     }
-    if (ImGui::BeginTable("##chgrows", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##chgrows", 3, tbl::kData | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("When", ImGuiTableColumnFlags_WidthFixed, S(64.0f));
         ImGui::TableSetupColumn("What", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Way back", ImGuiTableColumnFlags_WidthFixed, S(190.0f));
@@ -596,7 +597,7 @@ void card_remembered(App& app) {
         if (c.name.empty()) c.name = k.team.empty() ? app.model.team_name(k.teamtechid) : k.team;
         c.rows.push_back(&k);
     }
-    if (ImGui::BeginTable("##chgkept", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##chgkept", 3, tbl::kData | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("What", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Applies to", ImGuiTableColumnFlags_WidthFixed, S(150.0f));
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, S(300.0f));
@@ -699,10 +700,11 @@ void card_elsewhere(App& app) {
         {"Crest from another club", "Remove custom crest", shell::Page::Identity},
         {"Game slider presets", "Discard staged", shell::Page::GameplayPresets},
     };
-    if (ImGui::BeginTable("##chgelsewhere", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##chgelsewhere", 3, tbl::kData | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("What", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Button", ImGuiTableColumnFlags_WidthFixed, S(170.0f));
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, S(110.0f));
+        ImGui::TableHeadersRow();
         for (const Row& r : kRows) {
             ImGui::PushID(r.what);
             ImGui::TableNextRow();
