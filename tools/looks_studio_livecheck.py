@@ -74,6 +74,8 @@ def check(text, since="", player=""):
     req = [l for l in lines[i_ask:i_ask + 40] if ("request" in l and pid in l and "mode " in l)]
     if not req:
         out.append(("request", "INCONCLUSIVE", "no capture request line for id %s within 40 lines of the ask" % pid))
+    elif any("full-body camera not configured" in l for l in req):
+        out.append(("request", "FAIL", "the full-body camera was not configured (head and shoulders drawn): " + req[0].strip()[:160]))
     elif any("default descriptor" in l for l in req):
         out.append(("request", "PASS", req[0].strip()[:160]))
     else:
@@ -121,7 +123,7 @@ def _log(*body):
 
 
 ASK = "looks studio: picture asked for Test Player (id 4242, camera -2)"
-REQ = "player capture: request Looks studio Test Player: id 4242, mode 0, extra 0 (default descriptor); desc id 4242"
+REQ = "player capture: request Looks studio Test Player: id 4242, mode 0, extra 0 (default descriptor, full-body camera (type 2)); desc id 4242"
 PIC = "looks studio: picture of id 4242 (PNG 1024x1024)"
 BODY = "Body type changed Average height, normal build -> Tall, stocky (Test Player)  [players.bodytypecode = 6]"
 UNDO = "undo players.bodytypecode = 2"
@@ -132,6 +134,7 @@ def self_test():
         ("pass: every step", _log(ASK, REQ, PIC, BODY, ASK, REQ, PIC, UNDO), "PASS"),
         ("fail: no picture", _log(ASK, REQ, "looks studio: no picture for id 4242: the game did not finish"), "FAIL"),
         ("fail: camera 2", _log(ASK.replace("camera -2", "camera 2"), REQ, PIC), "FAIL"),
+        ("fail: full-body camera not configured", _log(ASK, REQ.replace("full-body camera (type 2)", "full-body camera not configured: head and shoulders"), PIC), "FAIL"),
         ("pass: head and shoulders view", _log(ASK.replace("camera -2", "camera 1"), REQ, PIC, BODY, ASK, REQ, PIC, UNDO), "PASS"),
         ("fail: learned descriptor", _log(ASK, REQ.replace("default descriptor", "learned descriptor"), PIC, BODY, ASK, PIC, UNDO), "FAIL"),
         ("fail: no ask", _log("something else"), "FAIL"),
