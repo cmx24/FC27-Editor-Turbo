@@ -7,12 +7,14 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <set>
 #include <system_error>
 #include <utility>
 
 #include "app.h"
 #include "core/bodytype_catalog.h"
+#include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/legacy.h"
 #include "core/looks_fields_data.h"
@@ -24,6 +26,8 @@
 #include "ui_images.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
+
+namespace fs = std::filesystem;
 
 namespace turbo {
 namespace looks {
@@ -60,6 +64,8 @@ constexpr const char* kNotTested = "Not tested yet";
 constexpr double kSignatureEvery = 0.5;    // s between two reads of his look (changes made on other cards or pages)
 constexpr double kRetryEvery = 2.0;        // s between two tries while the game cannot draw (a match, another picture)
 constexpr size_t kManagerUndoSteps = 30;
+constexpr int kThumbLoadsPerFrame = 3;  // new body-type pictures asked from the texture loader in one frame
+constexpr double kManifestEvery = 2.0;  // s between two looks at the generator's manifest.json
 
 double g_timeout = 25.0;
 
@@ -317,6 +323,10 @@ struct Studio {
     char body_search[48] = "";
     std::vector<BodyTile> tiles;
     std::string tiles_key;
+    std::set<int64_t> thumbs_loaded;   // codes whose picture reached a texture (their next draws cost nothing)
+    int thumb_frame = -1, thumb_loads = 0;  // new picture loads of this frame (at most kThumbLoadsPerFrame)
+    double manifest_at = -1.0;          // App::now of the last look at manifest.json (every kManifestEvery s)
+    int64_t manifest_stamp = 0;         // its time stamp then (0 = none)
     std::string body_result;
     bool body_result_error = false;
     // the page's own Undo for managers
@@ -378,6 +388,13 @@ Subject current_subject(App& app, const Studio& s, const Table** table, uint64_t
         return Subject();
     }
     return out;
+}
+
+// One line in turbo_gui.log (the host log) and the in-app Log: the page's body-type edits and its Undo (App::edit_field and App::undo
+// write the in-app Log only; the Tester's live check reads turbo_gui.log)
+void host_log(App& app, const std::string& line) {
+    app.log(line);
+    if (app.log_hook) app.log_hook(line);
 }
 
 // A write of the page went through: his look is read again now, and a manager's step goes on the page's own Undo
@@ -702,7 +719,15 @@ void undo_button(App& app, Studio& s, const Subject& who) {
                                                            : "Puts back his last change, made on this page or another one.");
     if (!hit) return;
     if (!who.manager) {
-        if (app.undo(who.id)) s.signature_dirty = true;
+        std::string step_line;
+        if (const auto it = app.undo_.find(who.id); it != app.undo_.end() && !it->second.empty()) {
+            const App::UndoStep& step = it->second.back();
+            step_line = "looks studio: undo " + step.table + "." + step.field + " = " + step.before.to_string() + " (" + who.name + ")";
+        }
+        if (app.undo(who.id)) {
+            s.signature_dirty = true;
+            if (!step_line.empty()) host_log(app, step_line);
+        }
         return;
     }
     for (auto it = s.manager_undo.end(); it != s.manager_undo.begin();) {
@@ -718,6 +743,7 @@ void undo_button(App& app, Studio& s, const Subject& who) {
         }
         if (app.edit_field(*t, step.rec, *f, step.before)) {
             app.notify("Undone: " + labels::field_title(step.field) + " back to " + app.describe_value(*t, *f, step.before));
+            host_log(app, "looks studio: undo manager." + step.field + " = " + step.before.to_string() + " (" + who.name + ")");
             s.signature_dirty = true;
         }
         return;
@@ -820,6 +846,22 @@ void build_tiles(App& app, Studio& s, int64_t current, int gender, bool manager)
     }
 }
 
+// A new manifest.json (a generator run went on or started again): list the pictures again now and let every tile load its picture
+// anew (one time-stamp look every kManifestEvery s, never per tile)
+void watch_manifest(App& app, Studio& s) {
+    if (s.manifest_at >= 0.0 && app.now >= s.manifest_at && app.now < s.manifest_at + kManifestEvery) return;
+    s.manifest_at = app.now;
+    std::error_code ec;
+    const fs::path mf = bodytype_thumbs::manifest_file(app.turbo_output());
+    const auto t = fs::last_write_time(mf, ec);
+    const int64_t stamp = ec ? 0 : static_cast<int64_t>(t.time_since_epoch().count());
+    if (stamp == s.manifest_stamp) return;
+    s.manifest_stamp = stamp;
+    bodytype_thumbs::invalidate();
+    for (int64_t code : s.thumbs_loaded) app.textures.forget(bodytype_thumbs::grid_file(app.turbo_output(), code));
+    s.thumbs_loaded.clear();
+}
+
 void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
     card_begin(s, "##lsbody", "Body type");
     if (!t.has("bodytypecode")) {
@@ -835,12 +877,25 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
     std::vector<const BodyTile*> shown;
     for (const BodyTile& tile : s.tiles)
         if (q.empty() || tile.search.find(q) != std::string::npos) shown.push_back(&tile);
-    // names only (2.17.0): the tiles flow in rows of the card's width; only the rows on screen are drawn
+    // the pictures of track T2's generator (core/bodytype_thumbs.h): thumb() is a cached listing (rescanned every few seconds), a
+    // new manifest.json (another run) empties it at once; a tile with no picture shows its name only
+    bodytype_thumbs::configure(app.turbo_output());
+    watch_manifest(app, s);
+    std::vector<fs::path> pics(shown.size());
+    bool any_pic = false;
+    for (size_t i = 0; i < shown.size(); ++i) {
+        pics[i] = bodytype_thumbs::thumb(shown[i]->code, who.manager);
+        any_pic = any_pic || !pics[i].empty();
+    }
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float tw = S(190.0f);
+    const float tw = any_pic ? S(120.0f) : S(190.0f);
     const float avail = ImGui::GetContentRegionAvail().x;
     const int per_row = std::max(1, static_cast<int>((avail + style.ItemSpacing.x) / (tw + style.ItemSpacing.x)));
     const int rows = (static_cast<int>(shown.size()) + per_row - 1) / per_row;
+    if (ImGui::GetFrameCount() != s.thumb_frame) {
+        s.thumb_frame = ImGui::GetFrameCount();
+        s.thumb_loads = 0;
+    }
     int64_t picked = -1;
     ImGuiListClipper clip;
     clip.Begin(rows);
@@ -851,9 +906,34 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
                 if (i >= shown.size()) break;
                 const BodyTile& tile = *shown[i];
                 if (c > 0) ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::PushID(static_cast<int>(tile.code));
+                const bool selected = tile.code == current;
+                if (any_pic) {
+                    // the picture box (empty where the generator made none), then the name under it
+                    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+                    if (ImGui::InvisibleButton("##btpic", ImVec2(tw, tw))) picked = tile.code;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tile.tip.c_str());
+                    ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + tw, p0.y + tw),
+                                                              ImGui::GetColorU32(selected ? ImGuiCol_Header : ImGuiCol_FrameBg), S(4.0f));
+                    if (!pics[i].empty()) {
+                        const bool known = s.thumbs_loaded.count(tile.code) != 0;
+                        if (known || s.thumb_loads < kThumbLoadsPerFrame) {
+                            if (!known) ++s.thumb_loads;
+                            TextureCache::Pic pic = app.textures.file(pics[i], bodytype_thumbs::kGridWidth);
+                            if (pic.tex) {
+                                s.thumbs_loaded.insert(tile.code);
+                                draw_fitted(pic.tex, pic.w, pic.h, p0, tw, tw);
+                                ++s.st.thumbs;
+                            }
+                        }
+                    }
+                }
                 const std::string label = tile.caption + "##bt" + std::to_string(tile.code);
-                if (ImGui::Selectable(label.c_str(), tile.code == current, 0, ImVec2(tw, 0.0f))) picked = tile.code;
+                if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(tw, 0.0f))) picked = tile.code;
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tile.tip.c_str());
+                ImGui::PopID();
+                ImGui::EndGroup();
                 ++s.st.body_tiles;
             }
         }
@@ -868,6 +948,9 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         s.body_result = msg;
         s.body_result_error = !ok;
         if (ok) note_write(s, who, rec, "bodytypecode", before, have);
+        if (ok && f && have && before.i != picked)
+            host_log(app, "looks studio: " + app.describe_edit(t, rec, *f, before, Value::of_int(picked)) + "  [" + t.name + ".bodytypecode = " +
+                              std::to_string(picked) + "] (" + who.name + ")");
     }
     if (!s.body_result.empty()) {
         ImGui::PushTextWrapPos(0.0f);
@@ -1015,6 +1098,9 @@ void looks_studio_reset_for_tests() {
     s.tiles.clear();
     s.tiles_key.clear();
     s.body_result.clear();
+    s.thumbs_loaded.clear();
+    s.manifest_at = -1.0;
+    s.manifest_stamp = 0;
     s.manager_undo.clear();
     s.open_ask = s.open_chooser = false;
     s.st = StudioState();

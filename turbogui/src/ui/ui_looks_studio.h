@@ -2,7 +2,9 @@
 // point 6). One page for players AND managers: [person list | large preview | cards]. The cards call what already exists:
 //   Face          the real-face chooser (ui_images.h real_face_picker, ui_faces.h manager_real_face_picker)
 //   Hair & beard  the faces card of ui_faces3d_gate.h (read-only use of its API)
-//   Body type     a grid, one tile per bodytypecode, by name ("Tall, lean", "Like Lionel Messi", "Manager body 82"); no pictures in 2.17.0
+//   Body type     a grid, one tile per bodytypecode: the picture of track T2's generator (core/bodytype_thumbs.h thumb()) over its name
+//                 ("Tall, lean", "Like Lionel Messi", "Manager body 82"); the name only where no picture exists. Refreshed when the
+//                 generator's manifest.json changes. Body-type edits and the page's Undo are also written to turbo_gui.log.
 //   Accessories   accessory slots, boots, goalkeeper gloves   } the fields, titles and value words of track F's core/looks_fields_data.h
 //   Kit fit       sleeves, shirt, shorts, socks (players)     }   (managers: their outfit)
 // Every change goes through the existing edit path (App::edit via the page's combos / apply_bodytype): a player's change is one step of
@@ -90,6 +92,7 @@ struct StudioState {
     std::string undo_label;    // "Undo: Body type" ("" = nothing to undo)
     int listed = 0;            // people in the list after the search
     int body_tiles = 0;        // tiles of the body-type grid drawn
+    int thumbs = 0;            // of them with their picture drawn
     int fields = 0;            // field editors in Accessories and Kit fit
     int cards = 0;             // cards drawn
     std::string body_result;   // what the last body-type click said

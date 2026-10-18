@@ -12,6 +12,7 @@
 // so TURBO_TEST_ONLY="looks studio" runs them alone.
 #pragma once
 #include "core/bodytype_catalog.h"
+#include "core/bodytype_thumbs.h"
 #include "ui/ui_bodytypes.h"
 #include "ui/ui_looks_studio.h"
 #include "ui/ui_shell.h"
@@ -365,6 +366,65 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         looks::looks_studio_show_managers(false);
         app.db.set_int(*t, rec, "bodytypecode", body0);
         if (t->has("headassetid")) app.db.set_int(*t, rec, "headassetid", head0);
+    });
+
+    run_case("Looks studio: the body-type grid shows the generator's pictures (a name where none), a new manifest refreshes it; edits and Undo reach the host log", [&] {
+        const Table* t = app.db.table("players");
+        const PlayerRow* p = app.model.player(3001);
+        if (!t || !p || !t->has("bodytypecode")) {
+            CHECK(false, "the test world has player 3001 with a body type");
+            return;
+        }
+        const uint64_t rec = p->rec;
+        const int64_t body0 = app.db.get_int(*t, rec, "bodytypecode", 0);
+        looks::looks_studio_reset_for_tests();
+        app.capture = nullptr;  // no picture service: this case is about the grid
+        const fs::path out = app.turbo_output();
+        const fs::path dir = bodytype_thumbs::folder(out);
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        std::string file, err;
+        const bool saved = bodytype_thumbs::save_pictures(out, 4, solid(64, 128, 200, 40, 40), &file, &err) &&
+                           bodytype_thumbs::save_pictures(out, 6, solid(64, 128, 40, 200, 40), &file, &err);
+        CHECK(saved && fs::exists(bodytype_thumbs::grid_file(out, 4)) && fs::exists(bodytype_thumbs::grid_file(out, 6)), "two generator pictures: " + err);
+        bodytype_thumbs::invalidate();
+        std::vector<std::string> host;
+        const auto old_hook = app.log_hook;
+        app.log_hook = [&host, old_hook](const std::string& l) {
+            host.push_back(l);
+            if (old_hook) old_hook(l);
+        };
+        app.sel_player = 3001;
+        show(ui);
+        ui.frames(12);
+        CHECK(looks::studio_state().thumbs == 2, "the two pictures are drawn: " + std::to_string(looks::studio_state().thumbs));
+        CHECK(looks::studio_state().body_tiles >= 10, "every body has its tile: " + std::to_string(looks::studio_state().body_tiles));
+        CHECK(ui.find(tile_label(app, 5), "##looksstudio_test") != nullptr, "a body with no picture keeps its name: " + tile_label(app, 5));
+        // another run: one picture gone, a new manifest.json -> the grid lists again (looked at every 2 s)
+        fs::remove(bodytype_thumbs::grid_file(out, 6), ec);
+        CHECK(bodytype_thumbs::write_file_atomic(bodytype_thumbs::manifest_file(out), "{\"version\": 1, \"entries\": []}", &err), "manifest written: " + err);
+        ui.frames(130);
+        CHECK(looks::studio_state().thumbs == 1, "after the new manifest one picture is left: " + std::to_string(looks::studio_state().thumbs));
+        // a body-type edit and its Undo reach the host log (turbo_gui.log), in the live check's words
+        const int64_t b1 = body0 == 4 ? 6 : 4;
+        CHECK(ui.click(tile_label(app, b1), "##looksstudio_test"), "tile " + tile_label(app, b1));
+        ui.frames(2);
+        CHECK(app.db.get_int(*t, rec, "bodytypecode", 0) == b1, "body type written");
+        auto logged = [&](const std::string& what) {
+            for (const std::string& l : host)
+                if (l.find(what) != std::string::npos) return true;
+            return false;
+        };
+        CHECK(logged("[players.bodytypecode = " + std::to_string(b1) + "]"), "the edit is in the host log");
+        CHECK(ui.click("###lsundo", "##looksstudio_test"), "Undo");
+        ui.frames(2);
+        CHECK(app.db.get_int(*t, rec, "bodytypecode", 0) == body0 && logged("undo players.bodytypecode = " + std::to_string(body0)),
+              "the Undo is in the host log");
+        hide(ui);
+        app.log_hook = old_hook;
+        fs::remove_all(dir, ec);
+        bodytype_thumbs::invalidate();
+        app.db.set_int(*t, rec, "bodytypecode", body0);
     });
 
     looks::looks_studio_reset_for_tests();
