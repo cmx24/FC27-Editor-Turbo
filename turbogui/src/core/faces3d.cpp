@@ -284,7 +284,7 @@ LiveLooks live_looks(const lualoader::Faces3dStatus* st) {
         l.why = "Changes show straight away.";
         return l;
     }
-    // the research file mode (lua_loader_on.txt + lua_loader_substitute.txt): the file of this game start decides
+    // the research file mode (lua_loader_research_file.txt): the file of this game start decides
     if (!st->header_ok) return no(true, "The game started without Turbo's player_kit.lua.");
     if (!st->build_key_ok || (!st->stock_matches_header && !st->captured_md5.empty()))
         return no(true, "Turbo's player_kit.lua was made for another game version.");

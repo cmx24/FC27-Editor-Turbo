@@ -736,7 +736,24 @@ static void test_header_and_switches() {
     check(d.opted_in && d.substitute && d.in_memory, "start: lua_loader_on.txt alone = product mode (a 2.8 leftover never turns it off)");
     s.lua_substitute = true;
     d = decide_start(s);
-    check(d.substitute && !d.in_memory && !d.capture_mode, "start: lua_loader_on + lua_loader_substitute = the research file mode");
+    check(d.substitute && d.in_memory && !d.capture_mode, "start 2.17: the old pair lua_loader_on + lua_loader_substitute = product mode");
+    s = StartSwitches();
+    s.research_file = true;
+    d = decide_start(s);
+    check(d.substitute && !d.in_memory && !d.capture_mode, "start 2.17: lua_loader_research_file.txt = the research file mode");
+    s = StartSwitches();
+    s.log_only = true;
+    d = decide_start(s);
+    check(d.opted_in && !d.refused && !d.substitute && !d.in_memory && d.capture_mode, "start 2.17: lua_loader_log_only.txt = LOG-ONLY capture mode");
+    s.research_file = true;
+    d = decide_start(s);
+    check(!d.substitute && d.capture_mode, "start 2.17: log-only wins over the research file");
+    s = StartSwitches();
+    s.log_only = true;
+    s.faces_off = true;
+    check(decide_start(s).refused, "start 2.17: a kill switch still refuses log-only");
+    check(std::string(kResearchFileSwitch) == "lua_loader_research_file.txt" && std::string(kLogOnlySwitch) == "lua_loader_log_only.txt",
+          "2.17 switch file names");
     s = StartSwitches();
     s.lua_substitute = true;  // without lua_on: no effect on its own
     d = decide_start(s);

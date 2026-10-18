@@ -4366,7 +4366,15 @@ static void test_ui() {
             CHECK(!ui.click("Apply hair & beard", "##app") || app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "nothing chosen: Apply is off");
             faces3d_set_choice(false, 3001, 155, 46);
             ui.frames(1);
+            std::vector<std::string> gui_log;  // 2.17: the card's lines reach turbo_gui.log (App::log_hook)
+            auto saved_hook = app.log_hook;
+            app.log_hook = [&](const std::string& s) { gui_log.push_back(s); };
             CHECK(ui.click("Apply hair & beard", "##app"), "Apply hair & beard");
+            app.log_hook = saved_hook;
+            CHECK(std::any_of(gui_log.begin(), gui_log.end(), [](const std::string& s) {
+                      return s.rfind("3D hair & beard: player 3001 facialhairtypecode = 355, hairtypecode = 8193", 0) == 0;
+                  }),
+                  "the write line reaches turbo_gui.log (log_hook)");
             ui.frames(1);
             CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::hair_band_code(155) &&
                       app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::beard_band_code(46),
@@ -4446,10 +4454,30 @@ static void test_ui() {
                       bk[3001].original.at("facialhairtypecode") == b0,
                   "his originals are kept");
             ui.frames(2);
-            CHECK(ui.click("His own hair & beard", "##app"), "His own again (off the list, own codes)");
+            // 2.17 auto-restore at career connect: not while this game start baked him (his baked look would come back) ...
+            {
+                lualoader::Faces3dStatus sb = st;
+                sb.saved_known = true;
+                sb.saved_ids = {3001};
+                app.faces3d_report = [sb]() { return sb; };
+                CHECK(faces3d_restore_markers(app) == 0 && app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode,
+                      "baked at this game start: the marker stays");
+                lualoader::Faces3dStatus sr = st;  // research file mode: the served list is not known
+                sr.in_memory = false;
+                app.faces3d_report = [sr]() { return sr; };
+                CHECK(faces3d_restore_markers(app) == 0 && app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode,
+                      "research file mode: the marker stays");
+                lualoader::Faces3dStatus sf = st;  // ... and once the game started without him on the list: his own codes come back
+                sf.saved_known = true;
+                sf.saved_ids = {};
+                app.faces3d_report = [sf]() { return sf; };
+                CHECK(faces3d_restore_markers(app) == 1, "off the list since this game start: restored");
+                app.faces3d_report = [st]() { return st; };
+            }
             CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
                       !fs::exists(out / "faces3d" / "preview_backup.json"),
                   "his originals are back, the record gone");
+            CHECK(faces3d_restore_markers(app) == 0, "nothing left to restore");
             fs::remove(out / "faces3d" / "players.json");
             faces3d_reload(app);
             // a generic head: no card

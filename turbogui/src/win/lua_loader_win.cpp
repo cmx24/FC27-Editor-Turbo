@@ -32,6 +32,10 @@ std::string g_state = "starting";  // written by the loader thread only, before 
 std::atomic<bool> g_done{false};   // g_state is final
 std::atomic<bool> g_legacy_refused{false};
 std::atomic<bool> g_cache_written{false};
+// 2.17: the saved list (players.json) the product build baked at this game start (faces3d_status: the card's marker restore)
+std::mutex g_saved_m;
+std::vector<int64_t> g_saved_ids;
+bool g_saved_known = false;
 std::string g_build;
 uint64_t g_exe_base = 0, g_exe_size = 0;
 
@@ -337,13 +341,15 @@ void run() {
     sw.hook_off = file_exists(out / "hook_lua_load_off.txt");
     sw.game_hooks_off = file_exists(out / "game_hooks_off.txt");
     sw.legacy_present = file_exists(le_root() / ll::kLegacyKitRel);
+    sw.research_file = file_exists(out / ll::kResearchFileSwitch);
+    sw.log_only = file_exists(out / ll::kLogOnlySwitch);
     const ll::StartDecision dec = ll::decide_start(sw);
     if (!dec.opted_in) return;  // (2.16: always on unless refused below)
     g_opted_in = true;
     const bool substitute = dec.substitute;
     log("lua_loader: on (2.16: whenever Turbo is installed): %s (kill switches turbo_output\\hook_lua_load_off.txt, faces3d_off.txt, game_hooks_off.txt)",
         dec.in_memory ? "SUBSTITUTE mode, player_kit.lua v4 built in memory from the game's own file"
-        : substitute  ? "SUBSTITUTE mode from the override file (lua_loader_on.txt + lua_loader_substitute.txt)"
+        : substitute  ? "SUBSTITUTE mode from the override file (lua_loader_research_file.txt)"
         : dec.capture_mode ? "LOG-ONLY mode (capture mode: the first stock capture is cached)"
                            : "LOG-ONLY mode");
     auto refuse = [](const std::string& why) {
@@ -377,6 +383,12 @@ void run() {
         if (!turbo::faces3d::load_players(out.u8string(), *saved, &perr)) {
             log("lua_loader: faces3d\\players.json unreadable (%s): the saved list is empty this start", perr.c_str());
             saved->clear();
+        }
+        {
+            std::lock_guard<std::mutex> lk(g_saved_m);
+            g_saved_ids.clear();
+            for (const auto& kv : *saved) g_saved_ids.push_back(kv.first);
+            g_saved_known = true;
         }
         for (auto& o : overrides) o.error = "built in memory";
     }
@@ -538,7 +550,7 @@ void run() {
     DeleteFileW(flag.wstring().c_str());
     g_installed = true;
     set_state(std::string(substitute ? "SUBSTITUTE" : "LOG-ONLY") + ": lua_load hooked at " + where(at.lua_load) +
-              (blob ? ", blob reader at " + where(blob) : ", blob reader not hooked") + (at.gets ? ", getS at " + where(at.gets) : ", getS unknown") +
+              (blob ? ", blob reader at " + where(blob) : ", blob reader not hooked (not needed for player_kit.lua)") + (at.gets ? ", getS at " + where(at.gets) : ", getS unknown") +
               (at.top_layout_ok ? ", stack layout confirmed" : ", stack layout NOT confirmed (no chunkname substitution)") + ", build " + g_build);
     g_done = true;
     log("lua_loader: installed, %s", g_state.c_str());
@@ -604,6 +616,11 @@ turbo::lualoader::Faces3dStatus faces3d_status() {
     {
         std::lock_guard<std::mutex> lk(g_cap_m);
         if (!g_cache_error.empty() && st.last_error.empty()) st.last_error = "cache: " + g_cache_error;
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_saved_m);
+        st.saved_known = g_saved_known;
+        st.saved_ids = g_saved_ids;
     }
     return st;
 }

@@ -159,7 +159,12 @@ bool has_live_looks(const char* data, size_t size);
 struct StartSwitches {
     bool lua_on = false, lua_substitute = false, faces_on = false, faces_off = false, hook_off = false, game_hooks_off = false,
          legacy_present = false;
+    bool research_file = false;  // 2.17: turbo_output\lua_loader_research_file.txt = serve lua_override\player_kit.lua (test lane)
+    bool log_only = false;       // 2.17: turbo_output\lua_loader_log_only.txt = hook + log + stock capture, nothing substituted
 };
+// The switch files of 2.17 (relative to turbo_output)
+extern const char* const kResearchFileSwitch;  // "lua_loader_research_file.txt"
+extern const char* const kLogOnlySwitch;       // "lua_loader_log_only.txt"
 struct StartDecision {
     bool opted_in = false;      // scan + hook at all (2.16: always, unless a kill switch refuses)
     bool refused = false;       // a kill switch is present: nothing installed
@@ -170,8 +175,10 @@ struct StartDecision {
     std::string why;            // for refused / legacy_refused
 };
 // 2.16: the hook is ON whenever Turbo is installed (no opt-in file). Kill switches (game_hooks_off.txt, hook_lua_load_off.txt,
-// faces3d_off.txt) refuse it. lua_loader_on.txt + lua_loader_substitute.txt = the research file mode (the override file, as 2.8-2.15);
-// anything else = product mode (in_memory). A mods\legacy player_kit.lua refuses substitution (capture only, nothing cached).
+// faces3d_off.txt) refuse it. 2.17: lua_loader_research_file.txt = the research file mode (the override file, as 2.8-2.15; the old
+// pair lua_loader_on.txt + lua_loader_substitute.txt no longer selects it, so a leftover pair can never serve an old file);
+// lua_loader_log_only.txt = LOG-ONLY diagnostics (nothing substituted, the first capture cached); anything else = product mode
+// (in_memory). A mods\legacy player_kit.lua refuses substitution (capture only, nothing cached).
 StartDecision decide_start(const StartSwitches& s);
 
 // Writes (on) or removes (off) turbo_output\faces3d_on.txt. Writing goes through `<file>.tmp` + rename. For the GUI.
@@ -192,6 +199,8 @@ struct Faces3dStatus {
     std::string header_stock;    // the stock md5 the override was made from
     std::string header_table;    // its table hash (md5(players.json)[:12]): which list this game start runs
     bool live_looks = false;     // that override carries the 2.16 live band rule (kLiveLooksMarker): looks change without a restart
+    bool saved_known = false;    // 2.17 product mode: saved_ids is the saved list (players.json) the hook read at this game start
+    std::vector<int64_t> saved_ids;
     bool in_memory = false;      // 2.16 product mode: the override is built from the captured stock at the boot compile
     bool built = false;          // ... and that build succeeded (served to every compile)
     std::string built_error;     // ... or why stock is served ("" before the first capture)
