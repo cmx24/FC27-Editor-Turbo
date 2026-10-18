@@ -1,0 +1,316 @@
+// Native tests (2026-10-17, GUI revamp step 7, brief 2.16-gui-pages track "kits"): the tidy Kits & club pages of ui/ui_kits_page.cpp
+// (draw_kits_page, draw_club_identity_page, draw_kit_diagnostics). Included by test_main.cpp after test_club_page.h (it reuses the kit
+// fixtures and the kept-rows helper); page_kits_test::ui_cases runs inside the UI block, a real App, before test_shell_app clears the page
+// registry. The pages are not registered with the shell (the navigation re-cut wires them in), so they are drawn through the Ui hook
+// g_ui_extra in a window of their own, "##kitspage_test", as test_club_page.h does for the pages it replaces.
+#pragma once
+#include "ui/ui_club_page.h"
+#include "ui/ui_kits.h"
+#include "ui/ui_kits_page.h"
+
+namespace page_kits_test {
+
+using namespace turbo;
+using namespace kit_test;
+
+static void (*g_fn)(App&) = nullptr;
+static bool g_focus = false;  // focus the page window once, not every frame: a popup of the page closes when its window is focused again
+static void draw_extra(App& app) {
+    if (!g_fn) return;
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (g_focus) ImGui::SetNextWindowFocus();
+    g_focus = false;
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ds);
+    if (ImGui::Begin("##kitspage_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) g_fn(app);
+    ImGui::End();
+}
+static void show(Ui& ui, void (*fn)(App&)) {
+    g_fn = fn;
+    g_focus = true;
+    g_ui_extra = draw_extra;
+    ui.frames(3);
+}
+static void hide(Ui& ui) {
+    g_fn = nullptr;
+    g_ui_extra = nullptr;
+    ui.frames(2);
+}
+// The text of the page: ImGui's text log of one frame with the page's window (`all`), and the lines of it that the app alone does not draw
+// (`only`: the app's own window is drawn behind the page, so a word the page must not say is searched in `only`)
+struct PT {
+    std::string all, only;
+};
+static std::string logged_text(Ui& ui, bool with_page) {
+    ImGui_ImplNull_NewFrame();
+    ImGui::NewFrame();
+    ++g_frame;
+    ImGui::LogToBuffer();
+    ui.app.tick(ui.t);
+    ui.app.draw();
+    if (with_page && g_ui_extra) g_ui_extra(ui.app);
+    std::string text = GImGui->LogEnabled ? std::string(GImGui->LogBuffer.c_str()) : std::string();
+    ImGui::LogFinish();
+    ImGui::Render();
+    ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
+    ui.t += 1.0 / 60.0;
+    return text;
+}
+static std::vector<std::string> lines_of(const std::string& t) {
+    std::vector<std::string> v;
+    size_t b = 0;
+    while (b <= t.size()) {
+        size_t e = t.find('\n', b);
+        if (e == std::string::npos) e = t.size();
+        v.push_back(t.substr(b, e - b));
+        b = e + 1;
+    }
+    return v;
+}
+static PT page_text(Ui& ui) {
+    const std::string base = logged_text(ui, false);
+    PT pt;
+    pt.all = logged_text(ui, true);
+    std::set<std::string> in_base;
+    for (const std::string& l : lines_of(base)) in_base.insert(l);
+    for (const std::string& l : lines_of(pt.all))
+        if (!in_base.count(l)) pt.only += l + "\n";
+    return pt;
+}
+static bool has(const std::string& text, const char* s) { return text.find(s) != std::string::npos; }
+
+// The game's own minikit for Everton's home kit, as the Lua side exports it
+static void put_game_minikit(const fs::path& le) {
+    DdsFormat mf;
+    mf.pixel = DdsFormat::Pixel::DXT5;
+    mf.w = mf.h = 64;
+    mf.mips = 7;
+    write(le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "kits" / "j0_7_0.dds", encode_dds(solid(64, 64, 9, 9, 9), mf));
+}
+
+static void ui_cases(App& app, Ui& ui, const fs::path& le) {
+    run_case("Kits page: the plain words of a slot and of the 3D line (pure)", [&] {
+        CHECK(std::string(kit_slot_state_words(true)) == "Custom" && std::string(kit_slot_state_words(false)) == "Game's own", "Custom / Game's own");
+        // runtime, opted, pending, staged, active_swap, watch_only
+        CHECK(kit_pitch_line(false, false, false, false, false, false) == "Not available in this session.", "no game hooks this session");
+        CHECK(kit_pitch_line(true, false, false, false, false, false).rfind("Off:", 0) == 0, "not switched on: Off");
+        CHECK(has(kit_pitch_line(true, false, true, false, false, false), "Needs a game restart") &&
+                  has(kit_pitch_line(true, false, true, false, false, false), "Tested on a few kits so far"),
+              "switched on, not restarted: the restart and the honest line");
+        CHECK(has(kit_pitch_line(true, true, false, false, false, false), "Apply the kit first"), "switched on, nothing applied yet");
+        CHECK(has(kit_pitch_line(true, true, false, true, false, true), "watch only") && has(kit_pitch_line(true, true, false, true, true, false), "Tested on a few kits"),
+              "watch only and shown");
+        for (bool a : {false, true})
+            for (bool b : {false, true})
+                for (bool c : {false, true}) {
+                    const std::string s = kit_pitch_line(true, a, b, c, false, false);
+                    for (const char* bad : {"turbo_output", ".txt", "hook", "Lua", "json", "\\"}) CHECK(!has(s, bad), std::string("no developer word in: ") + s);
+                }
+    });
+
+    run_case("Kits page: slot list, one main button, no developer controls, no club number, the per-match option shown as planned", [&] {
+        app.kit_swap = nullptr;
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        // the panel is shared with the earlier cases: read one file that is no kit, so the Home slot has no kit file of its own to show
+        const fs::path junk = g_out / "kits_src" / "page_kits" / "not_a_kit.zip";
+        write(junk, bytes_of("this is not a zip"));
+        CHECK(kit_panel_open(app, junk) && kit_wait(ui), "a file that is no kit is read");
+        ui.frames(3);
+        for (const char* l : {"Home##kpslot", "Away##kpslot", "Third##kpslot", "Goalkeeper##kpslot", "Fourth##kpslot"})
+            CHECK(ui.find(l, "##select") != nullptr, std::string("slot in the select panel: ") + l);
+        CHECK(ui.find("Apply kit", "##kitspage_test") != nullptr, "the one main button");
+        CHECK(!kits_page_state().apply_enabled, "disabled until a kit file is read");
+        CHECK(ui.find("Choose kit file...##kpfile", "##editor") != nullptr && ui.find("Restore the game's kit##kprestore", "##editor") != nullptr,
+              "choose a file, restore");
+        CHECK(ui.find("Change club...##kpchange", "##select") != nullptr, "the club is changed from a popup");
+        for (const char* gone : {"Import kit zip...", "Import team folder...", "Turn on 3D kits (restart the game afterwards)##k3on", "Show it on the pitch##kswap",
+                                 "Watch only (log what the game loads)##kswap", "Textures##kswap", "Apply##kit0", "##kitzip"})
+            CHECK(ui.find(gone, "##kitspage_test") == nullptr, std::string("no old control: ") + gone);
+        CHECK(ui.find("##kpclub") == nullptr, "no club number box on the page itself");
+        const PT pt = page_text(ui);
+        for (const char* bad : {"(ID ", "ID 7", "turbo_output", ".txt", ".json", "hotspot", "kit index", "Watch only", "hook", "Lua", "channel", "texture"})
+            CHECK(!has(pt.only, bad), std::string("the page does not say: ") + bad);
+        CHECK(has(pt.all, "Everton") && has(pt.all, "Game's own") && has(pt.all, "Home kit"), "club name, the plain slot state, the slot title");
+        CHECK(has(pt.all, "planned") && has(pt.all, "Only in my matches, when no club sharing the kit plays"), "the per-match option is shown as planned");
+        CHECK(kits_page_state().planned_shown, "state: the planned option was drawn");
+        CHECK(has(pt.all, "Not tested yet"), "the sharing choices say they are not tested yet");
+        const ItemRec* planned = ui.find("Only in my matches, when no club sharing the kit plays##kpplanned");
+        CHECK(planned != nullptr && ui.click(planned), "the planned option can be clicked and does nothing");
+        ui.frames(2);
+        CHECK(kits_page_state().teamid == 7 && kits_page_state().slot == kits::Slot::Home && !kits_page_state().custom, "state: Everton, Home, not custom");
+        CHECK(kits_page_state().status == "The game's own kit is in use.", "state: " + kits_page_state().status);
+        CHECK(!kits_page_state().pitch_tick && !kits_page_state().pitch_enabled && kits_page_state().pitch_line == "Not available in this session.",
+              "without game hooks the 3D tick is off and says so: " + kits_page_state().pitch_line);
+        // the club popup holds the box (name first, the number only inside the list)
+        CHECK(ui.click("Change club...##kpchange", "##select"), "open the club popup");
+        ui.frames(2);
+        CHECK(ui.find("##kpclub") != nullptr, "the popup has the club box");
+        ui.key(ImGuiKey_Escape);  // closes the popup (the test window, not the game)
+        ui.frames(2);
+        CHECK(ui.click("Away##kpslot", "##select") && kit_page_slot() == kits::Slot::Away, "select Away");
+        ui.frames(2);
+        CHECK(kits_page_state().slot == kits::Slot::Away && has(page_text(ui).all, "Away kit"), "the editor follows the slot");
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
+
+    run_case("Kits page: Apply kit runs the proven apply path (database, minikit, staged textures); Restore the game's kit acts on one club and slot", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        app.kit_swap = nullptr;
+        put_game_minikit(le);
+        const fs::path zip = g_out / "kits_src" / "page_kits" / "h.zip";
+        make_kit_zip(zip, spec);
+        // Cassio's rows: another club's home kit and another slot of Everton (fixture values, removed at the end)
+        app.reapply.set_kit_field(9999, 0, 9990, "Fixture FC", "2026-10-16 10:00", "teamcolorprimr", 77);
+        app.reapply.set_kit_field(7, 1, 71, "Everton", "2026-10-16 10:00", "teamcolorsecr", 33);
+        const std::string before = club_page_test::kept_rows(app.reapply);
+        const size_t n_before = app.reapply.kits.size();
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);  // the exported minikit is read once a second
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
+        ui.frames(3);
+        CHECK(kit_page_slot() == kits::Slot::Home, "the page shows the slot of the zip's kit");
+        CHECK(kit_panel_count() == 1 && kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
+        CHECK(kits_page_state().status.rfind("Ready to apply: h.zip", 0) == 0 && kits_page_state().apply_enabled, "state: " + kits_page_state().status);
+        CHECK(!has_kit_import(app, 7, kits::Slot::Home), "nothing imported yet");
+        CHECK(ui.click("Apply kit", "##kitspage_test"), "Apply kit");
+        CHECK(kit_wait(ui), "textures converted");
+        ui.frames(3);
+        CHECK(has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) != nullptr, "applied: the import record and the kept kit row exist");
+        CHECK(fs::exists(kits::slot_dir(le, 7, kits::Slot::Home) / "manifest.json"), "the textures were staged: the apply path of the old page ran, not a lesser one");
+        CHECK(app.reapply.kits.size() == n_before + 1, "one new kept row");
+        const std::string txt = page_text(ui).all;
+        CHECK(has(txt, "Custom") && kits_page_state().custom, "the slot list says Custom");
+        CHECK(kits_page_state().status.rfind("applied to Everton", 0) == 0, "state: " + kits_page_state().status);
+        ui.frames(80);  // the page re-reads the record once a second
+        CHECK(kits_page_state().status.rfind("Custom kit", 0) == 0 || kits_page_state().status.rfind("applied", 0) == 0, "later: " + kits_page_state().status);
+        // Restore the game's kit: this club and this slot only
+        const ItemRec* restore = ui.find("Restore the game's kit##kprestore", "##editor");
+        CHECK(restore != nullptr && ui.click(restore), "click Restore the game's kit");
+        ui.frames(3);
+        CHECK(!has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) == nullptr, "restored: the club's own home kit row is gone");
+        CHECK(club_page_test::kept_rows(app.reapply) == before, "the other kept rows (another club, another slot) are exactly as before: " + club_page_test::kept_rows(app.reapply));
+        CHECK(app.reapply.kit(9999, 0, 9990) && app.reapply.kit(9999, 0, 9990)->fields.at("teamcolorprimr") == 77 &&
+                  app.reapply.kit(7, 1, 71) && app.reapply.kit(7, 1, 71)->fields.at("teamcolorsecr") == 33,
+              "Cassio's fixture rows survive");
+        CHECK(ui.toast_contains("import undone"), "toast");
+        CHECK(!kits_page_state().custom, "the slot list says Game's own again");
+        // another slot: nothing imported, restore refused, its kept row stays
+        CHECK(ui.click("Away##kpslot", "##select") && kit_page_slot() == kits::Slot::Away, "select Away");
+        ui.frames(2);
+        CHECK(!kits_page_state().custom, "Away: nothing to restore");
+        std::string msg;
+        CHECK(!undo_kit_import(app, 7, kits::Slot::Away, &msg) && club_page_test::kept_rows(app.reapply) == before, "restoring Away is refused and changes no row: " + msg);
+        CHECK(app.reapply.forget_kit(9999, 0, 9990) && app.reapply.forget_kit(7, 1, 71), "fixture rows removed");
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
+
+    run_case("Kits page: the one 3D tick drives the public Runtime (switch, slot, share choices) and never moves a slot by drawing", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        put_game_minikit(le);
+        const fs::path zip = g_out / "kits_src" / "page_kits" / "h.zip";
+        make_kit_zip(zip, spec);
+        const fs::path on = le / "turbo_output" / "kits3d_on.txt";
+        std::error_code ec;
+        fs::remove(on, ec);
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);
+        CHECK(!kits_page_state().pitch_enabled && kits_page_state().pitch_line == "Not available in this session.", "no Runtime: the tick is off and disabled");
+        std::unique_ptr<kitswap::Runtime> rt(new kitswap::Runtime(le, le / "no_game_here", nullptr));
+        app.kit_swap = rt.get();
+        ui.frames(3);
+        // not switched on: the tick makes (and removes) the one switch the old button made
+        CHECK(kits_page_state().pitch_enabled && !kits_page_state().pitch_tick && kits_page_state().pitch_line.rfind("Off:", 0) == 0, "not switched on: " + kits_page_state().pitch_line);
+        CHECK(ui.click("Show this kit on the pitch (3D)##kp3d", "##kpmatch") && fs::exists(on), "ticking switches 3D kits on from the next game start");
+        ui.frames(2);
+        CHECK(kits_page_state().pitch_tick && has(kits_page_state().pitch_line, "Needs a game restart"), "the restart is said: " + kits_page_state().pitch_line);
+        CHECK(ui.toast_contains("restart the game"), "toast");
+        CHECK(ui.click("Show this kit on the pitch (3D)##kp3d", "##kpmatch") && !fs::exists(on), "unticking takes the switch away again");
+        ui.frames(2);
+        CHECK(!kits_page_state().pitch_tick, "off again");
+        // switched on (as after a restart), nothing applied yet: disabled, and it says what to do first
+        std::ofstream(on) << "on";
+        app.kit_swap = nullptr;  // a game restart: the page meets the Runtime again with the switch already there
+        ui.frames(2);
+        app.kit_swap = rt.get();
+        ui.frames(3);
+        CHECK(rt->opted_in() && !kits_page_state().pitch_enabled && has(kits_page_state().pitch_line, "Apply the kit first"), "nothing applied: " + kits_page_state().pitch_line);
+        // apply a kit
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
+        ui.frames(3);
+        CHECK(ui.click("Apply kit", "##kitspage_test") && kit_wait(ui), "applied");
+        ui.frames(80);
+        CHECK(has_kit_import(app, 7, kits::Slot::Home) && kits_page_state().pitch_enabled && !kits_page_state().pitch_tick, "applied: the tick is enabled and off");
+        // a slot set to watch only is not moved by drawing the page
+        std::string err;
+        CHECK(rt->activate(7, 0, kitswap::Mode::Observe, &err), "watch only set by hand: " + err);
+        rt->wait_idle();
+        ui.frames(90);
+        kitswap::Mode md = kitswap::Mode::Off;
+        CHECK(rt->is_active(7, 0, &md) && md == kitswap::Mode::Observe, "drawing the page left watch only alone");
+        CHECK(!kits_page_state().pitch_tick && has(kits_page_state().pitch_line, "watch only"), "and says so: " + kits_page_state().pitch_line);
+        // tick: show it on the pitch
+        CHECK(ui.click("Show this kit on the pitch (3D)##kp3d", "##kpmatch"), "tick");
+        rt->wait_idle();
+        ui.frames(3);
+        CHECK(rt->is_active(7, 0, &md) && md == kitswap::Mode::Swap && kits_page_state().pitch_tick, "the slot is served (swap)");
+        CHECK(kits_page_state().pitch_line == "Tested on a few kits so far, so some kits may not show on the pitch.", "the honest line: " + kits_page_state().pitch_line);
+        // share choices: only share_other changes, the other options go back unchanged
+        bool d = false, k = false, sc = true, so = true;
+        CHECK(rt->slot_options(7, 0, &d, &k, &sc, &so) && d && k && !sc && !so, "defaults: decals on, game's badge kept, no sharing");
+        CHECK(ui.click("Change their kits too##kpshare", "##kpmatch"), "Change their kits too");
+        rt->wait_idle();
+        CHECK(rt->slot_options(7, 0, &d, &k, &sc, &so) && d && k && !sc && so, "share_other saved, the rest unchanged");
+        CHECK(ui.click("Also change my club's other kits that use the same pictures##kpshareclub", "##kpmatch"), "Also change my club's other kits");
+        rt->wait_idle();
+        CHECK(rt->slot_options(7, 0, &d, &k, &sc, &so) && d && k && sc && so, "share_club saved, share_other kept");
+        CHECK(ui.click("Leave them alone##kpshare", "##kpmatch"), "Leave them alone");
+        rt->wait_idle();
+        CHECK(rt->slot_options(7, 0, &d, &k, &sc, &so) && d && k && sc && !so, "back to leaving other clubs alone");
+        // the kit maker's files, folded under Numbers & colours
+        CHECK(ui.click("Numbers & colours##kpcolours", "##editor"), "open Numbers & colours");
+        ui.frames(2);
+        CHECK(ui.click("Ignore the crest in the kit file##kpcrest", "##editor"), "ignore the crest in the kit file");
+        rt->wait_idle();
+        CHECK(rt->slot_options(7, 0, &d, &k, &sc, &so) && d && !k && sc && !so, "keep_crest changed alone");
+        CHECK(has(page_text(ui).all, "Names and numbers use the kit maker's position"), "the plain words for the placement option");
+        // untick: off
+        CHECK(ui.click("Show this kit on the pitch (3D)##kp3d", "##kpmatch"), "untick");
+        rt->wait_idle();
+        ui.frames(2);
+        CHECK(!rt->is_active(7, 0) && !kits_page_state().pitch_tick, "off");
+        // clean up (Restore switches the swap off with the Runtime still attached)
+        CHECK(ui.click("Restore the game's kit##kprestore", "##editor"), "restore");
+        ui.frames(3);
+        rt->wait_idle();
+        CHECK(!has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) == nullptr, "restored");
+        app.kit_swap = nullptr;
+        rt.reset();
+        fs::remove(on, ec);
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
+
+    run_case("Kits page: Club name, colours & crest has its three cards; Kit diagnostics keeps every developer control", [&] {
+        app.sel_team = 7;
+        show(ui, draw_club_identity_page);
+        CHECK(ui.find("##nfull", "##kpname") && ui.find("##nshort", "##kpname") && ui.find("Save", "##kpname"), "Name: the form with its Save");
+        CHECK(ui.find("##X", "##kpcolours", "##c") != nullptr, "Colours: the club colour pickers");
+        const PT pt = page_text(ui);
+        CHECK(has(pt.all, "Name") && has(pt.all, "Colours") && has(pt.all, "Crest"), "the three cards");
+        CHECK(has(pt.all, "have no Undo yet"), "the honest line: name and colour changes cannot be undone yet");
+        CHECK(!has(pt.only, "Home kit (type 0") && !has(pt.only, "(ID "), "no kit colours, no club number on the page");
+        CHECK(!has(pt.only, "Undo last"), "no promise of an Undo that does not exist");
+        show(ui, draw_kit_diagnostics);
+        CHECK(ui.find("Import kit zip...", "##kitspage_test") && ui.find("Import team folder...", "##kitspage_test"), "Kit diagnostics: the old Kits body, all of it");
+        hide(ui);
+    });
+}
+
+}  // namespace page_kits_test

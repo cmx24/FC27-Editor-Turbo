@@ -588,7 +588,7 @@ bool kit_panel_open(App& app, const fs::path& zip_or_folder) {
     return true;
 }
 
-static void poll_jobs(App& app) {
+void poll_jobs(App& app) {
     KitPanel& p = g_panel;
     if (p.load && p.load->done.load()) {
         std::vector<KitPackage> got;
@@ -642,7 +642,7 @@ static void poll_jobs(App& app) {
 }
 
 // Apply the panel's items `which` to the club: parts 1-2 now, the textures on one worker thread
-static void apply_items(App& app, int64_t teamid, const std::vector<size_t>& which) {
+void apply_items(App& app, int64_t teamid, const std::vector<size_t>& which) {
     auto job = std::make_shared<StageJob>();
     job->spec = panel_spec();
     std::string summary;

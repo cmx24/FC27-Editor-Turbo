@@ -92,4 +92,10 @@ std::string kit_swap_status_line(const kitswap::Status& st, int64_t teamid, int 
 // The other clubs' kits that share a texture with the slot ("Aston Villa's GK kit")
 std::string kit_swap_shared_clubs(const kitswap::Status& st, int64_t teamid, int slot, const std::function<std::string(int64_t)>& name);
 
+// 2.16 (ui_kits_page.cpp): the two steps of the proven apply path that the tidy Kits page shares with kits_page(), no longer file-local.
+// Bodies unchanged. poll_jobs finishes the zip reads and the texture conversions (call it once per frame); apply_items applies the panel's
+// items `which` (indexes into kit_panel_*) to the club: database + minikit now, the textures on a worker thread.
+void poll_jobs(App& app);
+void apply_items(App& app, int64_t teamid, const std::vector<size_t>& which);
+
 }  // namespace turbo
