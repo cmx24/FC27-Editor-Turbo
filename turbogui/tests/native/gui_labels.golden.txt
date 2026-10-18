@@ -78,6 +78,18 @@ ui_asset_browser.cpp	ArrowButton	##prev	1
 ui_asset_browser.cpp	BeginChild	##grid	1
 ui_asset_browser.cpp	InputTextWithHint	##search	1
 ui_asset_browser.cpp	InvisibleButton	##tile	1
+ui_bodytype_thumbs.cpp	-	###diagbodythumbs	1
+ui_bodytype_thumbs.cpp	BeginPopupModal	###btthumbconfirm	1
+ui_bodytype_thumbs.cpp	Button	Cancel##btthumbno	1
+ui_bodytype_thumbs.cpp	Button	Make the pictures...##btthumbgo	1
+ui_bodytype_thumbs.cpp	Button	Put his own body type back##btthumbback	1
+ui_bodytype_thumbs.cpp	Button	Stop and give him his own body type back##btthumbstop	1
+ui_bodytype_thumbs.cpp	Button	Yes, make them##btthumbyes	1
+ui_bodytype_thumbs.cpp	InputInt	Camera##btthumbcamidx	1
+ui_bodytype_thumbs.cpp	InputInt	Only the first (0 = all)##btthumbmax	1
+ui_bodytype_thumbs.cpp	OpenPopup	###btthumbconfirm	1
+ui_bodytype_thumbs.cpp	RadioButton	Another camera##btthumbsrc1	1
+ui_bodytype_thumbs.cpp	RadioButton	Full body##btthumbsrc0	1
 ui_bodytypes.cpp	-	##act	1
 ui_bodytypes.cpp	-	##btgen	1
 ui_bodytypes.cpp	-	##bthmax	1
@@ -629,6 +641,37 @@ ui_live_tactic.cpp	TreeNode	###ltmore	1
 ui_live_tactic.cpp	TreeNode	Slots (11)##ltslots	1
 ui_live_tactic.cpp	checkbox_right	Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt	1
 ui_live_tactic.cpp	checkbox_right	Keep my bench order after Team Management##ltbench	1
+ui_looks_studio.cpp	-	##	1
+ui_looks_studio.cpp	-	###lsdraw	1
+ui_looks_studio.cpp	-	###lsundo	1
+ui_looks_studio.cpp	-	##bt	1
+ui_looks_studio.cpp	-	##lsbody	1
+ui_looks_studio.cpp	-	##lsface	1
+ui_looks_studio.cpp	-	##lsgear	1
+ui_looks_studio.cpp	-	##lshair	1
+ui_looks_studio.cpp	-	##lskit	1
+ui_looks_studio.cpp	-	##lsm	1
+ui_looks_studio.cpp	-	##lsp	1
+ui_looks_studio.cpp	BeginChild	##lscards	1
+ui_looks_studio.cpp	BeginChild	##lslist	1
+ui_looks_studio.cpp	BeginChild	##lspreview	1
+ui_looks_studio.cpp	BeginChild	##lsrows	1
+ui_looks_studio.cpp	BeginCombo	##lv	1
+ui_looks_studio.cpp	BeginPopupModal	###lsask	1
+ui_looks_studio.cpp	Button	###lsaskno	1
+ui_looks_studio.cpp	Button	###lsaskok	1
+ui_looks_studio.cpp	Button	###lsface	1
+ui_looks_studio.cpp	Checkbox	###lsmine	1
+ui_looks_studio.cpp	InputTextWithHint	##lsbodyq	1
+ui_looks_studio.cpp	InputTextWithHint	##lsq	1
+ui_looks_studio.cpp	InputTextWithHint	##lvq	1
+ui_looks_studio.cpp	OpenPopup	###lsask	1
+ui_looks_studio.cpp	OpenPopup	Choose a real face	1
+ui_looks_studio.cpp	RadioButton	###lsmanagers	1
+ui_looks_studio.cpp	RadioButton	###lsplayers	1
+ui_looks_studio.cpp	RadioButton	###lsviewbody	1
+ui_looks_studio.cpp	RadioButton	###lsviewhead	1
+ui_looks_studio.cpp	TreeNode	###lshairnode	1
 ui_match.cpp	-	##mf%u	1
 ui_match.cpp	-	Competition##msc	1
 ui_match.cpp	BeginCombo	##newopp	1
