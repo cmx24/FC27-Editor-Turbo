@@ -142,16 +142,15 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(kits_page_state().status == "The game's own kit is in use.", "state: " + kits_page_state().status);
         CHECK(!kits_page_state().pitch_tick && !kits_page_state().pitch_enabled && kits_page_state().pitch_line == "Not available in this session.",
               "without game hooks the 3D tick is off and says so: " + kits_page_state().pitch_line);
-        // the club popup holds the box (name first, the number only inside the list)
-        CHECK(ui.click("Change club...##kpchange", "##select"), "open the club popup");
-        ui.frames(2);
-        CHECK(ui.find("##kpclub") != nullptr, "the popup has the club box");
-        ui.key(ImGuiKey_Escape);  // closes the popup (the test window, not the game)
-        ui.frames(2);
         CHECK(ui.click("Away##kpslot", "##select") && kit_page_slot() == kits::Slot::Away, "select Away");
         ui.frames(2);
         CHECK(kits_page_state().slot == kits::Slot::Away && has(page_text(ui).all, "Away kit"), "the editor follows the slot");
         kit_page_select(kits::Slot::Home);
+        ui.frames(2);
+        // the club popup holds the box (name first, the number only inside the list); the next show() closes it with the focus change
+        CHECK(ui.click("Change club...##kpchange", "##select"), "open the club popup");
+        ui.frames(2);
+        CHECK(ui.find("##kpclub") != nullptr, "the popup has the club box");
         hide(ui);
     });
 
