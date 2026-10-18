@@ -19,7 +19,8 @@ using namespace turbo;
 
 static void draw_extra(App& app) {
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
-    ImGui::SetNextWindowFocus();
+    // focusing this window closes every open popup (ImGui::FocusWindow -> ClosePopupsOverWindow), so not while a confirm is open
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ds);
     if (ImGui::Begin("##changes_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) changes::draw_changes_page(app);
