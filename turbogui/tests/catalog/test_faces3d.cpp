@@ -4,6 +4,8 @@
 // evidence folder, never copied into the repository; SKIP otherwise).
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <map>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -232,7 +234,7 @@ static void test_ids_and_validate() {
             if (x.find(s) != std::string::npos) return true;
         return false;
     };
-    check(has("beard 259 is not a verified") && has("not a scanned head") && has("player 3: choose a hair") && has("not in the database"),
+    check(has("beard 259 is not a verified") && has("not a real face") && has("player 3: choose a hair") && has("not in the database"),
           "validate reports ids, head class, empty entry, unknown player");
     Table big;
     for (int i = 1; i <= int(kMaxEntries) + 1; ++i) big[i] = Entry{155, 0, true, true, ""};
@@ -269,7 +271,8 @@ static void test_apply_remove() {
     check(remove(o8, &err), "remove twice is fine");
     write_file(out / "faces3d_on.txt", "x");
     r = apply(o8, Table{}, "6AC07E31-2145C000", hc0);
-    check(r.ok && !fs::exists(out / "faces3d_on.txt"), "empty apply = remove");
+    check(!r.ok && fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua"),
+          "empty apply no longer removes (2.16): it builds like any list, and a foreign stock refuses with the opt-in untouched");
     Table lp;
     check(load_players(o8, lp, &err) && lp.empty(), "load_players after empty apply");
     fs::remove_all(out);
@@ -305,10 +308,11 @@ static void test_real_f2() {
     write_file(out / "faces3d" / "stock_player_kit.cache", stock);
     const ApplyResult r = apply(out.u8string(), t, "6AC07E31-2145C000", nullptr);
     std::string written, js;
+    const Built body4 = generate_body(template_v4_text(), stock, t);
     check(r.ok && read_file(out / "lua_override" / "player_kit.lua", written) && read_file(out / "faces3d" / "players.json", js) &&
-              fs::exists(out / "faces3d_on.txt") && md5s(written) == r.override_md5 && r.table == md5s(js).substr(0, 12) &&
-              written.substr(written.find("\r\n") + 2) == body.bytes,
-          "apply with the real stock writes players.json + override (header table = its md5) + faces3d_on.txt (" + r.message + ")");
+              fs::exists(out / "faces3d_on.txt") && md5s(written) == r.override_md5 && r.table == md5s(js).substr(0, 12) && body4.ok &&
+              written.substr(written.find("\r\n") + 2) == body4.bytes && override_has_live_looks(out.u8string()),
+          "apply with the real stock writes players.json + the v4 override (header table = its md5) + faces3d_on.txt (" + r.message + ")");
     std::string err2;
     check(remove(out.u8string(), &err2) && !fs::exists(out / "faces3d_on.txt") && fs::exists(out / "faces3d" / "players.json"),
           "remove keeps players.json");
@@ -359,7 +363,7 @@ static void test_players_json_v3() {
     check(template_stock_md5(template_v3_text()) == "9399e39a1e46a15d151ada423759abe9", "v3 anchors the same stock");
     Table f1;
     f1[1].follow = true;
-    check(template_for(fx) == template_text() && template_for(f1) == template_v3_text(), "template_for: v2 fixed-only, v3 with follow");
+    check(template_for(fx) == template_v4_text() && template_for(f1) == template_v4_text(), "template_for: v4 for every list (2.16 live looks)");
 }
 
 static void test_running_and_gate() {
@@ -518,22 +522,298 @@ static void test_real_v3() {
     write_file(out / "faces3d" / "stock_player_kit.cache", stock);
     const ApplyResult r = apply(out.u8string(), t, "6AC07E31-2145C000", nullptr);
     std::string written, js;
-    check(r.ok && read_file(out / "lua_override" / "player_kit.lua", written) && read_file(out / "faces3d" / "players.json", js) &&
-              written.substr(written.find("\r\n") + 2) == body.bytes && fs::exists(out / "faces3d" / "applied" / (r.table + ".json")),
-          "apply (follow) writes the v3 body + the applied snapshot (" + r.message + ")");
+    const Built body4 = generate_body(template_v4_text(), stock, t);
+    check(r.ok && read_file(out / "lua_override" / "player_kit.lua", written) && read_file(out / "faces3d" / "players.json", js) && body4.ok &&
+              written.substr(written.find("\r\n") + 2) == body4.bytes && fs::exists(out / "faces3d" / "applied" / (r.table + ".json")),
+          "apply (follow) writes the v4 body + the applied snapshot (" + r.message + ")");
     Table rt;
     std::string why;
     check(running_table(out.u8string(), r.table, rt, &why) && rt[229984].follow, "running_table finds the applied list");
     Table fixed_only = t;
     fixed_only.erase(229984);
     const ApplyResult r2 = apply(out.u8string(), fixed_only, "6AC07E31-2145C000", nullptr);
-    const Built v2b = generate_body(template_text(), stock, fixed_only);
-    check(r2.ok && read_file(out / "lua_override" / "player_kit.lua", written) && v2b.ok && written.substr(written.find("\r\n") + 2) == v2b.bytes &&
-              written.find("GATE v2") != std::string::npos,
-          "apply (fixed only) writes the v2 body");
+    const Built v4b = generate_body(template_v4_text(), stock, fixed_only);
+    check(r2.ok && read_file(out / "lua_override" / "player_kit.lua", written) && v4b.ok && written.substr(written.find("\r\n") + 2) == v4b.bytes &&
+              written.find("GATE v4") != std::string::npos,
+          "apply (fixed only) writes the v4 body too");
     check(running_table(out.u8string(), r.table, rt, &why) && rt.size() == 2, "the first start's list is still known after a second Apply");
     fs::remove_all(out);
     std::printf("  real-stock v3 byte compare done: override %s, %zu bytes\n", ov.md5.c_str(), ov.bytes.size());
+}
+
+// ---------------------------------------------------------------- v4: live looks (2.16)
+static std::string joined(const std::vector<int>& v) {
+    std::string s;
+    for (size_t i = 0; i < v.size(); ++i) s += (i ? "," : "") + std::to_string(v[i]);
+    return s;
+}
+static std::string spec_of(const std::string& t) {
+    const size_t a = t.find("\nSPLICE SPEC\n"), b = t.find("\nEND SPEC\n");
+    return (a == std::string::npos || b == std::string::npos) ? std::string() : t.substr(a, b - a);
+}
+
+static void test_bands() {
+    check(std::string(template_v4_md5()) == "53d77dcc4db1092d928968e081808a47" && md5s(template_v4_text()) == template_v4_md5(),
+          "embedded template v4 md5 53d77dcc (research\\c2_lua_loader\\player_kit_template_v4.lua)");
+    check(template_stock_md5(template_v4_text()) == "9399e39a1e46a15d151ada423759abe9", "v4 anchors the same stock");
+    check(!spec_of(template_v4_text()).empty() && spec_of(template_v4_text()) == spec_of(template_v3_text()), "v4 SPLICE SPEC == v3 (byte for byte)");
+    const std::string g4 = template_v4_text();
+    check(g4.find(lualoader::kLiveLooksMarker) != std::string::npos && std::string(template_v3_text()).find(lualoader::kLiveLooksMarker) == std::string::npos,
+          "the live-looks marker is in v4 only");
+    // frozen lists: the index is what a save holds, so size and content are pinned
+    check(band_hair_ids().size() == 1371 && md5s(joined(band_hair_ids())) == "fc5c2b27a7434afdc2d6d078f5b7e6a7", "band hair list frozen (1371, md5 fc5c2b27)");
+    check(band_beard_ids().size() == 105 && md5s(joined(band_beard_ids())) == "ed00efe7730de53635e5743d24e78956", "band beard list frozen (105, md5 ed00efe7)");
+    check(hair_band_code(155) == 8193 && hair_band_code(250) == 8281 && beard_band_code(46) == 355 && beard_band_code(47) == 356,
+          "band codes 155 -> 8193, 250 -> 8281, beard 46 -> 355, 47 -> 356 (the harness values)");
+    check(hair_band_code(band_hair_ids().front()) == 8040 && hair_band_code(band_hair_ids().back()) == 9410 &&
+              beard_band_code(band_beard_ids().front()) == 336 && beard_band_code(band_beard_ids().back()) == 440,
+          "bands: hairtypecode 8040..9410, facialhairtypecode 336..440");
+    check(9410 <= 10000 && 440 <= 512, "bands inside the schema ranges (hairtypecode max 10000, facialhairtypecode max 512)");
+    check(!hair_from_code(3022) && !hair_from_code(2013) && !beard_from_code(304) && !beard_from_code(301),
+          "EA's largest codes (base tables: hair 3022 / 2013, beard 304 / 301) are not band codes");
+    bool rt = true;
+    for (int id : band_hair_ids()) rt = rt && hair_from_code(hair_band_code(id)) == id;
+    for (int id : band_beard_ids()) rt = rt && beard_from_code(beard_band_code(id)) == id;
+    check(rt, "every listed id round-trips through its band code");
+    check(!hair_from_code(8039) && !hair_from_code(9411) && !hair_from_code(0) && !hair_from_code(-1) && !beard_from_code(335) &&
+              !beard_from_code(441) && !beard_from_code(0),
+          "codes just outside the bands select nothing");
+    check(!hair_band_code(0) && !hair_band_code(999999) && !beard_band_code(259) && !beard_band_code(0), "unlisted ids have no band code");
+    check(kHairOwnCode == 9999 && kBeardOwnCode == 511 && !hair_id_ok(kHairOwnCode) && !beard_id_ok(kBeardOwnCode) && !hair_from_code(kHairOwnCode) &&
+              !beard_from_code(kBeardOwnCode) && is_turbo_hair_code(kHairOwnCode) && is_turbo_beard_code(kBeardOwnCode) && is_turbo_hair_code(8193) &&
+              !is_turbo_hair_code(8039) && !is_turbo_beard_code(335) && !is_turbo_hair_code(696),
+          "own codes 9999 / 511: no model, no band index, but Turbo codes; 8039 / 335 are plain ids");
+}
+
+static void test_look_writes() {
+    using M = std::map<std::string, int64_t>;
+    const M cur{{"hairtypecode", 696}, {"facialhairtypecode", 259}};
+    const M orig{{"hairtypecode", 696}, {"facialhairtypecode", 259}};
+    check(look_writes(155, 46, cur, orig) == M{{"hairtypecode", 8193}, {"facialhairtypecode", 355}}, "hair + beard -> both band codes");
+    check(look_writes(155, 0, cur, orig) == M{{"hairtypecode", 8193}}, "hair only: the beard code is left alone");
+    check(look_writes(0, 46, cur, orig) == M{{"facialhairtypecode", 355}}, "beard only: the hair code is left alone");
+    check(look_writes(0, 0, cur, orig).empty(), "his own look and no band code: nothing written");
+    const M banded{{"hairtypecode", 8193}, {"facialhairtypecode", 355}};
+    check(look_writes(0, 0, banded, orig) == M{{"hairtypecode", 696}, {"facialhairtypecode", 259}}, "back to his own: his recorded originals");
+    check(look_writes(0, 0, banded, M{}) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "back to his own without originals: 0 (outside the band)");
+    check(look_writes(0, 0, banded, banded) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "an original that is itself a band code is never written back");
+    const M owned{{"hairtypecode", kHairOwnCode}, {"facialhairtypecode", kBeardOwnCode}};
+    check(look_writes(0, 0, owned, orig) == M{{"hairtypecode", 696}, {"facialhairtypecode", 259}}, "own codes count as Turbo codes: his originals come back");
+    check(look_writes(0, 0, owned, owned) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "an own code is never written back as an original");
+    check(look_writes(250, 47, banded, orig) == M{{"hairtypecode", 8281}, {"facialhairtypecode", 356}}, "change of choice: the new band codes");
+    check(look_writes(155, 46, banded, orig).empty(), "same choice again: nothing written");
+    check(look_writes(999999, 259, cur, orig).empty(), "unlisted ids: nothing written");
+    check(look_writes(155, 46, M{{"hairtypecode", 696}}, orig) == M{{"hairtypecode", 8193}}, "a table without facialhairtypecode: only hair");
+    bool never_style = true;
+    for (const auto& kv : look_writes(155, 46, M{{"hairtypecode", 1}, {"facialhairtypecode", 1}, {"hairstylecode", 3}}, M{}))
+        never_style = never_style && kv.first != "hairstylecode";
+    check(never_style, "hairstylecode is never written (stock uses it in a real face's own asset names)");
+}
+
+static void test_live_looks_state() {
+    check(!live_looks(nullptr).active && !live_looks(nullptr).restart_needed, "no hooks: not active, no restart advice");
+    {
+        // 2.16 product mode: built in memory at the game's start; nothing ever asks for a restart
+        lualoader::Faces3dStatus p;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: hook not started: off, no restart advice");
+        p.opted_in = p.installed = p.substitute = p.in_memory = true;
+        check(!live_looks(&p).active && live_looks(&p).restart_needed && live_looks(&p).why.find("restart the game once") != std::string::npos,
+              "product: the hook never saw the boot compile: the one honest restart");
+        p.capture_refused = 18;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed && live_looks(&p).why.find("this game version") != std::string::npos,
+              "product: the reader is not the verified one (another game build): off, no restart advice");
+        p.capture_refused = 0;
+        p.captures = 18;
+        p.built_error = "the game's player_kit.lua (md5 x) is not the one Turbo knows";
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed && live_looks(&p).why.find("not the one Turbo knows") != std::string::npos,
+              "product: another player_kit.lua: off, says why, no restart advice");
+        p.built_error.clear();
+        p.built = true;
+        p.substituted = 18;
+        check(live_looks(&p).active && live_looks(&p).why == "Changes show straight away.", "product: built and served: active");
+        p.substituted = 0;
+        p.fallbacks = 18;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: failed compile: off, no restart advice");
+        p.fallbacks = 0;
+        p.substituted = 18;
+        p.killed = true;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: kill switch: off");
+        p.killed = false;
+        p.legacy_refused = true;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: legacy file: off");
+    }
+    // the research file mode
+    lualoader::Faces3dStatus st;
+    st.opted_in = true;
+    check(!live_looks(&st).active && !live_looks(&st).restart_needed, "not installed: no restart advice");
+    st.installed = true;
+    st.substitute = true;
+    st.header_ok = true;
+    st.build_key_ok = true;
+    st.stock_matches_header = true;
+    st.captured_md5 = "9399e39a1e46a15d151ada423759abe9";
+    st.substituted = 18;
+    check(!live_looks(&st).active && live_looks(&st).restart_needed, "an older override (no live rule) at this start: one restart");
+    st.live_looks = true;
+    check(live_looks(&st).active, "v4 served: active");
+    st.killed = true;
+    check(!live_looks(&st).active && !live_looks(&st).restart_needed, "kill switch: off, no restart advice");
+    st.killed = false;
+    st.legacy_refused = true;
+    check(!live_looks(&st).active, "legacy player_kit.lua: off");
+    st.legacy_refused = false;
+    st.build_key_ok = false;
+    check(!live_looks(&st).active && live_looks(&st).restart_needed, "another build: restart");
+    st.build_key_ok = true;
+    st.substituted = 0;
+    st.fallbacks = 18;
+    check(!live_looks(&st).active && !live_looks(&st).restart_needed, "override failed to compile: off");
+    // the hook reports live_looks from the override it holds
+    for (const bool v4 : {true, false}) {
+        lualoader::Env env;
+        lualoader::Engine eng(env);
+        const std::string body = std::string("-- TURBO build 6AC07E31-2145C000 stock 9399e39a1e46a15d151ada423759abe9 table 000000000000\r\n") +
+                                 (v4 ? "local TURBO_GATE = {}\r\nTURBO_GATE.band = function(initData)\r\nend\r\n" : "local TURBO_GATE = {}\r\n");
+        static std::vector<std::string> keep;  // the engine keeps the pointer
+        keep.push_back(body);
+        lualoader::Override o;
+        o.data = keep.back().data();
+        o.size = keep.back().size();
+        o.md5 = md5s(keep.back());
+        eng.configure(0, 0, true, lualoader::default_rows(), {o}, "6AC07E31-2145C000");
+        lualoader::Faces3dStatus fs3;
+        eng.fill_status(fs3);
+        check(fs3.live_looks == v4, std::string("hook status live_looks = ") + (v4 ? "true for a v4 override" : "false for an older one"));
+    }
+}
+
+// The v4 gate itself, filled by the generator and run in a real Lua 5.4 (lua5.4 from MSYS2; SKIP when it is not on PATH)
+static void test_gate_v4_in_lua() {
+    const std::string t4 = template_v4_text();
+    const size_t g0 = t4.find("--@@GATE-BEGIN\n"), g1 = t4.find("--@@GATE-END");
+    check(g0 != std::string::npos && g1 != std::string::npos, "v4 gate block found in the template");
+    if (g0 == std::string::npos || g1 == std::string::npos) return;
+    const std::string stock = stock_text("\n");
+    TOpts o;
+    o.stock_md5 = md5s(stock);
+    std::string tmpl = make_template(o);
+    const size_t s0 = tmpl.find("--@@GATE-BEGIN\n");
+    tmpl = tmpl.substr(0, s0) + t4.substr(g0, g1 + std::strlen("--@@GATE-END\n") - g0);
+    Table t;
+    t[230107] = Entry{155, 46, true, true, "baked"};
+    const Built b = generate_body(tmpl, stock, t);
+    check(b.ok, "synthetic v4 body builds (" + b.error + ")");
+    if (!b.ok) return;
+    const size_t a = b.bytes.find("local TURBO_GATE = {"), e = b.bytes.find("-- ===== END TURBO PER-PLAYER FACE GATE v4");
+    check(a != std::string::npos && e != std::string::npos, "generated v4 gate found");
+    if (a == std::string::npos || e == std::string::npos) return;
+    const char* lua = std::getenv("LUA");
+    const std::string luabin = lua && *lua ? lua : "lua5.4";
+    if (std::system((luabin + " -v > " + (fs::temp_directory_path() / "turbo_lua_v.txt").string() + " 2>&1").c_str()) != 0) {
+        std::printf("  SKIP v4 gate in Lua (%s not found)\n", luabin.c_str());
+        return;
+    }
+    const std::string H155 = std::to_string(hair_band_code(155)), B46 = std::to_string(beard_band_code(46)),
+                      H250 = std::to_string(hair_band_code(250)), B47 = std::to_string(beard_band_code(47));
+    std::string drv = b.bytes.substr(a, e - a) + R"LUA(
+local n, bad = 0, 0
+local function ok(c, what) n = n + 1; if not c then bad = bad + 1; print("LUAFAIL " .. what) end end
+local function P(t) t.PlayerId = t.PlayerId or 1; t.HeadClass = t.HeadClass or 0; t.HairStyle = t.HairStyle or 0
+  t.Hair = t.Hair or 696; t.FacialHairType = t.FacialHairType or 259; return t end
+local G = TURBO_GATE
+ok(#G.bandHair == 1371 and #G.bandBeard == 105, "band lists 1371 / 105")
+ok(G.bandHair[1] == )LUA" + std::to_string(band_hair_ids().front()) + R"LUA( and G.bandHair[1371] == )LUA" + std::to_string(band_hair_ids().back()) + R"LUA(, "band hair ends")
+ok(G.hairId(P{Hair = )LUA" + H155 + R"LUA(}) == 155 and G.beardId(P{Hair = )LUA" + H155 + R"LUA(}) == nil, "band hair 155 only")
+ok(G.beardId(P{FacialHairType = )LUA" + B46 + R"LUA(}) == 46 and G.hairId(P{FacialHairType = )LUA" + B46 + R"LUA(}) == nil, "band beard 46 only")
+ok(G.strandBeardId(P{FacialHairType = )LUA" + B46 + R"LUA(}) == 46, "band beard on a real face replaces the strand beard")
+ok(G.hairColours(P{Hair = )LUA" + H155 + R"LUA(}) == true and G.facialHairColours(P{FacialHairType = )LUA" + B46 + R"LUA(}) == true, "band colours from the DB")
+ok(G.get(P{}) == nil and G.hairId(P{}) == nil and G.beardId(P{}) == nil, "EA codes 696/259: nothing (stock)")
+ok(G.get(P{HeadClass = 1, Hair = )LUA" + H155 + R"LUA(, FacialHairType = )LUA" + B46 + R"LUA(}) == nil, "head class 1: no band")
+ok(G.get(P{HairStyle = 1, Hair = )LUA" + H155 + R"LUA(}) == nil, "hair style 1: no band")
+ok(G.hairId(P{PlayerId = 230107}) == 155 and G.beardId(P{PlayerId = 230107}) == 46, "baked entry without a band code")
+ok(G.hairId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + std::to_string(kBeardOwnCode) + R"LUA(}) == nil and
+   G.beardId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + std::to_string(kBeardOwnCode) + R"LUA(}) == nil and
+   G.hairColours(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) == nil, "own codes 9999/511 skip the baked entry (stock)")
+ok(G.beardId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 47 and
+   G.hairId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == nil, "own hair + band beard")
+ok(G.get(P{Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) ~= nil and G.hairId(P{Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) == nil, "own code on a player not listed: stock")
+ok(G.hairId(P{PlayerId = 230107, Hair = 8039, FacialHairType = 335}) == 155, "8039 / 335 are plain ids: the baked entry stands")
+ok(G.hairId(P{PlayerId = 230107, Hair = )LUA" + H250 + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 250 and
+   G.beardId(P{PlayerId = 230107, Hair = )LUA" + H250 + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 47, "band beats the baked entry")
+ok(G.hairId(P{Hair = )LUA" + H155 + R"LUA(.0}) == 155, "float band code")
+ok(G.get(P{Hair = )LUA" + H155 + R"LUA( + 0.5}) == nil, "fractional code")
+for _, c in ipairs({8039, 9411, 10000, -3, 0}) do ok(G.get(P{Hair = c}) == nil, "hair code " .. c .. " outside the band") end
+for _, c in ipairs({335, 441, 512}) do ok(G.get(P{FacialHairType = c}) == nil, "beard code " .. c .. " outside the band") end
+local strict = setmetatable({PlayerId = 1, HeadClass = 0, HairStyle = 0}, {__index = function(t, k) error("no key " .. k) end})
+ok(pcall(G.get, strict) and G.get(strict) == nil, "strict initData without Hair / FacialHairType: no error, nothing")
+ok(pcall(G.get, "x") and G.get("x") == nil, "non-table initData: no error, nothing")
+ok(G.get(P{Hair = )LUA" + H155 + R"LUA(}) == G.get(P{PlayerId = 9, Hair = )LUA" + H155 + R"LUA(}), "one memo entry per look")
+G.enabled = false
+ok(G.get(P{Hair = )LUA" + H155 + R"LUA(}) == nil, "enabled = false: nothing")
+G.enabled = true
+TURBO_FACES_GATE_OFF = true
+ok(G.get(P{Hair = )LUA" + H155 + R"LUA(}) == nil, "TURBO_FACES_GATE_OFF: nothing")
+print("LUARESULT " .. n .. " " .. bad)
+)LUA";
+    const fs::path f = fs::temp_directory_path() / ("turbo_gate_v4_" + std::to_string(std::rand()) + ".lua");
+    const fs::path outp = f.string() + ".out";
+    write_file(f, drv);
+    const int rc = std::system((luabin + " \"" + f.string() + "\" > \"" + outp.string() + "\" 2>&1").c_str());
+    std::string out;
+    read_file(outp, out);
+    const size_t r = out.find("LUARESULT ");
+    int n = 0, bad = -1;
+    if (r != std::string::npos) std::sscanf(out.c_str() + r, "LUARESULT %d %d", &n, &bad);
+    check(rc == 0 && r != std::string::npos && n >= 25 && bad == 0, "v4 gate in Lua 5.4: " + std::to_string(n) + " checks, " + std::to_string(bad) + " failed");
+    if (bad != 0) std::printf("%s\n", out.c_str());
+    std::error_code ec;
+    fs::remove(f, ec);
+    fs::remove(outp, ec);
+}
+
+// The C++ generator against the harness-validated Python build (validate_gate_v4.py prints the same md5s)
+static void test_real_v4() {
+    const char* env = std::getenv("TURBO_RESEARCH_DIR");
+    const fs::path research = env ? fs::u8path(env) : fs::current_path() / ".." / ".." / ".." / "research";
+    const fs::path stock_p = research / ".." / "evidence" / "2026-10-15" / "bisect" / "stock_copy.lua";
+    const fs::path pj_p = research / "c2_lua_loader" / "players_v3_test.json";
+    std::string stock, pj;
+    if (!read_file(stock_p, stock) || !read_file(pj_p, pj)) {
+        std::printf("  SKIP real-stock v4 compare (research files not here)\n");
+        return;
+    }
+    Table t;
+    std::string err;
+    check(parse_players_json(pj, t, &err), "players_v3_test.json parses");
+    const Built e = generate_body(template_v4_text(), stock, Table{});
+    check(e.ok && e.md5 == "afea57af5c80424c8d03e6a189639940" && e.bytes.size() == 282530,
+          "real stock v4, empty list: body md5 == validate_gate_v4.py afea57af... (" + e.md5 + e.error + ")");
+    const Built b = generate_body(template_v4_text(), stock, t);
+    check(b.ok && b.md5 == "83cceb6fa1d9b5f83561d95e21b677c8", "real stock v4, launch set: body md5 == validate_gate_v4.py 83cceb6f... (" + b.md5 + ")");
+    check(b.ok && lualoader::has_live_looks(b.bytes.data(), b.bytes.size()), "real stock v4 carries the live-looks marker");
+    // the exact function the hook calls at the boot capture (win/lua_loader_win.cpp build_override)
+    {
+        std::string note, why;
+        const auto mem = build_live_override(stock, t, note, why);
+        check(mem && md5s(*mem) == b.md5 && note == "2 players on the saved list" && why.empty(), "build_live_override == the launch-set body (" + why + ")");
+        const auto mem0 = build_live_override(stock, Table{}, note, why);
+        check(mem0 && md5s(*mem0) == e.md5 && note == "0 players on the saved list", "build_live_override, empty list == the empty body");
+        std::string bad2 = stock;
+        bad2[200] = bad2[200] == 'q' ? 'r' : 'q';
+        std::string why2;
+        check(!build_live_override(bad2, t, note, why2) && why2.find("stock md5") != std::string::npos, "build_live_override refuses a changed stock: " + why2);
+        Table junk;
+        junk[5] = Entry{-5, 0, true, true, ""};  // the generator refuses a negative model id
+        std::string why3;
+        const auto mem3 = build_live_override(stock, junk, note, why3);
+        check(mem3 && md5s(*mem3) == e.md5 && note.find("saved list refused") != std::string::npos && why3.empty(),
+              "build_live_override: a bad saved list falls back to the bands alone (" + note + ")");
+    }
+    std::string bad_stock = stock;
+    bad_stock[100] = bad_stock[100] == 'x' ? 'y' : 'x';
+    const Built r = generate_body(template_v4_text(), bad_stock, t);
+    check(!r.ok && r.bytes.empty() && r.error.find("stock md5") != std::string::npos, "v4 refuses a changed stock (as today)");
+    std::printf("  real-stock v4 compare done: empty %s, launch set %s\n", e.md5.c_str(), b.md5.c_str());
 }
 
 int main() {
@@ -546,6 +826,11 @@ int main() {
     test_running_and_gate();
     test_real_f2();
     test_real_v3();
+    test_bands();
+    test_look_writes();
+    test_live_looks_state();
+    test_gate_v4_in_lua();
+    test_real_v4();
     std::printf("faces3d: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
