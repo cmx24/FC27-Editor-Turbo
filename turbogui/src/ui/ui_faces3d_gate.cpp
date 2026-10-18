@@ -523,8 +523,10 @@ int faces3d_restore_markers(App& app) {
     if (!would.empty()) {
         std::string ids;
         for (int64_t id : would) ids += (ids.empty() ? "" : ", ") + std::to_string(id);
-        flog(app, "3D hair & beard: would put his own look back for " + std::to_string(would.size()) + " players: " + ids +
-                      " (nothing written: turbo_output\\" + kAutoRestoreSwitch + " is absent; \"His own hair & beard\" puts it back)");
+        const std::string head = "3D hair & beard: would put his own look back for " + std::to_string(would.size()) + " players: " + ids;
+        // the in-app Log in plain words; turbo_gui.log also names the switch file (log lines: not words a player reads)
+        app.log(head + " (nothing written: the automatic restore is switched off; \"His own hair & beard\" puts it back)");
+        if (app.log_hook) app.log_hook(head + " (nothing written: " + std::string(kAutoRestoreSwitch) + " is absent in turbo_output)");
     }
     return restored;
 }
