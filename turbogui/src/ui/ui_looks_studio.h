@@ -11,12 +11,13 @@
 // hair & beard"). No codes or ids on screen (hover only).
 //
 // The preview pane draws from a PreviewSource:
-//   CapturePreview  the game's picture through the capture service Turbo already ships, camera 1 ("Large slice (mode 1, extra 0)",
-//                   the learned descriptor off): in game a 1024 x 1024 HEAD-AND-SHOULDERS picture, players and managers alike (Tester
-//                   2026-10-17 22:09), so a line under it says that body, boots and kit fit don't show and where the game shows him
-//                   in full. Asked by "Draw him" and again whenever his look changes while the page is shown; never while another
-//                   picture is in flight, never by itself for a player's body made for another head.
-//   GameScreenHint  before the first picture: his small picture from the game files and what "Draw him" does.
+//   CapturePreview  the game's picture through the capture service Turbo already ships, with track C's capture::body_request (the
+//                   default descriptor, never the learned one), one object per camera: "Full body" (capture::kCameraBodyFull, W2228:
+//                   256 x 256, head to boots in kit; the page's default, Cassio 22:41) and "Head and shoulders" (camera 1, W2202:
+//                   1024 x 1024). A switch picks the view. Asked by "Draw him", when the view is switched to one with no picture of him
+//                   yet, and whenever his look changes while the page is shown; never while another picture is in flight, never by
+//                   itself for a player's body made for another head. Managers by their head id: their full body is not tested yet.
+//   GameScreenHint  before the first picture: what "Draw him" does.
 #pragma once
 #include <cstdint>
 #include <memory>
@@ -60,10 +61,10 @@ public:
     // Every frame: collect an answer in flight. Never waits.
     virtual void tick(App&) {}
 };
-std::unique_ptr<PreviewSource> make_capture_preview();
+std::unique_ptr<PreviewSource> make_capture_preview(int camera);  // capture::kCameraBodyFull or kCameraBody
 std::unique_ptr<PreviewSource> make_game_screen_hint();
 
-// The capture camera (index into capture::cameras(): "Large slice (mode 1, extra 0)"); track C's capture::kCameraBody replaces it
+// The head-and-shoulders camera (capture::cameras() index 1, "Large slice (mode 1, extra 0)" = track C's capture::kCameraBody)
 constexpr int kCameraBody = 1;
 
 // ---- the body-type grid (pure: tests call them)
@@ -94,6 +95,7 @@ struct StudioState {
     std::string body_result;   // what the last body-type click said
     bool asking = false;       // the "can't be undone" question is open
     bool risky_body = false;   // his body was made for another kind of head: no picture is asked by itself
+    bool full_view = false;    // the switch is on "Full body"
 };
 const StudioState& studio_state();
 

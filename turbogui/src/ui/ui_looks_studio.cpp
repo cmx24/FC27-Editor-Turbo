@@ -100,14 +100,17 @@ void centred_text(const char* text, float w) {
 }
 
 // ---------------------------------------------------------------- CapturePreview
-// The faces card's pattern (ui_faces3d_gate.cpp request_capture / tick_faces3d_preview / draw_picture) with the large camera (mode 1,
-// a 1024 x 1024 head-and-shoulders picture in game, players and managers alike, Tester 2026-10-17 22:09): one request at a time,
-// refused while the service is busy or the faces card or the chooser's 3D heads wait for theirs, polled only while this page waits
-// (the service hands each answer to whoever polls first), a timeout that frees the service. A player is asked by his player id, a
-// manager by his head id (as the miniface editor does), both with their club as the second id.
+// The faces card's pattern (ui_faces3d_gate.cpp request_capture / tick_faces3d_preview / draw_picture), one object per camera:
+//   kCameraBodyFull  "Full body": track C's full-body request (W2228: 256 x 256, head to boots in kit), the page's default
+//   kCameraBody      "Head and shoulders": mode 1, a 1024 x 1024 head-and-shoulders picture (W2202)
+// The request is track C's capture::body_request (default descriptor, never the learned one). One request at a time for the whole
+// game: refused while the service is busy (the other camera's picture, the faces card, the chooser's 3D heads, a miniface), polled
+// only while this object waits (the service hands each answer to whoever polls first), a timeout that frees the service. A player is
+// asked by his player id, a manager by his head id (as the miniface editor does), both with their club as the second id.
 class CapturePreview : public PreviewSource {
 public:
-    const char* title() const override { return "Big picture"; }
+    CapturePreview(int camera, const char* title, const char* texture_key) : camera_(camera), title_(title), key_(texture_key) {}
+    const char* title() const override { return title_; }
 
     bool ready(App& app, const Subject& s, std::string* why) override {
         if (!app.capture) {
@@ -150,13 +153,10 @@ public:
             return false;
         }
         if (!can_request(app, why)) return false;
-        capture::Request r;
-        r.id = static_cast<int32_t>(req);
-        r.second_id = s.club > 0 ? static_cast<int32_t>(s.club) : -1;
-        r.manager = s.manager;
-        r.camera = kCameraBody;
-        r.use_template = false;  // the default descriptor, as the Architect's pre-registered check (FULLBODY_FAST_ROUTE.md section 5)
-        r.label = "Looks studio " + s.name;
+        // track C's request: the default descriptor (never the learned one), his id, his club as the second id
+        capture::Request r = capture::body_request(static_cast<int32_t>(req), s.club > 0 ? static_cast<int32_t>(s.club) : -1, camera_,
+                                                   "Looks studio " + s.name);
+        r.manager = s.manager;  // a manager by his head id (his full body is not tested yet)
         std::string err;
         if (!app.capture->request(r, &err)) {
             if (why) *why = "The game did not take the request: " + err;
@@ -167,7 +167,7 @@ public:
         sent_at_ = app.now;
         ++requests_;
         note_.clear();
-        app.log("looks studio: picture asked for " + s.name + " (id " + std::to_string(req) + ", camera " + std::to_string(kCameraBody) +
+        app.log("looks studio: picture asked for " + s.name + " (id " + std::to_string(req) + ", camera " + std::to_string(camera_) +
                 (s.manager ? ", manager" : "") + ")");
         return true;
     }
@@ -192,7 +192,7 @@ public:
             shown_ = who;
             image_ = fit_image(r.image, std::max(256, static_cast<int>(S(640.0f))));  // core/image.h: the pane's size, before textures.pixels
             ++version_;
-            caption_ = "Big picture, drawn by the game at " + clock_text();
+            caption_ = std::string(title_) + ", drawn by the game at " + clock_text();
             app.log("looks studio: picture of id " + std::to_string(req) + " (" + r.format + ")");
             return;
         }
@@ -212,7 +212,7 @@ public:
         ImGui::Dummy(ImVec2(w, h));
         drew_ = false;
         if (same(shown_, s) && !image_.empty()) {
-            TextureCache::Pic pic = app.textures.pixels("looks_studio_preview", version_, image_);
+            TextureCache::Pic pic = app.textures.pixels(key_, version_, image_);
             draw_fitted(pic.tex, pic.w, pic.h, p0, w, h);
             drew_ = pic.tex != nullptr;
         }
@@ -243,7 +243,12 @@ public:
         requests_ = 0;
     }
 
+    int camera() const { return camera_; }
+
 private:
+    int camera_;
+    const char* title_;
+    const char* key_;
     Subject pending_, shown_;
     int64_t pending_req_ = 0;  // the id the request carries (player id, a manager's head id)
     double sent_at_ = 0.0;
@@ -292,7 +297,12 @@ struct Studio {
     std::string list_key;
     uint64_t list_version = ~uint64_t(0);
     // preview
-    CapturePreview capture;
+    CapturePreview body{capture::kCameraBodyFull, "Full body", "looks_studio_body"};
+    CapturePreview big{kCameraBody, "Head and shoulders", "looks_studio_big"};
+    bool view_full = true;  // the "Full body" / "Head and shoulders" switch (Cassio 22:41: full body by default)
+    uint64_t sig_full = 0, sig_big = 0;  // his look when each view's picture was last asked
+    uint64_t& view_sig() { return view_full ? sig_full : sig_big; }
+    CapturePreview& view() { return view_full ? body : big; }
     GameScreenHint hint;
     Subject last;            // the person of the last frame
     bool baseline = true;    // the next read of his look is the one the page starts from (no picture asked for it)
@@ -554,10 +564,23 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
     ImGui::SameLine();
     theme::muted_text("%s", who.club > 0 ? app.model.team_name(who.club).c_str() : (who.manager ? "free agent" : "no club"));
 
-    // the source: the game's picture of him when there is one (or one being drawn), else the hint
+    // the switch, then the source: the game's picture of him in that view when there is one (or one being drawn), else the hint
+    if (ImGui::RadioButton("Full body###lsviewbody", s.view_full) && !s.view_full) {
+        s.view_full = true;
+        s.want_picture = !s.body.ready(app, who, nullptr) || s.sig_full != s.signature;  // none of him yet, or one older than his look
+        s.next_try = 0.0;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Head and shoulders###lsviewhead", !s.view_full) && s.view_full) {
+        s.view_full = false;
+        s.want_picture = !s.big.ready(app, who, nullptr) || s.sig_big != s.signature;
+        s.next_try = 0.0;
+    }
+    s.st.full_view = s.view_full;
+    CapturePreview& cur = s.view();
     std::string why;
     PreviewSource* src = &s.hint;
-    if (s.capture.ready(app, who, &why)) src = &s.capture;
+    if (cur.ready(app, who, &why)) src = &cur;
     s.st.source = src->title();
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -566,10 +589,10 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ImGui::GetColorU32(ImGuiCol_FrameBg), S(4.0f));
     src->draw(app, who, w, h);
-    s.st.picture = src == &s.capture && s.capture.drew();
-    s.st.waiting = s.capture.waiting_for(who);
+    s.st.picture = src == &cur && cur.drew();
+    s.st.waiting = cur.waiting_for(who);
 
-    s.st.preview_line = s.capture.line(who);
+    s.st.preview_line = cur.line(who);
     if (!s.preview_why.empty()) s.st.preview_line += (s.st.preview_line.empty() ? "" : " ") + s.preview_why;
     if (!s.st.preview_line.empty()) hint_line(s.st.preview_line.c_str());
     if (s.st.risky_body) {
@@ -579,15 +602,15 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
         ImGui::PopTextWrapPos();
     }
     std::string cant;
-    const bool can = s.capture.can_request(app, &cant);
+    const bool can = cur.can_request(app, &cant);
     if (!can) ImGui::BeginDisabled();
     const bool have_picture = s.st.picture || s.st.waiting;
     const std::string draw_label = std::string(have_picture ? "Draw again" : "Draw him") + "###lsdraw";
     if (ImGui::Button(draw_label.c_str())) {
         std::string err;
-        if (s.capture.refresh(app, who, &err)) {
+        if (cur.refresh(app, who, &err)) {
             s.want_picture = false;
-            s.drawn_signature = s.signature;
+            s.drawn_signature = s.view_sig() = s.signature;
             s.preview_why.clear();
         } else {
             s.preview_why = err;
@@ -598,12 +621,11 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
         ImGui::SetTooltip("%s", can ? "Asks the game for a new picture of him (about a second, in the game's menus only)" : cant.c_str());
     ImGui::SameLine();
     theme::warn_text("%s", kNotTested);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game draws this picture, but nobody has used this page in a real game yet.");
-    // the picture is head and shoulders (Tester 2026-10-17 22:09): say what it cannot show, and where the game shows him in full
-    hint_line(who.manager ? "This picture shows head and shoulders only. A manager's picture arrives; whether it changes after a change made "
-                            "here is not proven yet."
-                          : "This picture shows head and shoulders only. To see him in full: the game's Customise > Edit Players > Edit Real "
-                            "Players (re-open him after a change: the game rebuilds him when he is selected).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", who.manager ? "A manager's picture, full body above all, has not been seen through this page in a real game yet."
+                                            : "The game draws this picture, but nobody has used this page in a real game yet.");
+    hint_line("Drawn by the game with his current look.");
+    if (who.manager && s.view_full) hint_line("A manager's full body is not tested yet: the game may answer with no picture.");
 }
 
 // His look changed while the page is shown (a card here, Undo, the face chooser, another page): ask the game for his picture once it
@@ -642,9 +664,9 @@ void auto_picture(App& app, Studio& s, const Subject& who, const Table* t, uint6
     if (!s.want_picture || s.st.risky_body) return;
     if (app.now < s.next_try) return;
     std::string why;
-    if (s.capture.refresh(app, who, &why)) {
+    if (s.view().refresh(app, who, &why)) {
         s.want_picture = false;
-        s.drawn_signature = s.signature;
+        s.drawn_signature = s.view_sig() = s.signature;
         s.preview_why.clear();
     } else {
         s.preview_why = why;
@@ -887,7 +909,9 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
 }  // namespace
 
 // ---------------------------------------------------------------- public: preview sources
-std::unique_ptr<PreviewSource> make_capture_preview() { return std::make_unique<CapturePreview>(); }
+std::unique_ptr<PreviewSource> make_capture_preview(int camera) {
+    return std::make_unique<CapturePreview>(camera, camera == kCameraBody ? "Head and shoulders" : "Full body", "looks_studio_made");
+}
 std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique<GameScreenHint>(); }
 
 // ---------------------------------------------------------------- public: body-type grid
@@ -963,11 +987,17 @@ std::vector<std::string> card_fields(bool manager, bool kit_fit) {
 
 const StudioState& studio_state() { return studio().st; }
 
-void tick_looks_studio(App& app) { studio().capture.tick(app); }
+void tick_looks_studio(App& app) {
+    studio().body.tick(app);
+    studio().big.tick(app);
+}
 
 void looks_studio_reset_for_tests() {
     Studio& s = studio();
-    s.capture.reset();
+    s.body.reset();
+    s.big.reset();
+    s.view_full = true;
+    s.sig_full = s.sig_big = 0;
     s.managers = false;
     s.search[0] = 0;
     s.my_club = false;
@@ -998,7 +1028,7 @@ void looks_studio_show_managers(bool managers) { studio().managers = managers; }
 void draw_looks_studio(App& app) {
     Studio& s = studio();
     tick_looks_studio(app);
-    const int requests = s.capture.requests();
+    const int requests = s.body.requests() + s.big.requests();
     s.st = StudioState();
     s.st.requests = requests;
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
@@ -1030,7 +1060,7 @@ void draw_looks_studio(App& app) {
     ImGui::BeginChild("##lscards", ImVec2(0, 0), ImGuiChildFlags_Borders);
     cards_pane(app, s, who, t, rec);
     ImGui::EndChild();
-    s.st.requests = s.capture.requests();
+    s.st.requests = s.body.requests() + s.big.requests();
 }
 
 }  // namespace looks
