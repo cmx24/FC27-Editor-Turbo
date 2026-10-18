@@ -92,7 +92,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // the cards, in order
         CHECK(ui.find("###pp_face", "pp_looks") != nullptr, "Looks: Choose a real face");
         CHECK(st.face_line == "Real face" || st.face_line == "Generic face", "Looks: a plain face line: " + st.face_line);
-        CHECK(ui.find("###pp_hair", "pp_looks") != nullptr, "Looks: hair and beard fold-out");
+        const ItemRec* hair = ui.find("###pp_hair", "pp_looks");
+        CHECK(hair != nullptr, "Looks: hair and beard fold-out");
+        CHECK(hair && hair->label == "Hair and beard###pp_hair", "the fold says no restart is needed: " + (hair ? hair->label : std::string("?")));
         CHECK(ui.find("+1###pp_ovr_up", "pp_skills") != nullptr && ui.find("-1###pp_ovr_down", "pp_skills") != nullptr, "Skills: overall +1 / -1");
         CHECK(ui.find("###pp_sk_pace", "pp_skills") != nullptr && ui.find("###pp_sk_def", "pp_skills") != nullptr, "Skills: the groups");
         CHECK(ui.find("###pp_sk_gk", "pp_skills") == nullptr || pr->positions[0] == 0, "Skills: Goalkeeping only for a goalkeeper");
