@@ -561,6 +561,7 @@ void draw_status(App& app);
 void draw_status_health(App& app);  // pictures, health, collapsed technical details
 void draw_preferences(App& app);    // show/hide key, UI size, row density, background loading
 void draw_status_log(App& app);     // the log, filling the window
+void draw_log_section(App& app, const char* key);  // ui_settings.cpp: a collapsing "Log" section (closed at first; `key` keeps its state)
 // Game-code hook status (part of the Status tab; App::hook_report supplies the data)
 void draw_hook_status(App& app);
 

@@ -3982,7 +3982,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Squad & Players") && ui.find("Club & Kits") && ui.find("Tactics & Gameplay") && ui.find("Career tools") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -5503,7 +5503,7 @@ static void test_ui() {
 
         run_case("UI: dry run and show/hide key settings", [&] {
             CHECK(ui.click("Safety"), "Safety header");
-            CHECK(ui.click("Dry run (Turbo Tools report only, write nothing)"), "dry run checkbox");
+            CHECK(ui.click("###dryrun"), "dry run checkbox");
             CHECK(read_json(le / "turbo_output" / "gui_settings.json")["turbo"]["dry_run"].get<bool>(), "dry run saved");
             CHECK(ui.click("Status"), "Status tab");
             CHECK(ui.click("Change...##hotkey", "", "status"), "Change the show/hide key");
@@ -5831,10 +5831,11 @@ static void test_ui() {
             // the live view comes first; without a career the engine is not reachable and says so. 2.13: the old tab's two views are
             // two pages, the live table (Tactics & Gameplay > Standings, where request_tab 3 lands) and the database copy (Career tools >
             // Maintenance)
-            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career tools", "FC 27 LE Turbo", "##shell") != nullptr,
+            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career", "FC 27 LE Turbo", "##shell") != nullptr,
                   "two views");
             CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
-            CHECK(ui.open_page("Career tools", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
+            app.prefs.advanced_mode = true;  /* 2.16 step 4: the database copy is a section of Advanced > Maintenance */
+            CHECK(ui.open_page("Advanced", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
             ui.frames(2);
             const Table* lt = app.db.table("leagueteamlinks");
             CHECK(lt != nullptr, "leagueteamlinks");
@@ -6833,7 +6834,7 @@ static void test_ui() {
             CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
             ui.frames(2);
-            CHECK(ui.click("Capture from the loaded bank##cn"), "the memory scan is manual now (the audio service is the automatic path)");
+            CHECK(ui.click("###cncapture"), "the memory scan is manual now (the audio service is the automatic path)");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             CHECK(!app.bank_capture_running(), "capture thread finished");
             ui.frames(2);
@@ -6844,9 +6845,9 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("pickers rebuilt from the capture: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Capture from the loaded bank##cn") != nullptr, "capture button");
+            CHECK(ui.find("###cncapture") != nullptr, "capture button");
             // a manual capture while nothing changed gives the same set
-            CHECK(ui.click("Capture from the loaded bank##cn"), "manual capture");
+            CHECK(ui.click("###cncapture"), "manual capture");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             ui.frames(2);
             CHECK(app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5, "manual capture applied");
@@ -6946,16 +6947,16 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 3, fmt("pickers from the set: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Rebuild from the game's audio service##cn") != nullptr && ui.find("Capture from the loaded bank##cn") != nullptr,
+            CHECK(ui.find("###cnrebuild") != nullptr && ui.find("###cncapture") != nullptr,
                   "rebuild button (default) and the capture button (diagnostic)");
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "rebuild");
+            CHECK(ui.click("###cnrebuild"), "rebuild");
             ui.frames(3);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio && app.callnames.spoken.ids.size() == 3, "rebuilt");
             // the service off: no request goes out; the cache still serves the set
             svc->installed = false;
             app.callnames.refreshed = false;
             ui.frames(2);
-            ui.click("Rebuild from the game's audio service##cn");
+            ui.click("###cnrebuild");
             ui.frames(2);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio, "no request while unavailable, cache still in use");
             fs::remove(cache);
@@ -7039,7 +7040,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(svc->probes == 2 && svc->requests == 0 && !fs::exists(cache), fmt("probed again after the interval (probes %d), still nothing cached", svc->probes));
             // a manual Rebuild in the hub: the full build answers 'no' for every id: failed, not cached, the watcher keeps waiting
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "manual rebuild while unbound");
+            CHECK(ui.click("###cnrebuild"), "manual rebuild while unbound");
             ui.frames(3);
             CHECK(svc->requests == 1 && !fs::exists(cache) && !app.callnames.spoken.verified && app.spoken_build_status.find("not bound") != std::string::npos &&
                       app.spoken_watch.state() == caudio::SpokenWatch::State::Waiting,
@@ -8079,7 +8080,7 @@ static void test_ui() {
             hooked.clear();
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.click("Refresh"), "Refresh");
+            app.request_tab = 6;  /* 2.16 step 2: Refresh moved to Settings */ ui.frames(2); CHECK(ui.click("###reload"), "Reload from game");
             CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "no re-apply for the same career");
 
             // ---- the panels: the status line and Forget (Teams > Colours: Everton's home kit), Remove (Callname: 1006)
@@ -8391,7 +8392,7 @@ static void test_ui() {
             CHECK(!spy.last.find(7) && spy.last.find(241), "club names in career B: Inter's (every career) only, not career A's Everton A");
 
             // ---- the page (Career tools > Changes & undo): Global on Arsenal's career-A kit rows
-            CHECK(ui.open_page("Career tools", "Changes & undo") && ui.find("Where kept edits apply (careers)") != nullptr, "the page");
+            CHECK(ui.open_page("Career", "Changes & undo") && ui.find("Where kept edits apply (careers)") != nullptr, "the page");
             ui.frames(2);
             CHECK(ui.click("Global", "", "k1|career:" + idA), "Global for Arsenal's career-A rows");
             CHECK(app.reapply.kit_in("global", 1, 1, 11) && !app.reapply.kit_in(career_scope(idA), 1, 1, 11) && app.reapply.kit(1, 1, 11),
@@ -8741,7 +8742,7 @@ static void test_ui() {
             CHECK(app.bridge.state().svm == SvmWorld::kSvm && app.bridge.state().managers == SvmWorld::kManagers &&
                       app.bridge.state().ifce == fw.ifce,
                   "bridge_state carries ifce / svm / managers");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (the earlier case left the database view)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (the earlier case left the database view)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "live view reachable through the published ifce");
             // the precise home / away counters are under Advanced, closed by default (the table cells are the main way)
@@ -8900,7 +8901,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr, "live view reachable");
             auto row0 = [&]() {
@@ -9124,7 +9125,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload (the located chain is the same, the rows grew)");
             ui.frames(2);
@@ -9258,7 +9259,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.click("Reload"), "Reload");
             ui.frames(2);
@@ -9352,7 +9353,7 @@ static void test_ui() {
             app.request_tab = 3;
             ui.frames(3);
             CHECK(app.bridge.state().ifce == fw.ifce, "bridge_state carries the ifce");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "live view page (Tactics & Gameplay > Standings)");
+            CHECK(ui.open_page("Career", "Standings"), "live view page (Tactics & Gameplay > Standings)");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr && ui.find("Reload") == nullptr, "6AB9813C vtables on the 6AC07E31 objects: not reachable");
             // 2.13 (P213 triage): the failed locate is in turbo_gui.log too (log_hook), once per reason although it is retried every frame
@@ -9449,7 +9450,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             ui.frames(3);
             CHECK(ui.find("Try again") != nullptr, "fixtures unreachable again without the ifce");
-            CHECK(ui.open_page("Tactics & Gameplay", "Standings"), "back to the live view");
+            CHECK(ui.open_page("Career", "Standings"), "back to the live view");
             ui.frames(2);
             CHECK(ui.find("Try again") != nullptr, "live view unreachable again without the ifce");
         });

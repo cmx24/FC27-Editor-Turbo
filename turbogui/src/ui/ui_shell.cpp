@@ -18,39 +18,45 @@ struct PageInfo {
     int legacy_tab;  // the TopTab the panel lived in before the revamp (-1: none)
 };
 
-// Order = order in kPages; the page strip of an area lists its pages in this order
+// Order = order in kPages; the page strip of an area lists its pages in this order. 2.16 step 4 (plan 4.3): the new map; a page with no
+// legacy tab (-1) is new. Scouting, Budget and Bans are sections of the Transfers & money page (the old Turbo Tools panel); Exports is
+// Advanced > Data export; Career tools > Maintenance is Advanced > Maintenance (Game editors stay on Transfers & money).
 const PageInfo kPages[] = {
-    {Page::PlayerEdit, Area::Squad, "Player edit", 0},
-    {Page::Squad, Area::Squad, "Squad", 1},
-    {Page::Staff, Area::Squad, "Staff", 2},
+    {Page::PlayerEdit, Area::Squad, "Edit a player", 0},
+    {Page::Squad, Area::Squad, "My squad", 1},
+    {Page::CreatePlayer, Area::Squad, "Create a player", -1},
+    {Page::Staff, Area::Squad, "Managers & staff", 2},
+    {Page::CommentaryNames, Area::Squad, "Commentary names", -1},
+
+    {Page::FacesHair, Area::Looks, "Faces & hair", -1},
+    {Page::BodyGear, Area::Looks, "Body, tattoos & gear", -1},
 
     {Page::Kits, Area::Club, "Kits", 1},
-    {Page::Identity, Area::Club, "Identity", 1},
+    {Page::Identity, Area::Club, "Club name, colours & crest", 1},
     {Page::StadiumExtras, Area::Club, "Stadium & extras", 5},
 
     {Page::TacticPresets, Area::Tactics, "Tactic presets", 1},
-    {Page::GameplayPresets, Area::Tactics, "Gameplay presets", 7},
-    {Page::Standings, Area::Tactics, "Standings", 3},
+    {Page::TeamSheet, Area::Tactics, "Team sheet & bench", -1},
+    {Page::GameplayPresets, Area::Tactics, "Game sliders", 7},
 
-    {Page::Transfers, Area::Career, "Transfers", 1},
-    {Page::JobOffer, Area::Career, "Job offer", 1},
-    {Page::Scouting, Area::Career, "Scouting", 5},
-    {Page::Budget, Area::Career, "Budget", 5},
-    {Page::Exports, Area::Career, "Exports", 5},
-    {Page::Bans, Area::Career, "Bans", 5},
-    {Page::CMTracker, Area::Career, "CMTracker", 5},
+    {Page::Standings, Area::Career, "Standings", 3},
+    {Page::Transfers, Area::Career, "Transfers & money", 5},
+    {Page::JobOffer, Area::Career, "Manager jobs", 1},
+    {Page::CMTracker, Area::Career, "Season pack", 5},
     {Page::ChangesUndo, Area::Career, "Changes & undo", 5},
-    {Page::CareerMaintenance, Area::Career, "Maintenance", 3},
 
     {Page::Settings, Area::Settings, "Settings", 6},
 
     {Page::AdvDatabase, Area::Advanced, "Database", 4},
-    {Page::AdvRawRows, Area::Advanced, "Raw rows", 0},
+    {Page::AdvRawRows, Area::Advanced, "Row editor", 0},
     {Page::AdvBulkEdit, Area::Advanced, "Bulk edit", 5},
     {Page::AdvMaintenance, Area::Advanced, "Maintenance", 5},
     {Page::AdvTactics, Area::Advanced, "Tactics (experimental)", 1},
     {Page::AdvMatchSetup, Area::Advanced, "Match setup", 3},
     {Page::AdvGameplayTuning, Area::Advanced, "Gameplay tuning", 3},
+    {Page::AdvExport, Area::Advanced, "Data export", 5},
+    // health, hooks, switches and the log: until its own page is registered the legacy Status panel stands in (draw_legacy_page)
+    {Page::AdvDiagnostics, Area::Advanced, "Diagnostics & logs", 6},
 };
 
 const PageInfo* info_of(Page p) {
@@ -68,10 +74,11 @@ std::map<int, PageFn>& registry() {
 
 const char* area_label(Area a) {
     switch (a) {
-        case Area::Squad: return "Squad & Players";
-        case Area::Club: return "Club & Kits";
-        case Area::Tactics: return "Tactics & Gameplay";
-        case Area::Career: return "Career tools";
+        case Area::Squad: return "Players";
+        case Area::Looks: return "Faces & looks";
+        case Area::Club: return "Kits & club";
+        case Area::Tactics: return "Tactics";
+        case Area::Career: return "Career";
         case Area::Settings: return "Settings";
         case Area::Advanced: return "Advanced";
         default: return "";

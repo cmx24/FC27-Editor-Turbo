@@ -8,9 +8,9 @@ exempt	ui_match.cpp	Advanced > Match setup
 exempt	ui_tactics.cpp	Advanced > Tactics (experimental)
 exempt	ui_tuning.cpp	Advanced > Gameplay tuning
 app.cpp	channel	2
-app.cpp	json	2
-app.cpp	lua	5
-app.cpp	path	2
+app.cpp	json	1
+app.cpp	lua	3
+app.cpp	path	1
 app.cpp	turbo_output	1
 app.cpp	txt	1
 file_picker.cpp	exe	1
@@ -22,10 +22,10 @@ ui_bodytypes.cpp	path	1
 ui_bodytypes.cpp	turbo_output	1
 ui_callnames.cpp	channel	1
 ui_callnames.cpp	hook	1
-ui_callnames.cpp	json	4
+ui_callnames.cpp	json	3
 ui_callnames.cpp	lua	1
-ui_callnames.cpp	path	5
-ui_callnames.cpp	turbo_output	2
+ui_callnames.cpp	path	4
+ui_callnames.cpp	turbo_output	1
 ui_callnames.cpp	txt	1
 ui_club_tools.cpp	path	1
 ui_club_tools.cpp	turbo_output	1
@@ -59,9 +59,9 @@ ui_images.cpp	path	6
 ui_images.cpp	turbo_output	2
 ui_kits.cpp	hook	4
 ui_kits.cpp	json	1
-ui_kits.cpp	path	9
-ui_kits.cpp	turbo_output	7
-ui_kits.cpp	txt	6
+ui_kits.cpp	path	8
+ui_kits.cpp	turbo_output	6
+ui_kits.cpp	txt	5
 ui_live_tactic.cpp	channel	25
 ui_live_tactic.cpp	hex	3
 ui_live_tactic.cpp	json	3
@@ -110,13 +110,13 @@ ui_teams.cpp	dll	1
 ui_teams.cpp	json	1
 ui_teams.cpp	path	1
 ui_teams.cpp	turbo_output	1
-ui_tools.cpp	channel	3
+ui_tools.cpp	channel	2
 ui_tools.cpp	dll	1
 ui_tools.cpp	hex	2
 ui_tools.cpp	hook	6
-ui_tools.cpp	json	7
-ui_tools.cpp	lua	12
-ui_tools.cpp	path	4
+ui_tools.cpp	json	6
+ui_tools.cpp	lua	9
+ui_tools.cpp	path	3
 ui_tools.cpp	turbo_output	4
 ui_tools.cpp	txt	4
 ui_zoom.cpp	json	1

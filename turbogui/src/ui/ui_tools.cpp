@@ -122,16 +122,14 @@ static bool section_header(const char* label, ImGuiTreeNodeFlags flags = 0) {
 // The two lines every Lua-run tool page starts with. False when the command channel is missing (nothing can be sent).
 static bool tools_preamble(App& app) {
     if (!app.mailbox) {
-        theme::err_text("Command channel unavailable; these tools need it.");
+        theme::err_text("These tools cannot reach the game right now.");
         return false;
     }
     const BridgeState& st = app.bridge.state();
-    theme::muted_text("These run through Live Editor's Lua engine on the next career-mode event (usually within a second in career mode).");
     if (!st.in_cm)
-        theme::warn_text("No career loaded: Live Editor sends Lua no events here. After clicking a tool, run "
-                         "lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine to execute it.");
+        theme::warn_text("Open a career first. These tools only work inside one.");
     else if (!app.lua_alive())
-        theme::warn_text("Turbo's Lua side has not answered yet: advance a day or open a menu.");
+        theme::warn_text("Turbo is waiting for the game. Open any career menu.");
     return true;
 }
 
@@ -200,7 +198,7 @@ static void section_squad(App& app) {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("FC 27 recomputes every squad role at the start of a season. With this on, Turbo sets the role chosen above "
-                              "again right after it (Teams > Mass actions has the same switch for its by-age rule).");
+                              "again right after it (Players > My squad > Mass actions has the same switch for its by-age rule).");
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;
@@ -628,7 +626,7 @@ static void section_safety(App& app) {
         json& t = app.gui_settings["turbo"];
         if (!t.is_object()) t = json::object();
         bool dry = t.value("dry_run", st.dry_run);
-        if (checkbox_right("Dry run (Turbo Tools report only, write nothing)", &dry)) {
+        if (checkbox_right("Test only (change nothing)###dryrun", &dry)) {
             t["dry_run"] = dry;
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
@@ -643,26 +641,9 @@ using shell::Page;
 
 // One page = one editor panel (the "##editor" child of page::frame) with its sections; no select panel, no footer
 // button (the pages' own primary buttons sit in the sections, drawn with the accent colour).
-void editor_scouting(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_squad(app);
-    section_scouting(app);
-    section_player_career(app);
-    form_label_width(0.0f);
-}
-void editor_budget(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_budget(app);
-    form_label_width(0.0f);
-}
 void editor_exports(App& app, void*) {
     form_label_width(S(170.0f));
     section_exports(app);
-    form_label_width(0.0f);
-}
-void editor_bans(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_bans(app);
     form_label_width(0.0f);
 }
 void editor_bulk(App& app, void*) {
@@ -672,6 +653,8 @@ void editor_bulk(App& app, void*) {
 }
 void editor_maintenance(App& app, void*) {
     form_label_width(S(170.0f));
+    // 2.16 step 4: Career tools > Maintenance (the league-table copy the game does not read) is a section of Advanced > Maintenance
+    if (section_header("Career database copy")) draw_career_database_copy(app);
     section_db_maintenance(app);
     form_label_width(0.0f);
 }
@@ -687,12 +670,6 @@ void editor_changes(App& app, void*) {
     kept_player_edits_section(app);
     form_label_width(0.0f);
 }
-void editor_career_maintenance(App& app, void*) {
-    form_label_width(S(170.0f));
-    if (section_header("Career database copy")) draw_career_database_copy(app);
-    draw_game_editors(app);  // "Game editors": FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
-    form_label_width(0.0f);
-}
 
 void show(App& app, shell::page::DrawFn editor) {
     if (g_unframed) editor(app, nullptr);
@@ -704,10 +681,7 @@ void lua_tool_page(App& app, shell::page::DrawFn editor) {
     show(app, editor);
 }
 
-void page_scouting(App& app) { lua_tool_page(app, editor_scouting); }
-void page_budget(App& app) { lua_tool_page(app, editor_budget); }
 void page_exports(App& app) { lua_tool_page(app, editor_exports); }
-void page_bans(App& app) { lua_tool_page(app, editor_bans); }
 void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
 void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
 // Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
@@ -718,7 +692,7 @@ void squad_pointer(App& app, const char* where) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(where);
     ImGui::PopTextWrapPos();
-    if (ImGui::Button("Open Squad & Players > Squad##squadgo")) app.go(Page::Squad);
+    if (ImGui::Button("Open Players > My squad###squadgo")) app.go(Page::Squad);
 }
 void editor_transfers(App& app, void*) {
     if (draw_transfers) {
@@ -732,13 +706,12 @@ void editor_transfers(App& app, void*) {
 }
 void editor_job_offer(App& app, void*) {
     if (draw_job_offer) draw_job_offer(app);
-    else squad_pointer(app, "Job offers: Squad & Players > Squad, pick the club, then its Job offer tab.");
+    else squad_pointer(app, "Job offers: Players > My squad, pick the club, then its Job offer tab.");
 }
 void page_transfers(App& app) { show(app, editor_transfers); }
 void page_job_offer(App& app) { show(app, editor_job_offer); }
 // Changes & undo and Career maintenance need no command channel: they read and write Turbo's own files
 void page_changes(App& app) { show(app, editor_changes); }
-void page_career_maintenance(App& app) { show(app, editor_career_maintenance); }
 
 }  // namespace
 
@@ -748,12 +721,8 @@ bool draw_career_tools_page(App& app, shell::Page p) {
     switch (p) {
         case Page::Transfers: page_transfers(app); return true;
         case Page::JobOffer: page_job_offer(app); return true;
-        case Page::Scouting: page_scouting(app); return true;
-        case Page::Budget: page_budget(app); return true;
-        case Page::Exports: page_exports(app); return true;
-        case Page::Bans: page_bans(app); return true;
+        case Page::AdvExport: page_exports(app); return true;
         case Page::ChangesUndo: page_changes(app); return true;
-        case Page::CareerMaintenance: page_career_maintenance(app); return true;
         case Page::AdvBulkEdit: page_adv_bulk(app); return true;
         case Page::AdvMaintenance: page_adv_maintenance(app); return true;
         default: return false;
@@ -762,19 +731,14 @@ bool draw_career_tools_page(App& app, shell::Page p) {
 
 TURBO_REGISTER_PAGE(shell::Page::Transfers, page_transfers);
 TURBO_REGISTER_PAGE(shell::Page::JobOffer, page_job_offer);
-TURBO_REGISTER_PAGE(shell::Page::Scouting, page_scouting);
-TURBO_REGISTER_PAGE(shell::Page::Budget, page_budget);
-TURBO_REGISTER_PAGE(shell::Page::Exports, page_exports);
-TURBO_REGISTER_PAGE(shell::Page::Bans, page_bans);
+TURBO_REGISTER_PAGE(shell::Page::AdvExport, page_exports);
 TURBO_REGISTER_PAGE(shell::Page::ChangesUndo, page_changes);
-TURBO_REGISTER_PAGE(shell::Page::CareerMaintenance, page_career_maintenance);
 TURBO_REGISTER_PAGE(shell::Page::AdvBulkEdit, page_adv_bulk);
 TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
 
 // Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file one after the other, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
 // both in one frame).
 void draw_tools(App& app) {
-    hotkey_control(app, "tools");  // hotkey_setting.h: the show/hide key, first thing in the tab (the new status bar has it too)
     if (!tools_preamble(app)) return;
     ImGui::BeginChild("##tools");
     form_label_width(S(170.0f));
@@ -785,10 +749,13 @@ void draw_tools(App& app) {
     section_scouting(app);
     section_budget(app);
     section_player_career(app);
-    section_exports(app);
+    // Honest Simple view (2.16 step 3): the Advanced content of this old panel (exports, bulk edit, deleting generated players) is on the
+    // Advanced pages; the Simple view does not show it here
+    const bool adv = app.prefs.advanced_mode;
+    if (adv) section_exports(app);
     section_bans(app);
-    section_bulk_edit(app);
-    section_db_maintenance(app);
+    if (adv) section_bulk_edit(app);
+    if (adv) section_db_maintenance(app);
     section_safety(app);
     draw_game_editors(app);
     g_unframed = false;
@@ -857,7 +824,7 @@ void draw_hook_status(App& app) {
         ImGui::TextWrapped("  %s", app.callnames.log_line().c_str());
         const CallnamePopulation pop = callname_population(app.callnames.bank, app.callnames.masters, app.callnames.index);
         ImGui::TextWrapped("  callnames %s: %s%s", app.callnames.lang.c_str(), callname_population_line(pop).c_str(),
-                           app.callnames.index.built ? "" : " (open Players > Callname for the database counts)");
+                           app.callnames.index.built ? "" : " (open Edit a player > Callname for the database counts)");
     }
     // the spoken-callname set (core/commentary_audio.h SpokenWatch): built where the game binds its commentary bank
     if (app.commentary_audio) {
@@ -1022,14 +989,14 @@ void draw_preferences(App& app) {
         ImGui::SetNextItemWidth(S(140.0f));
         int d = static_cast<int>(app.prefs.row_density);
         const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
-        if (ImGui::Combo("Row density", &d, names, 3)) {
+        if (ImGui::Combo("List spacing###rowdensity", &d, names, 3)) {
             app.prefs.row_density = static_cast<RowDensity>(d);
             if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are (gui_settings.json gui.row_density)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are");
     }
     // Background loading of pictures (ui/preload.h, gui.preload_images)
-    if (ImGui::Checkbox("Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)", &app.prefs.preload_images)) {
+    if (ImGui::Checkbox("Preload pictures###preload", &app.prefs.preload_images)) {
         if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
     }
     if (ImGui::IsItemHovered())

@@ -3,11 +3,10 @@
 # The test fails when a line of this file is gone from the sources (the id changed or the widget was deleted). Renaming a
 # label: write it "Text###stable_id" first, then change the text. After an intended id change, regenerate with
 # TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
+app.cpp	-	###changes	1
 app.cpp	Begin	##texture_test	1
 app.cpp	Begin	##turbo_toasts	1
 app.cpp	Begin	FC 27 LE Turbo	1
-app.cpp	Button	Refresh	1
-app.cpp	Checkbox	Advanced view	1
 app.cpp	PushID	##pages	1
 app.cpp	PushID	##shell	1
 app.cpp	SmallButton	Cancel	1
@@ -134,6 +133,8 @@ ui_callnames.cpp	BeginTable	##cnalltable	1
 ui_callnames.cpp	BeginTable	##cntable	1
 ui_callnames.cpp	BeginTable	##cptable	1
 ui_callnames.cpp	BeginTable	##vstable	1
+ui_callnames.cpp	Button	###cncapture	1
+ui_callnames.cpp	Button	###cnrebuild	1
 ui_callnames.cpp	Button	Assign anyway##cnown	1
 ui_callnames.cpp	Button	Assign as common name	1
 ui_callnames.cpp	Button	Assign as last name	1
@@ -143,10 +144,8 @@ ui_callnames.cpp	Button	Cancel##cnown	1
 ui_callnames.cpp	Button	Cancel##rmcallname	1
 ui_callnames.cpp	Button	Cancel##vsconfirm	1
 ui_callnames.cpp	Button	Cancel##vsforgetall	1
-ui_callnames.cpp	Button	Capture from the loaded bank##cn	1
 ui_callnames.cpp	Button	Forget all##vs	1
 ui_callnames.cpp	Button	Forget all##vsforgetall	1
-ui_callnames.cpp	Button	Rebuild from the game's audio service##cn	1
 ui_callnames.cpp	Button	Refresh##cn	1
 ui_callnames.cpp	Button	Remove	1
 ui_callnames.cpp	Button	Remove player-specific callname...	1
@@ -243,7 +242,7 @@ ui_competitions.cpp	BeginTable	##league	1
 ui_competitions.cpp	Button	Recalculate points	1
 ui_competitions.cpp	Button	Write table positions	1
 ui_competitions.cpp	InputTextWithHint	##compsearch	1
-ui_competitions.cpp	SmallButton	Open the live table (Tactics & Gameplay > Standings)##dbcopylive	1
+ui_competitions.cpp	SmallButton	###dbcopylive	1
 ui_competitions.cpp	checkbox_right	Leagues only	1
 ui_database.cpp	-	##rawclub	1
 ui_database.cpp	-	##rawpall	1
@@ -478,18 +477,18 @@ ui_kits.cpp	BeginTable	##kitset	1
 ui_kits.cpp	Button	Import kit zip...	1
 ui_kits.cpp	Button	Import team folder...	1
 ui_kits.cpp	Button	Turn on 3D kits (restart the game afterwards)##k3on	1
-ui_kits.cpp	Checkbox	Also change other clubs' kits that share this texture##kswap	1
-ui_kits.cpp	Checkbox	Also change this club's other kits that share a texture with this one##kswap	1
-ui_kits.cpp	Checkbox	Also use the zip's badge and brand pictures##kswap	1
-ui_kits.cpp	Checkbox	Also use the zip's name and number placement (hotspots)##kswap	1
-ui_kits.cpp	Checkbox	Do not use the zip's crest pictures##kswap	1
-ui_kits.cpp	Checkbox	Log which of this club's kit folders the match loads (watch only, all slots)##kswap	1
+ui_kits.cpp	Checkbox	###kswapclub	1
+ui_kits.cpp	Checkbox	###kswapcrest	1
+ui_kits.cpp	Checkbox	###kswapdecals	1
+ui_kits.cpp	Checkbox	###kswaphot	1
+ui_kits.cpp	Checkbox	###kswapother	1
+ui_kits.cpp	Checkbox	###kswapwatchclub	1
 ui_kits.cpp	CollapsingHeader	Colours & numbers (kit colours, number fonts, outline)##kitcolours	1
 ui_kits.cpp	OpenPopup	##kitfolder	1
 ui_kits.cpp	OpenPopup	##kitzip	1
+ui_kits.cpp	RadioButton	###kswapwatch	1
 ui_kits.cpp	RadioButton	Off##kswap	1
 ui_kits.cpp	RadioButton	Show it on the pitch##kswap	1
-ui_kits.cpp	RadioButton	Watch only (log what the game loads)##kswap	1
 ui_kits.cpp	TreeNode	##kitsettings	1
 ui_kits.cpp	TreeNode	Kit folders the match loaded##kswap	1
 ui_kits.cpp	TreeNode	Textures##kswap	1
@@ -544,6 +543,7 @@ ui_names.cpp	BeginTable	##nmidtable	1
 ui_names.cpp	Button	Restore database names##nm	1
 ui_names.cpp	Button	Save names##nm	1
 ui_names.cpp	InputTextWithHint	##nmidsearch	1
+ui_nav_pages.cpp	-	###navgo	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1
@@ -555,6 +555,7 @@ ui_parity.cpp	SliderInt	##scoutlvl	1
 ui_parity.cpp	SmallButton	Export now##xfexp	1
 ui_parity.cpp	SmallButton	Reload##xfre	1
 ui_parity.cpp	SmallButton	Reload##xftre	1
+ui_players.cpp	-	###bulkundo	1
 ui_players.cpp	-	##appgrid	1
 ui_players.cpp	-	##arch	1
 ui_players.cpp	-	##archpos	1
@@ -573,7 +574,6 @@ ui_players.cpp	-	Add now##dvd	1
 ui_players.cpp	-	Make %s his main position (now %s)##archadopt	1
 ui_players.cpp	-	Set potential##dvp	1
 ui_players.cpp	-	Undo (%zu)##pundo	1
-ui_players.cpp	-	Undo bulk (%zu)##bulkundo	1
 ui_players.cpp	-	Unnamed bit %d##%d	1
 ui_players.cpp	-	Use %d##archclosest	1
 ui_players.cpp	BeginChild	##app	1
@@ -611,6 +611,8 @@ ui_players.cpp	BeginTable	##fsearch	1
 ui_players.cpp	BeginTable	##pfilters	1
 ui_players.cpp	BeginTable	##players	1
 ui_players.cpp	BeginTable	##sl	1
+ui_players.cpp	Button	###archpreview	1
+ui_players.cpp	Button	###archundo	1
 ui_players.cpp	Button	Apply##arch	1
 ui_players.cpp	Button	Cancel##arch	1
 ui_players.cpp	Button	Cancel##delplayer	1
@@ -618,12 +620,10 @@ ui_players.cpp	Button	Choose a real face...	1
 ui_players.cpp	Button	Delete player	1
 ui_players.cpp	Button	Keep his old picture##hmfk	1
 ui_players.cpp	Button	List bans	1
-ui_players.cpp	Button	Preview / apply...	1
 ui_players.cpp	Button	Read squad role	1
 ui_players.cpp	Button	Remove ban	1
 ui_players.cpp	Button	Set squad role	1
 ui_players.cpp	Button	Transfer / Loan...	1
-ui_players.cpp	Button	Undo archetype##archundo	1
 ui_players.cpp	Button	Use the matching miniface##hmf	1
 ui_players.cpp	Checkbox	Grow him every week while below his potential##dvw	1
 ui_players.cpp	Checkbox	No decline##dvw	1
@@ -771,7 +771,8 @@ ui_role_rules.cpp	PushID	rolerules	1
 ui_role_rules.cpp	Selectable	Leave alone	1
 ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
 ui_settings.cpp	BeginChild	##settings_log	1
-ui_settings.cpp	Checkbox	Advanced view##settings	1
+ui_settings.cpp	Button	###reload	1
+ui_settings.cpp	Checkbox	###advview	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##select	1
 ui_standings.cpp	-	##%s	1
@@ -1017,14 +1018,14 @@ ui_tools.cpp	BeginChild	##log	1
 ui_tools.cpp	BeginChild	##tools	1
 ui_tools.cpp	BeginPopupModal	##confirmdel	1
 ui_tools.cpp	BeginPopupModal	##overall_back_any_load	1
+ui_tools.cpp	Button	###squadgo	1
 ui_tools.cpp	Button	Cancel	2
 ui_tools.cpp	Button	Delete...	1
-ui_tools.cpp	Button	Open Squad & Players > Squad##squadgo	1
 ui_tools.cpp	Button	Put the overalls back...	1
-ui_tools.cpp	Checkbox	Load pictures in the background from the start (faces, 3D head renders, tattoos, galleries, crests)	1
+ui_tools.cpp	Checkbox	###preload	1
 ui_tools.cpp	CollapsingHeader	Technical details	1
+ui_tools.cpp	Combo	###rowdensity	1
 ui_tools.cpp	Combo	##squadrole	1
-ui_tools.cpp	Combo	Row density	1
 ui_tools.cpp	InputFloat	##bexpmult	1
 ui_tools.cpp	InputInt	##banuntil	1
 ui_tools.cpp	InputInt	##bebonusxp	1
@@ -1057,8 +1058,8 @@ ui_tools.cpp	SmallButton	Copy rebuild command##asset	1
 ui_tools.cpp	SmallButton	Open folder##asset	1
 ui_tools.cpp	SmallButton	Reload catalog##asset	1
 ui_tools.cpp	SmallButton	Reset size	1
+ui_tools.cpp	checkbox_right	###dryrun	1
 ui_tools.cpp	checkbox_right	Development##be	1
-ui_tools.cpp	checkbox_right	Dry run (Turbo Tools report only, write nothing)	1
 ui_tools.cpp	checkbox_right	Exclude my club	1
 ui_tools.cpp	checkbox_right	Fitness##be	1
 ui_tools.cpp	checkbox_right	Form##be	1

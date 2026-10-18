@@ -31,6 +31,7 @@
 #include "ui_live_tactic.h"
 #include "ui_tactic_presets.h"
 #include "ui_club_page.h"
+#include "ui_career_page.h"
 #include "ui_tuning.h"
 #include "ui_game_settings.h"
 
@@ -1555,6 +1556,11 @@ static void draw_legacy_page(App& app, shell::Page p) {
     // Transfers lived in Teams (legacy_tab_of) but the legacy request_tab 5 (Turbo Tools) lands on it (area_for): until T5's
     // page is registered it shows the Turbo Tools panel; the Teams panel, transfers included, stays under Squad
     const int lt = p == shell::Page::Transfers ? 5 : shell::legacy_tab_of(p);
+    if (p == shell::Page::AdvDiagnostics) {  // 2.16 step 4: until its own page registers, the health and the log of the old Status panel
+        draw_status_health(app);
+        draw_log_section(app, "diagnostics.log");
+        return;
+    }
     if (p == shell::Page::GameplayPresets) {
         if (app.prefs.advanced_mode) draw_unproven_banner();
         else theme::muted_text("Presets write the EA Custom slider block; the effect on play is not yet measured.");
@@ -1614,9 +1620,6 @@ void App::draw_pages() {
         place_ = Place{a, default_page(a)};
     }
     area_page_[static_cast<int>(place_.area)] = place_.page;
-
-    // Simple / Advanced view (gui_prefs.h): Simple hides the Advanced area (raw rows, bulk edit, not-proven panels)
-    if (!adv) ImGui::TextDisabled("%s", simple_banner_text());
 
     ImGui::PushID("##shell");
     // the area strip
@@ -1721,7 +1724,8 @@ void App::draw() {
     main_window_size_.x = ImGui::GetWindowSize().x;
     main_window_size_.y = ImGui::GetWindowSize().y;
 
-    // Status line
+    // Status line (2.16 step 2): the link in a word and your club; the version, Refresh, the show/hide key and the Advanced switch are
+    // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load
     const auto& st = bridge.state();
     if (connected()) {
         ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "Connected");
@@ -1730,16 +1734,15 @@ void App::draw() {
     }
     ImGui::SameLine();
     if (connected()) {
-        ImGui::TextDisabled("| %zu players | %zu teams | %s | %s", model.players().size(), model.teams().size(),
-                            st.in_cm ? "career loaded" : "no career loaded", st.le_version.c_str());
+        const std::string club = st.in_cm && st.user_team > 0 ? model.team_name(st.user_team) : std::string();
+        ImGui::TextDisabled("| %s%s", club.empty() ? "" : (club + " | ").c_str(), st.in_cm ? "career loaded" : "no career loaded");
     } else {
         ImGui::TextDisabled("| %s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
     }
     if (!lua_queue.empty()) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "| %zu 'keep shown name' waiting", lua_queue.size());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Turbo's Lua side runs one command at a time: these are sent, batched, as soon as it is free");
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "| %zu name changes waiting", lua_queue.size());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("They are sent to the game one after the other, as soon as it is ready");
     }
     {
         const std::string pl = preload_line();  // ui/preload.h
@@ -1757,32 +1760,29 @@ void App::draw() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Stop##faces3d")) faces3d_stop();
     }
-    const float right_x = ImGui::GetWindowWidth() - (busy() ? S(380.0f) : S(230.0f));
-    const bool hotkey_inline = hotkey_bar(*this, right_x);  // hotkey_setting.h: the show/hide key, when it fits here
-    ImGui::SameLine(right_x);
     if (busy()) {
+        ImGui::SameLine(ImGui::GetWindowWidth() - S(380.0f));
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Waiting: %s", usertext::pending_text(pending_label).c_str());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(st.in_cm ? "It runs as soon as the game is ready (the next career-mode event)"
-                                       : "No career loaded: run lua\\scripts\\turbo_exec.lua in Live Editor's Lua Engine");
+                                       : "No career loaded: it runs when you open your career in the game");
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel")) {
             mailbox->cancel();
             notify(usertext::pending_text(pending_label) + ": cancelled");
             pending_label.clear();
         }
-    } else if (ImGui::Button("Refresh")) {
-        bridge.poll_files();
-        if (refresh()) notify("Lists refreshed from the game");
-        else notify(db_error, true);
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("v%s", kGuiVersion);
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Advanced view", &prefs.advanced_mode) && !save_gui_settings()) notify("cannot write gui_settings.json", true);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Off (Simple): only features proven to work in the game. On: everything, including tactics, tuning and raw tables");
-    if (!hotkey_inline) hotkey_control(*this, "bar");  // no room on the status line: a line of its own
+    {
+        // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)
+        const size_t changes = changes_undo_count(*this);
+        const std::string label = (changes ? "Changes (" + std::to_string(changes) + ")" : std::string("Changes")) + "###changes";
+        const float bw = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine();
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - S(16.0f)));
+        if (ImGui::Button(label.c_str())) go(shell::area_of(shell::Page::ChangesUndo), shell::Page::ChangesUndo);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Turbo puts back every time you load your career, and how to stop it");
+    }
     ImGui::Separator();
 
     draw_pages();  // the area tabs, the page strip and the page (App::draw_pages below)
