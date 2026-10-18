@@ -4467,11 +4467,26 @@ static void test_ui() {
                 app.faces3d_report = [sr]() { return sr; };
                 CHECK(faces3d_restore_markers(app) == 0 && app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode,
                       "research file mode: the marker stays");
-                lualoader::Faces3dStatus sf = st;  // ... and once the game started without him on the list: his own codes come back
+                lualoader::Faces3dStatus sf = st;  // ... and once the game started without him on the list
                 sf.saved_known = true;
                 sf.saved_ids = {};
                 app.faces3d_report = [sf]() { return sf; };
-                CHECK(faces3d_restore_markers(app) == 1, "off the list since this game start: restored");
+                // 2.17.0 default: LOG-ONLY, nothing written without turbo_output\faces3d_auto_restore_on.txt
+                std::vector<std::string> rlog;
+                auto keep_hook = app.log_hook;
+                app.log_hook = [&](const std::string& s) { rlog.push_back(s); };
+                fs::remove(out / "faces3d_auto_restore_on.txt");
+                CHECK(faces3d_restore_markers(app) == 0 && app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode &&
+                          app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::kBeardOwnCode,
+                      "no switch file: nothing written");
+                CHECK(std::any_of(rlog.begin(), rlog.end(), [](const std::string& s) {
+                          return s.rfind("3D hair & beard: would put his own look back for 1 players: 3001", 0) == 0;
+                      }),
+                      "no switch file: the would-restore line is logged");
+                app.log_hook = keep_hook;
+                std::ofstream(out / "faces3d_auto_restore_on.txt", std::ios::binary) << "on\n";
+                CHECK(faces3d_restore_markers(app) == 1, "with the switch file, off the list since this game start: restored");
+                fs::remove(out / "faces3d_auto_restore_on.txt");
                 app.faces3d_report = [st]() { return st; };
             }
             CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
