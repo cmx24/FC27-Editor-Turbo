@@ -115,6 +115,32 @@ static void ui_cases(App& app, Ui& ui) {
         ui.frames(3);
     });
 
+    run_case("wiring (2.16): every page registered as a new page draws in its place; legacy_pages brings the old panels back", [&] {
+        const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode;
+        int drawn = 0;
+        for (bool adv : {false, true}) {
+            app.prefs.advanced_mode = adv;
+            ui.frames(3);
+            for (int i = 1; i < shell::kPageCount; ++i) {
+                const Page p = static_cast<Page>(i);
+                if (!shell::registered_new_page(p) || !shell::page_visible(p, adv)) continue;
+                for (bool legacy : {false, true}) {
+                    app.legacy_pages = legacy;
+                    app.go(shell::area_of(p), p);
+                    ui.frames(4);  // a frame that asserts in ImGui throws and fails the case
+                    CHECK(app.place() == shell::place_of(p), std::string("opens: ") + shell::area_label(shell::area_of(p)) + " > " + shell::page_label(p) +
+                                                                 (legacy ? " (old panel)" : " (new page)"));
+                    ++drawn;
+                }
+            }
+        }
+        CHECK(drawn >= 20, "the new pages are wired: " + std::to_string(drawn) + " page draws");
+        app.legacy_pages = was_legacy;
+        app.prefs.advanced_mode = was_adv;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
     run_case("P213: the proven panels are where a user clicks them (Simple view): area tab, then the page strip", [&] {
         app.prefs.advanced_mode = false;
         app.sel_team = 7;  // Everton: the club pages and the club panel show a club

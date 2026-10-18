@@ -95,7 +95,8 @@ void clear_registry_for_tests();
 bool register_new_page(Page p, PageFn fn);  // false (and ignored) for Page::None / Count, a null fn or a second registration
 PageFn registered_new_page(Page p);
 bool draw_new_page(App& app, Page p, bool advanced);  // false when no new page is registered or the page is hidden in this view
-#define TURBO_REGISTER_NEW_PAGE(page, fn) \n    static const ::turbo::shell::PageRegistrar TURBO_SHELL_CAT(turbo_new_page_reg_, __LINE__)((page), (fn), true)
+#define TURBO_REGISTER_NEW_PAGE(page, fn) \
+    static const ::turbo::shell::PageRegistrar TURBO_SHELL_CAT(turbo_new_page_reg_, __LINE__)((page), (fn), true)
 
 struct PageRegistrar {
     PageRegistrar(Page p, PageFn fn, bool new_page = false) {
