@@ -10,8 +10,10 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "image.h"
@@ -73,6 +75,42 @@ struct Camera {
 const std::vector<Camera>& cameras();
 constexpr int kCameraLearned = -1;  // use the template's mode / extra (falls back to preset 0)
 
+// 2.17 full-body camera (research_20261017\FULLBODY_FAST_ROUTE.md, "Decision after W2202", route A). Live Editor's
+// PlayerCaptureSetCamera(2) = Body drives the same controller. Probe W2220 (22:19, pc_start log of LE's request for 254470 /
+// team 95): "type 0, mode 2, extra 2", desc +00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +5C=-1
+// (so +0C = the team, +50 = 2, +58 = 0, +5C = -1, +64 = 0 where Turbo's player descriptor has -1, 1, -1, 0, 1); LE's request
+// itself gave no picture. W2228 (22:31, evidence\2026-10-17\W2228P): Turbo's OWN request with the default descriptor plus
+// +0C = team and +50 = 2, mode 0, extra 0, rendered the FULL BODY (PNG 256x256, head to boots in kit); +64 = 1 did not prevent
+// it, and mode / extra alone do not change the framing (mode 2 / extra 2 with the default descriptor: head and shoulders).
+// body_camera_builtin() is that W2228 camera; a small table the host reads at each request replaces it without a rebuild or
+// a restart: turbo_output\looks\body_camera.txt. Lines ('#' starts a comment, values decimal or 0x hex):
+//   type = 2            controller +0x18 for Turbo's own request (the pc_start detour writes it before Start reads it)
+//   mode = 1            controller +0x40 (1 = the big 0x2FAF08-byte slices)      default 1
+//   extra = 0           controller +0x44                                         default 0
+//   desc 0x50 = 2       a descriptor dword (offset 0x04..0x68, 4-aligned, never +0x00 / +0x08: the ids), at most 8 lines;
+//   desc 0x0C = team    ... "team" = the request's second id (his team)
+// A file with an error in it is not used (logged) and the built-in values apply.
+constexpr int kCameraBodyFull = -2;
+constexpr int kMaxBodyCameraDwords = 8;
+struct BodyDword {
+    size_t off = 0;
+    int32_t value = 0;
+    bool team = false;  // the request's second id (his team) instead of value
+};
+struct BodyCamera {
+    bool ok = false;     // parsed without error and says something (type or a desc dword)
+    int type = -1;       // >= 0: controller +0x18
+    int mode = 1;
+    int extra = 0;
+    std::vector<BodyDword> desc;  // written into the descriptor after the ids and flags, in order
+    std::string source;  // where it came from ("turbo_output\looks\body_camera.txt", "built in"), for the notes
+};
+// false (+err naming the line) on any line it does not understand; an empty table (comments only) is ok = false, no error
+bool parse_body_camera(const std::string& text, BodyCamera& out, std::string* err);
+std::string describe_body_camera(const BodyCamera& b);  // "type 2, mode 1, extra 0, +0C=team, +50=2"
+// The full-body camera proven in W2228: mode 0, extra 0 (256x256 slices, ~190 KB), +0C = team, +50 = 2, the rest default
+BodyCamera body_camera_builtin();
+
 // Head id the game's manager-head builder treats as the user's created avatar (+0x68 = 1)
 constexpr int32_t kUserAvatarHeadId = 9999;
 
@@ -105,13 +143,15 @@ struct Plan {
     PlayerDesc desc;
     int mode = 0;
     int extra = 0;
+    int type = -1;     // >= 0: the controller's request type (+0x18) the pc_start detour sets for this request (kCameraBodyFull)
     std::string note;  // "learned descriptor" / "default descriptor"
 };
-Plan plan_request(const Request& r, const Template* t);
+// body: the full-body camera table (used only when r.camera == kCameraBodyFull; nullptr = not configured)
+Plan plan_request(const Request& r, const Template* t, const BodyCamera* body = nullptr);
 // The heads a request renders: its batch, or the single request as one entry
 std::vector<BatchEntry> request_entries(const Request& r);
 // One plan per entry, in order (all share the camera, so mode / extra are the same)
-std::vector<Plan> plan_batch(const Request& r, const Template* t);
+std::vector<Plan> plan_batch(const Request& r, const Template* t, const BodyCamera* body = nullptr);
 // Before a request goes to the game: 1..max_entries heads, every id > 0 and no id twice (the game hands each picture back
 // with the id only). false and err when not.
 bool check_request(const Request& r, size_t max_entries, std::string* err);
@@ -151,6 +191,14 @@ private:
     std::vector<Picture> pics_;  // in arrival order, handed out from the front
     size_t received_ = 0;
 };
+
+// When the host's request in flight is over for Turbo: every head has had its Result AND the game's done callback fired (or
+// the request failed); a request whose heads were all handed out but whose done callback never came is over (TimedOut)
+// `timeout_s` after it ran. poll() ends a request when it hands out the last Result after the done callback; when the last
+// picture went out BEFORE the done callback, the caller got its picture and stopped polling, so nothing ended the request:
+// the 3D model tab showed "rendering... (52 s)" until Cancel (W2202, mode 1). status() and request() settle it with this.
+enum class Settle { Running, Over, TimedOut };
+Settle settle_request(bool all_handed, bool finished, bool failed, bool ran, double since_ran_s, double timeout_s);
 
 // ---------------------------------------------------------------- the game's callback object
 // eastl::function-shaped: 16 bytes of functor storage, a manager called as mgr(to, from, op) with op 0 = destruct,
@@ -224,6 +272,139 @@ public:
     // Forget the request in flight (the game may still answer; the answer is dropped)
     virtual void cancel() = 0;
     virtual const Template* learned() = 0;
+};
+
+// ---------------------------------------------------------------- full-body pictures (2.17, research_20261017\FULLBODY_FAST_ROUTE.md)
+// Mode 1 answered 1024x1024 PNG pictures on 2026-10-04 (player 208596, 0.5-0.6 s each, extra 0 and extra 3). Whether that
+// picture shows the whole body is the Tester's check (route note section 5): NOT proven. Indices into cameras():
+constexpr int kCameraBody = 1;     // "Large slice (mode 1, extra 0)"
+constexpr int kCameraBodyKit = 2;  // "Avatar outfit (mode 1, extra 3)"
+
+// W2202 (installed 2.16.0): every mode-1 picture is a 1024x1024 DDS DXT5 HEAD AND SHOULDERS picture, for players and managers.
+// The full body is kCameraBodyFull (above, proven in W2228: 256x256, head to boots in kit), the default here.
+//
+// A player's big picture request: the default descriptor (never the learned one: in a career the first game capture
+// is the hub's avatar portrait, whose template once drew the avatar's head for every id), id = playerid, second id = his
+// team (-1 = none), player flags. camera: kCameraBodyFull (default: the full body, 256x256), kCameraBody (1024 head and
+// shoulders) or kCameraBodyKit (anything else -> kCameraBodyFull). Label "player <id>" when none is given (the log lines then
+// read "request player <id>: ...").
+Request body_request(int32_t id, int32_t team, int camera = kCameraBodyFull, const std::string& label = "");
+
+// ---------------------------------------------------------------- Sequence: write -> picture -> save, one code at a time
+// Runs a list of codes on ONE reference player (track T: one picture per body type; any other per-player code works the
+// same). Per step:
+//   manifest "pending" (attempt n) -> hooks.write(code) -> request(body_request) -> poll until his Result -> hooks.save
+//   -> manifest "done" / "failed" -> next step
+// One request in flight (the capture controller is a singleton); a request is sent only while status() says available and
+// not busy (waiting at most step_timeout).
+// The manifest text goes to hooks.write_manifest after EVERY change, so a crash (the game's, which takes Turbo with it)
+// leaves "pending" on the code that was being drawn: resume() counts that as an attempt and marks the code "crashed" (never
+// tried again) once it has max_attempts of them. hooks.restore runs once at the end, on cancel and on abort (too many
+// failures in a row, or the manifest cannot be written); the reference's original code is kept in the manifest, so a run
+// resumed after a crash restores HIS code, not the test code the crash left on him (original() after resume()).
+// Not thread-safe: start / tick / cancel from one thread (Turbo's UI thread, like CaptureService::poll). While a sequence
+// runs nothing else may poll the service (the faces card and the Miniface editor poll only for their own pending request).
+enum class StepResult { Done, Wait, Failed };
+
+struct SequenceStep {
+    int64_t code = 0;
+    std::string label;  // plain words for the manifest and the messages ("Tall and Stocky")
+};
+
+struct SequenceHooks {
+    // put `code` on the reference player; called again on later ticks while it answers Wait (first = first call for this step)
+    std::function<StepResult(int64_t code, bool first, std::string* err)> write;
+    // keep the picture; *file = what the manifest records for it (e.g. a path relative to the manifest's folder)
+    std::function<bool(int64_t code, const Result& r, std::string* file, std::string* err)> save;
+    // put the reference's original code back (original()); called again on later ticks while it answers Wait
+    std::function<StepResult(bool first, std::string* err)> restore;
+    // persist the manifest text; false = the run aborts (a run that cannot record itself cannot be resumed safely)
+    std::function<bool(const std::string& text, std::string* err)> write_manifest;
+    std::function<double()> clock;       // seconds, monotonic (required)
+    std::function<std::string()> stamp;  // wall-clock text for the manifest ("2026-10-17 22:05:31"); optional
+};
+
+struct SequenceOptions {
+    int32_t player = 0;           // the reference player's id (> 0)
+    int32_t team = -1;            // his team id (the descriptor's second id), -1 = none
+    int camera = kCameraBodyFull;  // kCameraBodyFull (the full body, W2228), kCameraBody, kCameraBodyKit
+    int64_t original = -1;        // his own code before the run (kept in the manifest; -1 = unknown)
+    double step_timeout = 25.0;   // seconds from the request to his picture (also the longest wait for a busy service)
+    double write_timeout = 10.0;  // seconds a write / restore may answer Wait
+    int max_attempts = 2;         // a code that crashed or failed this often is not tried again
+    int max_failures_in_row = 3;  // the game stopped answering: stop (and restore) instead of writing every code
+};
+
+struct ManifestEntry {
+    int64_t code = 0;
+    std::string label;
+    // "todo" (not tried), "pending" (recorded before its write: being drawn, or the run died here), "done", "failed",
+    // "crashed" (pending when a run died, max_attempts times: never tried again), "cancelled" (stopped by the user)
+    std::string state = "todo";
+    int attempts = 0;
+    std::string file;  // from hooks.save
+    int w = 0, h = 0;
+    size_t bytes = 0;
+    std::string format;  // "PNG 1024x1024"
+    std::string error;
+    std::string time;  // hooks.stamp() at the last change
+};
+
+class Sequence {
+public:
+    enum class Phase { Idle, Next, Writing, Requesting, Waiting, Restoring, Finished, Cancelled, Aborted };
+
+    Sequence(CaptureService& svc, SequenceOptions opt, std::vector<SequenceStep> steps, SequenceHooks hooks);
+    // Take the state of a manifest an earlier run wrote (call before start()). false (+err) and nothing taken when it is
+    // unreadable, or was made for another player or camera. Codes not in this run's list are kept in the manifest as they
+    // were. A manifest original (>= 0) replaces options.original (after a crash he still wears a test code).
+    bool resume(const std::string& manifest_text, std::string* err);
+    // false (+err) when a hook is missing, the player id is not > 0, his own code is not known (original < 0 after resume()),
+    // or it already ran
+    bool start(std::string* err);
+    void tick();    // advance (call once per frame); does nothing unless running
+    void cancel();  // stop: drops the request in flight, then restores
+    Phase phase() const { return phase_; }
+    bool running() const;
+    bool restored() const { return restored_; }
+    int64_t original() const { return opt_.original; }
+    const SequenceOptions& options() const { return opt_; }
+    // progress
+    size_t total() const { return order_.size(); }
+    size_t count(const std::string& state) const;  // this run's entries in that state
+    int64_t current_code() const;                  // the code being written / drawn, 0 when none
+    const std::string& message() const { return message_; }
+    const std::vector<ManifestEntry>& entries() const { return entries_; }  // this run's codes in step order, then the others
+    const ManifestEntry* entry(int64_t code) const;
+    std::string manifest_text() const;
+
+    // Read a manifest (the thumbnail grid): entries in the file's order; *player / *camera / *original when given
+    static bool parse_manifest(const std::string& text, std::vector<ManifestEntry>& out, std::string* err, int32_t* player = nullptr,
+                               int* camera = nullptr, int64_t* original = nullptr);
+
+private:
+    bool save_manifest();
+    void next_step();
+    void step_done();
+    void step_failed(const std::string& why);
+    void begin_restore(Phase end, const std::string& why);
+    void end_run();
+    ManifestEntry& cur() { return entries_[order_[cursor_]]; }
+    std::string now_stamp() const { return hooks_.stamp ? hooks_.stamp() : std::string(); }
+    double now() const { return hooks_.clock(); }
+
+    CaptureService& svc_;
+    SequenceOptions opt_;
+    SequenceHooks hooks_;
+    std::vector<ManifestEntry> entries_;  // this run's codes first (step order), then codes only the resumed manifest had
+    std::vector<size_t> order_;           // indices into entries_ of this run's steps
+    size_t cursor_ = 0;                   // into order_
+    Phase phase_ = Phase::Idle;
+    Phase end_phase_ = Phase::Finished;
+    bool started_ = false, first_call_ = true, restored_ = false, finished_ = false;
+    int failures_in_row_ = 0;
+    double t_phase_ = 0.0;
+    std::string message_;
 };
 
 }  // namespace capture

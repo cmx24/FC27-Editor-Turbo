@@ -3212,6 +3212,7 @@ struct FakeCapture : capture::CaptureService {
     const capture::Template* learned() override { return nullptr; }
 };
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
+#include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -15335,6 +15336,7 @@ int main(int argc, char** argv) {
     test_reveal();
     std::printf("native player capture\n");
     test_player_capture();
+    test_capture_sequence();  // test_capture_sequence.h (2.17 looks C)
     std::printf("native kept edits store\n");
     test_reapply_store();
     test_reapply_players();
