@@ -213,7 +213,8 @@ void looks_card(App& app, const Table& t, const PlayerRow& p) {
     if (theme::primary_button("Choose a real face...###pp_face")) ImGui::OpenPopup("Choose a real face");
     ImGui::EndGroup();
     real_face_picker(app, p.playerid);  // the modal, in the same id scope as the button above
-    if (fold("Hair and beard (needs a game restart)###pp_hair")) {
+    // the live card: since 2.16 a real face shows his new hair and beard with no restart
+    if (fold("Hair and beard###pp_hair")) {
         faces3d_gate_section(app, t, p);
         ImGui::TreePop();
     }
