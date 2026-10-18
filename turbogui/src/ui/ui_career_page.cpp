@@ -599,7 +599,7 @@ void card_squad_tools(App& app, const TeamRow* team) {
         {"morale", "Make everyone very happy", "The best morale the game still calls \"very happy\" for each player.", true},
         {"long_contract", "Give everyone 60 months", "Every player gets a new 60 month contract from today.", true},
         {"form", "Best form for everyone", "Form 100 for every player of your club.", false},
-        {"match_xp", "Double the XP", "Twice the experience from matches and training.", false},
+        {"match_xp", "Boost XP", "Twice the XP, or a one-off +1 on each attribute of his group if the game can't.", false},
         {"dev_bonus", "Bonus growth points", "Every player grows by the points below, never above his potential.", false},
     };
     static int pick = 0;
