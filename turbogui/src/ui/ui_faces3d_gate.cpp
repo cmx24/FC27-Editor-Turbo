@@ -22,6 +22,7 @@
 #include "core/player_capture.h"
 #include "imgui.h"
 #include "textures.h"
+#include "ui_bodytype_thumbs.h"
 #include "ui_faces.h"
 #include "ui_images.h"
 
@@ -280,6 +281,7 @@ bool request_capture(App& app, const PlayerRow& p, std::string& err) {
         err = "another picture is being drawn (" + st.busy_label + "): try again in a moment";
         return false;
     }
+    if (*bodytype_thumbs_busy_text()) return err = bodytype_thumbs_busy_text(), false;  // 2.17 looks T: the run owns the service
     capture::Request r;
     r.id = static_cast<int32_t>(p.playerid);
     r.second_id = p.club > 0 ? static_cast<int32_t>(p.club) : -1;

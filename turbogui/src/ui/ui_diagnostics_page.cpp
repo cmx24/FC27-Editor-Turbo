@@ -23,6 +23,7 @@
 #include "core/user_text.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "ui_bodytype_thumbs.h"
 #include "ui_career_page.h"
 #include "ui_faces.h"
 #include "ui_sections.h"
@@ -459,6 +460,7 @@ void editor_diagnostics(App& app, void*) {
         draw_lines_box("##diag_details", g_snap.details, 240.0f);
         ImGui::Spacing();
     }
+    bodytype_thumbs_section(app);  // 2.17 looks T: Body-type pictures (ui_bodytype_thumbs.cpp)
     if (collapsing_section(app, "diag.log", "Log###diaglogcard", true)) card_log(app);
 }
 
