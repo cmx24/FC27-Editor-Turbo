@@ -189,6 +189,25 @@ static void test_capture_sequence() {
         CHECK(!tc::check_request(tc::body_request(0, 95), 6, &err), "id 0 refused");
     });
 
+    run_case("capture sequence: the host's request ends once every head is handed out and the game is done (W2202)", [&] {
+        using S = tc::Settle;
+        CHECK(tc::settle_request(false, true, false, true, 99.0, 20.0) == S::Running, "a head still waiting: poll() ends it");
+        CHECK(tc::settle_request(false, false, true, true, 99.0, 20.0) == S::Running, "failed, heads left to report: poll() ends it");
+        CHECK(tc::settle_request(true, true, false, true, 0.5, 20.0) == S::Over, "picture handed, done fired: over");
+        CHECK(tc::settle_request(true, false, true, true, 0.5, 20.0) == S::Over, "every head reported, request failed: over");
+        CHECK(tc::settle_request(true, false, false, true, 5.0, 20.0) == S::Running, "picture handed before the done callback: wait for it");
+        CHECK(tc::settle_request(true, false, false, true, 20.5, 20.0) == S::TimedOut, "no done callback 20 s after it ran: timed out");
+        CHECK(tc::settle_request(true, false, false, false, 99.0, 20.0) == S::Running, "never ran: not timed out here");
+        // the book side: one head, its picture taken before the done callback -> every head handed out
+        tc::BatchEntry e;
+        e.id = 254470;
+        tc::BatchBook book({e});
+        CHECK(book.add_picture(254470, std::vector<uint8_t>(16, 1)) == 0 && !book.all_handed(), "picture in, not handed");
+        tc::BatchBook::Picture pic;
+        CHECK(book.take_picture(pic) && book.all_handed(), "handed: the editor stops polling here");
+        CHECK(tc::settle_request(book.all_handed(), true, false, true, 1.0, 20.0) == S::Over, "done fires later: status() ends it");
+    });
+
     run_case("capture sequence: three codes, in order, manifest after every step, his code back at the end", [&] {
         Rig rig;
         const tc::Sequence* self = nullptr;

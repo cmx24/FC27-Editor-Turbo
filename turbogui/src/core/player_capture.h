@@ -153,6 +153,14 @@ private:
     size_t received_ = 0;
 };
 
+// When the host's request in flight is over for Turbo: every head has had its Result AND the game's done callback fired (or
+// the request failed); a request whose heads were all handed out but whose done callback never came is over (TimedOut)
+// `timeout_s` after it ran. poll() ends a request when it hands out the last Result after the done callback; when the last
+// picture went out BEFORE the done callback, the caller got its picture and stopped polling, so nothing ended the request:
+// the 3D model tab showed "rendering... (52 s)" until Cancel (W2202, mode 1). status() and request() settle it with this.
+enum class Settle { Running, Over, TimedOut };
+Settle settle_request(bool all_handed, bool finished, bool failed, bool ran, double since_ran_s, double timeout_s);
+
 // ---------------------------------------------------------------- the game's callback object
 // eastl::function-shaped: 16 bytes of functor storage, a manager called as mgr(to, from, op) with op 0 = destruct,
 // 1 = copy, 2 = move, and an invoker called with the arguments followed by a pointer to the storage
