@@ -53,7 +53,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "2.17.2";
+constexpr const char* kGuiVersion = "2.18.0";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
