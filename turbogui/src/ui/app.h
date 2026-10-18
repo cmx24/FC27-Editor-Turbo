@@ -148,6 +148,7 @@ public:
     std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
     std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
     GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    bool legacy_pages = false;  // 2.16: draw the pre-2.16 panels instead of the new pages (gui.legacy_pages; Settings, Advanced view; the tests set it)
     RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5

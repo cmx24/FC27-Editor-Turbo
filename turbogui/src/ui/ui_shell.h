@@ -90,8 +90,19 @@ bool draw_page(App& app, Page p, bool advanced);
 // Test hook: forget all registrations
 void clear_registry_for_tests();
 
+// ---- the 2.16 pages (wiring): a second registry that is asked first. A page here replaces the page of the same id until the person (or a
+// test) asks for the old panels (App::legacy_pages). Registered from ui_pages_216.cpp; the old registry and the legacy panels are untouched.
+bool register_new_page(Page p, PageFn fn);  // false (and ignored) for Page::None / Count, a null fn or a second registration
+PageFn registered_new_page(Page p);
+bool draw_new_page(App& app, Page p, bool advanced);  // false when no new page is registered or the page is hidden in this view
+#define TURBO_REGISTER_NEW_PAGE(page, fn) \
+    static const ::turbo::shell::PageRegistrar TURBO_SHELL_CAT(turbo_new_page_reg_, __LINE__)((page), (fn), true)
+
 struct PageRegistrar {
-    PageRegistrar(Page p, PageFn fn) { register_page(p, fn); }
+    PageRegistrar(Page p, PageFn fn, bool new_page = false) {
+        if (new_page) register_new_page(p, fn);
+        else register_page(p, fn);
+    }
 };
 #define TURBO_SHELL_CAT2(a, b) a##b
 #define TURBO_SHELL_CAT(a, b) TURBO_SHELL_CAT2(a, b)

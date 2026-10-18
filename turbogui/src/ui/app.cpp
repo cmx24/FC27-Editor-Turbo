@@ -1520,6 +1520,10 @@ void App::load_gui_settings() {
         }
     }
     prefs = GuiPrefs::load(gui_settings);  // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    // the old panels instead of the 2.16 pages: only a stored choice changes the flag (a test sets it directly)
+    if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
+        gui_settings["gui"]["legacy_pages"].is_boolean())
+        legacy_pages = gui_settings["gui"]["legacy_pages"].get<bool>();
     // the asset catalog's commentary team ("" automatic, "*" every team, "dr" ...): Callnames, docs/asset-catalog.md
     if (gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
         const json& c = gui_settings["callnames"];
@@ -1532,6 +1536,8 @@ bool App::save_gui_settings() {
     gui_settings["gui"]["toggle_mods"] = toggle_mods;
     gui_settings["gui"]["ui_scale"] = std::round(ui_scale_user * 100.0f) / 100.0f;
     prefs.save(gui_settings);
+    if (legacy_pages) gui_settings["gui"]["legacy_pages"] = true;
+    else if (gui_settings["gui"].is_object()) gui_settings["gui"].erase("legacy_pages");
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
 
@@ -1654,7 +1660,9 @@ void App::draw_pages() {
     ImGui::PopID();
 
     const Page page = place_.page;
-    if (!draw_page(*this, page, adv)) draw_legacy_page(*this, page);
+    // 2.16 wiring: the new page of this id first (ui_pages_216.cpp), unless the old panels were asked for; then the page registered before 2.16;
+    // then the legacy panel
+    if (!(!legacy_pages && draw_new_page(*this, page, adv)) && !draw_page(*this, page, adv)) draw_legacy_page(*this, page);
 }
 
 void App::draw() {
