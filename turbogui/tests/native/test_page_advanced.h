@@ -149,18 +149,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.hook_report = saved_hook;
     });
 
-    run_case("Advanced > Diagnostics & logs: the log box follows App::log_lines and Copy log copies them", [&] {
+    run_case("Advanced > Diagnostics & logs: the log box follows App::log_lines", [&] {
         const size_t n0 = app.log_lines.size();
         app.log_lines.push_back("advpage test log line one");
         app.log_lines.push_back("advpage test log line two");
         show(ui, draw_diagnostics_page);
         CHECK(diagnostics_state().log_lines == app.log_lines.size() && app.log_lines.size() >= n0 + 2, "the box holds every line (clipped when drawn)");
-        const ItemRec* copy = ui.find("Copy log##diaglog", "##advpage_test");
-        CHECK(copy != nullptr && ui.click(copy), "click Copy log");
-        ui.frames(2);
-        const char* clip = ImGui::GetClipboardText();
-        CHECK(clip && std::string(clip).find("advpage test log line two") != std::string::npos, "the clipboard holds the log");
-        CHECK(ui.toast_contains("Log copied"), "toast");
+        // the Copy log button is there; it is not clicked: ImGui's default clipboard on Windows is the real one (Cassio's)
+        CHECK(ui.find("Copy log##diaglog", "##advpage_test") != nullptr, "the Copy log button");
         app.log_lines.pop_back();
         app.log_lines.pop_back();
         hide(ui);
