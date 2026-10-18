@@ -240,9 +240,10 @@ static void test_capture_sequence() {
         // the built-in camera is the one W2228 proved: the default player descriptor + 0C = team, +50 = 2, mode 0, extra 0
         const tc::BodyCamera full = tc::body_camera_builtin();
         CHECK(full.ok && full.mode == 0 && full.extra == 0 && full.type == -1 && full.source.find("W2228") != std::string::npos, "built in: mode 0, extra 0");
-        CHECK(tc::describe_body_camera(full) == "type -1, mode 0, extra 0, +0C=team, +50=2", "describe: " + tc::describe_body_camera(full));
+        CHECK(tc::describe_body_camera(full) == "type -1, mode 0, extra 0, +0C=team, +50=2, +58=0, +5C=-1", "describe: " + tc::describe_body_camera(full));
         p = tc::plan_request(tc::body_request(254470, 95), nullptr, &full);
-        CHECK(tc::describe_desc(p.desc) == "+00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +58=-1 +64=1",
+        // the W2228 log line of the request that drew the full body (22:31:35)
+        CHECK(tc::describe_desc(p.desc) == "+00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +5C=-1 +64=1",
               "W2228 descriptor: " + tc::describe_desc(p.desc));
         CHECK(p.mode == 0 && p.extra == 0 && p.type == -1 && p.desc.flag64() && !p.desc.flag68(), "mode 0 / extra 0, player flags");
         CHECK(tc::hex_bytes(p.desc.b, 0x10) == "06 E2 03 00 FF FF FF FF 5F 00 00 00 5F 00 00 00", "first 16 bytes as LE's (W2220 hex): " + tc::hex_bytes(p.desc.b, 0x10));

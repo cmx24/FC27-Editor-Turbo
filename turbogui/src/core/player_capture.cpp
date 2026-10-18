@@ -478,7 +478,14 @@ BodyCamera body_camera_builtin() {
     BodyDword cam;
     cam.off = 0x50;
     cam.value = 2;
-    b.desc = {team, cam};
+    // +58 / +5C as in the request that W2228 proved (LE's descriptor, learned): 0 and -1 where the default has -1 and 0
+    BodyDword d58;
+    d58.off = 0x58;
+    d58.value = 0;
+    BodyDword d5c;
+    d5c.off = 0x5C;
+    d5c.value = -1;
+    b.desc = {team, cam, d58, d5c};
     b.source = "built in (W2228: full body, 256x256)";
     return b;
 }
