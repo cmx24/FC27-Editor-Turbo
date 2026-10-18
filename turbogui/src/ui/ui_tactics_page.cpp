@@ -125,7 +125,7 @@ void presets_frame(App& app) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("A preset can hold your tactic and, if you tick them, your set pieces and gameplay sliders. Game sliders installs the sliders part.");
     theme::muted_text("Tactic now: %s", s1.tactic_now.c_str());
-    if (!live1.ok && ImGui::IsItemHovered() && !live1.why.empty()) ImGui::SetTooltip("%s", live1.why.c_str());
+    if (app.prefs.advanced_mode && !live1.ok && ImGui::IsItemHovered() && !live1.why.empty()) ImGui::SetTooltip("%s", live1.why.c_str());
     if (live1.ok) {
         ImGui::SameLine();
         theme::muted_text("Turbo cannot change the shape.");
@@ -241,7 +241,7 @@ void bench_card(App& app) {
     theme::muted_text("Your saved order");
     if (!s2.sheet_read) {
         theme::muted_text("Can't read your team sheet right now. %s", s2.sheet_why.c_str());
-        if (ImGui::IsItemHovered() && !live2.why.empty()) ImGui::SetTooltip("%s", live2.why.c_str());
+        if (app.prefs.advanced_mode && ImGui::IsItemHovered() && !live2.why.empty()) ImGui::SetTooltip("%s", live2.why.c_str());
         return;
     }
     std::string xi;
@@ -441,7 +441,7 @@ void sliders_editor_panel(App& app, void*) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Takes the prepared sliders back. Nothing will be installed.");
     if (!s3.message.empty()) {
         ImGui::TextWrapped("%s", s3.message.c_str());
-        if (ImGui::IsItemHovered() && !sl.raw_message.empty()) ImGui::SetTooltip("%s", sl.raw_message.c_str());
+        if (app.prefs.advanced_mode && ImGui::IsItemHovered() && !sl.raw_message.empty()) ImGui::SetTooltip("%s", sl.raw_message.c_str());
     }
     if (app.prefs.advanced_mode && ImGui::CollapsingHeader("Game settings file and slider values (Advanced)###gsadv")) draw_game_settings(app);
 }
