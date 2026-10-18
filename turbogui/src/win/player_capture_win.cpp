@@ -16,6 +16,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 
@@ -57,6 +58,7 @@ std::mutex g_mutex;  // template, jobs, results, counters
 Template g_template;
 std::atomic<void*> g_controller{nullptr};  // the controller once seen (Start hook or our own request)
 std::atomic<bool> g_own_request{false};    // set on the game thread around our call into the game
+std::atomic<int> g_own_type{-1};           // >= 0: the request type (+0x18) pc_start sets for that call (kCameraBodyFull)
 int g_seen_game = 0, g_logged = 0, g_done = 0, g_failed = 0;
 std::string g_last_format;
 
@@ -213,14 +215,19 @@ void run_request(Job* job) {
                     ", extra " + std::to_string(p0.extra) + " (" + p0.note + ")");
         for (size_t i = 0; i < job->ndescs; ++i) capture_log("  desc[" + std::to_string(i) + "] " + describe_desc(job->descs[i]));
     }
+    if (p0.type >= 0 && !(g_start_hooked && game_hook_enabled("pc_start")))
+        capture_log("request " + job->label + ": request type " + std::to_string(p0.type) + " NOT set (the pc_start hook is off): the game draws its default framing");
+    g_own_type = p0.type;
     g_own_request = true;
     try {
         reinterpret_cast<StaticBFn>(g_static_b)(nullptr, &job->vec, &job->on_slot, &job->on_done, p0.mode, p0.extra);
     } catch (...) {
         g_own_request = false;
+        g_own_type = -1;
         return fail("PlayerCapture_RequestStatic_B threw");
     }
     g_own_request = false;
+    g_own_type = -1;
     state = -1;
     mem.read(reinterpret_cast<uint64_t>(ctl), &state, 4);
     if (state != 1 && state != 2 && state != 3 && state != 4) return fail("the game did not start the capture (controller state " + std::to_string(state) + " after the request)");
@@ -241,6 +248,17 @@ void hk_start(void* ctl, void* vec) {
         const bool ours = g_own_request.load();
         uint64_t begin = 0, end = 0;
         const uint64_t c = reinterpret_cast<uint64_t>(ctl), v = reinterpret_cast<uint64_t>(vec);
+        // 2.17 full-body camera: Turbo's OWN request may carry a request type. Request_B set +0x18 to 0 just before it called
+        // Start, and Start copies +0x18 into the render request, so it is set here, before the original Start runs. The
+        // controller's documented field only (docs/re/player_capture.md 2.2), never for the game's own requests.
+        if (ours) {
+            const int want = g_own_type.load();
+            if (want >= 0) {
+                const int32_t t32 = want;
+                const bool wrote = mem.write(c + 0x18, &t32, 4);
+                capture_log(std::string("request type ") + std::to_string(want) + (wrote ? " set" : " NOT set (write failed)") + " on Turbo's request");
+            }
+        }
         if (mem.read(v, &begin, 8) && mem.read(v + 8, &end, 8) && end >= begin) {
             const size_t n = static_cast<size_t>((end - begin) / kPlayerDescSize);
             int32_t type = 0, mode = 0, extra = 0;
@@ -419,6 +437,26 @@ public:
             return false;
         }
         if (!check_request(r, static_cast<size_t>(max_batch_now()), err)) return false;
+        // the full-body camera's table, read at each such request (turbo_output\looks\body_camera.txt; core/player_capture.h)
+        BodyCamera body = body_camera_builtin();
+        if (r.camera == kCameraBodyFull) {
+            std::error_code ec;
+            const fs::path bp = le_root() / "turbo_output" / "looks" / "body_camera.txt";
+            if (fs::exists(bp, ec)) {
+                std::ifstream f(bp, std::ios::binary);
+                std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                std::string perr;
+                BodyCamera from_file;
+                if (text.size() > 4096) {
+                    capture_log("body_camera.txt not used (larger than 4 KB): the built-in camera applies");
+                } else if (!parse_body_camera(text, from_file, &perr)) {
+                    capture_log("body_camera.txt not used (" + perr + "): the built-in camera applies");
+                } else if (from_file.ok) {
+                    body = from_file;
+                    body.source = "turbo_output\\looks\\body_camera.txt";
+                }
+            }
+        }
         std::lock_guard<std::mutex> lock(g_mutex);
         settle_current_locked();
         if (g_current) {
@@ -429,7 +467,7 @@ public:
         job->serial = ++g_serial;
         job->req = r;
         job->label = request_label(r);
-        job->plans = plan_batch(r, &g_template);
+        job->plans = plan_batch(r, &g_template, r.camera == kCameraBodyFull ? &body : nullptr);
         job->book = BatchBook(request_entries(r));
         job->t_request = std::chrono::steady_clock::now();
         Job* raw = job.get();

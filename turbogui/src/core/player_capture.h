@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "image.h"
@@ -74,6 +75,42 @@ struct Camera {
 const std::vector<Camera>& cameras();
 constexpr int kCameraLearned = -1;  // use the template's mode / extra (falls back to preset 0)
 
+// 2.17 full-body camera (research_20261017\FULLBODY_FAST_ROUTE.md, "Decision after W2202", route A). Live Editor's
+// PlayerCaptureSetCamera(2) = Body drives the same controller. Probe W2220 (22:19, pc_start log of LE's request for 254470 /
+// team 95): "type 0, mode 2, extra 2", desc +00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +5C=-1
+// (so +0C = the team, +50 = 2, +58 = 0, +5C = -1, +64 = 0 where Turbo's player descriptor has -1, 1, -1, 0, 1); LE's request
+// itself gave no picture. W2228 (22:31, evidence\2026-10-17\W2228P): Turbo's OWN request with the default descriptor plus
+// +0C = team and +50 = 2, mode 0, extra 0, rendered the FULL BODY (PNG 256x256, head to boots in kit); +64 = 1 did not prevent
+// it, and mode / extra alone do not change the framing (mode 2 / extra 2 with the default descriptor: head and shoulders).
+// body_camera_builtin() is that W2228 camera; a small table the host reads at each request replaces it without a rebuild or
+// a restart: turbo_output\looks\body_camera.txt. Lines ('#' starts a comment, values decimal or 0x hex):
+//   type = 2            controller +0x18 for Turbo's own request (the pc_start detour writes it before Start reads it)
+//   mode = 1            controller +0x40 (1 = the big 0x2FAF08-byte slices)      default 1
+//   extra = 0           controller +0x44                                         default 0
+//   desc 0x50 = 2       a descriptor dword (offset 0x04..0x68, 4-aligned, never +0x00 / +0x08: the ids), at most 8 lines;
+//   desc 0x0C = team    ... "team" = the request's second id (his team)
+// A file with an error in it is not used (logged) and the built-in values apply.
+constexpr int kCameraBodyFull = -2;
+constexpr int kMaxBodyCameraDwords = 8;
+struct BodyDword {
+    size_t off = 0;
+    int32_t value = 0;
+    bool team = false;  // the request's second id (his team) instead of value
+};
+struct BodyCamera {
+    bool ok = false;     // parsed without error and says something (type or a desc dword)
+    int type = -1;       // >= 0: controller +0x18
+    int mode = 1;
+    int extra = 0;
+    std::vector<BodyDword> desc;  // written into the descriptor after the ids and flags, in order
+    std::string source;  // where it came from ("turbo_output\looks\body_camera.txt", "built in"), for the notes
+};
+// false (+err naming the line) on any line it does not understand; an empty table (comments only) is ok = false, no error
+bool parse_body_camera(const std::string& text, BodyCamera& out, std::string* err);
+std::string describe_body_camera(const BodyCamera& b);  // "type 2, mode 1, extra 0, +0C=team, +50=2"
+// The full-body camera proven in W2228: mode 0, extra 0 (256x256 slices, ~190 KB), +0C = team, +50 = 2, the rest default
+BodyCamera body_camera_builtin();
+
 // Head id the game's manager-head builder treats as the user's created avatar (+0x68 = 1)
 constexpr int32_t kUserAvatarHeadId = 9999;
 
@@ -106,13 +143,15 @@ struct Plan {
     PlayerDesc desc;
     int mode = 0;
     int extra = 0;
+    int type = -1;     // >= 0: the controller's request type (+0x18) the pc_start detour sets for this request (kCameraBodyFull)
     std::string note;  // "learned descriptor" / "default descriptor"
 };
-Plan plan_request(const Request& r, const Template* t);
+// body: the full-body camera table (used only when r.camera == kCameraBodyFull; nullptr = not configured)
+Plan plan_request(const Request& r, const Template* t, const BodyCamera* body = nullptr);
 // The heads a request renders: its batch, or the single request as one entry
 std::vector<BatchEntry> request_entries(const Request& r);
 // One plan per entry, in order (all share the camera, so mode / extra are the same)
-std::vector<Plan> plan_batch(const Request& r, const Template* t);
+std::vector<Plan> plan_batch(const Request& r, const Template* t, const BodyCamera* body = nullptr);
 // Before a request goes to the game: 1..max_entries heads, every id > 0 and no id twice (the game hands each picture back
 // with the id only). false and err when not.
 bool check_request(const Request& r, size_t max_entries, std::string* err);
@@ -241,11 +280,15 @@ public:
 constexpr int kCameraBody = 1;     // "Large slice (mode 1, extra 0)"
 constexpr int kCameraBodyKit = 2;  // "Avatar outfit (mode 1, extra 3)"
 
-// A player's full-body picture request: the default descriptor (never the learned one: in a career the first game capture
+// W2202 (installed 2.16.0): every mode-1 picture is a 1024x1024 DDS DXT5 HEAD AND SHOULDERS picture, for players and managers.
+// The full body is kCameraBodyFull (above, proven in W2228: 256x256, head to boots in kit), the default here.
+//
+// A player's big picture request: the default descriptor (never the learned one: in a career the first game capture
 // is the hub's avatar portrait, whose template once drew the avatar's head for every id), id = playerid, second id = his
-// team (-1 = none), player flags. camera: kCameraBody or kCameraBodyKit (anything else -> kCameraBody). Label "player <id>"
-// when none is given (the log lines then read "request player <id>: ...").
-Request body_request(int32_t id, int32_t team, int camera = kCameraBody, const std::string& label = "");
+// team (-1 = none), player flags. camera: kCameraBodyFull (default: the full body, 256x256), kCameraBody (1024 head and
+// shoulders) or kCameraBodyKit (anything else -> kCameraBodyFull). Label "player <id>" when none is given (the log lines then
+// read "request player <id>: ...").
+Request body_request(int32_t id, int32_t team, int camera = kCameraBodyFull, const std::string& label = "");
 
 // ---------------------------------------------------------------- Sequence: write -> picture -> save, one code at a time
 // Runs a list of codes on ONE reference player (track T: one picture per body type; any other per-player code works the
@@ -284,7 +327,7 @@ struct SequenceHooks {
 struct SequenceOptions {
     int32_t player = 0;           // the reference player's id (> 0)
     int32_t team = -1;            // his team id (the descriptor's second id), -1 = none
-    int camera = kCameraBody;     // kCameraBody or kCameraBodyKit
+    int camera = kCameraBodyFull;  // kCameraBodyFull (the full body, W2228), kCameraBody, kCameraBodyKit
     int64_t original = -1;        // his own code before the run (kept in the manifest; -1 = unknown)
     double step_timeout = 25.0;   // seconds from the request to his picture (also the longest wait for a busy service)
     double write_timeout = 10.0;  // seconds a write / restore may answer Wait
