@@ -18,6 +18,7 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "playstyles.h"
+#include "table_registry.h"
 #include "ui_bodytypes.h"
 #include "ui_club_search.h"
 #include "ui_faces3d_gate.h"
@@ -112,8 +113,8 @@ void select_panel(App& app, void*) {
     g_state.listed = g_ids.size();
     theme::muted_text("%zu players", g_ids.size());
 
-    ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV;
-    if (ImGui::BeginTable("##pplist", 3, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+    // "##players" is the registered ID of the player list (table_registry.h); this table lives in another window, so its saved layout is its own
+    if (ImGui::BeginTable("##players", 3, tbl::kData | ImGuiTableFlags_ScrollY, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 0);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
@@ -181,7 +182,7 @@ void playstyle_chips(App& app, const Table& t, uint64_t rec, const char* field, 
     if (!app.db.get(t, rec, *f, v)) return;
     ImGui::PushID(field);
     const int bits = std::min(f->depth, 62);
-    if (ImGui::BeginTable("##bits", 3, ImGuiTableFlags_SizingStretchSame)) {
+    if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
         for (int b = 0; b < bits && b < static_cast<int>(names.size()); ++b) {
             if (!names[static_cast<size_t>(b)]) continue;  // an unnamed bit stays out of the main view
             ImGui::TableNextColumn();
@@ -278,7 +279,7 @@ void skills_card(App& app, const Table& t, const PlayerRow& p) {
         std::snprintf(head, sizeof(head), "%.*s  %lld%s", static_cast<int>(id ? id - g.first : 0), g.first,
                       sum / static_cast<long long>(present.size()), id ? id : "");
         if (fold(head)) {
-            if (ImGui::BeginTable("##sl", 1, ImGuiTableFlags_SizingStretchSame)) {
+            if (ImGui::BeginTable("##sl", 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
                 for (const Field* f : present) {
                     ImGui::TableNextColumn();
                     slider_editor_ex(app, t, p.rec, *f, field_label(f->name).c_str(), S(150.0f), -FLT_MIN, S(58.0f));
@@ -441,6 +442,7 @@ bool move_button(App& app, const char* label, const char* key, const std::string
     return clicked;
 }
 
+const char* const kConfirmPopup = "Are you sure?###pp_confirm";
 enum class Confirm { None, Release, EndLoan, Delete };
 Confirm g_confirm = Confirm::None;
 int g_to_team = 0, g_fee = 0, g_wage = 0, g_months = 60, g_loan_months = 12;
@@ -456,13 +458,13 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
     ImGui::SameLine();
     if (move_button(app, "Release...###pp_release", "move_release", move_rules::why_not("release", facts), nobody_undoes)) {
         g_confirm = Confirm::Release;
-        ImGui::OpenPopup("Are you sure?###pp_confirm");
+        ImGui::OpenPopup(kConfirmPopup);
     }
     ImGui::SameLine();
     if (move_button(app, "End loan...###pp_endloan", "move_terminate_loan", move_rules::why_not("terminate_loan", facts), nobody_undoes))
     {
         g_confirm = Confirm::EndLoan;
-        ImGui::OpenPopup("Are you sure?###pp_confirm");
+        ImGui::OpenPopup(kConfirmPopup);
     }
     struct B { const char* label; const char* action; const char* key; const char* tip; };
     const B lists[] = {
@@ -476,7 +478,7 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
     }
     if (move_button(app, "Delete player...###pp_delete", "delete_players", move_rules::why_not("delete", facts), nobody_undoes)) {
         g_confirm = Confirm::Delete;
-        ImGui::OpenPopup("Are you sure?###pp_confirm");
+        ImGui::OpenPopup(kConfirmPopup);
     }
     if (!cm) {
         ImGui::EndDisabled();
@@ -524,7 +526,7 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
     }
 
     // one confirmation for the three moves nothing can bring back
-    if (ImGui::BeginPopupModal("Are you sure?###pp_confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal(kConfirmPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         const char* verb = g_confirm == Confirm::Release ? "Release" : g_confirm == Confirm::EndLoan ? "End the loan of" : "Delete";
         const char* what = g_confirm == Confirm::Release   ? "He becomes a free agent."
                            : g_confirm == Confirm::EndLoan ? "He goes back to the club that lent him."
