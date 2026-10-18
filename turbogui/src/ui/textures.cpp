@@ -172,6 +172,7 @@ void TextureCache::new_frame(double now) {
     now_ = now;
     decodes_left_ = kDecodesPerFrame;
     uploads_left_ = kUploadsPerFrame;
+    checks_left_ = kChecksPerFrame;
     for (size_t i = 0; i < dying_.size();) {
         ImTextureData* t = dying_[i];
         if (t->Status == ImTextureStatus_Destroyed) {
@@ -246,6 +247,17 @@ static TextureCache::Pic pic_of(ImTextureData* tex, int w, int h, bool failed, c
 
 TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
     std::string key = path.string() + "|" + std::to_string(max_side);
+    // 2.16 gui/perf-2: past this frame's checks, a good texture shown in the last second is drawn without looking at its file
+    if (checks_left_ <= 0) {
+        auto hit = entries_.find(key);
+        if (hit != entries_.end() && !hit->second.failed && hit->second.tex && now_ >= hit->second.checked_at &&
+            now_ - hit->second.checked_at < kCheckEverySec) {
+            hit->second.last_used = now_;
+            return pic_of(hit->second.tex, hit->second.w, hit->second.h, false, std::string());
+        }
+    } else {
+        --checks_left_;
+    }
     std::error_code ec;
     auto mtime = fs::last_write_time(path, ec);
     uintmax_t fsize = ec ? 0 : fs::file_size(path, ec);
@@ -258,6 +270,7 @@ TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
         Entry& e = it->second;
         if (e.mtime == mtime && e.fsize == fsize) {
             e.last_used = now_;
+            e.checked_at = now_;
             if (!e.failed || now_ < e.retry_at) return pic_of(e.tex, e.w, e.h, e.failed, e.error);
             // failed before, due again: still the failure until this frame's budget has a decode for it
             if (decodes_left_ <= 0 || !room()) return pic_of(nullptr, 0, 0, true, e.error);
@@ -282,6 +295,7 @@ TextureCache::Pic TextureCache::file(const fs::path& path, int max_side) {
     e.mtime = mtime;
     e.fsize = fsize;
     e.last_used = now_;
+    e.checked_at = now_;
     std::string err;
     if (!decoded && !load_image_file(path, img, &err)) {
         e.failed = true;

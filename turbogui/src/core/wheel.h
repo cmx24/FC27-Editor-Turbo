@@ -47,10 +47,15 @@ inline bool wheel_take(WheelSource src, bool hook_alive, bool legacy_mouse_seen)
 
 // Put the hook back? The cursor moved (a real move calls the hook) after the hook's last call, the hook has been
 // quiet for kWheelHookQuietSec, and the last try is kWheelHookRetrySec old. Times < 0 = never.
+// 2.16 gui/perf-2: the render thread stamps a move when its frame sees the cursor somewhere new, which is always a little
+// AFTER the hook's call for that same move. So the last move of every gesture looked "unseen", and 2 s after the mouse
+// stopped the hook was installed again (in game with lateness 0: "installed again" 4 times in a 90 s idle re-run, W1948).
+// A move counts as unseen only when it comes kWheelHookMoveSlackSec after the hook's last call.
+constexpr double kWheelHookMoveSlackSec = 0.5;
 inline bool wheel_hook_reinstall(bool installed, double now, double last_hook_call, double last_cursor_move,
                                  double last_retry) {
     if (!installed || last_cursor_move < 0.0 || wheel_hook_alive(installed, now, last_hook_call)) return false;
-    if (last_hook_call >= 0.0 && last_cursor_move <= last_hook_call) return false;  // the hook saw that move
+    if (last_hook_call >= 0.0 && last_cursor_move <= last_hook_call + kWheelHookMoveSlackSec) return false;  // the hook saw that move
     return last_retry < 0.0 || now - last_retry >= kWheelHookRetrySec;
 }
 
