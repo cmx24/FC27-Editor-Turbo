@@ -80,7 +80,13 @@ private:
         std::string error;
         int fails = 0;          // failed reads of this file in a row (the retry delay doubles with each)
         double retry_at = 0.0;  // failed: read again from then on
+        double checked_at = -1e9;  // 2.16: when its file's time and size were last looked at
     };
+    // 2.16 gui/perf-2: a drawn picture's file was looked at (time + size) in every frame: in a grid of pictures (the real-face
+    // chooser, 6,028 heads) that is hundreds of file calls per frame (20-27 ms per frame in game, W1948). At most this many
+    // are looked at per frame; past it a picture shown from a good texture is looked at again once it is a second old.
+    static constexpr int kChecksPerFrame = 24;
+    static constexpr double kCheckEverySec = 1.0;
     ImTextureData* upload(const Rgba& img);
     void release(ImTextureData* t);
     void evict();
@@ -91,6 +97,7 @@ private:
     double now_ = 0.0, prev_now_ = 0.0;
     int decodes_left_ = kDecodesPerFrame;
     int uploads_left_ = kUploadsPerFrame;
+    int checks_left_ = kChecksPerFrame;
     size_t created_ = 0, freed_ = 0;
 
     // background decoding (worker thread; everything below is guarded by pre_->m)

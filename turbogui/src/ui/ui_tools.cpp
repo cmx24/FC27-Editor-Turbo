@@ -1,5 +1,6 @@
 // FC 27 LE Turbo GUI - Turbo Tools tab (Turbo 0.1 features as buttons) and Status tab.
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -770,69 +771,106 @@ const char* key_name(int vk) {
     return name.c_str();
 }
 
-// Game-code hooks (src/win/game_hooks.cpp): build, signature table, every signature's status, hooks, dispatcher
-void draw_hook_status(App& app) {
-    ImGui::SeparatorText("Game hooks");
-    if (!app.hook_report) {
-        ImGui::TextDisabled("not available in this build");
-        return;
-    }
+// Game-code hooks (src/win/game_hooks.cpp): build, signature table, every signature's status, hooks, dispatcher.
+// 2.16 gui/perf-2: the ~230 lines (141 signatures, every hook, every game call) and the callname counts (sets of tens of
+// thousands of ids) were formatted / built in every frame Technical details was open: 5.4 ms per frame in game (W1948 launch
+// C). The lines are built at most once a second (with the report itself) and drawn as they are.
+namespace {
+struct StatusLine {
+    int kind = 0;  // 0 plain, 1 warning colour, 2 wrapped
+    std::string text;
+};
+std::vector<StatusLine> g_hook_lines;
+double g_hook_lines_at = -1e9;
+const void* g_hook_lines_app = nullptr;
+
+std::string fmt_line(const char* f, ...) {
+    char buf[1024];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return buf;
+}
+
+void build_hook_lines(App& app, std::vector<StatusLine>& out) {
+    out.clear();
+    auto add = [&out](int kind, std::string s) { out.push_back({kind, std::move(s)}); };
     const HookReport& r = app.hook_report_cached();  // 2.16: at most once a second, built on the host's report thread
-    ImGui::Text("Game build: %s | signature table: %s | hooks: %s", r.build.empty() ? "unknown" : r.build.c_str(),
-                r.table_source.empty() ? "none" : r.table_source.c_str(), r.enabled ? "allowed" : "off");
-    if (!r.note.empty()) ImGui::TextWrapped("  %s", r.note.c_str());
+    add(0, fmt_line("Game build: %s | signature table: %s | hooks: %s", r.build.empty() ? "unknown" : r.build.c_str(),
+                    r.table_source.empty() ? "none" : r.table_source.c_str(), r.enabled ? "allowed" : "off"));
+    if (!r.note.empty()) add(2, "  " + r.note);
     int found = 0;
     for (const auto& s : r.signatures)
         if (s.state == SigState::Found) ++found;
-    ImGui::Text("Signatures: %d of %zu found", found, r.signatures.size());
+    add(0, fmt_line("Signatures: %d of %zu found", found, r.signatures.size()));
     for (const auto& s : r.signatures) {
         if (s.state == SigState::Found)
-            ImGui::Text("  %s: found at 0x%llX", s.name.c_str(), static_cast<unsigned long long>(s.address));
+            add(0, fmt_line("  %s: found at 0x%llX", s.name.c_str(), static_cast<unsigned long long>(s.address)));
         else
-            ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "  %s: %s (%s)", s.name.c_str(), sig_state_name(s.state), s.error.c_str());
+            add(1, fmt_line("  %s: %s (%s)", s.name.c_str(), sig_state_name(s.state), s.error.c_str()));
     }
-    ImGui::Text("Hooks active: %zu", r.hooks.size());
+    add(0, fmt_line("Hooks active: %zu", r.hooks.size()));
     for (const auto& h : r.hooks)
-        ImGui::Text("  %s: %s at 0x%llX | calls %lld | errors %lld%s%s", h.name.c_str(),
-                    h.killed ? "KILLED (hook_<name>_off.txt)" : h.active ? "active" : "not active",
-                    static_cast<unsigned long long>(h.target), h.calls, h.errors, h.note.empty() ? "" : " | ",
-                    h.note.c_str());
-    ImGui::Text("Game-thread dispatcher: %s | ticks %lld | Lua pumps %lld | jobs run %lld | failed %lld | dropped %lld | queued %zu",
-                r.dispatcher_hooked ? "prompt (game_tick hook)" : "on career-mode events (Lua pump)", r.dispatcher_ticks,
-                r.dispatcher_pumps, r.dispatcher_ran, r.dispatcher_failed, r.dispatcher_dropped, r.queued);
-    ImGui::Text("  threads: tick %lu | Lua pump %lu | last drain %lu%s", static_cast<unsigned long>(r.tick_thread_id),
-                static_cast<unsigned long>(r.pump_thread_id), static_cast<unsigned long>(r.game_thread_id),
-                (r.tick_thread_id && r.pump_thread_id && r.tick_thread_id != r.pump_thread_id) ? "  (job-pool threads: both change from frame to frame)" : "");
-    ImGui::TextWrapped("Prompt Lua commands (synthetic career event): %s | sent %lld | Lua pumped %lld",
-                       r.lua_trigger.empty() ? "not available" : r.lua_trigger.c_str(), r.lua_triggers, r.lua_trigger_pumps);
+        add(0, fmt_line("  %s: %s at 0x%llX | calls %lld | errors %lld%s%s", h.name.c_str(),
+                        h.killed ? "KILLED (hook_<name>_off.txt)" : h.active ? "active" : "not active",
+                        static_cast<unsigned long long>(h.target), h.calls, h.errors, h.note.empty() ? "" : " | ", h.note.c_str()));
+    add(0, fmt_line("Game-thread dispatcher: %s | ticks %lld | Lua pumps %lld | jobs run %lld | failed %lld | dropped %lld | queued %zu",
+                    r.dispatcher_hooked ? "prompt (game_tick hook)" : "on career-mode events (Lua pump)", r.dispatcher_ticks,
+                    r.dispatcher_pumps, r.dispatcher_ran, r.dispatcher_failed, r.dispatcher_dropped, r.queued));
+    add(0, fmt_line("  threads: tick %lu | Lua pump %lu | last drain %lu%s", static_cast<unsigned long>(r.tick_thread_id),
+                    static_cast<unsigned long>(r.pump_thread_id), static_cast<unsigned long>(r.game_thread_id),
+                    (r.tick_thread_id && r.pump_thread_id && r.tick_thread_id != r.pump_thread_id) ? "  (job-pool threads: both change from frame to frame)" : ""));
+    add(2, fmt_line("Prompt Lua commands (synthetic career event): %s | sent %lld | Lua pumped %lld",
+                    r.lua_trigger.empty() ? "not available" : r.lua_trigger.c_str(), r.lua_triggers, r.lua_trigger_pumps));
     // Miniface from the 3D model (src/win/player_capture_win.cpp)
     if (app.capture) {
         const capture::Status cs = app.capture->status();
-        ImGui::Text("3D-model capture: %s | %s | game captures seen %d (descriptor %s) | Turbo renders %d ok, %d failed%s%s",
-                    cs.installed ? "installed" : "off", cs.busy ? ("busy: " + cs.busy_label).c_str() : cs.reason.c_str(), cs.seen,
-                    cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
-                    cs.last_format.c_str());
-        ImGui::Text("  heads per request: %d%s | %s", cs.max_batch, cs.max_batch == 1 ? " (turbo_output\\player_capture_batch1.txt)" : "",
-                    faces3d_status().c_str());
+        add(0, fmt_line("3D-model capture: %s | %s | game captures seen %d (descriptor %s) | Turbo renders %d ok, %d failed%s%s",
+                        cs.installed ? "installed" : "off", cs.busy ? ("busy: " + cs.busy_label).c_str() : cs.reason.c_str(), cs.seen,
+                        cs.learned ? "learned" : "not learned", cs.done, cs.failed, cs.last_format.empty() ? "" : " | last picture ",
+                        cs.last_format.c_str()));
+        add(0, fmt_line("  heads per request: %d%s | %s", cs.max_batch, cs.max_batch == 1 ? " (turbo_output\\player_capture_batch1.txt)" : "",
+                        faces3d_status().c_str()));
     }
     if (!r.calls.empty()) {
-        ImGui::Text("Game calls (job offers, live standings, callnames):");
-        for (const auto& c : r.calls) ImGui::TextWrapped("  %s", c.c_str());
+        add(0, "Game calls (job offers, live standings, callnames):");
+        for (const auto& c : r.calls) add(2, "  " + c);
     }
     // the commentary language the game loaded (core/callnames.h detect_commentary_language) and the callnames per source
     if (app.callnames.refreshed) {
-        ImGui::TextWrapped("  %s", app.callnames.log_line().c_str());
+        add(2, "  " + app.callnames.log_line());
         const CallnamePopulation pop = callname_population(app.callnames.bank, app.callnames.masters, app.callnames.index);
-        ImGui::TextWrapped("  callnames %s: %s%s", app.callnames.lang.c_str(), callname_population_line(pop).c_str(),
-                           app.callnames.index.built ? "" : " (open Edit a player > Callname for the database counts)");
+        add(2, fmt_line("  callnames %s: %s%s", app.callnames.lang.c_str(), callname_population_line(pop).c_str(),
+                        app.callnames.index.built ? "" : " (open Edit a player > Callname for the database counts)"));
     }
     // the spoken-callname set (core/commentary_audio.h SpokenWatch): built where the game binds its commentary bank
     if (app.commentary_audio) {
         if (app.callnames.refreshed && app.callnames.spoken.verified)
-            ImGui::TextWrapped("  spoken callnames (%s): %s", app.callnames.lang.c_str(), app.callnames.spoken.source.c_str());
+            add(2, fmt_line("  spoken callnames (%s): %s", app.callnames.lang.c_str(), app.callnames.spoken.source.c_str()));
         else if (!app.spoken_watch_line().empty())
-            ImGui::TextWrapped("  spoken callnames (%s): %s | probes %lld", app.callnames.lang.empty() ? "no language" : app.callnames.lang.c_str(),
-                               app.spoken_watch_line().c_str(), app.spoken_watch.probes());
+            add(2, fmt_line("  spoken callnames (%s): %s | probes %lld", app.callnames.lang.empty() ? "no language" : app.callnames.lang.c_str(),
+                            app.spoken_watch_line().c_str(), app.spoken_watch.probes()));
+    }
+}
+}  // namespace
+
+void draw_hook_status(App& app) {
+    ImGui::SeparatorText("Game hooks");
+    if (!app.hook_report) {
+        ImGui::TextDisabled("not available in this build");
+        g_hook_lines_at = -1e9;
+        return;
+    }
+    if (g_hook_lines_app != &app || app.now < g_hook_lines_at || app.now - g_hook_lines_at >= 1.0) {
+        build_hook_lines(app, g_hook_lines);
+        g_hook_lines_at = app.now;
+        g_hook_lines_app = &app;
+    }
+    for (const StatusLine& l : g_hook_lines) {
+        if (l.kind == 1) ImGui::TextColored(ImVec4(1, 0.7f, 0.3f, 1), "%s", l.text.c_str());
+        else if (l.kind == 2) ImGui::TextWrapped("%s", l.text.c_str());
+        else ImGui::TextUnformatted(l.text.c_str());
     }
 }
 

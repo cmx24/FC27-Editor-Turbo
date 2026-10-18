@@ -40,6 +40,10 @@ static void test_wheel_sources() {
               "not more often than every 5 seconds");
         CHECK(!wheel_hook_reinstall(false, 10.0, 5.0, 9.9, -1.0) && !wheel_hook_reinstall(true, 10.0, 5.0, -1.0, -1.0),
               "not installed / no move seen yet");
+        // 2.16 gui/perf-2: the frame sees a move a few ms after the hook's call for it: the mouse stopped, the hook is fine
+        CHECK(!wheel_hook_reinstall(true, 10.0, 5.0, 5.02, -1.0) && !wheel_hook_reinstall(true, 30.0, 5.0, 5.4, -1.0),
+              "a move seen by the frame just after the hook's last call is the hook's own: no reinstall after the mouse stops");
+        CHECK(wheel_hook_reinstall(true, 10.0, 5.0, 5.6, -1.0), "a move 0.6 s after the hook's last call: the hook missed it");
     });
 
     // 2.16 gui/perf: the hook procedure never waits for a lock: notches are summed with atomic adds and taken per frame
