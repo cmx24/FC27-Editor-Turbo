@@ -100,6 +100,7 @@ void App::note_career_label() {
 bool App::save_reapply() {
     const fs::path p = reapply_store_path(bridge.root());
     std::string err;
+    reapply.prune_careers();  // 2.17.2: a career that lost its last row leaves the file (edit + Undo = the file as it was)
     note_career_label();
     if (!save_reapply_store(p, reapply, &err, reapply_unreadable_)) {
         reapply_error = "kept edits not saved: " + err;

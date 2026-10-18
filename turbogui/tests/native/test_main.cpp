@@ -2141,6 +2141,39 @@ static void test_reapply_scopes() {
                   s.scope_label("x") == "unknown scope 'x' (not applied)",
               "what the UI calls each scope");
     });
+    run_case("2.17.2 careers block: an entry with no row bound to it is pruned; edit + Undo leave the JSON byte for byte", [&] {
+        ReapplyStore s;
+        s.set_kit_field_in("", 7, 0, 70, "Everton", "2026-10-14 16:00", "teamcolorprimr", 11);  // an older Turbo's row
+        const std::string legacy = reapply_json(s);
+        // no block before: edit + Undo in career X
+        s.career = "5f655f9eab8ea77c";
+        CHECK(s.note_player_edit(4242, "Jamie Vardy", "w", "composure", 83, 84), "edit 83 -> 84 kept in career X");
+        s.careers[s.career] = ReapplyStore::CareerInfo{"Jamie Vardy, Leicester City", "2026-10-17 23:47"};  // what the save stamps
+        CHECK(!s.prune_careers() && reapply_json(s).find("\"careers\"") != std::string::npos, "while the row is kept: the block stays");
+        CHECK(s.note_player_edit(4242, "Jamie Vardy", "w", "composure", 84, 83) && s.players.empty(), "Undo 84 -> 83: the row goes");
+        CHECK(s.prune_careers() && s.careers.empty() && reapply_json(s) == legacy, "Undo: the orphan block pruned, the JSON byte-identical");
+        CHECK(!s.prune_careers(), "nothing more to prune");
+        // a block that existed before (a row bound to career X) stays exactly as it was
+        s.set_kit_field_in("career:5f655f9eab8ea77c", 1, 1, 11, "Leicester", "2026-10-17 12:00", "teamcolorprimr", 5);
+        s.careers[s.career] = ReapplyStore::CareerInfo{"Jamie Vardy, Leicester City", "2026-10-17 12:00"};
+        s.careers["bbbbbbbbbbbbbbbb"] = ReapplyStore::CareerInfo{"Mikel Arteta, Arsenal", "2026-10-16 10:00"};
+        s.set_callname_in("career:bbbbbbbbbbbbbbbb", 1003, 900010, "W", "", "");
+        const std::string with_block = reapply_json(s);
+        CHECK(s.note_player_edit(4242, "Jamie Vardy", "w", "composure", 83, 84) && s.note_player_edit(4242, "Jamie Vardy", "w", "composure", 84, 83),
+              "edit + Undo with the block there");
+        CHECK(!s.prune_careers() && reapply_json(s) == with_block && s.careers.at(s.career).seen == "2026-10-17 12:00",
+              "the existing block byte for byte as it was");
+        // the last row of a career moved to Global: its entry goes, the other career's stays
+        CHECK(s.move_kit(ReapplyStore::KitKey{1, 1, 11, "career:5f655f9eab8ea77c"}, "global") && s.prune_careers() && s.careers.size() == 1 &&
+                  s.careers.count("bbbbbbbbbbbbbbbb"),
+              "career X pruned after its last row went Global; career B (still bound) kept");
+        // an orphan read from a file written by 2.17.0 / 2.17.1: pruned at the next write; no rows bound = no "careers" key
+        ReapplyStore o;
+        std::string err;
+        CHECK(parse_reapply_json(R"({"turbo_reapply": 1, "careers": {"5f655f9eab8ea77c": {"label": "Jamie Vardy, Leicester City", "seen": "x"}}})", o, &err) &&
+                  o.careers.size() == 1 && o.prune_careers() && reapply_json(o).find("careers") == std::string::npos,
+              "an orphan from an older file is pruned: " + err);
+    });
     run_case("2.15 club names by scope: a name of an older Turbo keeps no scope key; in effect: this career's, else global, else not assigned", [&] {
         const auto npos = std::string::npos;
         tnames::Store s;
@@ -8457,6 +8490,30 @@ static void test_ui() {
                 std::string err;
                 CHECK(app.db.set(*app.db.table("teams"), app.db.find(*app.db.table("teams"), "teamid", 7), *app.db.table("teams")->field("teamname"), everton_db, &err),
                       "Everton's database name back: " + err);
+            }
+
+            // ---- 2.17.2 (G3 R1 item 2): a kept player edit + its Undo in career A leave reapply_edits.json byte-identical, with no
+            // careers block before and with one (a row bound to career A) before
+            {
+                CHECK(app.reapply.career == idA && app.save_kept_edits(), "career A, saved");
+                const std::string pre = read_file(reapply_store_path(le));
+                CHECK(json::parse(pre)["careers"].count(idA) == 0, "no row bound to career A: no entry for it in the file");
+                CHECK(app.reapply.note_player_edit(4242, "Jamie Vardy", "w", "composure", 83, 84) && app.save_kept_edits() &&
+                          json::parse(read_file(reapply_store_path(le)))["careers"][idA]["label"] == "Mikel Arteta, Arsenal",
+                      "the edit: career A's row and its name in the file");
+                CHECK(app.reapply.note_player_edit(4242, "Jamie Vardy", "w", "composure", 84, 83) && app.save_kept_edits(), "Undo, saved");
+                CHECK(read_file(reapply_store_path(le)) == pre && app.reapply.careers.count(idA) == 0, "edit + Undo: the file byte-identical");
+                app.reapply.set_kit_field_in(career_scope(idA), 1, 0, 10, "Arsenal", "2026-10-17 12:00", "teamcolorsecr", 9);
+                CHECK(app.save_kept_edits(), "a row bound to career A, saved");
+                const std::string pre2 = read_file(reapply_store_path(le));
+                CHECK(json::parse(pre2)["careers"].count(idA) == 1, "career A named in the file");
+                CHECK(app.reapply.note_player_edit(4242, "Jamie Vardy", "w", "composure", 83, 84) && app.save_kept_edits() &&
+                          app.reapply.note_player_edit(4242, "Jamie Vardy", "w", "composure", 84, 83) && app.save_kept_edits(),
+                      "edit + Undo with the block there");
+                CHECK(read_file(reapply_store_path(le)) == pre2, "the existing careers block byte-identical");
+                CHECK(app.reapply.forget_kit_field_in(career_scope(idA), 1, 0, 10, "teamcolorsecr") && app.save_kept_edits() &&
+                          read_file(reapply_store_path(le)) == pre,
+                      "its last row forgotten: the file as before the row");
             }
 
             // put the world back for the cases below: an empty store, the base kits, a load of the old session

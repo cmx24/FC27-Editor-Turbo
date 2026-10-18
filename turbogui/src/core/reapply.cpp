@@ -385,6 +385,23 @@ bool ReapplyStore::move_player(const RowKey& key, const std::string& to) {
     return true;
 }
 
+bool ReapplyStore::prune_careers() {
+    std::set<std::string> bound;
+    for (const auto& kv : kits) bound.insert(scope_career(std::get<3>(kv.first)));
+    for (const auto& kv : callnames) bound.insert(scope_career(kv.first.second));
+    for (const auto& kv : players) bound.insert(scope_career(kv.first.second));
+    bool gone = false;
+    for (auto it = careers.begin(); it != careers.end();) {
+        if (bound.count(it->first)) {
+            ++it;
+        } else {
+            it = careers.erase(it);
+            gone = true;
+        }
+    }
+    return gone;
+}
+
 std::string reapply_json(const ReapplyStore& s) {
     json j = json::object();
     j["turbo_reapply"] = 1;

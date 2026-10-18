@@ -156,6 +156,9 @@ public:
         std::string label, seen;
     };
     std::map<std::string, CareerInfo> careers;
+    // 2.17.2: drops every careers entry that no kit / callname / player row is bound to any more, so an edit and its Undo
+    // (or a Forget / a move to Global of a career's last row) leave no "careers" block behind. True when one went.
+    bool prune_careers();
     // "career:<career>" while a career is identified, else "" (not assigned)
     std::string edit_scope() const { return career_scope(career); }
     int rank(const std::string& scope) const { return scope_rank(scope, career); }
