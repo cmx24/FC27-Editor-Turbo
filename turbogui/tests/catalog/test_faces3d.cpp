@@ -234,7 +234,7 @@ static void test_ids_and_validate() {
             if (x.find(s) != std::string::npos) return true;
         return false;
     };
-    check(has("beard 259 is not a verified") && has("not a scanned head") && has("player 3: choose a hair") && has("not in the database"),
+    check(has("beard 259 is not a verified") && has("not a real face") && has("player 3: choose a hair") && has("not in the database"),
           "validate reports ids, head class, empty entry, unknown player");
     Table big;
     for (int i = 1; i <= int(kMaxEntries) + 1; ++i) big[i] = Entry{155, 0, true, true, ""};
@@ -553,8 +553,8 @@ static std::string spec_of(const std::string& t) {
 }
 
 static void test_bands() {
-    check(std::string(template_v4_md5()) == "94a54ace8669e51d491ff39b04374b96" && md5s(template_v4_text()) == template_v4_md5(),
-          "embedded template v4 md5 94a54ace (research\\c2_lua_loader\\player_kit_template_v4.lua)");
+    check(std::string(template_v4_md5()) == "53d77dcc4db1092d928968e081808a47" && md5s(template_v4_text()) == template_v4_md5(),
+          "embedded template v4 md5 53d77dcc (research\\c2_lua_loader\\player_kit_template_v4.lua)");
     check(template_stock_md5(template_v4_text()) == "9399e39a1e46a15d151ada423759abe9", "v4 anchors the same stock");
     check(!spec_of(template_v4_text()).empty() && spec_of(template_v4_text()) == spec_of(template_v3_text()), "v4 SPLICE SPEC == v3 (byte for byte)");
     const std::string g4 = template_v4_text();
@@ -579,6 +579,10 @@ static void test_bands() {
               !beard_from_code(441) && !beard_from_code(0),
           "codes just outside the bands select nothing");
     check(!hair_band_code(0) && !hair_band_code(999999) && !beard_band_code(259) && !beard_band_code(0), "unlisted ids have no band code");
+    check(kHairOwnCode == 9999 && kBeardOwnCode == 511 && !hair_id_ok(kHairOwnCode) && !beard_id_ok(kBeardOwnCode) && !hair_from_code(kHairOwnCode) &&
+              !beard_from_code(kBeardOwnCode) && is_turbo_hair_code(kHairOwnCode) && is_turbo_beard_code(kBeardOwnCode) && is_turbo_hair_code(8193) &&
+              !is_turbo_hair_code(8039) && !is_turbo_beard_code(335) && !is_turbo_hair_code(696),
+          "own codes 9999 / 511: no model, no band index, but Turbo codes; 8039 / 335 are plain ids");
 }
 
 static void test_look_writes() {
@@ -593,6 +597,9 @@ static void test_look_writes() {
     check(look_writes(0, 0, banded, orig) == M{{"hairtypecode", 696}, {"facialhairtypecode", 259}}, "back to his own: his recorded originals");
     check(look_writes(0, 0, banded, M{}) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "back to his own without originals: 0 (outside the band)");
     check(look_writes(0, 0, banded, banded) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "an original that is itself a band code is never written back");
+    const M owned{{"hairtypecode", kHairOwnCode}, {"facialhairtypecode", kBeardOwnCode}};
+    check(look_writes(0, 0, owned, orig) == M{{"hairtypecode", 696}, {"facialhairtypecode", 259}}, "own codes count as Turbo codes: his originals come back");
+    check(look_writes(0, 0, owned, owned) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "an own code is never written back as an original");
     check(look_writes(250, 47, banded, orig) == M{{"hairtypecode", 8281}, {"facialhairtypecode", 356}}, "change of choice: the new band codes");
     check(look_writes(155, 46, banded, orig).empty(), "same choice again: nothing written");
     check(look_writes(999999, 259, cur, orig).empty(), "unlisted ids: nothing written");
@@ -605,8 +612,34 @@ static void test_look_writes() {
 
 static void test_live_looks_state() {
     check(!live_looks(nullptr).active && !live_looks(nullptr).restart_needed, "no hooks: not active, no restart advice");
+    {
+        // 2.16 product mode: built in memory at the game's start; nothing ever asks for a restart
+        lualoader::Faces3dStatus p;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: hook not started: off, no restart advice");
+        p.opted_in = p.installed = p.substitute = p.in_memory = true;
+        check(!live_looks(&p).active && live_looks(&p).restart_needed && live_looks(&p).why.find("restart the game once") != std::string::npos,
+              "product: the hook never saw the boot compile: the one honest restart");
+        p.captures = 18;
+        p.built_error = "the game's player_kit.lua (md5 x) is not the one Turbo knows";
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed && live_looks(&p).why.find("not the one Turbo knows") != std::string::npos,
+              "product: another player_kit.lua: off, says why, no restart advice");
+        p.built_error.clear();
+        p.built = true;
+        p.substituted = 18;
+        check(live_looks(&p).active && live_looks(&p).why == "Changes show straight away.", "product: built and served: active");
+        p.substituted = 0;
+        p.fallbacks = 18;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: failed compile: off, no restart advice");
+        p.fallbacks = 0;
+        p.substituted = 18;
+        p.killed = true;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: kill switch: off");
+        p.killed = false;
+        p.legacy_refused = true;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed, "product: legacy file: off");
+    }
+    // the research file mode
     lualoader::Faces3dStatus st;
-    check(!live_looks(&st).active && live_looks(&st).restart_needed, "not opted in at this start: one restart");
     st.opted_in = true;
     check(!live_looks(&st).active && !live_looks(&st).restart_needed, "not installed: no restart advice");
     st.installed = true;
@@ -694,6 +727,13 @@ ok(G.get(P{}) == nil and G.hairId(P{}) == nil and G.beardId(P{}) == nil, "EA cod
 ok(G.get(P{HeadClass = 1, Hair = )LUA" + H155 + R"LUA(, FacialHairType = )LUA" + B46 + R"LUA(}) == nil, "head class 1: no band")
 ok(G.get(P{HairStyle = 1, Hair = )LUA" + H155 + R"LUA(}) == nil, "hair style 1: no band")
 ok(G.hairId(P{PlayerId = 230107}) == 155 and G.beardId(P{PlayerId = 230107}) == 46, "baked entry without a band code")
+ok(G.hairId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + std::to_string(kBeardOwnCode) + R"LUA(}) == nil and
+   G.beardId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + std::to_string(kBeardOwnCode) + R"LUA(}) == nil and
+   G.hairColours(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) == nil, "own codes 9999/511 skip the baked entry (stock)")
+ok(G.beardId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 47 and
+   G.hairId(P{PlayerId = 230107, Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == nil, "own hair + band beard")
+ok(G.get(P{Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) ~= nil and G.hairId(P{Hair = )LUA" + std::to_string(kHairOwnCode) + R"LUA(}) == nil, "own code on a player not listed: stock")
+ok(G.hairId(P{PlayerId = 230107, Hair = 8039, FacialHairType = 335}) == 155, "8039 / 335 are plain ids: the baked entry stands")
 ok(G.hairId(P{PlayerId = 230107, Hair = )LUA" + H250 + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 250 and
    G.beardId(P{PlayerId = 230107, Hair = )LUA" + H250 + R"LUA(, FacialHairType = )LUA" + B47 + R"LUA(}) == 47, "band beats the baked entry")
 ok(G.hairId(P{Hair = )LUA" + H155 + R"LUA(.0}) == 155, "float band code")
@@ -742,11 +782,29 @@ static void test_real_v4() {
     std::string err;
     check(parse_players_json(pj, t, &err), "players_v3_test.json parses");
     const Built e = generate_body(template_v4_text(), stock, Table{});
-    check(e.ok && e.md5 == "39e3a5f276bc79f81529e923d4f4424d" && e.bytes.size() == 282379,
-          "real stock v4, empty list: body md5 == validate_gate_v4.py 39e3a5f2... (" + e.md5 + e.error + ")");
+    check(e.ok && e.md5 == "afea57af5c80424c8d03e6a189639940" && e.bytes.size() == 282530,
+          "real stock v4, empty list: body md5 == validate_gate_v4.py afea57af... (" + e.md5 + e.error + ")");
     const Built b = generate_body(template_v4_text(), stock, t);
-    check(b.ok && b.md5 == "09a9ce483d457a1705a85753bdd27fbd", "real stock v4, launch set: body md5 == validate_gate_v4.py 09a9ce48... (" + b.md5 + ")");
+    check(b.ok && b.md5 == "83cceb6fa1d9b5f83561d95e21b677c8", "real stock v4, launch set: body md5 == validate_gate_v4.py 83cceb6f... (" + b.md5 + ")");
     check(b.ok && lualoader::has_live_looks(b.bytes.data(), b.bytes.size()), "real stock v4 carries the live-looks marker");
+    // the exact function the hook calls at the boot capture (win/lua_loader_win.cpp build_override)
+    {
+        std::string note, why;
+        const auto mem = build_live_override(stock, t, note, why);
+        check(mem && md5s(*mem) == b.md5 && note == "2 players on the saved list" && why.empty(), "build_live_override == the launch-set body (" + why + ")");
+        const auto mem0 = build_live_override(stock, Table{}, note, why);
+        check(mem0 && md5s(*mem0) == e.md5 && note == "0 players on the saved list", "build_live_override, empty list == the empty body");
+        std::string bad2 = stock;
+        bad2[200] = bad2[200] == 'q' ? 'r' : 'q';
+        std::string why2;
+        check(!build_live_override(bad2, t, note, why2) && why2.find("stock md5") != std::string::npos, "build_live_override refuses a changed stock: " + why2);
+        Table junk;
+        junk[5] = Entry{3999999, 0, true, true, ""};
+        std::string why3;
+        const auto mem3 = build_live_override(stock, junk, note, why3);
+        check(mem3 && md5s(*mem3) == e.md5 && note.find("saved list refused") != std::string::npos && why3.empty(),
+              "build_live_override: a bad saved list falls back to the bands alone (" + note + ")");
+    }
     std::string bad_stock = stock;
     bad_stock[100] = bad_stock[100] == 'x' ? 'y' : 'x';
     const Built r = generate_body(template_v4_text(), bad_stock, t);

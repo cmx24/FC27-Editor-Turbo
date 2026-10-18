@@ -180,14 +180,14 @@ std::vector<std::string> validate(const Table& t, const std::function<int64_t(in
             if (e.beard_fallback > 0 && (!e.follow_beard || !beard_id_ok(e.beard_fallback)))
                 v.push_back(who + ": beard fallback " + std::to_string(e.beard_fallback) + " is not a verified id of a followed part");
         } else {
-            if (e.hair <= 0 && e.beard <= 0) v.push_back(who + ": choose a hair or a beard (or un-enrol him)");
+            if (e.hair <= 0 && e.beard <= 0) v.push_back(who + ": choose a hair or a beard (or take him off the list)");
             if (e.hair > 0 && !hair_id_ok(e.hair)) v.push_back(who + ": hair " + std::to_string(e.hair) + " is not a verified generic hair id");
             if (e.beard > 0 && !beard_id_ok(e.beard)) v.push_back(who + ": beard " + std::to_string(e.beard) + " is not a verified generic beard id");
         }
         if (headclass) {
             const int64_t hc = headclass(id);
             if (hc < 0) v.push_back(who + ": not in the database");
-            else if (hc != 0) v.push_back(who + ": not a scanned head (head class " + std::to_string(hc) + "); only scanned heads are supported");
+            else if (hc != 0) v.push_back(who + ": not a real face (head class " + std::to_string(hc) + "); only real faces are supported");
         }
     }
     return v;
@@ -231,25 +231,27 @@ int64_t beard_from_code(int64_t code) {
     return (i >= 1 && i <= static_cast<int64_t>(band_beard_ids().size())) ? band_beard_ids()[static_cast<size_t>(i - 1)] : 0;
 }
 const char* const kLookFields[2] = {"hairtypecode", "facialhairtypecode"};
+bool is_turbo_hair_code(int64_t v) { return hair_from_code(v) != 0 || v == kHairOwnCode; }
+bool is_turbo_beard_code(int64_t v) { return beard_from_code(v) != 0 || v == kBeardOwnCode; }
 
 std::map<std::string, int64_t> look_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& cur,
                                            const std::map<std::string, int64_t>& original) {
     std::map<std::string, int64_t> w;
-    auto part = [&](const char* f, int64_t id, int64_t (*code_of)(int64_t), int64_t (*from)(int64_t)) {
+    auto part = [&](const char* f, int64_t id, int64_t (*code_of)(int64_t), int64_t (*from)(int64_t), int64_t own) {
         const auto c = cur.find(f);
         if (c == cur.end()) return;  // the table has no such field
         int64_t want = c->second;
         if (id > 0) {
             want = code_of(id);
             if (!want) return;  // not a listed id: nothing written for this part
-        } else if (from(c->second)) {
+        } else if (from(c->second) || c->second == own) {
             const auto o = original.find(f);
-            want = (o != original.end() && o->second >= 0 && !from(o->second)) ? o->second : 0;
+            want = (o != original.end() && o->second >= 0 && !from(o->second) && o->second != own) ? o->second : 0;
         }
         if (want != c->second) w[f] = want;
     };
-    part("hairtypecode", hair, hair_band_code, hair_from_code);
-    part("facialhairtypecode", beard, beard_band_code, beard_from_code);
+    part("hairtypecode", hair, hair_band_code, hair_from_code, kHairOwnCode);
+    part("facialhairtypecode", beard, beard_band_code, beard_from_code, kBeardOwnCode);
     return w;
 }
 
@@ -261,12 +263,27 @@ LiveLooks live_looks(const lualoader::Faces3dStatus* st) {
         return l;
     };
     if (!st) return no(false, "Turbo is not running inside the game here.");
-    if (!st->opted_in) return no(true, "3D hair and beard are off at this game start.");
-    if (!st->installed) return no(false, "3D hair and beard could not start this session (see Settings > Technical details).");
+    if (!st->opted_in || !st->installed)
+        return no(false, "3D hair and beard are off this session (a switch-off file, or see Settings > Technical details).");
     if (st->killed) return no(false, "3D hair and beard are switched off (faces3d_off.txt or hook_lua_load_off.txt is present).");
     if (st->legacy_refused)
-        return no(false, "Turned off: mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists. Remove it, then restart the game.");
-    if (!st->substitute || !st->header_ok) return no(true, "The game started without Turbo's player_kit.lua.");
+        return no(false, "Turned off: mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists (Live Editor would serve that file).");
+    if (!st->substitute) return no(false, "3D hair and beard are off this session (log-only test mode).");
+    if (st->in_memory) {  // 2.16 product mode: built from the game's own file at its start
+        // the one honest restart: the hook was not in place when the game compiled player_kit.lua (it does so once, at its start)
+        if (!st->built && st->built_error.empty() && st->captures == 0)
+            return no(true, "Turbo did not see the game load player_kit.lua this session (the game started before Turbo's hook): restart the game once.");
+        if (!st->built)
+            return no(false, "3D hair and beard are off for this game version: " + st->built_error);
+        if (st->substituted <= 0)
+            return no(false, st->fallbacks > 0 ? "The game could not load Turbo's player_kit.lua (it uses its own)."
+                                               : "The game has not loaded player_kit.lua yet.");
+        l.active = true;
+        l.why = "Changes show straight away.";
+        return l;
+    }
+    // the research file mode (lua_loader_on.txt + lua_loader_substitute.txt): the file of this game start decides
+    if (!st->header_ok) return no(true, "The game started without Turbo's player_kit.lua.");
     if (!st->build_key_ok || (!st->stock_matches_header && !st->captured_md5.empty()))
         return no(true, "Turbo's player_kit.lua was made for another game version.");
     if (!st->live_looks) return no(true, "The game started with an older Turbo player_kit.lua.");
@@ -778,6 +795,22 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
     r.message = "Turbo's player_kit.lua written (" + std::to_string(t.size()) + " saved list entr" + (t.size() == 1 ? "y" : "ies") +
                 ", live looks on): md5 " + b.md5 + ", table " + r.table + ". The game reads it at its next start.";
     return r;
+}
+
+std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why) {
+    Built b = generate_body(template_v4_text(), stock, saved);
+    note = std::to_string(saved.size()) + " players on the saved list";
+    if (!b.ok && !saved.empty()) {
+        // a bad saved list never turns the live looks off: the bands alone (D6)
+        const std::string first = b.error;
+        b = generate_body(template_v4_text(), stock, Table{});
+        if (b.ok) note = "saved list refused (" + first + "): bands only";
+    }
+    if (!b.ok) {
+        why = "the v4 build refused: " + b.error;
+        return nullptr;
+    }
+    return std::make_shared<const std::string>(b.bytes);
 }
 
 bool override_has_live_looks(const std::string& turbo_output_utf8) {

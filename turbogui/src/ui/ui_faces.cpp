@@ -431,9 +431,9 @@ static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table&
     if (o.eyes) fields.insert(fields.end(), std::begin(kEyeFields), std::end(kEyeFields));
     if (o.skin) fields.insert(fields.end(), std::begin(kSkinFields), std::end(kSkinFields));
     // a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head takes the owner's own codes
-    if (!o.hair && dst.has("hairtypecode") && faces3d::hair_from_code(app.db.get_int(dst, dst_rec, "hairtypecode", 0)))
+    if (!o.hair && dst.has("hairtypecode") && faces3d::is_turbo_hair_code(app.db.get_int(dst, dst_rec, "hairtypecode", 0)))
         fields.push_back("hairtypecode");
-    if (!o.beard && dst.has("facialhairtypecode") && faces3d::beard_from_code(app.db.get_int(dst, dst_rec, "facialhairtypecode", 0)))
+    if (!o.beard && dst.has("facialhairtypecode") && faces3d::is_turbo_beard_code(app.db.get_int(dst, dst_rec, "facialhairtypecode", 0)))
         fields.push_back("facialhairtypecode");
     // read everything first, then write (validated per field)
     std::vector<std::pair<const Field*, Value>> writes;

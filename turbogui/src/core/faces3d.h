@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -87,6 +88,17 @@ const char* template_for(const Table& t);
 // fields are range-checked to 10000 / 512). The lists are FROZEN and append-only (the index is what the save holds).
 constexpr int64_t kHairBandBase = 8039;   // hairtypecode 8040 .. 8039 + 1371
 constexpr int64_t kBeardBandBase = 335;   // facialhairtypecode 336 .. 335 + 105
+// "His own, live" (9999 / 511): no generic part and the saved list (players.json) is skipped for him, so a look of the saved list is
+// dropped without a restart. No model id (hair ids end at 8039, beard ids at 335), on no allow-list, in no EA row; inside 10000 / 512.
+// Like a band code it is ignored by the game's own file on a real face.
+constexpr int64_t kHairOwnCode = 9999, kBeardOwnCode = 511;
+// A Turbo code of that field (a band code or the "his own, live" code): never recorded as his own, replaced when he gets a new head
+bool is_turbo_hair_code(int64_t hairtypecode);
+bool is_turbo_beard_code(int64_t facialhairtypecode);
+// The in-memory player_kit.lua of 2.16 (the hook calls exactly this at the boot capture): template v4 over the captured stock with the
+// saved list. nullptr + why when refused (stock md5, an anchor); a saved list the generator refuses falls back to the bands alone
+// (note "saved list refused (...): bands only"), else note = "<N> players on the saved list".
+std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why);
 const std::vector<int>& band_hair_ids();
 const std::vector<int>& band_beard_ids();
 int64_t hair_band_code(int64_t hair_id);    // 0 when the id is not on the list

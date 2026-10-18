@@ -60,7 +60,14 @@ struct GateUi {
     bool keep_follow = false;
 };
 GateUi g;
-std::map<int64_t, std::map<std::string, int64_t>> g_mgr_original;  // managers: their own codes, this Turbo session
+constexpr int64_t kMgrKey = 1000000000000LL;  // preview_backup.json key of a manager: kMgrKey + managerid (player ids stay far below)
+
+// A Turbo code of a look field (a band code or the "his own, live" code): never recorded as his own
+bool turbo_code(const std::string& f, int64_t v) {
+    if (f == "hairtypecode") return faces3d::is_turbo_hair_code(v);
+    if (f == "facialhairtypecode") return faces3d::is_turbo_beard_code(v);
+    return false;
+}
 
 fs::path rel(const fs::path& base, const char* r) {
     fs::path p = base;
@@ -295,7 +302,8 @@ faces3d::PreviewRecord& record_for(int64_t pid, const std::string& name, const s
     if (it == g.backup.end()) {
         faces3d::PreviewRecord r;
         r.name = name;
-        r.original = cur;
+        for (const auto& [f, v] : cur)  // a Turbo code is a look, never his own: left out ("his own" then writes 0 for it)
+            if (!turbo_code(f, v)) r.original[f] = v;
         it = g.backup.emplace(pid, r).first;
     }
     if (it->second.name.empty()) it->second.name = name;
@@ -369,30 +377,6 @@ std::string build_key(App& app) {
     return b;
 }
 
-// Turns the feature on for the next game start: Turbo's player_kit.lua (template v4, the saved list kept) when the game's own file
-// was captured, otherwise faces3d_on.txt alone (the game start saves it, and the next Turbo start writes the file). true when done.
-bool turn_on(App& app, std::string& msg) {
-    const fs::path out = app.turbo_output();
-    std::error_code ec;
-    if (fs::exists(rel(out, lualoader::kStockCacheRel), ec)) {
-        faces3d::Table t;
-        std::string err;
-        if (!faces3d::load_players(out.u8string(), t, &err)) {
-            msg = "Not turned on: " + err;
-            return false;
-        }
-        const faces3d::ApplyResult r = faces3d::apply(out.u8string(), t, build_key(app), nullptr);
-        app.log("3D hair & beard: turn on: " + r.message);
-        msg = r.ok ? "Turned on. Restart the game once to turn this on." : "Not turned on: " + r.message;
-        return r.ok;
-    }
-    std::string err;
-    const bool ok = lualoader::set_faces3d_opt_in(out.u8string(), true, &err);
-    app.log("3D hair & beard: turn on (first time: the game start saves its own player_kit.lua) " + std::string(ok ? "ok" : err));
-    msg = ok ? "Turned on. Restart the game once; Turbo then finishes the setup and asks for one more restart." : "Not turned on: " + err;
-    return ok;
-}
-
 struct Look {
     int64_t hair = 0, beard = 0;  // generic ids his codes select now (0 = his own)
 };
@@ -403,33 +387,15 @@ Look look_of(const std::map<std::string, int64_t>& codes) {
     return l;
 }
 
-// One amber line only when a restart is really needed; green when changes show at once
+// Green when changes show at once; amber only when the hook missed the game's start (restart once); otherwise why it is off
 void live_line(App& app) {
     lualoader::Faces3dStatus st;
     const lualoader::Faces3dStatus* sp = nullptr;
     if (app.faces3d_report) st = app.faces3d_report(), sp = &st;
     const faces3d::LiveLooks l = faces3d::live_looks(sp);
-    if (l.active) {
-        ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%s", l.why.c_str());
-        return;
-    }
-    std::error_code ec;
-    const bool prepared = fs::exists(rel(app.turbo_output(), faces3d::kOptInRel), ec) && faces3d::override_has_live_looks(app.turbo_output().u8string());
-    if (l.restart_needed && prepared) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Restart the game once to turn this on.");
-    } else if (l.restart_needed) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "3D hair and beard are off.");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Turn on##f3on")) {
-            std::string msg;
-            const bool ok = turn_on(app, msg);
-            pv_say(msg, ok);
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Needs one game restart, once. After that every change shows straight away.");
-    } else {
-        ImGui::TextDisabled("%s", l.why.c_str());
-    }
-    if (ImGui::IsItemHovered() && !l.why.empty()) ImGui::SetTooltip("%s", l.why.c_str());
+    if (l.active) ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "%s", l.why.c_str());
+    else if (l.restart_needed) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", l.why.c_str());  // the one honest restart case
+    else ImGui::TextDisabled("%s", l.why.c_str());
 }
 
 void draw_picture(App& app, int64_t pid) {
@@ -456,27 +422,13 @@ void draw_picture(App& app, int64_t pid) {
     }
 }
 
-// The saved list of older Turbo versions (players.json, read at game start): shown only for a player on it, so it can be removed
-void saved_list_line(App& app, const PlayerRow& p) {
+// The saved list of older Turbo versions (players.json, read when the game starts): shown only for a player on it
+void saved_list_line(const PlayerRow& p) {
     const auto it = g.draft.find(p.playerid);
     if (it == g.draft.end()) return;
-    ImGui::TextDisabled("He also has a look saved by an older Turbo (hair %s, beard %s), used when his codes hold no choice.",
+    ImGui::TextDisabled("He has a look saved by an older Turbo (hair %s, beard %s). \"His own hair & beard\" takes it off.",
                         it->second.hair > 0 ? std::to_string(it->second.hair).c_str() : "own",
                         it->second.beard > 0 ? std::to_string(it->second.beard).c_str() : "own");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove it##f3old")) {
-        faces3d::Table next = g.draft;
-        next.erase(p.playerid);
-        const faces3d::ApplyResult r = faces3d::apply(app.turbo_output().u8string(), next, build_key(app), nullptr);
-        app.log("3D hair & beard: removed the saved look of " + std::to_string(p.playerid) + ": " + r.message);
-        if (r.ok) {
-            g.draft = next;
-            g.applied = faces3d::players_json(next);
-            pv_say("Removed from the saved list. That list is read at game start, so the older look goes after a restart.", true);
-        } else {
-            pv_say("Not removed: " + r.message, false);
-        }
-    }
 }
 
 // Pickers: the choice being made (per person shown), reset when another person is shown
@@ -502,31 +454,6 @@ bool faces3d_preview_pending() { return g.pending != 0; }
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard) { g_pick = Pick{manager, id, hair, beard}; }
 
 void tick_faces3d_preview(App& app) {
-    // once per Turbo start: a feature already turned on gets Turbo's player_kit.lua with live changes (template v4) for the next
-    // game start; nothing is turned on here
-    static bool upgrade_done = false;
-    if (!upgrade_done && app.faces3d_report) {
-        const std::string build = build_key(app);
-        if (!build.empty()) {
-            upgrade_done = true;
-            const fs::path out = app.turbo_output();
-            std::error_code ec;
-            const lualoader::Faces3dStatus st = app.faces3d_report();
-            const bool on = fs::exists(rel(out, faces3d::kOptInRel), ec);
-            const bool off = fs::exists(out / "faces3d_off.txt", ec) || fs::exists(out / "hook_lua_load_off.txt", ec) || fs::exists(out / "game_hooks_off.txt", ec);
-            if (on && !off && !st.legacy_refused && fs::exists(rel(out, lualoader::kStockCacheRel), ec) &&
-                !faces3d::override_has_live_looks(out.u8string())) {
-                faces3d::Table t;
-                std::string err;
-                if (faces3d::load_players(out.u8string(), t, &err)) {
-                    const faces3d::ApplyResult r = faces3d::apply(out.u8string(), t, build, nullptr);
-                    app.log("3D hair & beard: player_kit.lua updated for live changes (used from the next game start): " + r.message);
-                } else {
-                    app.log("3D hair & beard: player_kit.lua not updated (" + err + ")");
-                }
-            }
-        }
-    }
     if (g.pending == 0) return;
     if (!app.capture) {
         g.pending = 0;
@@ -577,7 +504,7 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     const int64_t hc = headclass_of(app, t, p.playerid);
     if (hc != 0) {
         ImGui::TextDisabled("3D hair and beard are for real faces. %s", hc < 0 ? "" : "He has a generic head: use the hair and beard fields.");
-        saved_list_line(app, p);
+        saved_list_line(p);
         ImGui::PopID();
         return;
     }
@@ -623,28 +550,53 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Kept in this career's database (saved with the career). Other careers are not changed.");
     ImGui::SameLine();
-    const bool has_look = now.hair > 0 || now.beard > 0;
+    const bool on_list = g.draft.count(p.playerid) != 0;
+    auto at = [&](const char* f, int64_t d) {
+        const auto c = cur.find(f);
+        return c == cur.end() ? d : c->second;
+    };
+    const bool has_look = now.hair > 0 || now.beard > 0 ||
+                          (on_list && (at("hairtypecode", faces3d::kHairOwnCode) != faces3d::kHairOwnCode ||
+                                       at("facialhairtypecode", faces3d::kBeardOwnCode) != faces3d::kBeardOwnCode));
     if (!has_look) ImGui::BeginDisabled();
     if (ImGui::Button("His own hair & beard")) {
         std::string err;
         bool ok = true;
-        // his record is used whole only when it belongs to this career (his codes are the ones it wrote); otherwise only its
-        // originals of the two look fields (or 0) replace the band codes
         const auto it = g.backup.find(p.playerid);
-        bool mine = it != g.backup.end() && !it->second.written.empty();
-        if (mine) {
+        const std::map<std::string, int64_t> orig = it == g.backup.end() ? std::map<std::string, int64_t>{} : it->second.original;
+        std::map<std::string, int64_t> w;
+        if (on_list) {
+            // on the saved list: the "his own, live" codes skip it now; the list loses him for the next game starts
+            if (cur.count("hairtypecode") && cur.at("hairtypecode") != faces3d::kHairOwnCode) w["hairtypecode"] = faces3d::kHairOwnCode;
+            if (cur.count("facialhairtypecode") && cur.at("facialhairtypecode") != faces3d::kBeardOwnCode)
+                w["facialhairtypecode"] = faces3d::kBeardOwnCode;
+        } else {
+            w = faces3d::look_writes(0, 0, cur, orig);
+        }
+        // an earlier 2.9 preview also wrote hairstylecode 0: his own style comes back when the record is from this career
+        if (it != g.backup.end() && orig.count("hairstylecode") && t.has("hairstylecode")) {
+            bool mine = !it->second.written.empty();
             const std::map<std::string, int64_t> all = read_codes(app, t, p.rec);
             for (const auto& [f, v] : it->second.written) mine = mine && all.count(f) && all.at(f) == v;
+            if (mine && all.count("hairstylecode") && all.at("hairstylecode") != orig.at("hairstylecode")) w["hairstylecode"] = orig.at("hairstylecode");
         }
-        if (mine) {
-            ok = revert_codes(app, t, p.rec, p.playerid, err);
-        } else {
-            ok = raw_write(app, t, p.rec, p.playerid, false,
-                           faces3d::look_writes(0, 0, cur, it == g.backup.end() ? std::map<std::string, int64_t>{} : it->second.original), err);
-            if (ok && it != g.backup.end()) {
-                g.backup.erase(it);
-                g.session_records.erase(p.playerid);
-                ok = faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+        ok = raw_write(app, t, p.rec, p.playerid, false, w, err);
+        if (ok && it != g.backup.end()) {
+            g.backup.erase(it);
+            g.session_records.erase(p.playerid);
+            ok = faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+        }
+        if (ok && on_list) {
+            // the list is read when the game starts: the next start no longer bakes him (no player_kit.lua file is involved)
+            faces3d::Table next = g.draft;
+            next.erase(p.playerid);
+            const std::string js = faces3d::players_json(next);
+            std::string werr;
+            const bool wrote = lualoader::write_file_atomic(rel(app.turbo_output(), faces3d::kPlayersRel).u8string(), js, &werr);
+            app.log("3D hair & beard: took " + std::to_string(p.playerid) + " off the saved list" + (wrote ? std::string() : " (players.json: " + werr + ")"));
+            if (wrote) {
+                g.draft = next;
+                g.applied = js;
             }
         }
         if (ok) {
@@ -664,7 +616,7 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     draw_picture(app, p.playerid);
     if (!g.pv_message.empty())
         ImGui::TextColored(g.pv_message_ok ? ImVec4(0.5f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", g.pv_message.c_str());
-    saved_list_line(app, p);
+    saved_list_line(p);
     ImGui::PopID();
 }
 
@@ -683,13 +635,18 @@ void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m) {
     const bool changed = g_pick.hair != now.hair || g_pick.beard != now.beard;
     if (!changed) ImGui::BeginDisabled();
     if (ImGui::Button("Apply hair & beard")) {
-        // his own codes for "His own hair & beard", this Turbo session only (a code outside the bands is what the game ignores)
-        auto& orig = g_mgr_original[m.managerid];
+        // his own codes for "His own hair & beard", in preview_backup.json (kMgrKey + managerid) before the database changes
+        faces3d::PreviewRecord& r = g.backup[kMgrKey + m.managerid];
+        r.name = m.name;
         for (const auto& [f, v] : cur)
-            if (!orig.count(f) && !faces3d::hair_from_code(v) && !faces3d::beard_from_code(v)) orig[f] = v;
+            if (!r.original.count(f) && !turbo_code(f, v)) r.original[f] = v;
         std::string err;
-        const auto w = faces3d::look_writes(g_pick.hair, g_pick.beard, cur, orig);
-        if (raw_write(app, t, m.rec, m.managerid, true, w, err)) {
+        const auto w = faces3d::look_writes(g_pick.hair, g_pick.beard, cur, r.original);
+        r.written = w;
+        if (r.original.empty()) g.backup.erase(kMgrKey + m.managerid);
+        if (!faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err)) {
+            pv_say("Nothing written: his own codes could not be saved first (" + err + ")", false);
+        } else if (raw_write(app, t, m.rec, m.managerid, true, w, err)) {
             faces3d_forget_render(app, true, m.managerid);
             pv_say("Applied for the manager. It shows the next time the game draws him (Turbo has no picture of managers).", true);
         } else {
@@ -704,8 +661,13 @@ void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m) {
     if (!has_look) ImGui::BeginDisabled();
     if (ImGui::Button("His own hair & beard")) {
         std::string err;
-        const auto it = g_mgr_original.find(m.managerid);
-        if (raw_write(app, t, m.rec, m.managerid, true, faces3d::look_writes(0, 0, cur, it == g_mgr_original.end() ? std::map<std::string, int64_t>{} : it->second), err)) {
+        const auto it = g.backup.find(kMgrKey + m.managerid);
+        if (raw_write(app, t, m.rec, m.managerid, true,
+                      faces3d::look_writes(0, 0, cur, it == g.backup.end() ? std::map<std::string, int64_t>{} : it->second.original), err)) {
+            if (it != g.backup.end()) {
+                g.backup.erase(it);
+                faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+            }
             g_pick = Pick{true, m.managerid, 0, 0};
             faces3d_forget_render(app, true, m.managerid);
             pv_say("His own hair and beard are back.", true);

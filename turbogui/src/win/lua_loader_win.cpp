@@ -13,6 +13,7 @@
 
 #include "MinHook.h"
 #include "core/devops.h"
+#include "core/faces3d.h"
 #include "core/lua_loader.h"
 #include "host.h"
 
@@ -337,12 +338,14 @@ void run() {
     sw.game_hooks_off = file_exists(out / "game_hooks_off.txt");
     sw.legacy_present = file_exists(le_root() / ll::kLegacyKitRel);
     const ll::StartDecision dec = ll::decide_start(sw);
-    if (!dec.opted_in) return;  // not opted in: nothing at all, not even a log line
+    if (!dec.opted_in) return;  // (2.16: always on unless refused below)
     g_opted_in = true;
     const bool substitute = dec.substitute;
-    log("lua_loader: opt-in %s present: %s (kill switches turbo_output\\hook_lua_load_off.txt, faces3d_off.txt)",
-        sw.faces_on ? "turbo_output\\faces3d_on.txt" : "turbo_output\\lua_loader_on.txt",
-        substitute ? "SUBSTITUTE mode" : dec.capture_mode ? "LOG-ONLY mode (capture mode: the first stock capture is cached)" : "LOG-ONLY mode");
+    log("lua_loader: on (2.16: whenever Turbo is installed): %s (kill switches turbo_output\\hook_lua_load_off.txt, faces3d_off.txt, game_hooks_off.txt)",
+        dec.in_memory ? "SUBSTITUTE mode, player_kit.lua v4 built in memory from the game's own file"
+        : substitute  ? "SUBSTITUTE mode from the override file (lua_loader_on.txt + lua_loader_substitute.txt)"
+        : dec.capture_mode ? "LOG-ONLY mode (capture mode: the first stock capture is cached)"
+                           : "LOG-ONLY mode");
     auto refuse = [](const std::string& why) {
         set_state("off: " + why);
         g_done = true;
@@ -367,7 +370,17 @@ void run() {
     // Override sources (substitute mode only): read once, never freed
     std::vector<ll::Row> rows = ll::default_rows();
     std::vector<ll::Override> overrides(rows.size());
-    if (substitute) {
+    // product mode: the saved list (players.json) is read here, never on a game thread; the build runs at the boot capture
+    auto saved = std::make_shared<turbo::faces3d::Table>();
+    if (dec.in_memory) {
+        std::string perr;
+        if (!turbo::faces3d::load_players(out.u8string(), *saved, &perr)) {
+            log("lua_loader: faces3d\\players.json unreadable (%s): the saved list is empty this start", perr.c_str());
+            saved->clear();
+        }
+        for (auto& o : overrides) o.error = "built in memory";
+    }
+    if (substitute && !dec.in_memory) {
         for (size_t i = 0; i < rows.size(); ++i) {
             bool ok = false;
             std::string bytes = read_file(out / rows[i].override_rel, ok);
@@ -380,6 +393,8 @@ void run() {
                         g_build.c_str(), h.build == g_build ? "ok" : "STALE, stock will be served", h.stock.c_str(), h.table.c_str());
                 else
                     log("lua_loader: row %s override header: %s (stock will be served)", rows[i].name.c_str(), h.error.c_str());
+                log("lua_loader: row %s live looks: %s", rows[i].name.c_str(),
+                    ll::has_live_looks(bytes.data(), bytes.size()) ? "yes (3D hair & beard change without a restart)" : "no (older file)");
                 char* keep = new char[bytes.size()];
                 std::memcpy(keep, bytes.data(), bytes.size());
                 o.data = keep;
@@ -464,6 +479,15 @@ void run() {
     env.emit = [](const std::string& s) { g_lines.push(s); };
     env.reader_capturable = reader_capturable;
     env.save_capture = save_capture;
+    if (dec.in_memory)
+        env.build_override = [saved](const std::string& row, const std::string& stock, std::string& note,
+                                     std::string& why) -> std::shared_ptr<const std::string> {
+            if (row != "player_kit") {
+                why = "no in-memory build for row " + row;
+                return nullptr;
+            }
+            return turbo::faces3d::build_live_override(stock, *saved, note, why);
+        };
     if (at.top_layout_ok) {  // the fallback's pop is safe only on the layout checked in lua_load's own bytes
         env.stack_depth = lua_stack_depth;
         env.top_message = lua_top_message;
@@ -496,6 +520,7 @@ void run() {
     cap.enabled = true;
     cap.capture_mode = dec.capture_mode;
     cap.legacy_present = sw.legacy_present;
+    cap.build_in_memory = dec.in_memory;
     g_engine->configure(at.gets, blob, substitute, rows, overrides, g_build, cap);
     g_substitute = substitute;
     void* target = reinterpret_cast<void*>(static_cast<uintptr_t>(at.lua_load));
@@ -556,7 +581,9 @@ std::vector<std::string> lua_loader_status() {
         std::string l2 = "Faces 3D (player_kit.lua): ";
         l2 += f.captured_md5.empty() ? std::string("stock not captured yet") : "stock " + std::to_string(f.captured_size) + " B md5 " + f.captured_md5;
         l2 += f.legacy_refused ? " | substitution REFUSED (mods\\legacy player_kit.lua present)" : f.substitute ? " | substitute" : " | log-only";
-        if (f.substitute)
+        if (f.in_memory)
+            l2 += f.built ? " | v4 built in memory" : f.built_error.empty() ? " | v4 not built yet" : " | stock served: " + f.built_error;
+        else if (f.substitute)
             l2 += std::string(" | override header ") +
                   (!f.header_ok ? "missing/invalid" : !f.build_key_ok ? "other build" : (f.stock_matches_header || f.captured_md5.empty()) ? "ok" : "STALE");
         l2 += " | captures " + std::to_string(f.captures) + " | served stock " + std::to_string(f.served_stock) + " | substituted " + std::to_string(f.substituted) +
