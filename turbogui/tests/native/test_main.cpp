@@ -3246,6 +3246,7 @@ struct FakeCapture : capture::CaptureService {
 };
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
+#include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
@@ -10462,7 +10463,7 @@ static void test_sigscan_adapt() {
         std::vector<const Signature*> shared;
         for (const auto& s : newest->sigs)
             if (!s.exact_build) shared.push_back(&s);
-        CHECK(shared.size() + 11 == newest->sigs.size(), fmt("11 exact-build entries left out (%zu of %zu)", shared.size(), newest->sigs.size()));
+        CHECK(shared.size() + 20 == newest->sigs.size(), fmt("20 exact-build entries left out (11 channel E + 9 crest serve; %zu of %zu)", shared.size(), newest->sigs.size()));
         bool same = a.sigs.size() == shared.size() && a.build == "6B000000-21500000" && a.game == newest->game;
         bool notes = true;
         for (size_t i = 0; same && i < a.sigs.size(); ++i) {
@@ -10513,7 +10514,7 @@ static void test_sigscan_adapt() {
         const std::vector<std::string> builds = builtin_builds();
         CHECK(builds.size() == 2 && builds[0] == "6AB9813C-211EF000" && builds[1] == "6AC07E31-2145C000", "builds listed oldest first");
         // the shared list first, then the entries verified on 6AC07E31 alone (tactics channel E, core/team_sheet.h)
-        bool same = a->sigs.size() + 11 == b->sigs.size() && a->sigs.size() >= 120;
+        bool same = a->sigs.size() + 20 == b->sigs.size() && a->sigs.size() >= 120;  // 11 channel E + 9 crest serve (2.18)
         for (size_t i = a->sigs.size(); same && i < b->sigs.size(); ++i) same = b->sigs[i].exact_build;
         for (size_t i = 0; same && i < a->sigs.size(); ++i)
             same = a->sigs[i].name == b->sigs[i].name && a->sigs[i].pattern == b->sigs[i].pattern &&
@@ -15442,6 +15443,7 @@ int main(int argc, char** argv) {
     std::printf("native player capture\n");
     test_player_capture();
     test_capture_sequence();  // test_capture_sequence.h (2.17 looks C)
+    crest_serve_test::run();  // test_crest_serve.h (2.18)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     std::printf("native kept edits store\n");
     test_reapply_store();

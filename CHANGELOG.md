@@ -7,6 +7,7 @@ Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
 Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
 
+- **UNPROVEN (2.18 crest serve):** club crests put in `mods\legacy` (`data/ui/imgAssets/crest/...`) are served by Turbo on the game's background (async) legacy-file path, where Live Editor leaves the request waiting forever (new career of an added club stuck at 37 %, match loading). Native files untouched; turbo_config.json `crest_serve`, kill switch `turbo_output\crest_serve_off.txt`. Built and tested offline only.
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
 

@@ -12,6 +12,12 @@
     "autoload": true
   },
 
+  "crest_serve": {
+    "_help": "Club crests you put in mods\\legacy (data/ui/imgAssets/crest/...) are served by Turbo when the game loads them in the background (career start, match loading), where Live Editor alone leaves the game waiting forever. Only paths starting with one of 'paths' are served; native files are never touched. enabled=false or turbo_output\\crest_serve_off.txt turns it off.",
+    "enabled": true,
+    "paths": ["data/ui/imgAssets/crest/"]
+  },
+
   "auto": {
     "form_morale": {
       "enabled": false,

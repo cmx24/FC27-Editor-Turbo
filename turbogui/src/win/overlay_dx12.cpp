@@ -25,6 +25,7 @@
 #include "minhook_diag.h"  // Turbo 2.15 (hooks/minhook-reloc): what MinHook did with each target, for the log
 #include "nlohmann/json.hpp"
 #include "callname_audio_win.h"
+#include "crest_serve_win.h"
 #include "callname_voice_win.h"
 #include "kit_swap_win.h"
 
@@ -1301,6 +1302,9 @@ bool start_overlay(HMODULE) {
     g_app->hook_report = []() { return hook_report_snapshot(); };  // the last report of hook_report_thread (above)
     if (HANDLE th = CreateThread(nullptr, 0, hook_report_thread, nullptr, 0, nullptr)) CloseHandle(th);
     install_player_capture(*g_app);  // miniface from the 3D model (player_capture_win.cpp): needs the game hooks above
+    // 2.18 crest serve (crest_serve_win.cpp): modded crests in mods\legacy served on the game's async legacy-file path (BeginLoadAsync),
+    // which Live Editor leaves with a stale chunk descriptor; kill switch turbo_output\crest_serve_off.txt
+    install_crest_serve();
     start_devtools();
     return true;
 }

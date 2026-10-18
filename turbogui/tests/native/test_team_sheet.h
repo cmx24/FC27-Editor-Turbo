@@ -581,12 +581,12 @@ static void run() {
         if (!nb || !ob) return;
         int exact = 0;
         for (const auto& s : nb->sigs) exact += s.exact_build ? 1 : 0;
-        CHECK(exact == 11, fmt("11 exact-build entries on 6AC07E31 (%d)", exact));
+        CHECK(exact == 20, fmt("20 exact-build entries on 6AC07E31: 11 channel E + 9 crest serve (%d)", exact));
         for (const auto& s : ob->sigs) CHECK(!s.exact_build && s.name.rfind("teamsheet_", 0) != 0, s.name + ": nothing of channel E on 6AB9813C");
         for (const char* n : anchor_signatures()) CHECK(nb->find(n) && nb->find(n)->exact_build, std::string(n) + " is built in for 6AC07E31");
         CHECK(nb->find("teamsheet_ctor") != nullptr, "the ctor too");
         const SignatureTable a = adapt_signature_table(*nb, "6B000000-21500000");
-        CHECK(a.sigs.size() == nb->sigs.size() - 11 && !a.find("teamsheet_set") && !a.find("service_registry"), "auto-adapt leaves them out");
+        CHECK(a.sigs.size() == nb->sigs.size() - 20 && !a.find("teamsheet_set") && !a.find("service_registry"), "auto-adapt leaves them out");
         for (const auto& s : nb->sigs) {
             if (!s.exact_build) continue;
             std::vector<uint8_t> b;

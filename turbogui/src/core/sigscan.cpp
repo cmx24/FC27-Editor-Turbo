@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "crest_serve.h"
 #include "devops.h"
 #include "nlohmann/json.hpp"
 
@@ -751,6 +752,34 @@ static std::vector<Signature> team_sheet_signatures() {
     };
 }
 
+// 2.18 crest serve (core/crest_serve.h, docs/re/legacy_async_crest.md). Build 6AC07E31-2145C000 only (exact_build): every pattern was
+// found exactly once in the 6AC07E31 image (turbo_dev\evidence\2026-10-18\W1141\fc27_live_6AC07E31.bin); the addresses below are of
+// that build. TryFindFile's own first bytes carry Live Editor's jump in the running game, so it is resolved through two of its calls.
+static std::vector<Signature> crest_serve_signatures() {
+    namespace cs = turbo::crest_serve;
+    return {
+        {"cs_begin_load_async", cs::kBeginLoadAsyncPattern, "none", 0,
+         "LegacyFS BeginLoadAsync(Desc*, _, size, buf, path) -> Request* 0x14306C2AC: the async legacy-file entry (crest serve hooks it)", "",
+         false, true},
+        {"cs_loader_tryfind_call", cs::kLoaderSitePattern, "rip", cs::kLoaderTryFindCall,
+         "ChunkFileLoaderData 0x141C3D545: call LegacyFS::TryFindFile 0x14199DB6C (must equal cs_promise_tryfind_call)", "", false, true},
+        {"cs_loader_async_call", cs::kLoaderSitePattern, "rip", cs::kLoaderAsyncCall,
+         "ChunkFileLoaderData 0x141C3D587: call BeginLoadAsync (must equal cs_begin_load_async)", "", false, true},
+        {"cs_loader_async_ret", cs::kLoaderSitePattern, "none", cs::kLoaderAsyncReturn,
+         "ChunkFileLoaderData 0x141C3D58C: return address of that call (the caller tests the request for NULL)", "", false, true},
+        {"cs_promise_tryfind_call", cs::kPromiseSitePattern, "rip", cs::kPromiseTryFindCall,
+         "script CallPromise loader 0x1446AD348: call LegacyFS::TryFindFile 0x14199DB6C", "", false, true},
+        {"cs_promise_async_call", cs::kPromiseSitePattern, "rip", cs::kPromiseAsyncCall,
+         "script CallPromise loader 0x1446AD389: call BeginLoadAsync (must equal cs_begin_load_async)", "", false, true},
+        {"cs_promise_async_ret", cs::kPromiseSitePattern, "none", cs::kPromiseAsyncReturn,
+         "script CallPromise loader 0x1446AD38E: return address (NO null test: the request goes straight to IsDone)", "", false, true},
+        {"cs_capture_async_call", cs::kCaptureSitePattern, "rip", cs::kCaptureAsyncCall,
+         "ChunkFileAsyncLoad 0x1438887B9 (capture / match path): call BeginLoadAsync (must equal cs_begin_load_async)", "", false, true},
+        {"cs_capture_async_ret", cs::kCaptureSitePattern, "none", cs::kCaptureAsyncReturn,
+         "ChunkFileAsyncLoad 0x1438887BE: return address (the caller tests the request for NULL)", "", false, true},
+    };
+}
+
 static std::vector<Signature> with(std::vector<Signature> a, const std::vector<Signature>& b) {
     a.insert(a.end(), b.begin(), b.end());
     return a;
@@ -766,8 +795,8 @@ static const std::vector<SignatureTable>& builtin_tables() {
         // signatures. Those that existed on 2026-10-07 were each found exactly once in the running game then (Turbo 2.0.1
         // shipped them as a file), the later ones in the 10-11 sessions (127 found), except svm_live_vtable and
         // fce_datamanager_vtable (2.2, adapt_optional): never scanned on this build yet. Then the team sheet entries of
-        // tactics channel E (this build only, exact_build)
-        {"6AC07E31-2145C000", "FC27.exe", with(fc27_signatures(), team_sheet_signatures())},
+        // tactics channel E (this build only, exact_build), then the 2.18 crest serve's (this build only, exact_build)
+        {"6AC07E31-2145C000", "FC27.exe", with(with(fc27_signatures(), team_sheet_signatures()), crest_serve_signatures())},
     };
     return tables;
 }
