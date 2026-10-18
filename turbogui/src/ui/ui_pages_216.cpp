@@ -7,6 +7,7 @@
 #include "ui_changes.h"
 #include "ui_diagnostics_page.h"
 #include "ui_kits_page.h"
+#include "ui_player_page.h"
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
 
