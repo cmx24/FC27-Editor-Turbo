@@ -773,7 +773,6 @@ ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
 ui_settings.cpp	BeginChild	##settings_log	1
 ui_settings.cpp	Button	###reload	1
 ui_settings.cpp	Checkbox	###advview	1
-ui_settings.cpp	Checkbox	###legacypages	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##select	1
 ui_standings.cpp	-	##%s	1

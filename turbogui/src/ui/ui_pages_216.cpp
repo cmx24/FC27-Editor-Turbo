@@ -4,6 +4,7 @@
 // brings them back. Nothing is deleted.
 #include "app.h"
 #include "ui_career_pages.h"
+#include "ui_diagnostics_page.h"
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
 
@@ -19,5 +20,9 @@ TURBO_REGISTER_NEW_PAGE(shell::Page::Transfers, draw_career_transfers_money);
 TURBO_REGISTER_NEW_PAGE(shell::Page::JobOffer, draw_career_manager_jobs);
 TURBO_REGISTER_NEW_PAGE(shell::Page::Squad, draw_career_my_squad);
 TURBO_REGISTER_NEW_PAGE(shell::Page::Staff, draw_career_staff);
+
+// Advanced: Diagnostics & logs, Data export
+TURBO_REGISTER_NEW_PAGE(shell::Page::AdvDiagnostics, draw_diagnostics_page);
+TURBO_REGISTER_NEW_PAGE(shell::Page::AdvExport, draw_data_export_page);
 
 }  // namespace turbo

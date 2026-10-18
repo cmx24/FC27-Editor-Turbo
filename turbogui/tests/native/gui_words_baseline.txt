@@ -95,7 +95,7 @@ ui_role_rules.cpp	path	5
 ui_role_rules.cpp	turbo_output	5
 ui_role_rules.cpp	txt	2
 ui_sections.h	json	1
-ui_settings.cpp	json	2
+ui_settings.cpp	json	1
 ui_standings.cpp	json	2
 ui_standings.cpp	lua	1
 ui_standings.cpp	path	1
