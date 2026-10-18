@@ -7,28 +7,28 @@ touches the game, the install or turbo_output (it only reads the log file it is 
 
 The operator's steps (LEICESTER, never saved, about 2 minutes; the Tester's runner launches and kills the game):
   1. Career hub, Turbo window (F8): Faces & looks > Looks studio. Players. Search a real-face starter of the squad, click him.
-  2. Click "Draw him" under the large pane, wait 2 s: it shows the game's picture ("Drawn by the game at ..."; head and shoulders,
-     Tester 2026-10-17 22:09). Screenshot S1.
+  2. Click "Draw him" under the large pane (the view "Full body" is the default), wait 2 s: it shows the game's picture ("Full body,
+     drawn by the game at ..."; head to boots in kit, W2228). Screenshot S1.
   3. Body type card: click "Tall, stocky" (or any other generic body). Wait 2 s: the pane draws him again. Screenshot S2.
   4. Click "Undo: Body type" at the top of the cards. Wait 2 s. Screenshot S3. Kill the game (the runner). Never save.
 
 What it reads (ui/ui_looks_studio.cpp App::log lines; App::edit_field / App::undo lines; the capture service's own lines):
   session   the last "Turbo GUI loading in process" session at or after --since
-  asked     "looks studio: picture asked for <name> (id N, camera 1)": the page asked the game for his full-body picture
-  request   the capture service's line for that id with "mode 1" and "default descriptor" (the Architect's pre-registered request)
+  asked     "looks studio: picture asked for <name> (id N, camera -2)": the page asked the game for his full-body picture (track C's
+            kCameraBodyFull = -2; camera 1 = the "Head and shoulders" switch, also PASS)
+  request   the capture service's line for that id with "default descriptor" (never the learned one)
   picture   "looks studio: picture of id N (<format>)" after the ask: FAIL on "looks studio: no picture for id N"
   body      an edit "[players.bodytypecode = B]" after the first picture, then a new ask AND a new picture for the same id
   undo      "undo players.bodytypecode = A" after the body edit (the page's Undo through App's per-player Undo)
   errors    no "frame error:" line in the session (a draw exception in the page)
-The picture is head and shoulders (mode 1 in game): S1-S3 show the page's honest line under it; that the body type reaches the model is
-NOT proven by this check (the game shows the body in Customise > Edit Players > Edit Real Players).
+Whether the body visibly changes between S1 and S2 (and back in S3) is read from the screenshots, not the log.
 """
 import argparse
 import re
 import sys
 
 RE_TIME = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
-RE_ASK = re.compile(r"looks studio: picture asked for .* \(id (?P<id>\d+), camera (?P<cam>\d+)\)")
+RE_ASK = re.compile(r"looks studio: picture asked for .* \(id (?P<id>\d+), camera (?P<cam>-?\d+)(?:, manager)?\)")
 RE_PIC = re.compile(r"looks studio: picture of id (?P<id>\d+) \((?P<fmt>[^)]*)\)")
 RE_NOPIC = re.compile(r"looks studio: no picture for id (?P<id>\d+)")
 RE_BODY = re.compile(r"\[players\.bodytypecode = (?P<v>\d+)\]")
@@ -70,14 +70,14 @@ def check(text, since="", player=""):
                                      "could not draw (a match, another picture)" % (" for id " + player if player else "")))
         return "FAIL", out
     pid = m_ask.group("id")
-    out.append(("asked", "PASS" if m_ask.group("cam") == "1" else "FAIL", "id %s, camera %s (want 1)" % (pid, m_ask.group("cam"))))
+    out.append(("asked", "PASS" if m_ask.group("cam") in ("-2", "1") else "FAIL", "id %s, camera %s (want -2 full body, or 1)" % (pid, m_ask.group("cam"))))
     req = [l for l in lines[i_ask:i_ask + 40] if ("request" in l and pid in l and "mode " in l)]
     if not req:
         out.append(("request", "INCONCLUSIVE", "no capture request line for id %s within 40 lines of the ask" % pid))
-    elif any("mode 1" in l and "default descriptor" in l for l in req):
+    elif any("default descriptor" in l for l in req):
         out.append(("request", "PASS", req[0].strip()[:160]))
     else:
-        out.append(("request", "FAIL", "the request was not mode 1 with the default descriptor: " + req[0].strip()[:160]))
+        out.append(("request", "FAIL", "the request did not use the default descriptor: " + req[0].strip()[:160]))
     i_pic, m_pic = first(lines, RE_PIC, i_ask, pid)
     i_no, m_no = first(lines, RE_NOPIC, i_ask, pid)
     if i_pic >= 0 and (i_no < 0 or i_pic < i_no):
@@ -120,8 +120,8 @@ def _log(*body):
     return "\n".join(head + ["2026-10-17 22:40:%02d %s" % (10 + i, b) for i, b in enumerate(body)]) + "\n"
 
 
-ASK = "looks studio: picture asked for Test Player (id 4242, camera 1)"
-REQ = "player capture: request Looks studio Test Player: id 4242, mode 1, extra 0 (default descriptor); desc id 4242"
+ASK = "looks studio: picture asked for Test Player (id 4242, camera -2)"
+REQ = "player capture: request Looks studio Test Player: id 4242, mode 0, extra 0 (default descriptor); desc id 4242"
 PIC = "looks studio: picture of id 4242 (PNG 1024x1024)"
 BODY = "Body type changed Average height, normal build -> Tall, stocky (Test Player)  [players.bodytypecode = 6]"
 UNDO = "undo players.bodytypecode = 2"
@@ -131,7 +131,8 @@ def self_test():
     cases = [
         ("pass: every step", _log(ASK, REQ, PIC, BODY, ASK, REQ, PIC, UNDO), "PASS"),
         ("fail: no picture", _log(ASK, REQ, "looks studio: no picture for id 4242: the game did not finish"), "FAIL"),
-        ("fail: camera 2", _log(ASK.replace("camera 1", "camera 2"), REQ, PIC), "FAIL"),
+        ("fail: camera 2", _log(ASK.replace("camera -2", "camera 2"), REQ, PIC), "FAIL"),
+        ("pass: head and shoulders view", _log(ASK.replace("camera -2", "camera 1"), REQ, PIC, BODY, ASK, REQ, PIC, UNDO), "PASS"),
         ("fail: learned descriptor", _log(ASK, REQ.replace("default descriptor", "learned descriptor"), PIC, BODY, ASK, PIC, UNDO), "FAIL"),
         ("fail: no ask", _log("something else"), "FAIL"),
         ("fail: body but no new picture", _log(ASK, REQ, PIC, BODY, UNDO), "FAIL"),
