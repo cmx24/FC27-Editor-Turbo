@@ -7,6 +7,7 @@
 #include "ui_diagnostics_page.h"
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
+#include "ui_looks_studio.h"
 
 namespace turbo {
 
@@ -24,5 +25,9 @@ TURBO_REGISTER_NEW_PAGE(shell::Page::Staff, draw_career_staff);
 // Advanced: Diagnostics & logs, Data export
 TURBO_REGISTER_NEW_PAGE(shell::Page::AdvDiagnostics, draw_diagnostics_page);
 TURBO_REGISTER_NEW_PAGE(shell::Page::AdvExport, draw_data_export_page);
+
+// Faces & looks > Looks studio (2.17 looks/studio-ui): a page that only exists in the new navigation, registered the ordinary way so the
+// old-panels switch keeps it
+TURBO_REGISTER_PAGE(shell::Page::LooksStudio, looks::draw_looks_studio);
 
 }  // namespace turbo

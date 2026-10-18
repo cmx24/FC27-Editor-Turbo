@@ -30,6 +30,7 @@ const PageInfo kPages[] = {
 
     {Page::FacesHair, Area::Looks, "Faces & hair", -1},
     {Page::BodyGear, Area::Looks, "Body, tattoos & gear", -1},
+    {Page::LooksStudio, Area::Looks, "Looks studio", -1},  // 2.17 ui_looks_studio.cpp
 
     {Page::Kits, Area::Club, "Kits", 1},
     {Page::Identity, Area::Club, "Club name, colours & crest", 1},

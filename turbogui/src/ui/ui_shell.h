@@ -29,7 +29,7 @@ enum class Page : int {
     // Players
     PlayerEdit, Squad, CreatePlayer, Staff, CommentaryNames,
     // Faces & looks
-    FacesHair, BodyGear,
+    FacesHair, BodyGear, LooksStudio,
     // Kits & club
     Kits, Identity, StadiumExtras,
     // Tactics
