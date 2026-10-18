@@ -219,7 +219,8 @@ Located decide_install(const std::vector<SigResult>& results, const std::functio
     if (const SigResult* br = get(kSigBlobReader)) {
         uint8_t b[16] = {0};
         if (br->state == SigState::Found && read(br->address, b, sizeof(b)) && !prologue_is_jump(b, sizeof(b))) L.blob_reader = br->address;
-        else notes += "blob reader not found or already hooked (file sources not measured, no substitution); ";
+        else notes += "blob reader not found yet or already hooked (only file sources by size/md5 are affected; player_kit.lua comes "
+                      "through the verified one-shot reader by chunkname and is unaffected); ";
     } else {
         notes += "blob reader not scanned; ";
     }
@@ -275,6 +276,8 @@ const char* const kOtherReaderExpect =
 const char* const kStockCacheRel = "faces3d\\stock_player_kit.cache";
 const char* const kLegacyKitRel = "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua";
 const char* const kLiveLooksMarker = "TURBO_GATE.band = function";
+const char* const kResearchFileSwitch = "lua_loader_research_file.txt";
+const char* const kLogOnlySwitch = "lua_loader_log_only.txt";
 
 bool has_live_looks(const char* data, size_t size) {
     if (!data || !size) return false;
@@ -343,8 +346,8 @@ StartDecision decide_start(const StartSwitches& s) {
         d.refused = true;
         return d;
     }
-    const bool research = s.lua_on && s.lua_substitute;  // the override file (test lane), as 2.8-2.15
-    const bool want_sub = true;
+    const bool research = s.research_file && !s.log_only;  // the override file (test lane), as 2.8-2.15
+    const bool want_sub = !s.log_only;
     if (want_sub && s.legacy_present) {
         d.legacy_refused = true;
         d.why = std::string(kLegacyKitRel) +

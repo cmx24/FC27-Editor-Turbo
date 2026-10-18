@@ -902,6 +902,7 @@ bool App::refresh() {
     // FC 27 reloads teamkits and playernamemap from its base data at every career load: the kept edits go back in once
     // per newly loaded career (ui_reapply.cpp)
     maybe_reapply();
+    faces3d_restore_markers(*this);  // 2.17: the "his own, live" marker gives way to his own codes once it is not needed
     return true;
 }
 

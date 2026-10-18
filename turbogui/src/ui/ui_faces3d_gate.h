@@ -26,6 +26,11 @@ const faces3d::Entry* faces3d_draft_entry(int64_t playerid);
 void tick_faces3d_preview(App& app);
 // The pickers' choice for the person shown (generic ids, 0 = his own); for tests and scripted checks
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard);
+// 2.17, at every career connect (App::refresh): a player who got the "his own, live" marker (9999 / 511) while he was on the saved
+// list and is off it since this game start gets his recorded own codes back, when that is safe (no baked look of this game start
+// can return: the hook is off, serves stock, or built a saved list that does not hold him; his codes still the marker this record
+// wrote). Returns how many players were restored.
+int faces3d_restore_markers(App& app);
 // Re-reads players.json and preview_backup.json (tests; the card reads them once per Turbo start)
 void faces3d_reload(App& app);
 // A picture request is in flight (the chooser's 3D heads send nothing meanwhile)

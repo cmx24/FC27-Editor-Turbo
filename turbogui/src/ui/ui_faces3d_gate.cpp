@@ -230,6 +230,12 @@ std::map<std::string, int64_t> read_codes(App& app, const Table& t, uint64_t rec
 }
 std::map<std::string, int64_t> read_look(App& app, const Table& t, uint64_t rec) { return read_fields(app, t, rec, faces3d::kLookFields, 2); }
 
+// A card line: the in-app Log and turbo_gui.log (App::log_hook; the Tester's parser reads the file)
+void flog(App& app, const std::string& line) {
+    app.log(line);
+    if (app.log_hook) app.log_hook(line);
+}
+
 // Raw writes (Database::set_int, range-checked): no undo step, no kept edit (reapply_edits.json), no development-plan sync. The
 // codes live in this career's database (saved with the career). true when every field was written.
 bool raw_write(App& app, const Table& t, uint64_t rec, int64_t id, bool manager, const std::map<std::string, int64_t>& w, std::string& err) {
@@ -247,7 +253,7 @@ bool raw_write(App& app, const Table& t, uint64_t rec, int64_t id, bool manager,
     if (!line.empty()) {
         if (!manager) app.model.refresh_player(id, app.today());
         ++app.gen;
-        app.log(std::string("3D hair & beard: ") + (manager ? "manager " : "player ") + std::to_string(id) + " " + line +
+        flog(app, std::string("3D hair & beard: ") + (manager ? "manager " : "player ") + std::to_string(id) + " " + line +
                 " (this career only; no undo step)");
     }
     return ok;
@@ -446,6 +452,64 @@ bool faces3d_preview_pending() { return g.pending != 0; }
 
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard) { g_pick = Pick{manager, id, hair, beard}; }
 
+int faces3d_restore_markers(App& app) {
+    if (!g.loaded) load(app);
+    const Table* t = app.db.table("players");
+    if (!t || !t->has("hairtypecode") || !t->has("facialhairtypecode")) return 0;
+    lualoader::Faces3dStatus st;
+    const bool have = static_cast<bool>(app.faces3d_report);
+    if (have) st = app.faces3d_report();
+    // safe only when no baked look of this game start can come back: the hook is not running, or it serves stock, or it built
+    // the saved list in memory and that list is known (research file mode: the file's own list is not known here)
+    const bool hook_bakes = have && st.installed && st.substitute && !st.killed;
+    if (hook_bakes && !(st.in_memory && (!st.built || st.saved_known))) return 0;
+    int restored = 0;
+    bool changed = false;
+    for (auto it = g.backup.begin(); it != g.backup.end();) {
+        const int64_t pid = it->first;
+        const faces3d::PreviewRecord& r = it->second;
+        const PlayerRow* p = pid < kMgrKey ? app.model.player(pid) : nullptr;
+        const auto wh = r.written.find("hairtypecode"), wb = r.written.find("facialhairtypecode");
+        const bool marker = (wh != r.written.end() && wh->second == faces3d::kHairOwnCode) || (wb != r.written.end() && wb->second == faces3d::kBeardOwnCode);
+        const bool listed_now = g.draft.count(pid) != 0;
+        const bool baked = hook_bakes && st.built && std::find(st.saved_ids.begin(), st.saved_ids.end(), pid) != st.saved_ids.end();
+        if (!p || !marker || listed_now || baked) {
+            ++it;
+            continue;
+        }
+        const std::map<std::string, int64_t> cur = read_look(app, *t, p->rec);
+        bool same = true;  // this career's record: his codes are still the ones it wrote
+        for (const auto& [f, v] : r.written)
+            if (cur.count(f)) same = same && cur.at(f) == v;
+        std::map<std::string, int64_t> w;
+        for (const char* f : faces3d::kLookFields) {
+            const auto c = cur.find(f), o = r.original.find(f);
+            const int64_t own = std::string(f) == "hairtypecode" ? faces3d::kHairOwnCode : faces3d::kBeardOwnCode;
+            if (c != cur.end() && c->second == own && o != r.original.end() && !turbo_code(f, o->second) && o->second >= 0) w[f] = o->second;
+        }
+        if (!same || w.empty()) {
+            ++it;
+            continue;
+        }
+        std::string err;
+        if (raw_write(app, *t, p->rec, pid, false, w, err)) {
+            flog(app, "3D hair & beard: player " + std::to_string(pid) + " is off the saved list since the last game start: his own codes are back "
+                      "(the his-own-live marker is not needed any more)");
+            ++restored;
+            changed = true;
+            g.session_records.erase(pid);
+            it = g.backup.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (changed) {
+        std::string err;
+        faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
+    }
+    return restored;
+}
+
 void faces3d_reload(App& app) {
     g.session_records.clear();
     load(app);
@@ -460,7 +524,7 @@ void tick_faces3d_preview(App& app) {
     capture::Result r;
     if (app.capture->poll(r)) {
         if (r.id != g.pending) {
-            app.log("3D hair & beard: a picture for id " + std::to_string(r.id) + " arrived while waiting for " + std::to_string(g.pending) + " (dropped)");
+            flog(app, "3D hair & beard: a picture for id " + std::to_string(r.id) + " arrived while waiting for " + std::to_string(g.pending) + " (dropped)");
             return;
         }
         const int64_t pid = g.pending;
@@ -596,8 +660,13 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
             for (const auto& [f, v] : it->second.written) mine = mine && all.count(f) && all.at(f) == v;
             if (mine && all.count("hairstylecode") && all.at("hairstylecode") != orig.at("hairstylecode")) w["hairstylecode"] = orig.at("hairstylecode");
         }
+        // the record belongs to this career when his codes are the ones it wrote; another career's record keeps its way back
+        bool this_career = it != g.backup.end() && !it->second.written.empty();
+        if (this_career)
+            for (const auto& [f, v] : it->second.written)
+                if (cur.count(f)) this_career = this_career && cur.at(f) == v;
         ok = ok && raw_write(app, t, p.rec, p.playerid, false, w, err);
-        if (ok && !on_list && it != g.backup.end()) {
+        if (ok && !on_list && it != g.backup.end() && this_career) {
             g.backup.erase(it);
             g.session_records.erase(p.playerid);
             ok = faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);
@@ -609,7 +678,7 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
             const std::string js = faces3d::players_json(next);
             std::string werr;
             const bool wrote = lualoader::write_file_atomic(rel(app.turbo_output(), faces3d::kPlayersRel).u8string(), js, &werr);
-            app.log("3D hair & beard: took " + std::to_string(p.playerid) + " off the saved list" + (wrote ? std::string() : " (players.json: " + werr + ")"));
+            flog(app, "3D hair & beard: took " + std::to_string(p.playerid) + " off the saved list" + (wrote ? std::string() : " (players.json: " + werr + ")"));
             if (wrote) {
                 g.draft = next;
                 g.applied = js;
