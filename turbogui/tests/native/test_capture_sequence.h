@@ -165,7 +165,7 @@ static void test_capture_sequence() {
         CHECK(tc::cameras()[tc::kCameraBody].mode == 1 && tc::cameras()[tc::kCameraBody].extra == 0, "kCameraBody = mode 1, extra 0");
         CHECK(tc::cameras()[tc::kCameraBodyKit].mode == 1 && tc::cameras()[tc::kCameraBodyKit].extra == 3, "kCameraBodyKit = mode 1, extra 3");
         tc::Request r = tc::body_request(208596, 95);
-        CHECK(r.id == 208596 && r.second_id == 95 && !r.manager && !r.use_template && r.camera == tc::kCameraBody, "fields");
+        CHECK(r.id == 208596 && r.second_id == 95 && !r.manager && !r.use_template && r.camera == tc::kCameraBodyFull, "fields (full body by default)");
         CHECK(r.batch.empty() && r.mode_override == -1 && r.extra_override == -1, "single, no overrides");
         CHECK(r.label == "player 208596", "label: " + r.label);
         // a learned template (the hub's avatar portrait: +0x68 set, mode 0) must not leak into a body picture
@@ -178,15 +178,102 @@ static void test_capture_sequence() {
         tc::Plan p = tc::plan_request(r, &t);
         const tc::PlayerDesc want = tc::default_desc(208596, 95, true, false);
         CHECK(std::memcmp(p.desc.b, want.b, tc::kPlayerDescSize) == 0, "default descriptor: " + tc::describe_desc(p.desc));
-        CHECK(p.mode == 1 && p.extra == 0 && p.note == "default descriptor", "plan: mode/extra/note " + p.note);
+        CHECK(p.mode == 1 && p.extra == 0 && p.type == -1 && p.note == "default descriptor, full-body camera not configured: head and shoulders",
+              "no table given: head and shoulders, says so: " + p.note);
+        tc::Request rf = tc::body_request(208596, 95, tc::kCameraBodyFull);
+        p = tc::plan_request(rf, &t);
+        CHECK(p.mode == 1 && p.extra == 0 && p.type == -1 && p.note == "default descriptor, full-body camera not configured: head and shoulders",
+              "full body without a table: head and shoulders, says so: " + p.note);
         r = tc::body_request(208596, 95, tc::kCameraBodyKit, "Saka");
         p = tc::plan_request(r, &t);
         CHECK(p.mode == 1 && p.extra == 3 && r.label == "Saka", "kit camera + label");
         r = tc::body_request(208596, -7, 0);
-        CHECK(r.camera == tc::kCameraBody && r.second_id == -1, "other camera -> body; no team -> -1");
+        CHECK(r.camera == tc::kCameraBodyFull && r.second_id == -1, "other camera -> full body; no team -> -1");
+        r = tc::body_request(208596, 95, tc::kCameraBody);
+        p = tc::plan_request(r, &t);
+        CHECK(r.camera == tc::kCameraBody && p.mode == 1 && p.extra == 0 && p.type == -1 && p.note == "default descriptor", "head-and-shoulders camera kept");
         std::string err;
         CHECK(tc::check_request(tc::body_request(208596, 95), 6, &err), "passes the service's request check: " + err);
         CHECK(!tc::check_request(tc::body_request(0, 95), 6, &err), "id 0 refused");
+    });
+
+    run_case("capture sequence: the full-body camera table (body_camera.txt) and its plan", [&] {
+        tc::BodyCamera b;
+        std::string err;
+        CHECK(tc::parse_body_camera("# camera-2 probe, W22xx\ntype = 2\nmode=1\nextra = 0x0\ndesc 0x24 = 2   # LE's camera\ndesc 76 = -1\n", b, &err) && b.ok,
+              "parsed: " + err);
+        CHECK(b.type == 2 && b.mode == 1 && b.extra == 0 && b.desc.size() == 2 && b.desc[0].off == 0x24 && b.desc[0].value == 2 &&
+                  b.desc[1].off == 76 && b.desc[1].value == -1 && !b.desc[0].team,
+              "values: " + tc::describe_body_camera(b));
+        CHECK(tc::describe_body_camera(b) == "type 2, mode 1, extra 0, +24=2, +4C=-1", "describe: " + tc::describe_body_camera(b));
+        CHECK(tc::parse_body_camera("desc 0x30 = 0xFFFFFFFF", b, &err) && b.ok && b.type == -1 && b.desc[0].value == -1, "a dword alone, hex");
+        CHECK(tc::parse_body_camera("desc 0x0C = team\nmode = 2", b, &err) && b.ok && b.desc[0].team && b.mode == 2, "team value: " + err);
+        CHECK(tc::describe_body_camera(b) == "type -1, mode 2, extra 0, +0C=team", "describe team: " + tc::describe_body_camera(b));
+        CHECK(!tc::parse_body_camera("type = team", b, &err) && err.find("desc line only") != std::string::npos, "team only for desc: " + err);
+        CHECK(tc::parse_body_camera("# nothing yet\n\n", b, &err) && !b.ok && err.empty(), "comments only: not configured, no error");
+        CHECK(tc::parse_body_camera("", b, &err) && !b.ok, "empty");
+        CHECK(tc::parse_body_camera("mode = 1\n", b, &err) && !b.ok, "mode alone says nothing about the camera");
+        struct Bad {
+            const char* text;
+            const char* why;
+        };
+        const Bad bad[] = {{"type 2", "no '='"}, {"type = two", "not a number"}, {"type = 256", "type must be"}, {"mode = 16", "mode must be"},
+                           {"extra = -1", "extra must be"}, {"desc 0x00 = 5", "0x04..0x68"}, {"desc 0x6C = 5", "0x04..0x68"},
+                           {"desc 0x26 = 5", "multiple of 4"}, {"desc 0x08 = 95", "second id"}, {"desc 0x24 = 1\ndesc 0x24 = 2", "twice"},
+                           {"camera = 2", "unknown key"}, {"desc = 2", "unknown key"}, {"type = 0x1FFFFFFFF", "not a number"}};
+        for (const Bad& x : bad) {
+            b.ok = true;
+            CHECK(!tc::parse_body_camera(x.text, b, &err) && !b.ok && err.find(x.why) != std::string::npos, std::string(x.text) + " -> " + err);
+        }
+        CHECK(!tc::parse_body_camera("type = 1\n\ntype = 300", b, &err) && err.rfind("line 3:", 0) == 0, "names the line: " + err);
+        std::string nine;
+        for (int i = 0; i < 9; ++i) nine += "desc " + std::to_string(0x0C + 4 * i) + " = 1\n";
+        CHECK(!tc::parse_body_camera(nine, b, &err) && err.find("at most 8") != std::string::npos, "9 dwords: " + err);
+        // the plan: table values on top of the default descriptor; ids and flags stay the request's
+        CHECK(tc::parse_body_camera("type = 2\nmode = 1\nextra = 5\ndesc 0x24 = 2\n", b, &err) && b.ok, "table");
+        tc::Request r = tc::body_request(254470, 95, tc::kCameraBodyFull);
+        tc::Plan p = tc::plan_request(r, nullptr, &b);
+        tc::PlayerDesc want = tc::default_desc(254470, 95, true, false);
+        want.set_i32(0x24, 2);
+        CHECK(std::memcmp(p.desc.b, want.b, tc::kPlayerDescSize) == 0 && p.type == 2 && p.mode == 1 && p.extra == 5, "plan: " + tc::describe_desc(p.desc));
+        CHECK(p.note.find("full-body camera (type 2, mode 1, extra 5, +24=2)") != std::string::npos, "note: " + p.note);
+        // the built-in camera is the one W2228 proved: the default player descriptor + 0C = team, +50 = 2, mode 0, extra 0
+        const tc::BodyCamera full = tc::body_camera_builtin();
+        CHECK(full.ok && full.mode == 0 && full.extra == 0 && full.type == -1 && full.source.find("W2228") != std::string::npos, "built in: mode 0, extra 0");
+        CHECK(tc::describe_body_camera(full) == "type -1, mode 0, extra 0, +0C=team, +50=2", "describe: " + tc::describe_body_camera(full));
+        p = tc::plan_request(tc::body_request(254470, 95), nullptr, &full);
+        CHECK(tc::describe_desc(p.desc) == "+00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +58=-1 +64=1",
+              "W2228 descriptor: " + tc::describe_desc(p.desc));
+        CHECK(p.mode == 0 && p.extra == 0 && p.type == -1 && p.desc.flag64() && !p.desc.flag68(), "mode 0 / extra 0, player flags");
+        CHECK(tc::hex_bytes(p.desc.b, 0x10) == "06 E2 03 00 FF FF FF FF 5F 00 00 00 5F 00 00 00", "first 16 bytes as LE's (W2220 hex): " + tc::hex_bytes(p.desc.b, 0x10));
+        p = tc::plan_request(tc::body_request(254470, -1), nullptr, &full);
+        CHECK(p.desc.i32(0x0C) == -1 && p.desc.i32(0x50) == 2, "no team: +0C stays -1");
+        // the table is used only by the full-body camera; a manager head keeps his flags under it
+        r.camera = tc::kCameraBody;
+        p = tc::plan_request(r, nullptr, &b);
+        CHECK(p.type == -1 && p.desc.i32(0x24) == 1 && p.extra == 0, "other cameras ignore the table");
+        tc::Request m = tc::body_request(235732, 1, tc::kCameraBodyFull);
+        m.manager = true;
+        p = tc::plan_request(m, nullptr, &b);
+        CHECK(!p.desc.flag64() && p.desc.id() == 235732 && p.type == 2, "manager flags kept");
+        // a batch: every head gets the table
+        tc::Request batch = tc::body_request(1, 2, tc::kCameraBodyFull);
+        batch.batch = {{11, 2, false, "a"}, {12, 2, false, "b"}};
+        const std::vector<tc::Plan> plans = tc::plan_batch(batch, nullptr, &b);
+        CHECK(plans.size() == 2 && plans[1].type == 2 && plans[1].desc.i32(0x24) == 2 && plans[1].desc.id() == 12, "batch");
+        // a sequence on the full-body camera: its manifest names the camera, not a preset's mode / extra
+        Rig rig;
+        const tc::Sequence* self = nullptr;
+        tc::SequenceOptions o = seq_opts();
+        o.camera = tc::kCameraBodyFull;
+        tc::Sequence s(rig.svc, o, seq_steps({6}), rig.hooks(&self));
+        self = &s;
+        CHECK(s.options().camera == tc::kCameraBodyFull && tc::SequenceOptions().camera == tc::kCameraBodyFull, "full body is the default");
+        CHECK(s.start(&err), "start");
+        rig.run(s);
+        CHECK(s.count("done") == 1 && rig.svc.requests.size() == 1 && rig.svc.requests[0].camera == tc::kCameraBodyFull, "drawn on the full-body camera");
+        CHECK(rig.manifests.back().find("\"camera\": -2") != std::string::npos && rig.manifests.back().find("\"mode\"") == std::string::npos,
+              "manifest: camera -2, no preset mode");
     });
 
     run_case("capture sequence: the host's request ends once every head is handed out and the game is done (W2202)", [&] {

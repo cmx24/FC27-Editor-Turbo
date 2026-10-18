@@ -81,7 +81,7 @@ const std::vector<Camera>& cameras() {
     return k;
 }
 
-Plan plan_request(const Request& r, const Template* t) {
+Plan plan_request(const Request& r, const Template* t, const BodyCamera* body) {
     Plan p;
     const bool from_template = r.use_template && t && t->learned;
     // the game's manager-head builder 0x147D94218 (docs/re/manager_rules.md section 6): +0x64 = 0 for a staff head,
@@ -101,7 +101,19 @@ Plan plan_request(const Request& r, const Template* t) {
         p.note = "default descriptor";
     }
     const auto& cams = cameras();
-    if (r.camera == kCameraLearned && t && t->learned) {
+    if (r.camera == kCameraBodyFull) {
+        if (body && body->ok) {
+            p.mode = body->mode;
+            p.extra = body->extra;
+            p.type = body->type;
+            for (const BodyDword& d : body->desc) p.desc.set_i32(d.off, d.team ? r.second_id : d.value);
+            p.note += ", full-body camera (" + describe_body_camera(*body) + ")";
+        } else {
+            p.mode = cams[static_cast<size_t>(kCameraBody)].mode;
+            p.extra = cams[static_cast<size_t>(kCameraBody)].extra;
+            p.note += ", full-body camera not configured: head and shoulders";
+        }
+    } else if (r.camera == kCameraLearned && t && t->learned) {
         p.mode = t->mode;
         p.extra = t->extra;
         p.note += ", learned mode/extra";
@@ -125,7 +137,7 @@ std::vector<BatchEntry> request_entries(const Request& r) {
     return {e};
 }
 
-std::vector<Plan> plan_batch(const Request& r, const Template* t) {
+std::vector<Plan> plan_batch(const Request& r, const Template* t, const BodyCamera* body) {
     std::vector<Plan> out;
     for (const BatchEntry& e : request_entries(r)) {
         Request one = r;
@@ -134,7 +146,7 @@ std::vector<Plan> plan_batch(const Request& r, const Template* t) {
         one.second_id = e.second_id;
         one.manager = e.manager;
         one.label = e.label;
-        out.push_back(plan_request(one, t));
+        out.push_back(plan_request(one, t, body));
     }
     return out;
 }
@@ -337,13 +349,147 @@ bool decode_slice(const uint8_t* data, size_t size, Rgba& out, std::string* form
 }
 
 
+// ---------------------------------------------------------------- full-body camera table
+namespace {
+std::string trim_ws(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\r')) ++a;
+    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' || s[b - 1] == '\r')) --b;
+    return s.substr(a, b - a);
+}
+
+// "2", "-1", "0x24", "0X2FAF08" -> value; false for anything else or out of int32 range
+bool parse_num(const std::string& t, int64_t& out) {
+    std::string s = trim_ws(t);
+    if (s.empty()) return false;
+    bool neg = false;
+    size_t i = 0;
+    if (s[0] == '-') {
+        neg = true;
+        i = 1;
+    }
+    int base = 10;
+    if (s.size() > i + 2 && s[i] == '0' && (s[i + 1] == 'x' || s[i + 1] == 'X')) {
+        base = 16;
+        i += 2;
+    }
+    if (i >= s.size() || s.size() - i > 10) return false;
+    int64_t v = 0;
+    for (; i < s.size(); ++i) {
+        const char c = s[i];
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (base == 16 && c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (base == 16 && c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0) return false;
+        v = v * base + d;
+    }
+    v = neg ? -v : v;
+    if (v < INT32_MIN || v > static_cast<int64_t>(UINT32_MAX)) return false;
+    out = v;
+    return true;
+}
+}  // namespace
+
+bool parse_body_camera(const std::string& text, BodyCamera& out, std::string* err) {
+    BodyCamera b;
+    bool said = false;
+    size_t line_no = 0, pos = 0;
+    auto fail = [&](const std::string& why) {
+        if (err) *err = "line " + std::to_string(line_no) + ": " + why;
+        out = BodyCamera();
+        return false;
+    };
+    while (pos <= text.size()) {
+        size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        std::string line = text.substr(pos, nl - pos);
+        pos = nl + 1;
+        ++line_no;
+        const size_t hash = line.find('#');
+        if (hash != std::string::npos) line = line.substr(0, hash);
+        line = trim_ws(line);
+        if (line.empty()) {
+            if (nl == text.size()) break;
+            continue;
+        }
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos) return fail("no '=' in '" + line + "'");
+        const std::string key = trim_ws(line.substr(0, eq));
+        const bool team = trim_ws(line.substr(eq + 1)) == "team";
+        if (team && key.compare(0, 5, "desc ") != 0) return fail("'team' is a value for a desc line only");
+        int64_t v = 0;
+        if (!team && !parse_num(line.substr(eq + 1), v)) return fail("not a number after '=' in '" + line + "'");
+        if (key == "type") {
+            if (v < 0 || v > 255) return fail("type must be 0..255");
+            b.type = static_cast<int>(v);
+            said = true;
+        } else if (key == "mode") {
+            if (v < 0 || v > 15) return fail("mode must be 0..15");
+            b.mode = static_cast<int>(v);
+        } else if (key == "extra") {
+            if (v < 0 || v > 255) return fail("extra must be 0..255");
+            b.extra = static_cast<int>(v);
+        } else if (key.size() > 5 && key.compare(0, 5, "desc ") == 0) {
+            int64_t off = 0;
+            if (!parse_num(key.substr(5), off)) return fail("no descriptor offset in '" + key + "'");
+            if (off < 0x04 || off > 0x68 || off % 4 != 0) return fail("descriptor offset must be 0x04..0x68 and a multiple of 4");
+            if (off == 0x08) return fail("+0x08 is the second id (the team): it comes from the request");
+            if (b.desc.size() >= static_cast<size_t>(kMaxBodyCameraDwords)) return fail("at most 8 descriptor lines");
+            for (const BodyDword& d : b.desc)
+                if (d.off == static_cast<size_t>(off)) return fail("descriptor offset given twice");
+            BodyDword d;
+            d.off = static_cast<size_t>(off);
+            d.value = static_cast<int32_t>(static_cast<uint32_t>(v));
+            d.team = team;
+            b.desc.push_back(d);
+            said = true;
+        } else {
+            return fail("unknown key '" + key + "' (type, mode, extra, desc <offset>)");
+        }
+        if (nl == text.size()) break;
+    }
+    b.ok = said;
+    out = b;
+    if (err) err->clear();
+    return true;
+}
+
+std::string describe_body_camera(const BodyCamera& b) {
+    std::string s = "type " + std::to_string(b.type) + ", mode " + std::to_string(b.mode) + ", extra " + std::to_string(b.extra);
+    char buf[40];
+    for (const BodyDword& d : b.desc) {
+        if (d.team) std::snprintf(buf, sizeof(buf), ", +%02zX=team", d.off);
+        else std::snprintf(buf, sizeof(buf), ", +%02zX=%d", d.off, d.value);
+        s += buf;
+    }
+    return s;
+}
+
+BodyCamera body_camera_builtin() {
+    BodyCamera b;
+    b.ok = true;
+    b.type = -1;  // Request_B sets 0, as in LE's request
+    b.mode = 0;
+    b.extra = 0;
+    BodyDword team;
+    team.off = 0x0C;
+    team.team = true;
+    BodyDword cam;
+    cam.off = 0x50;
+    cam.value = 2;
+    b.desc = {team, cam};
+    b.source = "built in (W2228: full body, 256x256)";
+    return b;
+}
+
 // ---------------------------------------------------------------- full-body pictures
 Request body_request(int32_t id, int32_t team, int camera, const std::string& label) {
     Request r;
     r.id = id;
     r.second_id = team >= 0 ? team : -1;
     r.manager = false;
-    r.camera = (camera == kCameraBody || camera == kCameraBodyKit) ? camera : kCameraBody;
+    r.camera = (camera == kCameraBody || camera == kCameraBodyKit || camera == kCameraBodyFull) ? camera : kCameraBodyFull;
     r.mode_override = -1;
     r.extra_override = -1;
     r.use_template = false;
@@ -398,7 +544,7 @@ bool parse_code(const std::string& k, int64_t& out) {
 
 Sequence::Sequence(CaptureService& svc, SequenceOptions opt, std::vector<SequenceStep> steps, SequenceHooks hooks)
     : svc_(svc), opt_(std::move(opt)), hooks_(std::move(hooks)) {
-    if (opt_.camera != kCameraBody && opt_.camera != kCameraBodyKit) opt_.camera = kCameraBody;
+    if (opt_.camera != kCameraBody && opt_.camera != kCameraBodyKit && opt_.camera != kCameraBodyFull) opt_.camera = kCameraBodyFull;
     if (opt_.max_attempts < 1) opt_.max_attempts = 1;
     if (opt_.max_failures_in_row < 1) opt_.max_failures_in_row = 1;
     for (const SequenceStep& s : steps) {
@@ -438,9 +584,11 @@ std::string Sequence::manifest_text() const {
     j["player"] = opt_.player;
     j["team"] = opt_.team;
     j["camera"] = opt_.camera;
-    const auto& cams = cameras();
-    j["mode"] = cams[static_cast<size_t>(opt_.camera)].mode;
-    j["extra"] = cams[static_cast<size_t>(opt_.camera)].extra;
+    if (opt_.camera >= 0) {  // the full-body camera's mode / extra come from the host's table at each request
+        const auto& cams = cameras();
+        j["mode"] = cams[static_cast<size_t>(opt_.camera)].mode;
+        j["extra"] = cams[static_cast<size_t>(opt_.camera)].extra;
+    }
     j["original"] = opt_.original;
     j["finished"] = finished_;
     j["restored"] = restored_;
