@@ -109,7 +109,13 @@ public:
     // Force want.txt out now (tests, before running turbo_images.lua)
     bool flush();
     // Re-read missing.txt / status.txt now, without writing want.txt (the game editors' early pass)
-    void refresh_missing() { read_missing(); }
+    void refresh_missing() {
+        game_present_.clear();
+        read_missing();
+    }
+    // 2.16 gui/perf-3: the App calls this once per frame; only then are a folder's look and a found game picture kept
+    // (within the frame / for a second). Direct callers that never call it (the unit tests, tools) look every time.
+    void next_frame() { ++frame_; }
 
     size_t waiting() const { return want_.size() + bg_.size(); }
     size_t missing_count() const { return missing_.size(); }
@@ -187,7 +193,7 @@ private:
     struct CustomDir {
         bool listed = false;
         bool recent = true;          // changed less than 2 s before the last look
-        double looked_at = -1e300;   // now_ of the last look (tick time)
+        uint64_t looked_frame = 0;   // frame_ of the last look (0 = none)
         std::filesystem::file_time_type mtime{};
         std::unordered_map<std::string, std::filesystem::path> by_lower;  // lower-case file name -> the file
     };
@@ -197,7 +203,7 @@ private:
     // looking at the file for a second after it last saw it (calls without ticks always look). Forgotten by reload() and
     // clear_cache(), and when a look finds the file gone.
     std::unordered_map<std::string, double> game_present_;  // path -> now_ when the file was last seen
-    bool ticked_ = false;  // tick() ran at least once: the per-tick folder look applies (calls without ticks look every time)
+    uint64_t frame_ = 0;  // next_frame() count: 0 = never called (every call looks at the files)
     double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;
     uint64_t gen_ = 0;

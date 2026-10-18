@@ -915,6 +915,7 @@ void App::tick(double t) {
         }
     }
     legacy.tick(t);
+    legacy.next_frame();  // 2.16 gui/perf-3: folder looks and found game pictures are kept within a frame / a second
     if (!visible) legacy.not_prompting();
     {
         // Lua went quiet while pictures on screen wait: said once in the log (the boxes say it on screen)

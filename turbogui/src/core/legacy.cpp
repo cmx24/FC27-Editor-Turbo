@@ -135,8 +135,8 @@ fs::path LegacyImages::custom_file(const std::string& path) const {
     const std::string want = lower(p.filename().string());
     std::lock_guard<std::mutex> lock(custom_dirs_m_);
     CustomDir& d = custom_dirs_[dir.string()];
-    if (!(ticked_ && d.listed && !d.recent && d.looked_at == now_)) {
-        d.looked_at = now_;
+    if (!(frame_ != 0 && d.listed && !d.recent && d.looked_frame == frame_)) {
+        d.looked_frame = frame_;
         std::error_code ec;
         const auto mtime = fs::last_write_time(dir, ec);
         if (ec) {  // no such folder
@@ -275,7 +275,7 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
     {
         auto gp = game_present_.find(path);
         if (gp != game_present_.end()) {
-            if (ticked_ && now_ >= gp->second && now_ - gp->second < 1.0) {
+            if (frame_ != 0 && now_ >= gp->second && now_ - gp->second < 1.0) {
                 if (file) *file = g;
                 return State::Game;
             }
@@ -321,6 +321,7 @@ void LegacyImages::read_missing() {
     if (ec) sz = 0;
     if (sz != missing_size_) {
         missing_size_ = sz;
+        game_present_.clear();
         missing_lines_.clear();
         std::ifstream f(mp, std::ios::binary);
         std::string line;
@@ -346,7 +347,6 @@ void LegacyImages::read_missing() {
 }
 
 void LegacyImages::tick(double now) {
-    ticked_ = true;
     if (now < now_) next_bg_check_ = now;  // the clock went back (a tick ahead of the frames, the tests do that): no old schedule
     now_ = now;
     if (now >= next_read_) {
