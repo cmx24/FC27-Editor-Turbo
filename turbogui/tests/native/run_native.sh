@@ -104,6 +104,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/core/season_pack.cpp src/core/kit_fonts.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/core/kit_import.cpp src/core/kit_swap.cpp src/core/attrib_ebx.cpp src/core/oodle_dispatch.cpp src/ui/ui_kits.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/core/lua_loader.cpp src/core/faces3d.cpp src/ui/ui_faces3d_gate.cpp \
          src/ui/file_picker.cpp \
+         src/ui/ui_looks_studio.cpp \
          src/ui/ui_career_page.cpp src/ui/ui_diagnostics_page.cpp src/ui/ui_kits_page.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \

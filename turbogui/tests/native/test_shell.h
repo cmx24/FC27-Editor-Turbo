@@ -111,7 +111,7 @@ static void test_shell() {
         for (Page p : shell_all_pages()) {
             const int t = legacy_tab_of(p);
             // 2.16 step 4: the pages that are new in the re-cut navigation never lived in a legacy tab
-            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::FacesHair || p == Page::BodyGear || p == Page::TeamSheet;
+            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::FacesHair || p == Page::BodyGear || p == Page::LooksStudio || p == Page::TeamSheet;
             CHECK(is_new ? t == -1 : (t >= 0 && t < turbo::TabCount), std::string("every older page has a legacy tab, the new ones none: ") + page_label(p));
         }
         for (int bad : {-1, 8, 99, -100}) CHECK(!area_for(bad).valid(), "out of range -> invalid: " + std::to_string(bad));
