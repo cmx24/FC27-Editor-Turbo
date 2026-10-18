@@ -101,6 +101,26 @@ void capture_log(const std::string& line) {
     }
 }
 
+// (under g_mutex) Ends the request in flight once every head has had its Result and the game is done with it
+// (core/player_capture.h settle_request): status() and request() call it, so a request whose last picture was handed out
+// before the game's done callback does not stay "rendering..." until Cancel (W2202).
+void settle_current_locked() {
+    Job* j = g_current;
+    if (!j) return;
+    const bool all = j->book.all_handed();
+    // t_ran is read only once every head has its Result: the game-thread part (which writes it) has finished by then
+    const double since = (all && j->ran) ? std::chrono::duration<double>(std::chrono::steady_clock::now() - j->t_ran).count() : 0.0;
+    const Settle s = settle_request(all, j->finished, j->failed, j->ran, since, kAnswerTimeout);
+    if (s == Settle::Running) return;
+    if (s == Settle::TimedOut) {
+        j->error = "the game handed every picture over but did not finish the capture in 20 s";
+        j->cancelled = true;
+        j->failed = true;
+        capture_log("request " + j->label + ": " + j->error);
+    }
+    g_current = nullptr;
+}
+
 bool feature_off() {
     std::error_code ec;
     return fs::exists(le_root() / "turbo_output" / "player_capture_off.txt", ec);
@@ -353,6 +373,7 @@ public:
         s.last_format = g_last_format;
         s.dispatch = g_dispatch;
         s.max_batch = max_batch_now();
+        settle_current_locked();
         if (!g_installed) {
             s.reason = g_install_note;
             return s;
@@ -399,6 +420,7 @@ public:
         }
         if (!check_request(r, static_cast<size_t>(max_batch_now()), err)) return false;
         std::lock_guard<std::mutex> lock(g_mutex);
+        settle_current_locked();
         if (g_current) {
             if (err) *err = "a capture is already in flight (" + g_current->label + ")";
             return false;

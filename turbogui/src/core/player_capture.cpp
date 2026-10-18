@@ -229,6 +229,13 @@ void BatchBook::drop_pictures() {
     pics_.clear();
 }
 
+Settle settle_request(bool all_handed, bool finished, bool failed, bool ran, double since_ran_s, double timeout_s) {
+    if (!all_handed) return Settle::Running;  // poll() still has Results to hand out (and ends the request itself)
+    if (finished || failed) return Settle::Over;
+    if (ran && since_ran_s > timeout_s) return Settle::TimedOut;
+    return Settle::Running;
+}
+
 // ---------------------------------------------------------------- delegate
 void* delegate_manager(void* to, void* from, int op) {
     if ((op == kMgrCopy || op == kMgrMove) && to && from && to != from) std::memcpy(to, from, sizeof(void*) * 2);
