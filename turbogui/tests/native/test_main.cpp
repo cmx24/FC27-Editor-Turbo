@@ -3640,6 +3640,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
+#include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
@@ -6328,8 +6329,8 @@ static void test_ui() {
             CHECK(ui.click("Manager heads", "Choose a real face##mgr"), "manager heads");
             ui.frames(2);
             CHECK(ui.find("mface502", "Choose a real face##mgr") && ui.find("mface504", "Choose a real face##mgr"), "real-face managers listed");
-            CHECK(ui.find("Hair: Any##facet3", "Choose a real face##mgr") == nullptr && ui.find("Skin tone: Any##facet1", "Choose a real face##mgr"),
-                  "filters of the fields the manager table has");
+            CHECK(ui.find("Hair: Any##facet3", "Choose a real face##mgr") != nullptr && ui.find("Skin tone: Any##facet1", "Choose a real face##mgr"),
+                  "filters of the fields the manager table has (hair since 2.16: the fake manager table has hairtypecode, as FC 27's)");
             CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
             ui.frames(2);
             // skin 30 (Caucasian 3) is in the group Light (key 2) with Latin Asian 1
@@ -9533,6 +9534,7 @@ static void test_ui() {
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
+        test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
