@@ -182,13 +182,22 @@ private:
     // 2.16 gui/perf: custom_file's case-insensitive match lists a folder of mods\legacy; the listing is kept per folder and
     // read again only when the folder's last-write time changes (a file added, removed or renamed in it). Before, every
     // picture drawn listed its folder in every frame. Under a mutex: custom_file is const and may be asked from a worker.
+    // 2.16 gui/perf-3: the folder's time stamp is read at most once per tick (frame) while the folder is stable (unchanged for
+    // 2 s); a folder that just changed is looked at on every call, as before
     struct CustomDir {
         bool listed = false;
+        bool recent = true;          // changed less than 2 s before the last look
+        double looked_at = -1e300;   // now_ of the last look (tick time)
         std::filesystem::file_time_type mtime{};
         std::unordered_map<std::string, std::filesystem::path> by_lower;  // lower-case file name -> the file
     };
     mutable std::mutex custom_dirs_m_;
     mutable std::unordered_map<std::string, CustomDir> custom_dirs_;
+    // 2.16 gui/perf-3: game pictures found in the cache (exported once by Lua, never rewritten): locate answers Game without
+    // looking at the file for a second after it last saw it (calls without ticks always look). Forgotten by reload() and
+    // clear_cache(), and when a look finds the file gone.
+    std::unordered_map<std::string, double> game_present_;  // path -> now_ when the file was last seen
+    bool ticked_ = false;  // tick() ran at least once: the per-tick folder look applies (calls without ticks look every time)
     double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;
     uint64_t gen_ = 0;
