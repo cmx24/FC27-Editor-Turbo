@@ -255,24 +255,15 @@ private:
 };
 
 // ---------------------------------------------------------------- GameScreenHint
-// No picture of our own yet: his small picture from the game files, how to get the game's picture, and where the game shows him in full
+// No picture of our own yet: what "Draw him" does
 class GameScreenHint : public PreviewSource {
 public:
     const char* title() const override { return "On the game's screen"; }
     bool ready(App&, const Subject&, std::string*) override { return true; }
     void draw(App& app, const Subject& s, float w, float h) override {
+        // text only: a game picture here (his miniface) looked at its files every frame (gui perf case: 4 file calls a frame)
         const ImVec2 start = ImGui::GetCursorPos();
-        const float side = std::min(w, h) * 0.4f;
-        if (s.valid()) {
-            std::string pic;
-            if (s.manager) pic = app.legacy.first_present(legacy_path::staff_pictures(s.id, s.head));
-            else pic = legacy_path::player_miniface(s.id);
-            ImGui::SetCursorPos(ImVec2(start.x + (w - side) * 0.5f, start.y + h * 0.15f));
-            if (!pic.empty()) draw_legacy_picture(app, pic, side, true);
-            else ImGui::Dummy(ImVec2(side, side));
-        }
-        ImGui::SetCursorPosX(start.x + S(12.0f));
-        ImGui::Spacing();
+        ImGui::SetCursorPos(ImVec2(start.x + S(12.0f), start.y + h * 0.4f));
         centred_text("Draw him asks the game for his picture: head and shoulders, as the game draws him now.", w - S(24.0f));
         ImGui::SetCursorPos(ImVec2(start.x, start.y + h));
     }
