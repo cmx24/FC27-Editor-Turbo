@@ -7,6 +7,7 @@
 #include <deque>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -43,29 +44,85 @@ static void facet_fields(const Table& t, const Field* out[faces::kFacetCount]) {
     for (int i = 0; i < faces::kFacetCount; ++i) out[i] = t.field(faces::facet_field(static_cast<Facet>(i)));
 }
 
+// 2.17 gui/perf-4: the player heads (every player of the save: ~21,900 rows in a played career) are built from one
+// snapshot, kFaceRowsPerFrame rows per frame, while the chooser (or anything else) keeps the last complete list; built in one
+// go when the chooser opened, they made its first frame take 695 ms in game (W1948). A small save is built in one call.
+constexpr size_t kFaceRowsPerFrame = 3000;
+struct PlayerFacesBuild {
+    bool active = false;
+    uint64_t version = 0, looks = 0;
+    std::unique_ptr<Snapshot> snap;
+    size_t pos = 0;
+    double frame_now = -1e300;  // app.now of the frame that last went on (one step per frame)
+    std::vector<Face> out;
+    game_heads::UsedHeads used;
+};
+static PlayerFacesBuild g_pbuild;
+static uint64_t g_pfaces_stamp = 0;  // +1 at each complete player-head list (the lists built from it key on this)
+
+static bool player_faces_loading(size_t* done, size_t* total) {
+    if (!g_pbuild.active || !g_pbuild.snap) return false;
+    if (done) *done = g_pbuild.pos;
+    if (total) *total = g_pbuild.snap->valid.size();
+    return true;
+}
+
 const std::vector<Face>& player_faces(App& app) {
-    if (g_pfaces_version == app.model.version() && g_pfaces_looks == face3d::generation()) return g_pfaces;
-    g_pfaces_version = app.model.version();
-    g_pfaces_looks = face3d::generation();
-    g_pfaces.clear();
-    g_used_by_players.clear();
+    const uint64_t version = app.model.version(), looks = face3d::generation();
+    if (g_pfaces_version == version && g_pfaces_looks == looks) return g_pfaces;
+    PlayerFacesBuild& b = g_pbuild;
+    auto finish = [&](bool built) {
+        if (built) {
+            std::sort(b.out.begin(), b.out.end(), [](const Face& x, const Face& y) { return x.name < y.name; });
+            g_pfaces.swap(b.out);
+            g_used_by_players.swap(b.used);
+        } else {
+            g_pfaces.clear();
+            g_used_by_players.clear();
+        }
+        g_pfaces_version = version;
+        g_pfaces_looks = looks;
+        ++g_pfaces_stamp;
+        b = PlayerFacesBuild{};
+    };
+    if (b.active && (b.version != version || b.looks != looks)) b = PlayerFacesBuild{};  // the save moved on: start again
     const Table* t = app.db.table("players");
-    if (!t || !t->has("headclasscode") || !t->has("headassetid")) return g_pfaces;
-    Snapshot snap;
-    if (!snap.load(app.db.memory(), *t)) return g_pfaces;
+    if (!t || !t->has("headclasscode") || !t->has("headassetid")) {
+        finish(false);
+        return g_pfaces;
+    }
     const Field* hc = t->field("headclasscode");
     const Field* ha = t->field("headassetid");
     const Field* pid = t->field("playerid");
     const Field* hq = t->field("hashighqualityhead");
-    if (!hc || !ha || !pid) return g_pfaces;
+    if (!hc || !ha || !pid) {
+        finish(false);
+        return g_pfaces;
+    }
+    if (!b.active) {
+        b.active = true;
+        b.version = version;
+        b.looks = looks;
+        b.snap = std::make_unique<Snapshot>();
+        if (!b.snap->load(app.db.memory(), *t)) {
+            finish(false);
+            return g_pfaces;
+        }
+    } else if (b.frame_now == app.now) {
+        return g_pfaces;  // this frame's rows are done: the next frame goes on
+    }
+    b.frame_now = app.now;
     const Field* ff[faces::kFacetCount];
     facet_fields(*t, ff);
-    for (uint32_t idx : snap.valid) {
+    const size_t end = std::min(b.snap->valid.size(), b.pos + kFaceRowsPerFrame);
+    for (; b.pos < end; ++b.pos) {
+        const uint32_t idx = b.snap->valid[b.pos];
+        const Snapshot& snap = *b.snap;
         Face r;
         r.id = snap.get_int(idx, *pid);
         r.headassetid = snap.get_int(idx, *ha);
         if (r.headassetid <= 0) continue;
-        g_used_by_players.insert(r.headassetid);
+        b.used.insert(r.headassetid);
         const int64_t cls = snap.get_int(idx, *hc);
         r.hq = hq ? static_cast<int>(snap.get_int(idx, *hq)) : -1;
         // a real face: head class 0, of any quality (hashighqualityhead is a badge and an optional filter: G1 2026-10-17;
@@ -81,9 +138,10 @@ const std::vector<Face>& player_faces(App& app) {
             r.name = app.model.player_name(r.id);
         }
         r.lname = lower_text(r.name);
-        g_pfaces.push_back(std::move(r));
+        b.out.push_back(std::move(r));
     }
-    std::sort(g_pfaces.begin(), g_pfaces.end(), [](const Face& a, const Face& b) { return a.name < b.name; });
+    if (b.pos < b.snap->valid.size()) return g_pfaces;
+    finish(true);
     return g_pfaces;
 }
 
@@ -141,6 +199,7 @@ static uint64_t g_heads_cat_gen = 1;         // bumped by set_faces_catalog
 static std::vector<Face> g_gfaces, g_pall;    // hidden game heads; player heads + game heads (the chooser's list)
 static uint64_t g_gfaces_version = ~uint64_t(0), g_gfaces_gen = 0, g_gfaces_looks = 0, g_pall_version = ~uint64_t(0), g_pall_gen = 0,
                 g_pall_looks = 0;
+static uint64_t g_gfaces_pstamp = ~uint64_t(0), g_pall_pstamp = ~uint64_t(0);  // 2.17: the player list they were built from
 
 void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog) {
     g_heads_cat = catalog ? game_heads::from_catalog(*catalog) : game_heads::HeadCatalog();
@@ -150,8 +209,11 @@ void set_faces_catalog(std::shared_ptr<const assets::Catalog> catalog) {
 const std::vector<Face>& game_faces(App& app) {
     player_faces(app);
     manager_faces(app);  // both tables fill the used-head sets
-    if (g_gfaces_version == app.model.version() && g_gfaces_gen == g_heads_cat_gen && g_gfaces_looks == face3d::generation()) return g_gfaces;
+    if (g_gfaces_version == app.model.version() && g_gfaces_gen == g_heads_cat_gen && g_gfaces_looks == face3d::generation() &&
+        g_gfaces_pstamp == g_pfaces_stamp)
+        return g_gfaces;
     g_gfaces_version = app.model.version();
+    g_gfaces_pstamp = g_pfaces_stamp;
     g_gfaces_gen = g_heads_cat_gen;
     g_gfaces_looks = face3d::generation();
     g_gfaces.clear();
@@ -180,12 +242,16 @@ const std::vector<Face>& game_faces(App& app) {
 // usual confirmation (G1 2026-10-17)
 static std::vector<Face> g_matchfaces, g_mall;
 static uint64_t g_match_version = ~uint64_t(0), g_match_gen = 0, g_mall_version = ~uint64_t(0), g_mall_gen = 0;
+static uint64_t g_match_pstamp = ~uint64_t(0), g_mall_mstamp = ~uint64_t(0);  // 2.17: the player list / match list they came from
+static uint64_t g_match_stamp = 0;  // +1 at each rebuilt match list
 
 const std::vector<Face>& manager_match_faces(App& app) {
     player_faces(app);
     manager_faces(app);  // both tables fill the used-head sets and the managers' names
-    if (g_match_version == app.model.version() && g_match_gen == g_heads_cat_gen) return g_matchfaces;
+    if (g_match_version == app.model.version() && g_match_gen == g_heads_cat_gen && g_match_pstamp == g_pfaces_stamp) return g_matchfaces;
     g_match_version = app.model.version();
+    g_match_pstamp = g_pfaces_stamp;
+    ++g_match_stamp;
     g_match_gen = g_heads_cat_gen;
     g_matchfaces.clear();
     game_heads::UsedHeads used = g_used_by_players;
@@ -211,8 +277,9 @@ static const std::vector<Face>& manager_and_match_faces(App& app) {
     const std::vector<Face>& m = manager_faces(app);
     const std::vector<Face>& g = manager_match_faces(app);
     if (g.empty()) return m;
-    if (g_mall_version == app.model.version() && g_mall_gen == g_heads_cat_gen) return g_mall;
+    if (g_mall_version == app.model.version() && g_mall_gen == g_heads_cat_gen && g_mall_mstamp == g_match_stamp) return g_mall;
     g_mall_version = app.model.version();
+    g_mall_mstamp = g_match_stamp;
     g_mall_gen = g_heads_cat_gen;
     g_mall = m;
     g_mall.insert(g_mall.end(), g.begin(), g.end());
@@ -224,8 +291,11 @@ static const std::vector<Face>& player_and_game_faces(App& app) {
     const std::vector<Face>& p = player_faces(app);
     const std::vector<Face>& g = game_faces(app);
     if (g.empty()) return p;
-    if (g_pall_version == app.model.version() && g_pall_gen == g_heads_cat_gen && g_pall_looks == face3d::generation()) return g_pall;
+    if (g_pall_version == app.model.version() && g_pall_gen == g_heads_cat_gen && g_pall_looks == face3d::generation() &&
+        g_pall_pstamp == g_pfaces_stamp)
+        return g_pall;
     g_pall_version = app.model.version();
+    g_pall_pstamp = g_pfaces_stamp;
     g_pall_gen = g_heads_cat_gen;
     g_pall_looks = face3d::generation();
     g_pall = p;
@@ -577,6 +647,14 @@ struct Chooser {
     AssetScope scope = AssetScope::All;  // All / In this save / Hidden (game heads); this session only
     int64_t pending_game_head = 0;       // a game head clicked: the confirmation row asks before writing
     float confirm_h = 0.0f;              // height of that confirmation block last frame (the grid leaves room for it)
+    // 2.17 gui/perf-4: what the grid shows, kept until the list or a search / option / filter / sort changes. Rebuilt every
+    // frame before, it cost the chooser 20-27 ms per frame in game (W1948: ~28,000 heads walked, filtered and sorted by name)
+    struct View {
+        std::string list_key, key;  // the list (identity, size, versions) / the list + every choice that narrows or orders it
+        size_t looked = 0;          // heads with a 3D look in the list
+        std::vector<size_t> pool;   // search, real / HQ / 3D only, scope
+        std::vector<const Face*> rows;  // the pool through the facet filters, sorted
+    } view;
 };
 static Chooser g_player_ch, g_manager_ch;
 
@@ -1062,7 +1140,18 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const Table* src = app.db.table(mheads ? "manager" : "players");
     const float row_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     // 3D looks (core/face3d_looks.h): player heads classified from the game's 3D renders; manager heads have none
-    const size_t looked = mheads ? 0 : faces::count_looks(list);
+    // 2.17 gui/perf-4: the list is the same object until it is rebuilt (model, catalog or 3D looks changed): keyed on those
+    char list_key[160];
+    std::snprintf(list_key, sizeof(list_key), "%p|%zu|%llu|%llu|%llu|%llu|%llu|%d", static_cast<const void*>(&list), list.size(),
+                  static_cast<unsigned long long>(app.model.version()), static_cast<unsigned long long>(g_heads_cat_gen),
+                  static_cast<unsigned long long>(face3d::generation()), static_cast<unsigned long long>(g_pfaces_stamp),
+                  static_cast<unsigned long long>(g_match_stamp), mheads ? 1 : 0);
+    if (ch.view.list_key != list_key) {
+        ch.view.list_key = list_key;
+        ch.view.key.clear();  // the rows point into the old list: rebuilt below
+        ch.view.looked = mheads ? 0 : faces::count_looks(list);
+    }
+    const size_t looked = ch.view.looked;
     const bool looks3d = looked > 0;
     const bool only3d = looks3d && ch.only3d;
     faces::drop_hidden(ch.filter, looks3d);
@@ -1121,12 +1210,18 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     // heads matching the search and "real faces only"; the filters below narrow them
     const std::string q = lower_text(ch.search);
     const bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
-    std::vector<size_t> pool;
+    // 2.17 gui/perf-4: everything that narrows or orders the heads, with the list's own key; the facet filters are part of it
+    std::string view_key = ch.view.list_key + "|" + q + "|" + (ch.real_only ? "r" : "-") + (ch.hq_only ? "h" : "-") + (only3d ? "3" : "-") +
+                           "|" + std::to_string(int(ch.scope)) + "|" + std::to_string(ch.sort) + "|" + (game_heads_on ? "g" : "-");
+    for (int i = 0; i < faces::kFacetCount; ++i) view_key += "|" + std::to_string(ch.filter.sel[i]);
+    const bool view_fresh = ch.view.key == view_key;
+    std::vector<size_t>& pool = ch.view.pool;
     faces::PoolOptions po;
     po.real_only = ch.real_only;
     po.hq_only = ch.hq_only;
     po.only3d = only3d;  // game heads have no 3D look: "Only heads with a 3D look" keeps them
-    for (size_t i = 0; i < list.size(); ++i) {
+    if (!view_fresh) pool.clear();
+    for (size_t i = 0; !view_fresh && i < list.size(); ++i) {
         const Face& f = list[i];
         if (game_heads_on && !assets::scope_shows(ch.scope, f.game_head)) continue;
         if (!faces::in_pool(f, po)) continue;
@@ -1166,11 +1261,24 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                                                : "The head's miniface is written as his own p<playerid>.\n"
                                                  "While it is loading nothing is written; when the game has none, the message says so.");
 
-    std::vector<const Face*> rows;
-    for (size_t i : pool)
-        if (faces::matches(list[i], ch.filter)) rows.push_back(&list[i]);
-    faces::sort_faces(rows, static_cast<faces::Sort>(ch.sort));
+    // the filters may have changed in the facet popups above this frame: the key is taken again before the rows are kept
+    std::string rows_key = ch.view.list_key + "|" + q + "|" + (ch.real_only ? "r" : "-") + (ch.hq_only ? "h" : "-") + (only3d ? "3" : "-") +
+                           "|" + std::to_string(int(ch.scope)) + "|" + std::to_string(ch.sort) + "|" + (game_heads_on ? "g" : "-");
+    for (int i = 0; i < faces::kFacetCount; ++i) rows_key += "|" + std::to_string(ch.filter.sel[i]);
+    std::vector<const Face*>& rows = ch.view.rows;
+    if (!view_fresh || rows_key != view_key) {
+        rows.clear();
+        for (size_t i : pool)
+            if (faces::matches(list[i], ch.filter)) rows.push_back(&list[i]);
+        faces::sort_faces(rows, static_cast<faces::Sort>(ch.sort));
+    }
+    // the pool only depends on what view_key holds before the filters: kept under the key of this frame's end state
+    ch.view.key = rows_key == view_key ? view_key : std::string();
     if (!q.empty() && !numeric && q.size() < 2) ImGui::TextDisabled("Type at least 2 letters");
+    {
+        size_t done = 0, total = 0;  // 2.17 gui/perf-4: the player heads are being read (a few frames), the list follows
+        if (!mheads && player_faces_loading(&done, &total)) ImGui::TextDisabled("Reading the save's heads: %zu of %zu", done, total);
+    }
     ImGui::TextDisabled("%zu of %zu heads (%s)", rows.size(), pool.size(),
                         mheads ? "managers' heads with their minifaces"
                                : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
