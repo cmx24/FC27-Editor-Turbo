@@ -4504,6 +4504,8 @@ static void test_ui() {
             CHECK(app.db.get_int(*mt, mrec, "hairtypecode", 0) == h0 && app.db.get_int(*mt, mrec, "facialhairtypecode", 0) == b0,
                   "manager row: his own codes back");
             app.faces3d_report = nullptr;
+            ui.click("Details", "##medit");  // the next cases expect the Details tab of the manager
+            ui.frames(1);
             app.db.set_int(*mt, mrec, "hairtypecode", h0);
             app.db.set_int(*mt, mrec, "facialhairtypecode", b0);
             app.db.set_int(*mt, mrec, "headclasscode", hc0);
@@ -5993,14 +5995,16 @@ static void test_ui() {
             // tattoos: the first Choose... is the head (FC 27 area order); a real face now has the Hair & beard (3D) card above the
             // tattoos, so the view is scrolled down to them first
             ui.frames(2);
-            if (!ui.find("Choose...")) {
-                if (const ItemRec* p = ui.find("Apply hair & beard", "##app")) {
-                    ImGuiIO& io = ImGui::GetIO();
-                    io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
-                    ui.frame();
-                    io.AddMouseWheelEvent(0.0f, -20.0f);
-                    ui.frames(3);
-                }
+            for (int tries = 0; tries < 12 && !ui.find("Choose..."); ++tries) {
+                // the wheel over an item that is surely on screen (the top of the Appearance view) scrolls the view down
+                const ItemRec* p = ui.find("Choose a real face...", "##app");
+                if (!p) p = ui.find("Tattoos");
+                if (!p) break;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                ui.frame();
+                io.AddMouseWheelEvent(0.0f, -3.0f);
+                ui.frames(2);
             }
             CHECK(ui.click("Choose..."), "Choose head tattoo");
             ui.frames(3);
