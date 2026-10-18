@@ -443,6 +443,7 @@ bool move_button(App& app, const char* label, const char* key, const std::string
 
 enum class Confirm { None, Release, EndLoan, Delete };
 Confirm g_confirm = Confirm::None;
+bool g_cancel_requested = false;
 int g_to_team = 0, g_fee = 0, g_wage = 0, g_months = 60, g_loan_months = 12;
 
 void more_section(App& app, const Table& t, const PlayerRow& p) {
@@ -490,7 +491,11 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
         const std::string why_t = move_rules::why_not_to("transfer", facts, g_to_team, exists, national, to_squad);
         const std::string why_l = move_rules::why_not_to("loan", facts, g_to_team, exists, national, to_squad);
         if (facts.user_team > 0 && (g_to_team == facts.user_team || facts.club == facts.user_team))
-            ImGui::TextWrapped("%s", move_rules::own_club_note(app.bridge.state().game_moves));
+        {
+            ImGui::PushTextWrapPos(S(380.0f));  // a wrapped line in a self-sizing dialog needs a width of its own
+            ImGui::TextUnformatted(move_rules::own_club_note(app.bridge.state().game_moves));
+            ImGui::PopTextWrapPos();
+        }
         theme::warn_text("A move cannot be undone from Turbo.");
         if (move_button(app, "Transfer###pp_dotransfer", "move_transfer", why_t, nullptr)) {
             send_move(app, "transfer", p.playerid, "Transfer",
@@ -517,11 +522,18 @@ void more_section(App& app, const Table& t, const PlayerRow& p) {
         const char* what = g_confirm == Confirm::Release   ? "He becomes a free agent."
                            : g_confirm == Confirm::EndLoan ? "He goes back to the club that lent him."
                                                            : "Turbo releases him first, then removes him and his loan records.";
+        if (g_cancel_requested) {
+            g_cancel_requested = false;
+            g_confirm = Confirm::None;
+            ImGui::CloseCurrentPopup();
+        }
         char title[200];
         std::snprintf(title, sizeof(title), "%s %s?", verb, p.name.c_str());
         g_state.confirm_text = std::string(title) + " " + what + " The Undo button cannot bring this back.";
         ImGui::TextUnformatted(title);
-        ImGui::TextWrapped("%s", what);
+        ImGui::PushTextWrapPos(S(380.0f));
+        ImGui::TextUnformatted(what);
+        ImGui::PopTextWrapPos();
         theme::warn_text("The Undo button cannot bring this back.");
         char go[48];
         std::snprintf(go, sizeof(go), "%s###pp_confirm_go", g_confirm == Confirm::Release ? "Release" : g_confirm == Confirm::EndLoan ? "End loan" : "Delete");
@@ -627,6 +639,8 @@ bool player_page_matches(const PlayerRow& p, const PlayerPageFilter& f, int64_t 
 }
 
 const PlayerPageState& player_page_state() { return g_state; }
+
+void player_page_cancel_dialog() { g_cancel_requested = true; }
 
 void draw_player_page(App& app) {
     if (!app.connected()) {

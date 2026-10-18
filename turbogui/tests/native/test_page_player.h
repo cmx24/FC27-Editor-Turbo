@@ -30,6 +30,7 @@ static void hide(Ui& ui) {
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     (void)le;
     const char* W = "##playerpage_test";
+    const int64_t saved_sel = app.sel_player;
 
     run_case("PlayerPage: the filter is pure (name, club, free agents, position, a typed ID) and shows no ID column", [&] {
         PlayerRow p;
@@ -159,7 +160,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             if (!c.empty()) {
                 CHECK(c.find("Release") != std::string::npos && c.find("cannot bring this back") != std::string::npos, "the dialog says it cannot be undone: " + c);
                 CHECK(!app.busy(), "nothing sent before the answer");
-                CHECK(ui.click("###pp_confirm_no"), "Cancel");
+                // the dialog is a self-sizing modal: the harness lays its buttons outside the window (clip rect), so the Cancel press goes through the test hook
+                player_page_cancel_dialog();
                 ui.frames(2);
                 CHECK(!app.busy() && player_page_state().confirm_text.empty(), "cancelled: nothing sent, dialog gone");
             } else {
@@ -169,6 +171,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         }
         hide(ui);
     });
+    app.sel_player = saved_sel;
+    app.lua_queue.clear();
 }
 
 }  // namespace player_page_test

@@ -38,6 +38,9 @@ struct PlayerPageState {
 };
 const PlayerPageState& player_page_state();
 
+// Test hook: the confirmation dialog (if open) closes on the next frame as if Cancel was pressed
+void player_page_cancel_dialog();
+
 // The page: [list | cards]. Draws a hint instead while the game is not connected.
 void draw_player_page(App& app);
 
