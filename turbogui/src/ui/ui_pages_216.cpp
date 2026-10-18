@@ -4,6 +4,7 @@
 // brings them back. Nothing is deleted.
 #include "app.h"
 #include "ui_career_pages.h"
+#include "ui_changes.h"
 #include "ui_diagnostics_page.h"
 #include "ui_kits_page.h"
 #include "ui_shell.h"
@@ -28,6 +29,9 @@ TURBO_REGISTER_NEW_PAGE(shell::Page::Staff, draw_career_staff);
 TURBO_REGISTER_NEW_PAGE(shell::Page::Kits, draw_kits_page);
 TURBO_REGISTER_NEW_PAGE(shell::Page::Identity, draw_club_identity_page);
 TURBO_REGISTER_PAGE(shell::Page::AdvKitDiagnostics, draw_kit_diagnostics);
+
+// Career > Changes & undo (App::tick calls changes::poll, the top bar has the Undo button and the count)
+TURBO_REGISTER_NEW_PAGE(shell::Page::ChangesUndo, changes::draw_changes_page);
 
 // Advanced: Diagnostics & logs, Data export
 TURBO_REGISTER_NEW_PAGE(shell::Page::AdvDiagnostics, draw_diagnostics_page);

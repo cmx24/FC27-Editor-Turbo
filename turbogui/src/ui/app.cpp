@@ -32,6 +32,7 @@
 #include "ui_tactic_presets.h"
 #include "ui_club_page.h"
 #include "ui_career_page.h"
+#include "ui_changes.h"
 #include "ui_tuning.h"
 #include "ui_game_settings.h"
 
@@ -939,6 +940,7 @@ void App::tick(double t) {
 
     edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
     live_tactic_tick(*this);  // Tactics channel E: job results, the read-back 5 s after a write, the kick-off check (ui_live_tactic.cpp)
+    if (!legacy_pages) changes::poll(*this);  // 2.16 wiring: the Changes list follows the features' undo state (in memory, cheap)
     tactic_presets_tick(*this);  // Tactic presets: a load / undo finishes when its channel E job came back (ui_tactic_presets.cpp)
     tuning_tick(*this);  // Gameplay tuning: job results, the undo file, the re-apply of kept values at a career load (ui_tuning.cpp)
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
@@ -1783,11 +1785,18 @@ void App::draw() {
     }
     {
         // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)
-        const size_t changes = changes_undo_count(*this);
+        const bool new_changes = !legacy_pages;  // 2.16 wiring: the Changes list of ui_changes.cpp, else the kept-edit count of the old page
+        const size_t changes = new_changes ? changes::count() : changes_undo_count(*this);
         const std::string label = (changes ? "Changes (" + std::to_string(changes) + ")" : std::string("Changes")) + "###changes";
-        const float bw = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        const ImGuiStyle& cst = ImGui::GetStyle();
+        const float bw = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + cst.FramePadding.x * 2.0f;
+        const float uw = new_changes ? ImGui::CalcTextSize(changes::undo_label(*this).c_str()).x + cst.FramePadding.x * 2.0f + cst.ItemSpacing.x : 0.0f;
         ImGui::SameLine();
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - S(16.0f)));
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - uw - S(16.0f)));
+        if (new_changes) {
+            changes::draw_status_undo(*this);  // "Undo: <what>" / "Nothing to undo"
+            ImGui::SameLine();
+        }
         if (ImGui::Button(label.c_str())) go(shell::area_of(shell::Page::ChangesUndo), shell::Page::ChangesUndo);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Turbo puts back every time you load your career, and how to stop it");
     }
