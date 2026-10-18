@@ -3647,6 +3647,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
@@ -9608,6 +9609,7 @@ static void test_ui() {
         ui_cases_tactics_tab(app, ui, le);  // test_tactics_tab.h
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
+        player_page_test::ui_cases(app, ui, le);  // test_page_player.h: the Player page (2.16 step 5)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
