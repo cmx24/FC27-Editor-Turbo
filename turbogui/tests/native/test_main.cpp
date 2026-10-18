@@ -6024,6 +6024,18 @@ static void test_ui() {
             CHECK(ui.find("tattoo11") != nullptr, "now every tattoo");
             CHECK(ui.click("tattoo12"), "pick 12");
             CHECK(app.db.get_int(*t, rec, "tattoohead") == 12, "tattoohead = 12");
+            // back to the top of the Appearance view: the chooser steps below (and the next cases) click "Choose a real face..."
+            for (int tries = 0; tries < 24 && !ui.find("Choose a real face..."); ++tries) {
+                const ItemRec* p = ui.find("Choose...");
+                if (!p) p = ui.find("Apply hair & beard", "##app");
+                if (!p) p = ui.find("His own hair & beard", "##app");
+                if (!p) break;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(p->rect.GetCenter().x, p->rect.GetCenter().y);
+                ui.frame();
+                io.AddMouseWheelEvent(0.0f, 3.0f);
+                ui.frames(2);
+            }
 
             // never a mixed result: a head whose miniface the game lacks is given and the message says his old miniface
             // stays; a head whose miniface has not arrived yet writes nothing (click again once it is there)

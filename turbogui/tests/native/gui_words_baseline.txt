@@ -40,12 +40,9 @@ ui_edit_unlock.cpp	lua	1
 ui_edit_unlock.cpp	path	4
 ui_edit_unlock.cpp	turbo_output	2
 ui_faces.cpp	hook	1
-ui_faces3d_gate.cpp	hook	5
-ui_faces3d_gate.cpp	json	4
-ui_faces3d_gate.cpp	lua	7
-ui_faces3d_gate.cpp	path	5
-ui_faces3d_gate.cpp	turbo_output	2
-ui_faces3d_gate.cpp	txt	5
+ui_faces3d_gate.cpp	json	1
+ui_faces3d_gate.cpp	lua	1
+ui_faces3d_gate.cpp	path	1
 ui_game_settings.cpp	exe	5
 ui_game_settings.cpp	md5	1
 ui_game_settings.cpp	path	5
@@ -95,7 +92,7 @@ ui_role_rules.cpp	path	5
 ui_role_rules.cpp	turbo_output	5
 ui_role_rules.cpp	txt	2
 ui_sections.h	json	1
-ui_settings.cpp	json	1
+ui_settings.cpp	json	2
 ui_standings.cpp	json	2
 ui_standings.cpp	lua	1
 ui_standings.cpp	path	1

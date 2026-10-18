@@ -165,6 +165,63 @@ ui_callnames.cpp	OpenPopup	##vsforgetall	1
 ui_callnames.cpp	Selectable	Automatic (live capture, else dr)	1
 ui_callnames.cpp	Selectable	Every team	1
 ui_callnames.cpp	Selectable	detect automatically	1
+ui_career_page.cpp	-	##	2
+ui_career_page.cpp	-	###careerask	1
+ui_career_page.cpp	-	##career_bans	1
+ui_career_page.cpp	-	##career_budget	1
+ui_career_page.cpp	-	##career_contracts	1
+ui_career_page.cpp	-	##career_contracts_all	1
+ui_career_page.cpp	-	##career_form	1
+ui_career_page.cpp	-	##career_growth	1
+ui_career_page.cpp	-	##career_joboffer	1
+ui_career_page.cpp	-	##career_jobs	1
+ui_career_page.cpp	-	##career_money	1
+ui_career_page.cpp	-	##career_movemanager	1
+ui_career_page.cpp	-	##career_moves	1
+ui_career_page.cpp	-	##career_roles	1
+ui_career_page.cpp	-	##career_sacking	1
+ui_career_page.cpp	-	##career_scouts	1
+ui_career_page.cpp	-	##career_scouts_only	1
+ui_career_page.cpp	-	##career_squad	1
+ui_career_page.cpp	-	##career_staff_details	1
+ui_career_page.cpp	-	##career_staff_face	1
+ui_career_page.cpp	-	##career_tools	1
+ui_career_page.cpp	-	##careeramount	1
+ui_career_page.cpp	-	##careerjobclub	1
+ui_career_page.cpp	-	##careerm	1
+ui_career_page.cpp	-	##careermgrid	1
+ui_career_page.cpp	-	##careermoveclub	1
+ui_career_page.cpp	-	)##mgr	1
+ui_career_page.cpp	BeginChild	##career_moves_list	1
+ui_career_page.cpp	BeginChild	##career_staffedit	1
+ui_career_page.cpp	BeginChild	##career_stafflist	1
+ui_career_page.cpp	BeginChild	##careerstaffrows	1
+ui_career_page.cpp	BeginCombo	##careertool	1
+ui_career_page.cpp	Button	Cancel	1
+ui_career_page.cpp	Checkbox	Grow my squad every week##careergrow	1
+ui_career_page.cpp	Checkbox	Include loaned-in players##careerloaned	1
+ui_career_page.cpp	Checkbox	Keep it on every time I play##careerkeepon	1
+ui_career_page.cpp	Checkbox	Keep this every day##careerformkeep	1
+ui_career_page.cpp	Checkbox	My club can still buy##careerbankeep	1
+ui_career_page.cpp	Checkbox	Nobody gets worse##careernodecline	1
+ui_career_page.cpp	Checkbox	Repeat after each season reset##careerrolekeep	1
+ui_career_page.cpp	Combo	##careerlevel	1
+ui_career_page.cpp	Combo	##careerrole	1
+ui_career_page.cpp	InputInt	##careerbanday	1
+ui_career_page.cpp	InputInt	##careerbanmonth	1
+ui_career_page.cpp	InputInt	##careerbanyear	1
+ui_career_page.cpp	InputInt	##careerbonus	1
+ui_career_page.cpp	InputInt	##careeryears	1
+ui_career_page.cpp	InputInt	##careeryearsall	1
+ui_career_page.cpp	InputTextWithHint	##careerstaffq	1
+ui_career_page.cpp	SliderInt	##careerfitness	1
+ui_career_page.cpp	SliderInt	##careerform	1
+ui_career_page.cpp	SliderInt	##careermorale	1
+ui_career_page.cpp	SliderInt	##careerweekly	1
+ui_career_page.cpp	TreeNode	Choose a real face##careerface	1
+ui_career_page.cpp	TreeNode	More##careersackmore	1
+ui_career_page.cpp	TreeNode	Roles by age and position##careerrolerules	1
+ui_career_page.cpp	TreeNode	Small picture in menus##careerminiface	1
 ui_club_page.cpp	-	##clubpick	1
 ui_club_page.cpp	-	##idcols	1
 ui_club_page.cpp	-	##tcrest	1
@@ -257,6 +314,20 @@ ui_database.cpp	InputTextWithHint	##fv	1
 ui_database.cpp	OpenPopup	##dbedit	1
 ui_database.cpp	RadioButton	Club##rawkind	1
 ui_database.cpp	RadioButton	Player##rawkind	1
+ui_diagnostics_page.cpp	-	###diagdetails	1
+ui_diagnostics_page.cpp	-	###diaghooks	1
+ui_diagnostics_page.cpp	-	###diaglink	1
+ui_diagnostics_page.cpp	-	###diaglogcard	1
+ui_diagnostics_page.cpp	-	###diagswitches	1
+ui_diagnostics_page.cpp	-	##diag_details	1
+ui_diagnostics_page.cpp	-	##diag_hooks	1
+ui_diagnostics_page.cpp	BeginChild	##diag_log	1
+ui_diagnostics_page.cpp	SmallButton	Copy log##diaglog	1
+ui_diagnostics_page.cpp	SmallButton	Copy rebuild command##diagasset	1
+ui_diagnostics_page.cpp	SmallButton	Open catalog folder##diagasset	1
+ui_diagnostics_page.cpp	SmallButton	Open the export folder##dataexport	1
+ui_diagnostics_page.cpp	SmallButton	Open the folder##diagswitch	1
+ui_diagnostics_page.cpp	SmallButton	Reload catalog##diagasset	1
 ui_edit_unlock.cpp	Button	Re-read the game's files	1
 ui_edit_unlock.cpp	Button	Restore the game's originals	1
 ui_edit_unlock.cpp	Button	Write the unlocked files now	1
@@ -305,28 +376,18 @@ ui_faces.h	-	Choose a real face##mgr	1
 ui_faces3d_gate.cpp	BeginChild	##f3grid	1
 ui_faces3d_gate.cpp	BeginCombo	##f3len	1
 ui_faces3d_gate.cpp	BeginPopupModal	##f3pick	1
-ui_faces3d_gate.cpp	Button	Apply##f3	1
+ui_faces3d_gate.cpp	Button	Apply hair & beard	2
 ui_faces3d_gate.cpp	Button	Choose...##pick	1
 ui_faces3d_gate.cpp	Button	Close##f3pickclose	1
-ui_faces3d_gate.cpp	Button	Enable capture##f3	1
-ui_faces3d_gate.cpp	Button	Keep##f3pv	1
+ui_faces3d_gate.cpp	Button	His own hair & beard	2
 ui_faces3d_gate.cpp	Button	None##pickclear	1
-ui_faces3d_gate.cpp	Button	Preview##f3pv	1
-ui_faces3d_gate.cpp	Button	Remove##f3	1
-ui_faces3d_gate.cpp	Button	Revert##f3pv	1
-ui_faces3d_gate.cpp	Checkbox	Follow his database codes (live preview)##f3follow	1
-ui_faces3d_gate.cpp	Checkbox	Give him a generic 3D hair and/or beard	1
-ui_faces3d_gate.cpp	Checkbox	beard colour from the database##f3bc	1
-ui_faces3d_gate.cpp	Checkbox	hair colours from the database##f3hc	1
-ui_faces3d_gate.cpp	Checkbox	keep following his codes##f3pv	1
 ui_faces3d_gate.cpp	InputTextWithHint	##f3search	1
 ui_faces3d_gate.cpp	OpenPopup	##f3pick	1
 ui_faces3d_gate.cpp	PushID	faces3d_gate	1
+ui_faces3d_gate.cpp	PushID	faces3d_mgr	1
 ui_faces3d_gate.cpp	Selectable	Any length	1
 ui_faces3d_gate.cpp	SmallButton	Cancel##f3pv	1
-ui_faces3d_gate.cpp	SmallButton	Revert it	1
-ui_faces3d_gate.cpp	SmallButton	x	1
-ui_faces3d_gate.cpp	TreeNode	##f3list	1
+ui_faces3d_gate.cpp	SmallButton	Put it back	1
 ui_game_settings.cpp	-	##gsexppick	1
 ui_game_settings.cpp	-	##gsimppick	1
 ui_game_settings.cpp	-	##gsp	1
@@ -492,6 +553,38 @@ ui_kits.cpp	RadioButton	Show it on the pitch##kswap	1
 ui_kits.cpp	TreeNode	##kitsettings	1
 ui_kits.cpp	TreeNode	Kit folders the match loaded##kswap	1
 ui_kits.cpp	TreeNode	Textures##kswap	1
+ui_kits_page.cpp	-	 kits##kpall	1
+ui_kits_page.cpp	-	##kpclub	1
+ui_kits_page.cpp	-	##kpcolours	1
+ui_kits_page.cpp	-	##kpcrest	1
+ui_kits_page.cpp	-	##kpfolderpick	1
+ui_kits_page.cpp	-	##kpidcols	1
+ui_kits_page.cpp	-	##kpmatch	1
+ui_kits_page.cpp	-	##kpname	1
+ui_kits_page.cpp	-	##kpprev	1
+ui_kits_page.cpp	-	##kpslot	1
+ui_kits_page.cpp	-	##kpzip	1
+ui_kits_page.cpp	-	Restore the game's kit##kprestore	1
+ui_kits_page.cpp	BeginChild	##identity	1
+ui_kits_page.cpp	BeginCombo	##kpfileslot	1
+ui_kits_page.cpp	BeginPopup	##kpclubpop	1
+ui_kits_page.cpp	Button	Choose a team folder...##kpfolder	1
+ui_kits_page.cpp	Button	Choose kit file...##kpfile	1
+ui_kits_page.cpp	Checkbox	Also change my club's other kits that use the same pictures##kpshareclub	1
+ui_kits_page.cpp	Checkbox	Ignore the crest in the kit file##kpcrest	1
+ui_kits_page.cpp	Checkbox	Keep the kit maker's badge and sponsors##kpdecals	1
+ui_kits_page.cpp	Checkbox	Names and numbers use the kit maker's position##kphot	1
+ui_kits_page.cpp	Checkbox	Show this kit on the pitch (3D)##kp3d	1
+ui_kits_page.cpp	CollapsingHeader	More##kpmore	1
+ui_kits_page.cpp	CollapsingHeader	Numbers & colours##kpcolours	1
+ui_kits_page.cpp	OpenPopup	##kpclubpop	1
+ui_kits_page.cpp	OpenPopup	##kpfolderpick	1
+ui_kits_page.cpp	OpenPopup	##kpzip	1
+ui_kits_page.cpp	RadioButton	Change their kits too##kpshare	1
+ui_kits_page.cpp	RadioButton	Leave them alone##kpshare	1
+ui_kits_page.cpp	RadioButton	Only in my matches, when no club sharing the kit plays##kpplanned	1
+ui_kits_page.cpp	SmallButton	Change club...##kpchange	1
+ui_kits_page.cpp	SmallButton	My club##kpmine	1
 ui_live_tactic.cpp	-	##ltap	1
 ui_live_tactic.cpp	-	##ltbu	1
 ui_live_tactic.cpp	-	##ltfoc	1
@@ -773,6 +866,7 @@ ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
 ui_settings.cpp	BeginChild	##settings_log	1
 ui_settings.cpp	Button	###reload	1
 ui_settings.cpp	Checkbox	###advview	1
+ui_settings.cpp	Checkbox	###legacypages	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##select	1
 ui_standings.cpp	-	##%s	1
@@ -909,6 +1003,15 @@ ui_tactics.cpp	checkbox_right	Opposition variety on##tacoppon	1
 ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
 ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
 ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
+ui_tactics_page.cpp	-	###gsel	1
+ui_tactics_page.cpp	-	###gsprepare	1
+ui_tactics_page.cpp	BeginChild	##tsbenchlist	1
+ui_tactics_page.cpp	BeginChild	##tspage	1
+ui_tactics_page.cpp	Button	###gsdiscard	1
+ui_tactics_page.cpp	CollapsingHeader	###gsadv	1
+ui_tactics_page.cpp	SmallButton	###gsrefresh	1
+ui_tactics_page.cpp	SmallButton	###tsreadsp	1
+ui_tactics_page.cpp	checkbox_right	###tsbench	1
 ui_team_filter.cpp	-	##teamcountry	1
 ui_team_filter.cpp	-	##teamleague	1
 ui_team_filter.cpp	-	%s (%lld)##team%lld	1
