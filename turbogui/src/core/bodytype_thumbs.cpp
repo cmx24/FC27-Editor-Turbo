@@ -515,38 +515,29 @@ bool append_log(const fs::path& t, const std::string& stamp, const std::string& 
 
 // ---------------------------------------------------------------- source
 std::string SourceChoice::text() const {
-    switch (kind) {
-    case SourceKind::Camera: {
-        std::string t = "camera " + std::to_string(camera);
-        if (mode >= 0) t += " mode " + std::to_string(mode);
-        if (extra >= 0) t += " extra " + std::to_string(extra);
-        return t;
-    }
-    case SourceKind::Lua:
-        return "lua";
-    case SourceKind::None:
-        break;
-    }
-    return "none";
+    if (kind == SourceKind::None) return "none";
+    std::string t = "camera " + std::to_string(camera);
+    if (mode >= 0) t += " mode " + std::to_string(mode);
+    if (extra >= 0) t += " extra " + std::to_string(extra);
+    return t;
 }
 
 namespace {
 bool source_from_json(const json& j, SourceChoice& out, std::string* err) {
     out = SourceChoice{};
-    const std::string k = j.value("source", std::string("none"));
+    const std::string k = j.value("source", std::string("camera"));
     if (k == "camera") out.kind = SourceKind::Camera;
-    else if (k == "lua") out.kind = SourceKind::Lua;
-    else if (k == "none" || k.empty()) out.kind = SourceKind::None;
+    else if (k == "none") out.kind = SourceKind::None;
     else {
-        if (err) *err = "unknown picture source '" + k + "' (camera, lua or none)";
+        if (err) *err = "unknown picture source '" + k + "' (camera or none)";
         return false;
     }
     if (out.kind == SourceKind::Camera) {
-        out.camera = j.value("camera", -1);
+        out.camera = j.value("camera", kCameraBodyFull);
         out.mode = j.value("mode", -1);
         out.extra = j.value("extra", -1);
-        if (out.camera < 0 && out.mode < 0) {
-            if (err) *err = "a camera source needs a camera index or a mode";
+        if (out.camera < kCameraBodyFull || (out.camera == -1 && out.mode < 0)) {
+            if (err) *err = "a camera source needs a camera index, -2 (the full-body camera) or a mode";
             return false;
         }
         if (out.camera >= static_cast<int>(capture::cameras().size())) {
@@ -581,95 +572,44 @@ bool read_source_file(const fs::path& t, SourceChoice& out, std::string* err) {
     return parse_source(text, out, err);
 }
 
-SourceAdapter::SourceAdapter(SourceChoice choice, capture::CaptureService* game, LuaHooks lua)
-    : choice_(choice), game_(game), lua_(std::move(lua)) {}
+SourceAdapter::SourceAdapter(SourceChoice choice, capture::CaptureService* game) : choice_(choice), game_(game) {}
 
 bool SourceAdapter::usable(std::string* why) const {
-    switch (choice_.kind) {
-    case SourceKind::None:
-        if (why) *why = "no full-body picture source is proven yet (the game's capture draws the head and shoulders only): nothing to make";
+    if (choice_.kind == SourceKind::None) {
+        if (why) *why = "no full-body picture source chosen (the head-and-shoulders picture shows no body type): nothing to make";
         return false;
-    case SourceKind::Camera:
-        if (!game_) {
-            if (why) *why = "the game's pictures are not available here";
-            return false;
-        }
-        return true;
-    case SourceKind::Lua:
-        if (!lua_.request || !lua_.latest) {
-            if (why) *why = "the Live Editor capture is not built into this Turbo";
-            return false;
-        }
-        return true;
     }
-    return false;
+    if (!game_) {
+        if (why) *why = "the game's pictures are not available here";
+        return false;
+    }
+    return true;
 }
 
 capture::Status SourceAdapter::status() {
-    capture::Status st;
     std::string why;
     if (!usable(&why)) {
+        capture::Status st;
         st.reason = why;
         return st;
     }
-    if (choice_.kind == SourceKind::Camera) return game_->status();
-    st.installed = true;
-    st.dispatch = "lua";
-    st.busy = pending_ != 0;
-    st.busy_label = pending_label_;
-    std::string r;
-    st.available = !st.busy && (!lua_.ready || lua_.ready(&r));
-    if (!st.available) st.reason = st.busy ? "drawing " + pending_label_ : (r.empty() ? std::string("the Live Editor capture is not ready") : r);
-    return st;
+    return game_->status();
 }
 
 bool SourceAdapter::request(const capture::Request& r, std::string* err) {
     if (!usable(err)) return false;
-    if (choice_.kind == SourceKind::Camera) {
-        capture::Request q = r;
-        if (choice_.camera >= 0) q.camera = choice_.camera;
-        if (choice_.mode >= 0) q.mode_override = choice_.mode;
-        if (choice_.extra >= 0) q.extra_override = choice_.extra;
-        q.use_template = false;  // never the learned hub-avatar descriptor
-        return game_->request(q, err);
-    }
-    if (pending_ != 0) {
-        if (err) *err = "another picture is being drawn (" + pending_label_ + ")";
-        return false;
-    }
-    if (!lua_.request(r.id, r.second_id, err)) return false;
-    pending_ = r.id;
-    pending_label_ = r.label;
-    return true;
+    capture::Request q = r;
+    if (choice_.camera != -1) q.camera = choice_.camera;  // kCameraBodyFull, or an index
+    if (choice_.mode >= 0) q.mode_override = choice_.mode;
+    if (choice_.extra >= 0) q.extra_override = choice_.extra;
+    q.use_template = false;  // never the learned hub-avatar descriptor
+    return game_->request(q, err);
 }
 
-bool SourceAdapter::poll(capture::Result& out) {
-    if (choice_.kind == SourceKind::Camera) return game_ && game_->poll(out);
-    if (choice_.kind != SourceKind::Lua || pending_ == 0 || !lua_.latest) return false;
-    Rgba img;
-    std::string format, err;
-    bool failed = false;
-    if (!lua_.latest(pending_, &img, &format, &failed, &err)) return false;
-    out = capture::Result{};
-    out.id = pending_;
-    out.label = pending_label_;
-    out.ok = !failed && !img.empty();
-    if (out.ok) {
-        out.image = std::move(img);
-        out.format = format.empty() ? "Live Editor " + std::to_string(out.image.w) + "x" + std::to_string(out.image.h) : format;
-        out.bytes = out.image.px.size();
-    } else {
-        out.error = err.empty() ? std::string("the Live Editor capture gave no picture") : err;
-    }
-    pending_ = 0;
-    pending_label_.clear();
-    return true;
-}
+bool SourceAdapter::poll(capture::Result& out) { return choice_.kind == SourceKind::Camera && game_ && game_->poll(out); }
 
 void SourceAdapter::cancel() {
-    if (choice_.kind == SourceKind::Camera && game_) game_->cancel();
-    pending_ = 0;
-    pending_label_.clear();
+    if (game_) game_->cancel();
 }
 
 // ---------------------------------------------------------------- request
@@ -797,13 +737,13 @@ bool Generator::start(const bodytype::Catalog& cat, const Reference& ref, const 
     if (ref.head_class != 0) return refuse("the reference player must have a real face (a scanned head): pick another player");
     const std::string career = env_.career();
     if (career.empty()) return refuse("the loaded career is not identified yet: open the career hub first");
-    // the picture source: the request's, else what the probe proved (source.json), else none (head only: nothing to make)
+    // the picture source: the request's, else source.json, else the full-body camera (kCameraBodyFull, proven 22:31)
     SourceChoice choice = rq.source;
     if (!rq.source_given) {
         std::string se;
-        if (!read_source_file(env_.turbo_output, choice, &se)) choice = SourceChoice{};
+        if (!read_source_file(env_.turbo_output, choice, &se)) choice = SourceChoice{};  // the full-body camera
     }
-    auto adapter = std::make_unique<SourceAdapter>(choice, env_.svc, env_.lua);
+    auto adapter = std::make_unique<SourceAdapter>(choice, env_.svc);
     std::string why;
     if (!adapter->usable(&why)) return refuse(why);
     const capture::Status st = adapter->status();
