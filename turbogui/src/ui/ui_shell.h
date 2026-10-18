@@ -39,7 +39,7 @@ enum class Page : int {
     // Settings
     Settings,
     // Advanced (gated)
-    AdvDatabase, AdvRawRows, AdvBulkEdit, AdvMaintenance, AdvTactics, AdvMatchSetup, AdvGameplayTuning, AdvExport,
+    AdvDatabase, AdvRawRows, AdvBulkEdit, AdvMaintenance, AdvTactics, AdvMatchSetup, AdvGameplayTuning, AdvExport, AdvDiagnostics,
     Count
 };
 
