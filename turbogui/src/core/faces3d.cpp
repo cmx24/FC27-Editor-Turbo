@@ -271,8 +271,10 @@ LiveLooks live_looks(const lualoader::Faces3dStatus* st) {
     if (!st->substitute) return no(false, "3D hair and beard are off this session (log-only test mode).");
     if (st->in_memory) {  // 2.16 product mode: built from the game's own file at its start
         // the one honest restart: the hook was not in place when the game compiled player_kit.lua (it does so once, at its start)
-        if (!st->built && st->built_error.empty() && st->captures == 0)
+        if (!st->built && st->built_error.empty() && st->captures == 0 && st->capture_refused == 0)
             return no(true, "Turbo did not see the game load player_kit.lua this session (the game started before Turbo's hook): restart the game once.");
+        if (!st->built && st->built_error.empty() && st->capture_refused > 0)
+            return no(false, "3D hair and beard are off for this game version (the game's player_kit.lua reader is not the one Turbo knows).");
         if (!st->built)
             return no(false, "3D hair and beard are off for this game version: " + st->built_error);
         if (st->substituted <= 0)

@@ -382,10 +382,10 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
         std::map<std::string, int64_t> cur, own;
         for (const char* f : faces3d::kLookFields)
             if (t->has(f)) cur[f] = app.db.get_int(*t, rec, f, 0);
-        if (!target_is_manager) {
-            faces3d::PreviewBackup backup;
+        {
+            faces3d::PreviewBackup backup;  // a manager's own codes sit under faces3d::kManagerBackupKey + managerid
             if (faces3d::load_preview_backup(app.turbo_output().u8string(), backup, nullptr)) {
-                const auto r = backup.find(target_id);
+                const auto r = backup.find(target_is_manager ? faces3d::kManagerBackupKey + target_id : target_id);
                 if (r != backup.end()) own = r->second.original;
             }
         }

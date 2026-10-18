@@ -60,7 +60,7 @@ struct GateUi {
     bool keep_follow = false;
 };
 GateUi g;
-constexpr int64_t kMgrKey = 1000000000000LL;  // preview_backup.json key of a manager: kMgrKey + managerid (player ids stay far below)
+constexpr int64_t kMgrKey = faces3d::kManagerBackupKey;  // preview_backup.json key of a manager: kMgrKey + managerid
 
 // A Turbo code of a look field (a band code or the "his own, live" code): never recorded as his own
 bool turbo_code(const std::string& f, int64_t v) {
@@ -370,13 +370,6 @@ void leftover_banner(App& app, const Table& t, int64_t current) {
     }
 }
 
-std::string build_key(App& app) {
-    std::string b;
-    if (app.faces3d_report) b = app.faces3d_report().running_build;
-    if (b.empty()) b = app.asset_running_key();
-    return b;
-}
-
 struct Look {
     int64_t hair = 0, beard = 0;  // generic ids his codes select now (0 = his own)
 };
@@ -452,6 +445,11 @@ void pickers(App& app, bool manager, int64_t id, const Look& now) {
 bool faces3d_preview_pending() { return g.pending != 0; }
 
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard) { g_pick = Pick{manager, id, hair, beard}; }
+
+void faces3d_reload(App& app) {
+    g.session_records.clear();
+    load(app);
+}
 
 void tick_faces3d_preview(App& app) {
     if (g.pending == 0) return;
@@ -555,21 +553,27 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
         const auto c = cur.find(f);
         return c == cur.end() ? d : c->second;
     };
-    const bool has_look = now.hair > 0 || now.beard > 0 ||
-                          (on_list && (at("hairtypecode", faces3d::kHairOwnCode) != faces3d::kHairOwnCode ||
-                                       at("facialhairtypecode", faces3d::kBeardOwnCode) != faces3d::kBeardOwnCode));
+    const bool own_h = at("hairtypecode", 0) == faces3d::kHairOwnCode, own_b = at("facialhairtypecode", 0) == faces3d::kBeardOwnCode;
+    // on the saved list: until both "his own, live" codes are written; off it: an own code left there puts his originals back
+    const bool has_look = now.hair > 0 || now.beard > 0 || (on_list && (!own_h || !own_b)) || (!on_list && (own_h || own_b));
     if (!has_look) ImGui::BeginDisabled();
     if (ImGui::Button("His own hair & beard")) {
         std::string err;
         bool ok = true;
-        const auto it = g.backup.find(p.playerid);
+        if (on_list) record_for(p.playerid, p.name, read_codes(app, t, p.rec));  // his originals are kept for the way back
+        auto it = g.backup.find(p.playerid);
         const std::map<std::string, int64_t> orig = it == g.backup.end() ? std::map<std::string, int64_t>{} : it->second.original;
         std::map<std::string, int64_t> w;
         if (on_list) {
-            // on the saved list: the "his own, live" codes skip it now; the list loses him for the next game starts
+            // on the saved list: the "his own, live" codes skip it now; the list loses him for the next game starts. His record
+            // stays (written = the own codes), so off the list "His own hair & beard" puts his originals back in one click
             if (cur.count("hairtypecode") && cur.at("hairtypecode") != faces3d::kHairOwnCode) w["hairtypecode"] = faces3d::kHairOwnCode;
             if (cur.count("facialhairtypecode") && cur.at("facialhairtypecode") != faces3d::kBeardOwnCode)
                 w["facialhairtypecode"] = faces3d::kBeardOwnCode;
+            if (it != g.backup.end()) {
+                for (const auto& [f, v] : w) it->second.written[f] = v;
+                if (!faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err)) w.clear(), ok = false;
+            }
         } else {
             w = faces3d::look_writes(0, 0, cur, orig);
         }
@@ -580,8 +584,8 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
             for (const auto& [f, v] : it->second.written) mine = mine && all.count(f) && all.at(f) == v;
             if (mine && all.count("hairstylecode") && all.at("hairstylecode") != orig.at("hairstylecode")) w["hairstylecode"] = orig.at("hairstylecode");
         }
-        ok = raw_write(app, t, p.rec, p.playerid, false, w, err);
-        if (ok && it != g.backup.end()) {
+        ok = ok && raw_write(app, t, p.rec, p.playerid, false, w, err);
+        if (ok && !on_list && it != g.backup.end()) {
             g.backup.erase(it);
             g.session_records.erase(p.playerid);
             ok = faces3d::save_preview_backup(app.turbo_output().u8string(), g.backup, &err);

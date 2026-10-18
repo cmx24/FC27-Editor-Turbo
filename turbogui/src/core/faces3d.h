@@ -92,6 +92,8 @@ constexpr int64_t kBeardBandBase = 335;   // facialhairtypecode 336 .. 335 + 105
 // dropped without a restart. No model id (hair ids end at 8039, beard ids at 335), on no allow-list, in no EA row; inside 10000 / 512.
 // Like a band code it is ignored by the game's own file on a real face.
 constexpr int64_t kHairOwnCode = 9999, kBeardOwnCode = 511;
+// preview_backup.json key of a manager's own codes: kManagerBackupKey + managerid (player ids stay far below)
+constexpr int64_t kManagerBackupKey = 1000000000000LL;
 // A Turbo code of that field (a band code or the "his own, live" code): never recorded as his own, replaced when he gets a new head
 bool is_turbo_hair_code(int64_t hairtypecode);
 bool is_turbo_beard_code(int64_t facialhairtypecode);

@@ -26,6 +26,8 @@ const faces3d::Entry* faces3d_draft_entry(int64_t playerid);
 void tick_faces3d_preview(App& app);
 // The pickers' choice for the person shown (generic ids, 0 = his own); for tests and scripted checks
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard);
+// Re-reads players.json and preview_backup.json (tests; the card reads them once per Turbo start)
+void faces3d_reload(App& app);
 // A picture request is in flight (the chooser's 3D heads send nothing meanwhile)
 bool faces3d_preview_pending();
 

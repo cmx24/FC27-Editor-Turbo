@@ -619,6 +619,10 @@ static void test_live_looks_state() {
         p.opted_in = p.installed = p.substitute = p.in_memory = true;
         check(!live_looks(&p).active && live_looks(&p).restart_needed && live_looks(&p).why.find("restart the game once") != std::string::npos,
               "product: the hook never saw the boot compile: the one honest restart");
+        p.capture_refused = 18;
+        check(!live_looks(&p).active && !live_looks(&p).restart_needed && live_looks(&p).why.find("this game version") != std::string::npos,
+              "product: the reader is not the verified one (another game build): off, no restart advice");
+        p.capture_refused = 0;
         p.captures = 18;
         p.built_error = "the game's player_kit.lua (md5 x) is not the one Turbo knows";
         check(!live_looks(&p).active && !live_looks(&p).restart_needed && live_looks(&p).why.find("not the one Turbo knows") != std::string::npos,
@@ -799,7 +803,7 @@ static void test_real_v4() {
         std::string why2;
         check(!build_live_override(bad2, t, note, why2) && why2.find("stock md5") != std::string::npos, "build_live_override refuses a changed stock: " + why2);
         Table junk;
-        junk[5] = Entry{3999999, 0, true, true, ""};
+        junk[5] = Entry{-5, 0, true, true, ""};  // the generator refuses a negative model id
         std::string why3;
         const auto mem3 = build_live_override(stock, junk, note, why3);
         check(mem3 && md5s(*mem3) == e.md5 && note.find("saved list refused") != std::string::npos && why3.empty(),

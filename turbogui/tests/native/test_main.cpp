@@ -4427,6 +4427,31 @@ static void test_ui() {
                   "hair written, beard untouched, no picture asked");
             CHECK(ui.click("His own hair & beard", "##app") && app.db.get_int(*t, rec, "hairtypecode", 0) == h0, "own look back (not live)");
             CHECK(!fs::exists(out / "faces3d_on.txt") && !fs::exists(out / "lua_override" / "player_kit.lua"), "no file written by the card");
+            // a look on the saved list of an older Turbo: "His own" writes the "his own, live" codes (no restart), takes him off the
+            // list and keeps his originals; off the list the button stays on and one more click puts his originals back
+            app.faces3d_report = [st]() { return st; };
+            fs::create_directories(out / "faces3d");
+            std::ofstream(out / "faces3d" / "players.json", std::ios::binary) << "{\n  \"3001\": {\"hair\": 155, \"beard\": 46}\n}\n";
+            faces3d_reload(app);
+            ui.frames(2);
+            CHECK(ui.click("His own hair & beard", "##app"), "His own (on the saved list)");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == faces3d::kHairOwnCode && app.db.get_int(*t, rec, "facialhairtypecode", 0) == faces3d::kBeardOwnCode,
+                  "the his-own-live codes 9999 / 511 are written");
+            {
+                std::ifstream f(out / "faces3d" / "players.json", std::ios::binary);
+                const std::string pj((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                CHECK(pj.find("3001") == std::string::npos && faces3d_draft_entry(3001) == nullptr, "off the saved list");
+            }
+            CHECK(faces3d::load_preview_backup(out.u8string(), bk, &err) && bk.count(3001) && bk[3001].original.at("hairtypecode") == h0 &&
+                      bk[3001].original.at("facialhairtypecode") == b0,
+                  "his originals are kept");
+            ui.frames(2);
+            CHECK(ui.click("His own hair & beard", "##app"), "His own again (off the list, own codes)");
+            CHECK(app.db.get_int(*t, rec, "hairtypecode", 0) == h0 && app.db.get_int(*t, rec, "facialhairtypecode", 0) == b0 &&
+                      !fs::exists(out / "faces3d" / "preview_backup.json"),
+                  "his originals are back, the record gone");
+            fs::remove(out / "faces3d" / "players.json");
+            faces3d_reload(app);
             // a generic head: no card
             CHECK(app.db.set_int(*t, rec, "headclasscode", 1), "3001 generic");
             faces3d_set_choice(false, 3001, 155, 46);
