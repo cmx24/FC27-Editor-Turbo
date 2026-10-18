@@ -101,7 +101,7 @@ void export_button(App& app) {
         app.send({{"op", "run"}, {"module", "export_transfer_history"}, {"overrides", nlohmann::json::object()}}, "Transfer history");
     if (disabled) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip(cm ? "Writes this season's moves from the game to turbo_output (Career tools > Exports > Transfer history);\n"
+        ImGui::SetTooltip(cm ? "Writes this season's moves from the game to turbo_output (Advanced > Data export > Transfer history);\n"
                                "press Reload when it is done"
                              : "Needs a loaded career save");
 }
@@ -114,7 +114,7 @@ void transfer_columns_controls(App& app) {
     ImGui::Checkbox("Transfers##xfon", &g_x.on);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Adds In / Out / Spent / Received / Net columns: this season's moves (from 1 July) from Turbo's transfer\n"
-                          "history export (Career tools > Exports) plus the database's transfers table. Read only.");
+                          "history export (Advanced > Data export) plus the database's transfers table. Read only.");
     if (!g_x.on) return;
     xfer_refresh(app);
     ImGui::SameLine();

@@ -1,6 +1,6 @@
 // FC 27 LE Turbo GUI - the shell contract of the revamped GUI (GUI_REVAMP_SPEC.md sections 1, 2.1 and 4).
 //
-// Five areas (+ Advanced, gated by GuiPrefs::advanced_mode), each a strip of pages. A page is drawn by a plain function
+// Six areas (+ Advanced, gated by GuiPrefs::advanced_mode), each a strip of pages. A page is drawn by a plain function
 // registered here from its own .cpp, so the tracks never edit app.cpp (only the shell track T1 does). The eight legacy
 // top-level tabs (TopTab in gui_prefs.h, App::request_tab 0..7) keep working through area_for().
 //
@@ -19,23 +19,27 @@ class App;
 
 namespace turbo::shell {
 
-enum class Area : int { Squad = 0, Club, Tactics, Career, Settings, Advanced, Count };
+// 2.16 step 4 (plan 4.2): Players, Faces & looks, Kits & club, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
+// (Squad = Players, Club = Kits & club) so that no caller changes; only the labels in ui_shell.cpp are new.
+enum class Area : int { Squad = 0, Looks, Club, Tactics, Career, Settings, Advanced, Count };
 
 // One id per page, unique across areas. Order inside an area = order of the page strip (see pages_of).
 enum class Page : int {
     None = 0,
-    // Squad & Players
-    PlayerEdit, Squad, Staff,
-    // Club & Kits
+    // Players
+    PlayerEdit, Squad, CreatePlayer, Staff, CommentaryNames,
+    // Faces & looks
+    FacesHair, BodyGear,
+    // Kits & club
     Kits, Identity, StadiumExtras,
-    // Tactics & Gameplay
-    TacticPresets, GameplayPresets, Standings,
-    // Career tools
-    Transfers, JobOffer, Scouting, Budget, Exports, Bans, CMTracker, ChangesUndo, CareerMaintenance,
+    // Tactics
+    TacticPresets, TeamSheet, GameplayPresets,
+    // Career
+    Standings, Transfers, JobOffer, CMTracker, ChangesUndo,
     // Settings
     Settings,
     // Advanced (gated)
-    AdvDatabase, AdvRawRows, AdvBulkEdit, AdvMaintenance, AdvTactics, AdvMatchSetup, AdvGameplayTuning,
+    AdvDatabase, AdvRawRows, AdvBulkEdit, AdvMaintenance, AdvTactics, AdvMatchSetup, AdvGameplayTuning, AdvExport,
     Count
 };
 
@@ -50,13 +54,13 @@ constexpr int kAreaCount = static_cast<int>(Area::Count);
 constexpr int kPageCount = static_cast<int>(Page::Count);
 
 // ---- labels (sentence case, as drawn on the tab and the page strip)
-const char* area_label(Area a);  // "Squad & Players", "Club & Kits", "Tactics & Gameplay", "Career tools", "Settings", "Advanced"
-const char* page_label(Page p);  // "Player edit", "Kits", "Tactic presets", ...
+const char* area_label(Area a);  // "Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings", "Advanced"
+const char* page_label(Page p);  // "Edit a player", "Kits", "Tactic presets", ...
 
 // ---- structure
 Area area_of(Page p);                       // Area::Count for Page::None / Count
 const std::vector<Page>& pages_of(Area a);  // the page strip of the area, in order
-Page default_page(Area a);                  // first of the strip: Player edit, Kits, Tactic presets, Transfers, Settings, Database
+Page default_page(Area a);                  // first of the strip: Edit a player, Faces & hair, Kits, Tactic presets, Standings, Settings, Database
 Place place_of(Page p);                     // {area_of(p), p}
 
 // ---- Simple / Advanced view (A6): Simple hides the whole Advanced area (raw rows, bulk edit, maintenance and the
@@ -70,7 +74,7 @@ bool page_effect_unmeasured(Page p);
 
 // ---- legacy tab shim: TopTab indices 0 players, 1 teams, 2 managers, 3 competitions, 4 database, 5 tools, 6 status,
 // 7 game settings (gui_prefs.h) -> their new home. Out of range -> invalid Place.
-//   0 Squad/PlayerEdit  1 Squad/Squad  2 Squad/Staff  3 Tactics/Standings  4 Advanced/AdvDatabase
+//   0 Players/PlayerEdit  1 Players/Squad  2 Players/Staff  3 Career/Standings  4 Advanced/AdvDatabase
 //   5 Career/Transfers  6 Settings/Settings  7 Tactics/GameplayPresets
 Place area_for(int legacy_tab);
 // The legacy tab a page used to live in (-1 when it had none): inverse of area_for for the pages above, plus the pages

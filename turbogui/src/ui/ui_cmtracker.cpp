@@ -287,7 +287,7 @@ void cmt_body(App& app) {
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("One picture request to cmtracker.fra1.cdn.digitaloceanspaces.com for this player; kept in turbo_output\\cmtracker");
                 checkbox_right("Use the real face when the game has this player's head", &want_real);
-                ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them in Players > Appearance.");
+                ImGui::TextDisabled("Hair style, facial hair, boots and tattoos are not in the CSV: change them on Edit a player > Appearance.");
             }
         }
 }

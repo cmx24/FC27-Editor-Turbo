@@ -34,7 +34,7 @@
 // rows that apply there - not assigned (rows of an older Turbo), global, and this career's - merged per field, this
 // career's over global over not assigned. Rows of another career, or with a scope this Turbo does not know, are left
 // alone (one GUI log line each, counted at the end of the summary line). New edits made in an identified career belong to
-// it; Career tools > Changes & undo moves a club's kit rows, a callname or a player's edits to Global or This career.
+// it; Career > Changes & undo moves a club's kit rows, a callname or a player's edits to Global or This career.
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -556,7 +556,7 @@ std::string App::reapply_stored_edits() {
         if (!mplayers.count(e.playerid)) mplayers[e.playerid] = reapply.player_in_effect(e.playerid);
     }
     if (!mplayers.empty() && !reapply.keep_players) {
-        leave(plural(mplayers.size(), "player's kept edits", "players' kept edits") + ": keeping is off (Career tools > Changes & undo)");
+        leave(plural(mplayers.size(), "player's kept edits", "players' kept edits") + ": keeping is off (Career > Changes & undo)");
     } else if (!mplayers.empty()) {
         const Table* pt = db.table("players");
         if (!pt) {
@@ -694,7 +694,7 @@ void reapply_kit_line(App& app, const Table& kt, uint64_t rec) {
     ImGui::TextDisabled("Kept for %s: %s%s%s", kept_for(app, k->scope).c_str(), what.c_str(), k->when.empty() ? "" : ", last edit ", k->when.c_str());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27 reloads kit colours from its base data whenever a career loads: Turbo writes these again then.\n"
-                          "Forget stops that; the colours shown now stay until the career is loaded again.\nApplies: %s (Career tools > Changes & undo)",
+                          "Forget stops that; the colours shown now stay until the career is loaded again.\nApplies: %s (Career > Changes & undo)",
                           app.reapply.scope_label(k->scope).c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Forget##kitkeep")) {
@@ -711,7 +711,7 @@ void reapply_callname_line(App& app, const PlayerRow& p) {
                         c->from.empty() ? "" : " (from ", c->from.c_str(), c->from.empty() ? "" : ")");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("FC 27 reloads playernamemap from its base data whenever a career loads: Turbo writes this callname again\n"
-                          "then. Forget stops that; the callname stays until the career is loaded again.\nApplies: %s (Career tools > Changes & undo)",
+                          "then. Forget stops that; the callname stays until the career is loaded again.\nApplies: %s (Career > Changes & undo)",
                           app.reapply.scope_label(c->scope).c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Forget##cnkeep")) {
@@ -752,7 +752,7 @@ void reapply_player_line(App& app, const PlayerRow& p) {
         ImGui::AlignTextToFramePadding();
         ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x - S(90.0f));
         if (app.reapply.keep_players) ImGui::TextDisabled("Kept for %s: %s", kept_for(app, e->scope).c_str(), list.c_str());
-        else ImGui::TextColored(kWarnColour, "Kept, but keeping is off (Career tools > Changes & undo): %s", list.c_str());
+        else ImGui::TextColored(kWarnColour, "Kept, but keeping is off (Career > Changes & undo): %s", list.c_str());
         ImGui::PopTextWrapPos();
         if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
             ImGui::TextUnformatted("Written again whenever a career loads (whatever the save is called), but only while the field holds\n"
@@ -785,7 +785,7 @@ void reapply_player_line(App& app, const PlayerRow& p) {
                 app.notify(p.name + ": kept edits forgotten (the values stay until the career is loaded again)");
         }
     } else if (!app.reapply.keep_players) {
-        ImGui::TextDisabled("Player edits are not kept for career loads (Career tools > Changes & undo).");
+        ImGui::TextDisabled("Player edits are not kept for career loads (Career > Changes & undo).");
     }
     // his edits on their way into his development plan (your club's players), and the last answer
     if (app.plan_sync_waiting() || !app.plan_sync_status.empty()) {
@@ -801,7 +801,7 @@ void reapply_player_line(App& app, const PlayerRow& p) {
     }
 }
 
-// Career tools > Changes & undo (GUI revamp 2.13): the one "Undo (n)" number of the shell's status bar is the size of the re-apply log
+// Career > Changes & undo (GUI revamp 2.13): the one "Undo (n)" number of the shell's status bar is the size of the re-apply log
 size_t changes_undo_count(const App& app) { return app.reapply.size(); }
 
 void changes_undo_summary(App& app) {
@@ -815,7 +815,7 @@ void changes_undo_summary(App& app) {
                       app.reapply.players.size());
     ImGui::PushTextWrapPos(0.0f);
     theme::muted_text("Every edit FC 27 forgets at a career load is kept here and written again at the next load. Forget stops that for one edit; "
-                      "the value you see now stays until the career is loaded again. Kit edits are forgotten from Club & Kits, callnames from the "
+                      "the value you see now stays until the career is loaded again. Kit edits are forgotten from Kits & club, callnames from the "
                       "player page; kept player edits are listed below.");
     ImGui::PopTextWrapPos();
 }

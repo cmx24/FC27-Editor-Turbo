@@ -23,7 +23,7 @@ static std::vector<Page> shell_all_pages() {
     return v;
 }
 
-// The page strip of a long area (Career tools has nine pages) takes a second row: the cases that walk the whole old Turbo
+// The page strip of a long area (Career had nine pages) takes a second row: the cases that walk the whole old Turbo
 // Tools panel in one go ask for a taller window while they run
 struct ShellTallWindow {
     ImVec2 old;
@@ -50,11 +50,11 @@ static void shell_other_page(turbo::App&) { g_shell_calls += 100; }
 static void test_shell() {
     run_case("shell: areas and pages (labels, one area per page, strips in order, defaults)", [&] {
         using namespace turbo::shell;
-        CHECK(kAreaCount == 6, "five areas plus Advanced");
-        const char* labels[] = {"Squad & Players", "Club & Kits", "Tactics & Gameplay", "Career tools", "Settings", "Advanced"};
+        CHECK(kAreaCount == 7, "six areas plus Advanced");
+        const char* labels[] = {"Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings", "Advanced"};
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) == labels[a], std::string("area label ") + labels[a]);
         CHECK(std::string(area_label(Area::Count)).empty(), "no label for Count");
-        const Page defaults[] = {Page::PlayerEdit, Page::Kits, Page::TacticPresets, Page::Transfers, Page::Settings, Page::AdvDatabase};
+        const Page defaults[] = {Page::PlayerEdit, Page::FacesHair, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
         std::set<int> seen;
         for (int a = 0; a < kAreaCount; ++a) {
             const auto& strip = pages_of(static_cast<Area>(a));
@@ -92,7 +92,7 @@ static void test_shell() {
             {turbo::TabPlayers, Area::Squad, Page::PlayerEdit},
             {turbo::TabTeams, Area::Squad, Page::Squad},
             {turbo::TabManagers, Area::Squad, Page::Staff},
-            {turbo::TabCompetitions, Area::Tactics, Page::Standings},
+            {turbo::TabCompetitions, Area::Career, Page::Standings},
             {turbo::TabDatabase, Area::Advanced, Page::AdvDatabase},
             {turbo::TabTools, Area::Career, Page::Transfers},
             {turbo::TabStatus, Area::Settings, Page::Settings},
@@ -106,11 +106,13 @@ static void test_shell() {
         }
         CHECK(legacy_tab_of(Page::PlayerEdit) == 0 && legacy_tab_of(Page::Standings) == 3 && legacy_tab_of(Page::AdvDatabase) == 4 &&
                   legacy_tab_of(Page::Settings) == 6 && legacy_tab_of(Page::GameplayPresets) == 7 && legacy_tab_of(Page::Kits) == 1 &&
-                  legacy_tab_of(Page::Scouting) == 5 && legacy_tab_of(Page::Staff) == 2 && legacy_tab_of(Page::None) == -1,
+                  legacy_tab_of(Page::Transfers) == 5 && legacy_tab_of(Page::Staff) == 2 && legacy_tab_of(Page::None) == -1,
               "legacy_tab_of: where each panel lived");
         for (Page p : shell_all_pages()) {
             const int t = legacy_tab_of(p);
-            CHECK(t >= 0 && t < turbo::TabCount, std::string("every page has a legacy tab: ") + page_label(p));
+            // 2.16 step 4: the pages that are new in the re-cut navigation never lived in a legacy tab
+            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::FacesHair || p == Page::BodyGear || p == Page::TeamSheet;
+            CHECK(is_new ? t == -1 : (t >= 0 && t < turbo::TabCount), std::string("every older page has a legacy tab, the new ones none: ") + page_label(p));
         }
         for (int bad : {-1, 8, 99, -100}) CHECK(!area_for(bad).valid(), "out of range -> invalid: " + std::to_string(bad));
         // the legacy hide rule: the tabs Simple hid (Database, Game settings) land in a page that is hidden or flagged accordingly
@@ -226,11 +228,11 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
-        CHECK(ui.find("Squad & Players") && ui.find("Club & Kits") && ui.find("Tactics & Gameplay") && ui.find("Career tools") && ui.find("Settings"),
-              "the five area tabs");
+        CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
+              "the six area tabs");
         CHECK(ui.find("Advanced", "FC 27 LE Turbo") == nullptr, "no Advanced tab in Simple");
         CHECK(app.place() == area_for(0), "request_tab 0 -> Squad / Player edit");
-        CHECK(ui.find("Player edit") && ui.find("Staff"), "the Squad & Players page strip");
+        CHECK(ui.find("Edit a player") && ui.find("Managers & staff"), "the Players page strip");
         for (int t : {1, 2, 3, 5, 6, 7}) {
             app.request_tab = t;
             settle();

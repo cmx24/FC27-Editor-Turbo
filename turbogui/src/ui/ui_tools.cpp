@@ -198,7 +198,7 @@ static void section_squad(App& app) {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("FC 27 recomputes every squad role at the start of a season. With this on, Turbo sets the role chosen above "
-                              "again right after it (Teams > Mass actions has the same switch for its by-age rule).");
+                              "again right after it (Players > My squad > Mass actions has the same switch for its by-age rule).");
 
         ImGui::Separator();
         static int user_years = 4, cpu_years = 5;
@@ -641,26 +641,9 @@ using shell::Page;
 
 // One page = one editor panel (the "##editor" child of page::frame) with its sections; no select panel, no footer
 // button (the pages' own primary buttons sit in the sections, drawn with the accent colour).
-void editor_scouting(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_squad(app);
-    section_scouting(app);
-    section_player_career(app);
-    form_label_width(0.0f);
-}
-void editor_budget(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_budget(app);
-    form_label_width(0.0f);
-}
 void editor_exports(App& app, void*) {
     form_label_width(S(170.0f));
     section_exports(app);
-    form_label_width(0.0f);
-}
-void editor_bans(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_bans(app);
     form_label_width(0.0f);
 }
 void editor_bulk(App& app, void*) {
@@ -670,6 +653,8 @@ void editor_bulk(App& app, void*) {
 }
 void editor_maintenance(App& app, void*) {
     form_label_width(S(170.0f));
+    // 2.16 step 4: Career tools > Maintenance (the league-table copy the game does not read) is a section of Advanced > Maintenance
+    if (section_header("Career database copy")) draw_career_database_copy(app);
     section_db_maintenance(app);
     form_label_width(0.0f);
 }
@@ -685,12 +670,6 @@ void editor_changes(App& app, void*) {
     kept_player_edits_section(app);
     form_label_width(0.0f);
 }
-void editor_career_maintenance(App& app, void*) {
-    form_label_width(S(170.0f));
-    if (section_header("Career database copy")) draw_career_database_copy(app);
-    draw_game_editors(app);  // "Game editors": FC 27's own edit screens unlocked (ui_edit_unlock.cpp)
-    form_label_width(0.0f);
-}
 
 void show(App& app, shell::page::DrawFn editor) {
     if (g_unframed) editor(app, nullptr);
@@ -702,10 +681,7 @@ void lua_tool_page(App& app, shell::page::DrawFn editor) {
     show(app, editor);
 }
 
-void page_scouting(App& app) { lua_tool_page(app, editor_scouting); }
-void page_budget(App& app) { lua_tool_page(app, editor_budget); }
 void page_exports(App& app) { lua_tool_page(app, editor_exports); }
-void page_bans(App& app) { lua_tool_page(app, editor_bans); }
 void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
 void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
 // Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
@@ -716,7 +692,7 @@ void squad_pointer(App& app, const char* where) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(where);
     ImGui::PopTextWrapPos();
-    if (ImGui::Button("Open Squad & Players > Squad##squadgo")) app.go(Page::Squad);
+    if (ImGui::Button("Open Players > My squad###squadgo")) app.go(Page::Squad);
 }
 void editor_transfers(App& app, void*) {
     if (draw_transfers) {
@@ -730,13 +706,12 @@ void editor_transfers(App& app, void*) {
 }
 void editor_job_offer(App& app, void*) {
     if (draw_job_offer) draw_job_offer(app);
-    else squad_pointer(app, "Job offers: Squad & Players > Squad, pick the club, then its Job offer tab.");
+    else squad_pointer(app, "Job offers: Players > My squad, pick the club, then its Job offer tab.");
 }
 void page_transfers(App& app) { show(app, editor_transfers); }
 void page_job_offer(App& app) { show(app, editor_job_offer); }
 // Changes & undo and Career maintenance need no command channel: they read and write Turbo's own files
 void page_changes(App& app) { show(app, editor_changes); }
-void page_career_maintenance(App& app) { show(app, editor_career_maintenance); }
 
 }  // namespace
 
@@ -746,12 +721,8 @@ bool draw_career_tools_page(App& app, shell::Page p) {
     switch (p) {
         case Page::Transfers: page_transfers(app); return true;
         case Page::JobOffer: page_job_offer(app); return true;
-        case Page::Scouting: page_scouting(app); return true;
-        case Page::Budget: page_budget(app); return true;
-        case Page::Exports: page_exports(app); return true;
-        case Page::Bans: page_bans(app); return true;
+        case Page::AdvExport: page_exports(app); return true;
         case Page::ChangesUndo: page_changes(app); return true;
-        case Page::CareerMaintenance: page_career_maintenance(app); return true;
         case Page::AdvBulkEdit: page_adv_bulk(app); return true;
         case Page::AdvMaintenance: page_adv_maintenance(app); return true;
         default: return false;
@@ -760,12 +731,8 @@ bool draw_career_tools_page(App& app, shell::Page p) {
 
 TURBO_REGISTER_PAGE(shell::Page::Transfers, page_transfers);
 TURBO_REGISTER_PAGE(shell::Page::JobOffer, page_job_offer);
-TURBO_REGISTER_PAGE(shell::Page::Scouting, page_scouting);
-TURBO_REGISTER_PAGE(shell::Page::Budget, page_budget);
-TURBO_REGISTER_PAGE(shell::Page::Exports, page_exports);
-TURBO_REGISTER_PAGE(shell::Page::Bans, page_bans);
+TURBO_REGISTER_PAGE(shell::Page::AdvExport, page_exports);
 TURBO_REGISTER_PAGE(shell::Page::ChangesUndo, page_changes);
-TURBO_REGISTER_PAGE(shell::Page::CareerMaintenance, page_career_maintenance);
 TURBO_REGISTER_PAGE(shell::Page::AdvBulkEdit, page_adv_bulk);
 TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
 
@@ -857,7 +824,7 @@ void draw_hook_status(App& app) {
         ImGui::TextWrapped("  %s", app.callnames.log_line().c_str());
         const CallnamePopulation pop = callname_population(app.callnames.bank, app.callnames.masters, app.callnames.index);
         ImGui::TextWrapped("  callnames %s: %s%s", app.callnames.lang.c_str(), callname_population_line(pop).c_str(),
-                           app.callnames.index.built ? "" : " (open Players > Callname for the database counts)");
+                           app.callnames.index.built ? "" : " (open Edit a player > Callname for the database counts)");
     }
     // the spoken-callname set (core/commentary_audio.h SpokenWatch): built where the game binds its commentary bank
     if (app.commentary_audio) {

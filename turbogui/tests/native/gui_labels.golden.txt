@@ -242,7 +242,7 @@ ui_competitions.cpp	BeginTable	##league	1
 ui_competitions.cpp	Button	Recalculate points	1
 ui_competitions.cpp	Button	Write table positions	1
 ui_competitions.cpp	InputTextWithHint	##compsearch	1
-ui_competitions.cpp	SmallButton	Open the live table (Tactics & Gameplay > Standings)##dbcopylive	1
+ui_competitions.cpp	SmallButton	###dbcopylive	1
 ui_competitions.cpp	checkbox_right	Leagues only	1
 ui_database.cpp	-	##rawclub	1
 ui_database.cpp	-	##rawpall	1
@@ -543,6 +543,7 @@ ui_names.cpp	BeginTable	##nmidtable	1
 ui_names.cpp	Button	Restore database names##nm	1
 ui_names.cpp	Button	Save names##nm	1
 ui_names.cpp	InputTextWithHint	##nmidsearch	1
+ui_nav_pages.cpp	-	###navgo	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1
@@ -1017,9 +1018,9 @@ ui_tools.cpp	BeginChild	##log	1
 ui_tools.cpp	BeginChild	##tools	1
 ui_tools.cpp	BeginPopupModal	##confirmdel	1
 ui_tools.cpp	BeginPopupModal	##overall_back_any_load	1
+ui_tools.cpp	Button	###squadgo	1
 ui_tools.cpp	Button	Cancel	2
 ui_tools.cpp	Button	Delete...	1
-ui_tools.cpp	Button	Open Squad & Players > Squad##squadgo	1
 ui_tools.cpp	Button	Put the overalls back...	1
 ui_tools.cpp	Checkbox	###preload	1
 ui_tools.cpp	CollapsingHeader	Technical details	1
