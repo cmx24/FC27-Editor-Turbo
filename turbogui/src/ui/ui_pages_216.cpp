@@ -13,6 +13,9 @@
 
 namespace turbo {
 
+// Players: Edit a player
+TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_page);
+
 // Tactics
 TURBO_REGISTER_NEW_PAGE(shell::Page::TacticPresets, draw_tactics_presets_page);
 TURBO_REGISTER_NEW_PAGE(shell::Page::TeamSheet, draw_team_sheet_page);
