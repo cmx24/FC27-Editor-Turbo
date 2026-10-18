@@ -488,11 +488,23 @@ const faces3d::Entry* faces3d_draft_entry(int64_t playerid) {
     return it == g.draft.end() ? nullptr : &it->second;
 }
 
+// mods\legacy ... player_kit.lua present: looked at once every 2 s at most (never a file-system call every frame)
+static bool legacy_kit_present(App& app) {
+    static double checked = -1.0e9;
+    static bool present = false;
+    const double now = ImGui::GetTime();
+    if (now - checked >= 2.0 || now < checked) {
+        checked = now;
+        std::error_code ec;
+        present = fs::exists(rel(app.bridge.root(), lualoader::kLegacyKitRel), ec);
+    }
+    return present;
+}
+
 void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     if (!g.loaded) load(app);
     ImGui::PushID("faces3d_gate");
-    std::error_code ec;
-    if (fs::exists(rel(app.bridge.root(), lualoader::kLegacyKitRel), ec))
+    if (legacy_kit_present(app))
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
                            "mods\\legacy\\data\\fifarna\\lua\\assets\\player_kit.lua exists: Live Editor serves that file, so Turbo's 3D hair "
                            "and beard stay off while it is there. Remove it to use this.");

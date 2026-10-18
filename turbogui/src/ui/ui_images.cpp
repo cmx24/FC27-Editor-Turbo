@@ -1094,17 +1094,23 @@ std::string GearPictureIndex::find(const std::string& folder, const std::string&
     return "data/ui/imgAssets/" + best + ".dds";
 }
 
-// read again when Live Editor's lists change (size / time looked at once per frame)
+// read again when Live Editor's lists change: their size / time are looked at once a second at most (2.16.1: it was every frame,
+// 2-3 file-system calls per frame on every page that draws a gallery, e.g. Managers > Appearance)
 static GearPictureIndex g_gear;
 static fs::path g_gear_root;
 static std::string g_gear_stamp;
 static int g_gear_frame = -1;
+static double g_gear_checked = -1.0e9;  // ImGui time of the last look at the lists
 
 const GearPictureIndex& gear_pictures(App& app) {
-    const int frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -1;
+    const bool ctx = ImGui::GetCurrentContext() != nullptr;
+    const int frame = ctx ? ImGui::GetFrameCount() : -1;
     if (frame >= 0 && frame == g_gear_frame) return g_gear;
     g_gear_frame = frame;
     fs::path root = app.bridge.root();
+    const double now = ctx ? ImGui::GetTime() : -1.0;
+    if (ctx && root == g_gear_root && now - g_gear_checked < 1.0 && now >= g_gear_checked) return g_gear;
+    g_gear_checked = now;
     const fs::path lists[] = {root / "legacy_filename_hash_list.csv", root / "extensions" / "legacy_filename_hash_list.csv"};
     std::string stamp;
     for (const fs::path& csv : lists) {
