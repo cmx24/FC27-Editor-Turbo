@@ -22,10 +22,10 @@ ui_bodytypes.cpp	path	1
 ui_bodytypes.cpp	turbo_output	1
 ui_callnames.cpp	channel	1
 ui_callnames.cpp	hook	1
-ui_callnames.cpp	json	4
+ui_callnames.cpp	json	3
 ui_callnames.cpp	lua	1
-ui_callnames.cpp	path	5
-ui_callnames.cpp	turbo_output	2
+ui_callnames.cpp	path	4
+ui_callnames.cpp	turbo_output	1
 ui_callnames.cpp	txt	1
 ui_club_tools.cpp	path	1
 ui_club_tools.cpp	turbo_output	1
@@ -59,9 +59,9 @@ ui_images.cpp	path	6
 ui_images.cpp	turbo_output	2
 ui_kits.cpp	hook	4
 ui_kits.cpp	json	1
-ui_kits.cpp	path	9
-ui_kits.cpp	turbo_output	7
-ui_kits.cpp	txt	6
+ui_kits.cpp	path	8
+ui_kits.cpp	turbo_output	6
+ui_kits.cpp	txt	5
 ui_live_tactic.cpp	channel	25
 ui_live_tactic.cpp	hex	3
 ui_live_tactic.cpp	json	3

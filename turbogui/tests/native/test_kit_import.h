@@ -700,13 +700,13 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
             kitswap::Runtime& rt = *g_kit_rt;
             app.kit_swap = &rt;
             ui.frames(2);
-            CHECK(ui.find("Watch only (log what the game loads)##kswap", "##tkits", "home") && ui.find("Show it on the pitch##kswap", "##tkits", "home") &&
+            CHECK(ui.find("###kswapwatch", "##tkits", "home") && ui.find("Show it on the pitch##kswap", "##tkits", "home") &&
                       ui.find("Off##kswap", "##tkits", "home"),
                   "the 3D kit controls are listed for the home kit");
             CHECK(!rt.is_active(7, 0), "off by default");
-            CHECK(ui.find("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && rt.get_options().apply_hotspots, "the hotspots option is offered and on by default");
-            CHECK(ui.click("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && !rt.get_options().apply_hotspots, "the hotspots option switches off");
-            CHECK(ui.click("Also use the zip's name and number placement (hotspots)##kswap", "##tkits", "home") && rt.get_options().apply_hotspots, "and on again");
+            CHECK(ui.find("###kswaphot", "##tkits", "home") && rt.get_options().apply_hotspots, "the hotspots option is offered and on by default");
+            CHECK(ui.click("###kswaphot", "##tkits", "home") && !rt.get_options().apply_hotspots, "the hotspots option switches off");
+            CHECK(ui.click("###kswaphot", "##tkits", "home") && rt.get_options().apply_hotspots, "and on again");
             CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home"), "Show it on the pitch");
             CHECK(rt.is_active(7, 0) && fs::exists(rt.state_path()), "the kit is active and the state is saved");
             kitswap::Mode md = kitswap::Mode::Off;
@@ -715,7 +715,7 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
             rt.wait_idle();
             ui.frames(2);
             CHECK(rt.status().state == "error", "no game files: reported as an error, not a crash: " + rt.status().message);
-            CHECK(ui.click("Watch only (log what the game loads)##kswap", "##tkits", "home") && rt.is_active(7, 0, &md) && md == kitswap::Mode::Observe, "watch only");
+            CHECK(ui.click("###kswapwatch", "##tkits", "home") && rt.is_active(7, 0, &md) && md == kitswap::Mode::Observe, "watch only");
             rt.wait_idle();
             CHECK(ui.click("Off##kswap", "##tkits", "home") && !rt.is_active(7, 0), "off");
             CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "home") && rt.is_active(7, 0), "on again");
@@ -731,8 +731,8 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
                 }
             };
             wheel(-30.0f);
-            CHECK(ui.find("Show it on the pitch##kswap", "##tkits", "away") && ui.find("Do not use the zip's crest pictures##kswap", "##tkits", "away") &&
-                      ui.find("Also change this club's other kits that share a texture with this one##kswap", "##tkits", "away"),
+            CHECK(ui.find("Show it on the pitch##kswap", "##tkits", "away") && ui.find("###kswapcrest", "##tkits", "away") &&
+                      ui.find("###kswapclub", "##tkits", "away"),
                   "the away kit has its own 3D controls and options");
             CHECK(!rt.is_active(7, 1), "away: off until switched on");
             CHECK(ui.click("Show it on the pitch##kswap", "##tkits", "away") && rt.is_active(7, 1, &md) && md == kitswap::Mode::Swap && rt.is_active(7, 0), "away: Show it on the pitch, home stays on");
@@ -741,17 +741,17 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
             {
                 bool d = false, k = false, sc = true;
                 CHECK(rt.slot_options(7, 1, &d, &k, &sc) && d && k && !sc, "away: default choices (zip decals on, game's badge kept, no sharing)");
-                CHECK(ui.click("Also change this club's other kits that share a texture with this one##kswap", "##tkits", "away"), "away: tick sharing");
+                CHECK(ui.click("###kswapclub", "##tkits", "away"), "away: tick sharing");
                 CHECK(rt.slot_options(7, 1, &d, &k, &sc) && sc, "away: sharing saved");
                 bool d0 = false, k0 = false, s0 = true;
                 CHECK(rt.slot_options(7, 0, &d0, &k0, &s0) && !s0, "... and the home kit's own choice is untouched");
-                CHECK(ui.click("Do not use the zip's crest pictures##kswap", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
+                CHECK(ui.click("###kswapcrest", "##tkits", "away") && rt.slot_options(7, 1, &d, &k, &sc) && !k && sc, "away: untick keep the game's badge");
                 rt.wait_idle();
                 // 2.13: the opt-in for textures EA shares with other clubs' kits (default off, saved per kit, the other kits untouched)
                 bool so = true, so0 = true;
-                CHECK(ui.find("Also change other clubs' kits that share this texture##kswap", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && !so,
+                CHECK(ui.find("###kswapother", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && !so,
                       "away: 'Also change other clubs' kits that share this texture' is offered, off by default");
-                CHECK(ui.click("Also change other clubs' kits that share this texture##kswap", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && so,
+                CHECK(ui.click("###kswapother", "##tkits", "away") && rt.slot_options(7, 1, nullptr, nullptr, nullptr, &so) && so,
                       "away: ticked and saved");
                 CHECK(rt.slot_options(7, 0, nullptr, nullptr, nullptr, &so0) && !so0 && rt.slot_options(7, 1, &d, &k, &sc) && sc && !k, "... the home kit's choice and the away kit's other choices are untouched");
                 rt.wait_idle();

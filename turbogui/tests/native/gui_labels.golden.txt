@@ -133,6 +133,8 @@ ui_callnames.cpp	BeginTable	##cnalltable	1
 ui_callnames.cpp	BeginTable	##cntable	1
 ui_callnames.cpp	BeginTable	##cptable	1
 ui_callnames.cpp	BeginTable	##vstable	1
+ui_callnames.cpp	Button	###cncapture	1
+ui_callnames.cpp	Button	###cnrebuild	1
 ui_callnames.cpp	Button	Assign anyway##cnown	1
 ui_callnames.cpp	Button	Assign as common name	1
 ui_callnames.cpp	Button	Assign as last name	1
@@ -142,10 +144,8 @@ ui_callnames.cpp	Button	Cancel##cnown	1
 ui_callnames.cpp	Button	Cancel##rmcallname	1
 ui_callnames.cpp	Button	Cancel##vsconfirm	1
 ui_callnames.cpp	Button	Cancel##vsforgetall	1
-ui_callnames.cpp	Button	Capture from the loaded bank##cn	1
 ui_callnames.cpp	Button	Forget all##vs	1
 ui_callnames.cpp	Button	Forget all##vsforgetall	1
-ui_callnames.cpp	Button	Rebuild from the game's audio service##cn	1
 ui_callnames.cpp	Button	Refresh##cn	1
 ui_callnames.cpp	Button	Remove	1
 ui_callnames.cpp	Button	Remove player-specific callname...	1
@@ -477,18 +477,18 @@ ui_kits.cpp	BeginTable	##kitset	1
 ui_kits.cpp	Button	Import kit zip...	1
 ui_kits.cpp	Button	Import team folder...	1
 ui_kits.cpp	Button	Turn on 3D kits (restart the game afterwards)##k3on	1
-ui_kits.cpp	Checkbox	Also change other clubs' kits that share this texture##kswap	1
-ui_kits.cpp	Checkbox	Also change this club's other kits that share a texture with this one##kswap	1
-ui_kits.cpp	Checkbox	Also use the zip's badge and brand pictures##kswap	1
-ui_kits.cpp	Checkbox	Also use the zip's name and number placement (hotspots)##kswap	1
-ui_kits.cpp	Checkbox	Do not use the zip's crest pictures##kswap	1
-ui_kits.cpp	Checkbox	Log which of this club's kit folders the match loads (watch only, all slots)##kswap	1
+ui_kits.cpp	Checkbox	###kswapclub	1
+ui_kits.cpp	Checkbox	###kswapcrest	1
+ui_kits.cpp	Checkbox	###kswapdecals	1
+ui_kits.cpp	Checkbox	###kswaphot	1
+ui_kits.cpp	Checkbox	###kswapother	1
+ui_kits.cpp	Checkbox	###kswapwatchclub	1
 ui_kits.cpp	CollapsingHeader	Colours & numbers (kit colours, number fonts, outline)##kitcolours	1
 ui_kits.cpp	OpenPopup	##kitfolder	1
 ui_kits.cpp	OpenPopup	##kitzip	1
+ui_kits.cpp	RadioButton	###kswapwatch	1
 ui_kits.cpp	RadioButton	Off##kswap	1
 ui_kits.cpp	RadioButton	Show it on the pitch##kswap	1
-ui_kits.cpp	RadioButton	Watch only (log what the game loads)##kswap	1
 ui_kits.cpp	TreeNode	##kitsettings	1
 ui_kits.cpp	TreeNode	Kit folders the match loaded##kswap	1
 ui_kits.cpp	TreeNode	Textures##kswap	1
@@ -555,6 +555,7 @@ ui_parity.cpp	SliderInt	##scoutlvl	1
 ui_parity.cpp	SmallButton	Export now##xfexp	1
 ui_parity.cpp	SmallButton	Reload##xfre	1
 ui_parity.cpp	SmallButton	Reload##xftre	1
+ui_players.cpp	-	###bulkundo	1
 ui_players.cpp	-	##appgrid	1
 ui_players.cpp	-	##arch	1
 ui_players.cpp	-	##archpos	1
@@ -573,7 +574,6 @@ ui_players.cpp	-	Add now##dvd	1
 ui_players.cpp	-	Make %s his main position (now %s)##archadopt	1
 ui_players.cpp	-	Set potential##dvp	1
 ui_players.cpp	-	Undo (%zu)##pundo	1
-ui_players.cpp	-	Undo bulk (%zu)##bulkundo	1
 ui_players.cpp	-	Unnamed bit %d##%d	1
 ui_players.cpp	-	Use %d##archclosest	1
 ui_players.cpp	BeginChild	##app	1
@@ -611,6 +611,8 @@ ui_players.cpp	BeginTable	##fsearch	1
 ui_players.cpp	BeginTable	##pfilters	1
 ui_players.cpp	BeginTable	##players	1
 ui_players.cpp	BeginTable	##sl	1
+ui_players.cpp	Button	###archpreview	1
+ui_players.cpp	Button	###archundo	1
 ui_players.cpp	Button	Apply##arch	1
 ui_players.cpp	Button	Cancel##arch	1
 ui_players.cpp	Button	Cancel##delplayer	1
@@ -618,12 +620,10 @@ ui_players.cpp	Button	Choose a real face...	1
 ui_players.cpp	Button	Delete player	1
 ui_players.cpp	Button	Keep his old picture##hmfk	1
 ui_players.cpp	Button	List bans	1
-ui_players.cpp	Button	Preview / apply...	1
 ui_players.cpp	Button	Read squad role	1
 ui_players.cpp	Button	Remove ban	1
 ui_players.cpp	Button	Set squad role	1
 ui_players.cpp	Button	Transfer / Loan...	1
-ui_players.cpp	Button	Undo archetype##archundo	1
 ui_players.cpp	Button	Use the matching miniface##hmf	1
 ui_players.cpp	Checkbox	Grow him every week while below his potential##dvw	1
 ui_players.cpp	Checkbox	No decline##dvw	1

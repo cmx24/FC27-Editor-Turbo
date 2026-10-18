@@ -6834,7 +6834,7 @@ static void test_ui() {
             CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
             CHECK(ui.click("Callname", "##pedit"), "Callname tab");
             ui.frames(2);
-            CHECK(ui.click("Capture from the loaded bank##cn"), "the memory scan is manual now (the audio service is the automatic path)");
+            CHECK(ui.click("###cncapture"), "the memory scan is manual now (the audio service is the automatic path)");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             CHECK(!app.bank_capture_running(), "capture thread finished");
             ui.frames(2);
@@ -6845,9 +6845,9 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("pickers rebuilt from the capture: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Capture from the loaded bank##cn") != nullptr, "capture button");
+            CHECK(ui.find("###cncapture") != nullptr, "capture button");
             // a manual capture while nothing changed gives the same set
-            CHECK(ui.click("Capture from the loaded bank##cn"), "manual capture");
+            CHECK(ui.click("###cncapture"), "manual capture");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             ui.frames(2);
             CHECK(app.callnames.spoken.from == SpokenSet::From::BankCapture && app.callnames.spoken.ids.size() == 5, "manual capture applied");
@@ -6947,16 +6947,16 @@ static void test_ui() {
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 3, fmt("pickers from the set: %zu names", app.callnames.index.names.size()));
             CallnameInfo r = app.callnames.resolve(*app.model.player(1001), app.db);
             CHECK(r.real && r.commentaryid == 900002, "Saka: recorded by name");
-            CHECK(ui.find("Rebuild from the game's audio service##cn") != nullptr && ui.find("Capture from the loaded bank##cn") != nullptr,
+            CHECK(ui.find("###cnrebuild") != nullptr && ui.find("###cncapture") != nullptr,
                   "rebuild button (default) and the capture button (diagnostic)");
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "rebuild");
+            CHECK(ui.click("###cnrebuild"), "rebuild");
             ui.frames(3);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio && app.callnames.spoken.ids.size() == 3, "rebuilt");
             // the service off: no request goes out; the cache still serves the set
             svc->installed = false;
             app.callnames.refreshed = false;
             ui.frames(2);
-            ui.click("Rebuild from the game's audio service##cn");
+            ui.click("###cnrebuild");
             ui.frames(2);
             CHECK(svc->requests == 2 && app.callnames.spoken.from == SpokenSet::From::GameAudio, "no request while unavailable, cache still in use");
             fs::remove(cache);
@@ -7040,7 +7040,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(svc->probes == 2 && svc->requests == 0 && !fs::exists(cache), fmt("probed again after the interval (probes %d), still nothing cached", svc->probes));
             // a manual Rebuild in the hub: the full build answers 'no' for every id: failed, not cached, the watcher keeps waiting
-            CHECK(ui.click("Rebuild from the game's audio service##cn"), "manual rebuild while unbound");
+            CHECK(ui.click("###cnrebuild"), "manual rebuild while unbound");
             ui.frames(3);
             CHECK(svc->requests == 1 && !fs::exists(cache) && !app.callnames.spoken.verified && app.spoken_build_status.find("not bound") != std::string::npos &&
                       app.spoken_watch.state() == caudio::SpokenWatch::State::Waiting,
