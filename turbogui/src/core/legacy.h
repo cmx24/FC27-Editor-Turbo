@@ -109,7 +109,13 @@ public:
     // Force want.txt out now (tests, before running turbo_images.lua)
     bool flush();
     // Re-read missing.txt / status.txt now, without writing want.txt (the game editors' early pass)
-    void refresh_missing() { read_missing(); }
+    void refresh_missing() {
+        game_present_.clear();
+        read_missing();
+    }
+    // 2.16 gui/perf-3: the App calls this once per frame; only then are a folder's look and a found game picture kept
+    // (within the frame / for a second). Direct callers that never call it (the unit tests, tools) look every time.
+    void next_frame() { ++frame_; }
 
     size_t waiting() const { return want_.size() + bg_.size(); }
     size_t missing_count() const { return missing_.size(); }
@@ -182,13 +188,22 @@ private:
     // 2.16 gui/perf: custom_file's case-insensitive match lists a folder of mods\legacy; the listing is kept per folder and
     // read again only when the folder's last-write time changes (a file added, removed or renamed in it). Before, every
     // picture drawn listed its folder in every frame. Under a mutex: custom_file is const and may be asked from a worker.
+    // 2.16 gui/perf-3: the folder's time stamp is read at most once per tick (frame) while the folder is stable (unchanged for
+    // 2 s); a folder that just changed is looked at on every call, as before
     struct CustomDir {
         bool listed = false;
+        bool recent = true;          // changed less than 2 s before the last look
+        uint64_t looked_frame = 0;   // frame_ of the last look (0 = none)
         std::filesystem::file_time_type mtime{};
         std::unordered_map<std::string, std::filesystem::path> by_lower;  // lower-case file name -> the file
     };
     mutable std::mutex custom_dirs_m_;
     mutable std::unordered_map<std::string, CustomDir> custom_dirs_;
+    // 2.16 gui/perf-3: game pictures found in the cache (exported once by Lua, never rewritten): locate answers Game without
+    // looking at the file for a second after it last saw it (calls without ticks always look). Forgotten by reload() and
+    // clear_cache(), and when a look finds the file gone.
+    std::unordered_map<std::string, double> game_present_;  // path -> now_ when the file was last seen
+    uint64_t frame_ = 0;  // next_frame() count: 0 = never called (every call looks at the files)
     double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;
     uint64_t gen_ = 0;

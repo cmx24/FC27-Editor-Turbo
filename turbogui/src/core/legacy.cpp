@@ -128,27 +128,35 @@ fs::path LegacyImages::backup_dir_for(const std::string& path) const {
 fs::path LegacyImages::custom_file(const std::string& path) const {
     if (!legacy_path::valid(path)) return {};
     fs::path p = under(mods_dir(), path);
-    std::error_code ec;
-    if (fs::is_regular_file(p, ec)) return p;
     // other tools write P123.DDS / p123.DDS: match the name in any letter case. 2.16 gui/perf: the folder's listing is kept
-    // until its last-write time changes (one time stamp read instead of a listing per picture drawn per frame)
-    fs::path dir = p.parent_path();
-    const auto mtime = fs::last_write_time(dir, ec);
-    if (ec) return {};  // no such folder
+    // until its last-write time changes. 2.16 gui/perf-3: the exact name is answered from the listing too, and a stable
+    // folder's time stamp is read once per tick: no file call per picture drawn per frame (it was 2)
+    const fs::path dir = p.parent_path();
     const std::string want = lower(p.filename().string());
     std::lock_guard<std::mutex> lock(custom_dirs_m_);
     CustomDir& d = custom_dirs_[dir.string()];
-    // a folder changed in the last 2 s is listed again every time (its time stamp may not move for a second change within
-    // the file system clock's tick)
-    const bool recent = fs::file_time_type::clock::now() - mtime < std::chrono::seconds(2);
-    if (!d.listed || d.mtime != mtime || recent) {
-        d.listed = true;
-        d.mtime = mtime;
-        d.by_lower.clear();
-        std::error_code le;
-        for (fs::directory_iterator it(dir, le), end; !le && it != end; it.increment(le)) {
-            std::error_code e2;
-            if (it->is_regular_file(e2)) d.by_lower.emplace(lower(it->path().filename().string()), it->path());
+    if (!(frame_ != 0 && d.listed && !d.recent && d.looked_frame == frame_)) {
+        d.looked_frame = frame_;
+        std::error_code ec;
+        const auto mtime = fs::last_write_time(dir, ec);
+        if (ec) {  // no such folder
+            d.listed = true;
+            d.recent = false;
+            d.by_lower.clear();
+            return {};
+        }
+        // a folder changed in the last 2 s is listed again every time (its time stamp may not move for a second change
+        // within the file system clock's tick)
+        d.recent = fs::file_time_type::clock::now() - mtime < std::chrono::seconds(2);
+        if (!d.listed || d.mtime != mtime || d.recent) {
+            d.listed = true;
+            d.mtime = mtime;
+            d.by_lower.clear();
+            std::error_code le;
+            for (fs::directory_iterator it(dir, le), end; !le && it != end; it.increment(le)) {
+                std::error_code e2;
+                if (it->is_regular_file(e2)) d.by_lower.emplace(lower(it->path().filename().string()), it->path());
+            }
         }
     }
     auto it = d.by_lower.find(want);
@@ -236,6 +244,7 @@ void LegacyImages::drop_wanted(const std::function<bool(const std::string&)>& go
 
 void LegacyImages::reload(const std::string& path) {
     if (!legacy_path::valid(path)) return;
+    game_present_.erase(path);
     std::error_code ec;
     fs::remove(cache_file(path), ec);  // an old custom file exported as the game's, or a broken copy
     // "not in the game" set aside: the lines missing.txt has for it now no longer count, a new one does
@@ -261,8 +270,21 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
         }
     }
     fs::path g = under(cache_dir(), path);
+    // 2.16 gui/perf-3: a game picture seen in the last second of ticks is taken as there (Lua exports it once and never
+    // rewrites it): no file call per picture drawn per frame (it was 2); looked at again once a second
+    {
+        auto gp = game_present_.find(path);
+        if (gp != game_present_.end()) {
+            if (frame_ != 0 && now_ >= gp->second && now_ - gp->second < 1.0) {
+                if (file) *file = g;
+                return State::Game;
+            }
+            game_present_.erase(gp);
+        }
+    }
     if (fs::is_regular_file(g, ec) && fs::file_size(g, ec) > 0) {
         if (file) *file = g;
+        game_present_[path] = now_;
         if (want_set_.count(path)) drop_wanted([&](const std::string& p) { return p == path; });
         return State::Game;
     }
@@ -299,6 +321,7 @@ void LegacyImages::read_missing() {
     if (ec) sz = 0;
     if (sz != missing_size_) {
         missing_size_ = sz;
+        game_present_.clear();
         missing_lines_.clear();
         std::ifstream f(mp, std::ios::binary);
         std::string line;
@@ -368,6 +391,11 @@ size_t LegacyImages::count_cached_files(const fs::path& dir) {
 }
 
 bool LegacyImages::clear_cache(std::string* err) {
+    game_present_.clear();
+    {
+        std::lock_guard<std::mutex> lock(custom_dirs_m_);
+        custom_dirs_.clear();
+    }
     std::error_code ec;
     fs::path d = cache_dir();
     if (fs::is_directory(d, ec)) {
@@ -418,6 +446,10 @@ bool LegacyImages::backup(const fs::path& f, const fs::path& dir, fs::path* out,
 
 bool LegacyImages::save_custom(const std::string& path, const std::vector<uint8_t>& bytes, std::string* err,
                                fs::path* backup_out) {
+    {  // 2.16 gui/perf-3: Turbo's own write: no folder look kept from this tick
+        std::lock_guard<std::mutex> lock(custom_dirs_m_);
+        custom_dirs_.clear();
+    }
     if (!legacy_path::valid(path)) {
         if (err) *err = "invalid game file path";
         return false;
@@ -440,6 +472,10 @@ bool LegacyImages::save_custom(const std::string& path, const std::vector<uint8_
 }
 
 bool LegacyImages::remove_custom(const std::string& path, std::string* err, fs::path* backup_out) {
+    {  // 2.16 gui/perf-3: Turbo's own delete: no folder look kept from this tick
+        std::lock_guard<std::mutex> lock(custom_dirs_m_);
+        custom_dirs_.clear();
+    }
     fs::path existing = custom_file(path);
     if (existing.empty()) {
         if (err) *err = "there is no custom file";
@@ -452,6 +488,10 @@ bool LegacyImages::remove_custom(const std::string& path, std::string* err, fs::
         if (ec) {
             if (err) *err = "cannot delete " + existing.string() + ": " + ec.message();
             return false;
+        }
+        {  // the folder look of this tick no longer holds (else the deleted file would be found again)
+            std::lock_guard<std::mutex> lock(custom_dirs_m_);
+            custom_dirs_.clear();
         }
         existing = custom_file(path);
     }
