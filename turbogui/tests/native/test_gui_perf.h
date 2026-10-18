@@ -368,7 +368,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
         // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Players > My squad", "Kits & club > Kits", "Kits & club > Club name, colours & crest", "Advanced > Bulk edit"})
+            for (const char* p : {"Players > My squad", "Kits & club > Kits", "Kits & club > Club name, colours & crest", "Advanced > Bulk edit", "Advanced > Kit diagnostics"})
                 if (what == p) return true;
             return false;
         };

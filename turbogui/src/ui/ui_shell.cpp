@@ -57,6 +57,8 @@ const PageInfo kPages[] = {
     {Page::AdvExport, Area::Advanced, "Data export", 5},
     // health, hooks, switches and the log: until its own page is registered the legacy Status panel stands in (draw_legacy_page)
     {Page::AdvDiagnostics, Area::Advanced, "Diagnostics & logs", 6},
+    // the old Kits body with every developer control (page-kits): Advanced only, it lived in the Teams tab
+    {Page::AdvKitDiagnostics, Area::Advanced, "Kit diagnostics", 1},
 };
 
 const PageInfo* info_of(Page p) {

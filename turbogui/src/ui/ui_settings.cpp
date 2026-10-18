@@ -45,7 +45,7 @@ void draw_settings_page(App& app) {
         if (app.prefs.advanced_mode &&
             ImGui::Checkbox("Use the old pages (Players, Kits, Tactics, Career, Changes, Diagnostics)###legacypages", &app.legacy_pages) &&
             !app.save_gui_settings())
-            app.notify("cannot write gui_settings.json", true);
+            app.notify("The setting could not be saved", true);
         if (app.prefs.advanced_mode && ImGui::IsItemHovered())
             ImGui::SetTooltip("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
         draw_preferences(app);
