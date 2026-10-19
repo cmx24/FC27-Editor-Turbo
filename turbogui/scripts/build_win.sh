@@ -48,6 +48,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_career_page.cpp src/ui/ui_diagnostics_page.cpp src/ui/ui_kits_page.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
+         src/ui/ui_club_fields.cpp \
          src/core/bodytype_thumbs.cpp src/ui/ui_bodytype_thumbs.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/win/callname_audio_win.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp src/win/callname_voice_win.cpp \

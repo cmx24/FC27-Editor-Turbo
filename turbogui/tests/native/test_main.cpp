@@ -3687,6 +3687,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_club_fields.h"  // 2.20 K3: club, crowd, stadium and kit fields (club_fields_test::run / ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
@@ -4890,6 +4891,7 @@ static void test_ui() {
         });
 
         kit_fonts_ui_cases(app, ui, le);  // test_kit_fonts.h: the kit font pickers (2.11 K1), the Colours tab is still open
+        club_fields_test::ui_cases(app, ui, le);  // test_club_fields.h (2.20 K3): the club, crowd, stadium and kit fields (the database is still connected here)
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
             // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
@@ -15409,6 +15411,7 @@ int main(int argc, char** argv) {
     std::printf("native kit import\n");
     test_kit_import();
     test_kit_fonts();
+    club_fields_test::run();  // test_club_fields.h (2.20 K3)
     kit_share_test::run();  // test_kit_share.h (2.13)
     std::printf("native dev service\n");
     test_devops();
