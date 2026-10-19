@@ -3684,6 +3684,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
+#include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
@@ -5664,8 +5665,9 @@ static void test_ui() {
             CHECK(captured[32]["cmd"]["module"] == "create_player" && captured[32]["cmd"]["overrides"]["source"]["file"] == preset_file &&
                       captured[32]["cmd"]["overrides"]["teamid"] == 111592, "import as a new free agent");
             CHECK(captured[33]["cmd"]["module"] == "create_player" && captured[33]["cmd"]["overrides"]["source"]["playerid"] == 1002, "clone 1002");
-            CHECK(captured[34]["cmd"]["overrides"]["names"]["firstname"] == "Neo" && captured[34]["cmd"]["overrides"]["set"].contains("birthdate") &&
-                      captured[34]["cmd"]["overrides"]["source"]["playerid"] == 1002, "create: names, profile fields, template");
+            // 2.19 create-prefill: the boxes start as the template's row and only changed ones are sent (no profile edit here)
+            CHECK(captured[34]["cmd"]["overrides"]["names"]["firstname"] == "Neo" && captured[34]["cmd"]["overrides"]["set"].empty() &&
+                      captured[34]["cmd"]["overrides"]["source"]["playerid"] == 1002, "create: names, no unchanged profile field, template");
             CHECK(captured[35]["cmd"]["overrides"]["actions"][0]["confirm"].get<bool>(), "delete carries the confirmation");
             std::ofstream(g_out / "gui_commands.json") << captured.dump(1);
             CHECK(run_lua("commands") == 0, "gui_world.lua commands");
@@ -9702,6 +9704,7 @@ static void test_ui() {
         page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
+        create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
@@ -15489,6 +15492,8 @@ int main(int argc, char** argv) {
     parity_test::run_core();
     std::printf("native archetype with a target overall (2.3)\n");
     archetype_target_test::run_core();
+    std::printf("native create player prefill (2.19)\n");
+    create_prefill_test::run_core();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");

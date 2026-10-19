@@ -18,9 +18,11 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "core/archetypes.h"
+#include "core/create_form.h"
 #include "ui_archetype.h"
 #include "ui_club_search.h"
 #include "ui_images.h"
+#include "ui_names.h"
 
 namespace turbo {
 
@@ -50,6 +52,15 @@ static std::vector<std::string> split_csv_line(const std::string& line) {
     }
     out.push_back(cell);
     return out;
+}
+
+// A birth date as a file writes it: gregorian days (Live Editor's preset CSV, Turbo's JSON) or YYYY-MM-DD; 0 = none
+int64_t birthdate_days(const std::string& text) {
+    if (text.empty()) return 0;
+    if (text.find_first_not_of("0123456789") == std::string::npos) return text.size() <= 9 ? std::stoll(text) : 0;
+    GameDate g;
+    if (std::sscanf(text.c_str(), "%d-%d-%d", &g.year, &g.month, &g.day) == 3 && g.valid() && is_real_date(g)) return gregorian_days_from_date(g);
+    return 0;
 }
 
 PresetPreview preview_preset_file(const fs::path& file) {
@@ -85,6 +96,7 @@ PresetPreview preview_preset_file(const fs::path& file) {
         pv.potential = val("potential");
         pv.position = val("preferredposition1");
         pv.miniface = d.value("miniface", "");
+        if (d["players"].contains("birthdate") && d["players"]["birthdate"].is_number_integer()) pv.birthdate = d["players"]["birthdate"].get<int64_t>();
         pv.ok = true;
         return pv;
     }
@@ -119,6 +131,7 @@ PresetPreview preview_preset_file(const fs::path& file) {
     pv.overall = get("overallrating");
     pv.potential = get("potential");
     pv.position = get("preferredposition1");
+    pv.birthdate = birthdate_days(get("birthdate"));
     pv.ok = true;
     return pv;
 }
@@ -146,6 +159,9 @@ void club_notes(App& app, int teamid) {
             ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Not possible: this club has %zu players, the most a squad holds", n);
     }
 }
+
+// The line and button of a route whose player is already in the database (defined with database_match below)
+static bool database_match_row(App& app, int64_t pid, const char* id);
 
 static json names_json(const char* first, const char* last, const char* common, const char* jersey) {
     json n = json::object();
@@ -414,6 +430,11 @@ static void import_dialog(App& app, const PlayerRow& p) {
         if (target == 1) {
             club_picker(app, teamid);
             club_notes(app, teamid);
+            if (pv.ok) {
+                const int64_t file_pid = pv.playerid.find_first_not_of("0123456789") == std::string::npos && !pv.playerid.empty() && pv.playerid.size() < 10
+                                             ? std::stoll(pv.playerid) : 0;
+                if (database_match_row(app, database_match(app, file_pid, pv.name, pv.birthdate), "##pimportdb")) ImGui::CloseCurrentPopup();
+            }
         } else {
             ImGui::SeparatorText("What to copy");
             for (int i = 0; i < 8; ++i) checkbox_right(group_labels[i], &groups[i]);
@@ -446,6 +467,34 @@ static void import_dialog(App& app, const PlayerRow& p) {
         if (ImGui::Button("Cancel##pimport")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+}
+
+// The database player an outside player is (ui_presets.h): the rows are read again when the model changes
+int64_t database_match(App& app, int64_t playerid, const std::string& name, int64_t birthdate_days) {
+    static std::vector<create_form::DbPlayer> rows;
+    static uint64_t version = ~0ull;
+    if (version != app.model.version()) {
+        rows.clear();
+        const Table* t = app.db.table("players");
+        const bool has_bd = t && t->field("birthdate");
+        for (const PlayerRow& r : app.model.players())
+            rows.push_back({r.playerid, r.name, has_bd ? app.db.get_int(*t, r.rec, "birthdate", 0) : 0});
+        version = app.model.version();
+    }
+    return create_form::match(rows, playerid, name, birthdate_days);
+}
+
+// The line and button of a route whose player is already in the database: his Create player dialog, prefilled from his row
+static bool database_match_row(App& app, int64_t pid, const char* id) {
+    if (pid <= 0) return false;
+    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "In this career: %s (ID %lld)", app.model.player_name(pid).c_str(), static_cast<long long>(pid));
+    std::string lbl = std::string("Create from his career data...") + id;
+    const bool clicked = ImGui::Button(lbl.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Opens Create player with this player as the template: every box starts as his own data (names, birth date, "
+                          "ratings, positions, attributes); only what you change is written");
+    if (clicked) request_create_from(app, pid);
+    return clicked;
 }
 
 static void clone_dialog(App& app, const PlayerRow& p) {
@@ -699,99 +748,148 @@ static const CreateArchetype& create_archetype(App& app, const PlayerRow& p, int
     return c;
 }
 
+// Create player (2.19 create-prefill): the dialog opens with every box it shows read from the template's database row (names as
+// the game shows them, exact birth date, profile, positions, the 34 attributes), snapshotted each time it opens; a Create click
+// sends only the boxes the user changed (core/create_form.h). Lua copies the rest from the template's row.
+static CreatePrefillState g_create_prefill;
+const CreatePrefillState& create_prefill_state() { return g_create_prefill; }
+
+static int64_t g_pending_create = 0;  // a route asked for the Create dialog of this player (request_create_from)
+void request_create_from(App& app, int64_t playerid) {
+    g_pending_create = playerid;
+    app.sel_player = playerid;
+}
+
+static create_form::Names template_names(App& app, const Table& t, const PlayerRow& p) {
+    const ShownName n = shown_name(app, t, p);
+    return {n.first, n.last, n.common, n.jersey};
+}
+
+static void name_box(const char* label, const char* id, std::string& v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%s", v.c_str());
+    form_label(label);
+    ImGui::SetNextItemWidth(S(200.0f));
+    if (ImGui::InputText(id, buf, sizeof(buf))) v = buf;
+}
+
+// An integer box that clamps only what the user typed (a database value outside the range is shown as it is, and stays
+// unsent while it is not touched)
+static void int_box(const char* label, const char* id, int64_t& v, int lo, int hi, const char* tip = nullptr) {
+    form_label(label, tip);
+    ImGui::SetNextItemWidth(S(110.0f));
+    int x = static_cast<int>(v);
+    if (ImGui::InputInt(id, &x, 0)) v = std::max(lo, std::min(x, hi));
+}
+
 static void create_dialog(App& app, const PlayerRow& p) {
     static CreateIdBox idbox;
     static int teamid = 111592;
-    static char first[64] = "", last[64] = "", common[64] = "", jname[64] = "";
-    static int overall = 65, potential = 70, position = 25, birth_year = 2004, nationality = 0, foot = 1, height = 180, weight = 75;
     static int arch = -1;
-    static int64_t for_pid = 0;
+    static create_form::Form orig, cur;
+    static bool jersey_typed = false;
+    CreatePrefillState& st = g_create_prefill;
     if (ImGui::BeginPopupModal("##pcreate", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (for_pid != p.playerid) {
-            for_pid = p.playerid;
-            overall = p.overall;
-            potential = p.potential;
-            position = p.position < 0 ? 25 : p.position;
-            if (const Table* t = app.db.table("players")) {
-                nationality = static_cast<int>(app.db.get_int(*t, p.rec, "nationality", 0));
-                foot = static_cast<int>(app.db.get_int(*t, p.rec, "preferredfoot", 1));
-                height = static_cast<int>(app.db.get_int(*t, p.rec, "height", 180));
-                weight = static_cast<int>(app.db.get_int(*t, p.rec, "weight", 75));
+        const Table* pt = app.db.table("players");
+        if (ImGui::IsWindowAppearing() || orig.template_pid != p.playerid) {
+            // a fresh snapshot of the template at every open: the boxes are his row as it is now
+            if (pt) {
+                orig = create_form::load(app.db, *pt, p.rec, p.playerid, template_names(app, *pt, p));
+            } else {
+                orig = create_form::Form{};
+                orig.template_pid = p.playerid;
             }
-            birth_year = app.today().year - std::max(16, p.age < 0 ? 22 : p.age);
+            cur = orig;
+            jersey_typed = false;   // the archetype choice and the club are kept from one open to the next
         }
-        ImGui::Text("Create a player, with %s (ID %lld) as the template for everything not set here", p.name.c_str(),
-                    static_cast<long long>(p.playerid));
-        ImGui::TextDisabled("Appearance, attributes, PlayStyles and the rest are copied from the template (the attributes reshaped when an "
-                            "archetype is chosen); edit them afterwards.");
+        ImGui::Text("Create a player from %s (ID %lld): every box below starts as his", p.name.c_str(), static_cast<long long>(p.playerid));
+        ImGui::TextDisabled("Only the boxes you change are written; everything else (appearance, PlayStyles, the rest) is an exact copy of "
+                            "him. The new player gets a free player ID and joins the club below.");
         ImGui::SeparatorText("Names");
-        form_label("First name");
-        ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("##first", first, sizeof(first));
-        form_label("Surname");
-        ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("##last", last, sizeof(last));
-        form_label("Common name");
-        ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("##common", common, sizeof(common));
-        form_label("Jersey name");
-        ImGui::SetNextItemWidth(S(200.0f));
-        ImGui::InputText("##jname", jname, sizeof(jname));
+        const std::string last_before = cur.names.last, common_before = cur.names.common;
+        name_box("First name", "##first", cur.names.first);
+        name_box("Surname", "##last", cur.names.last);
+        name_box("Common name", "##common", cur.names.common);
+        {
+            const std::string jersey_before = cur.names.jersey;
+            name_box("Jersey name", "##jname", cur.names.jersey);
+            if (cur.names.jersey != jersey_before) jersey_typed = true;
+        }
+        // the shirt follows a new surname (else common name) while the shirt box was not typed in, as Lua does: shown here
+        if (!jersey_typed && (cur.names.last != last_before || cur.names.common != common_before)) {
+            const std::string follow = !cur.names.last.empty() ? cur.names.last : cur.names.common;
+            if (!follow.empty()) cur.names.jersey = follow;
+        }
+        ImGui::TextDisabled("An empty first name, surname or jersey name keeps his; an emptied common name is removed.");
         ImGui::SeparatorText("Club");
         club_picker(app, teamid);
         club_notes(app, teamid);
         const player_id::Verdict& idv = player_id_box(app, idbox);
         ImGui::SeparatorText("Profile");
-        form_label("Position", "The game's positions; internal codes behind the toggle in the list");
-        position_combo("##position", position, S(200.0f));
-        form_label("Overall", "With an archetype: the target the attributes are reshaped to (the position's formula gives it)");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##overall", &overall, 0);
-        form_label("Archetype", "Optional (2.3): the template's attributes reshaped to a role so that the formula for the position gives the "
-                                "Overall above; None keeps the template's attributes");
-        archetype_combo("##carch", arch, position, S(220.0f), "None: the template's attributes");
-        form_label("Potential");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##potential", &potential, 0);
-        form_label("Birth year");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##birthyear", &birth_year, 0);
-        form_label("Nationality ID");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##nationality", &nationality, 0);
-        form_label("Preferred foot");
-        ImGui::SetNextItemWidth(S(110.0f));
-        if (ImGui::BeginCombo("##foot", foot == 2 ? "Left" : "Right")) {
-            if (ImGui::Selectable("Right", foot == 1)) foot = 1;
-            if (ImGui::Selectable("Left", foot == 2)) foot = 2;
-            ImGui::EndCombo();
+        int position = static_cast<int>(cur.get("preferredposition1", 25));
+        if (cur.has("preferredposition1")) {
+            form_label("Position", "The game's positions; internal codes behind the toggle in the list");
+            if (position_combo("##position", position, S(200.0f))) cur.ints["preferredposition1"] = position;
         }
-        form_label("Height (cm)");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##height", &height, 0);
-        form_label("Weight (kg)");
-        ImGui::SetNextItemWidth(S(110.0f));
-        ImGui::InputInt("##weight", &weight, 0);
-        overall = std::max(1, std::min(overall, 99));
-        potential = std::max(1, std::min(potential, 99));
-        birth_year = std::max(1950, std::min(birth_year, 2030));
-        // the archetype's attributes for that overall, shown before Create
+        static const char* const kAlt[] = {"preferredposition2", "preferredposition3", "preferredposition4"};
+        static const char* const kAltLabel[] = {"Position 2", "Position 3", "Position 4"};
+        static const char* const kAltId[] = {"##position2", "##position3", "##position4"};
+        for (int i = 0; i < 3; ++i) {
+            if (!cur.has(kAlt[i])) continue;
+            int v = static_cast<int>(cur.get(kAlt[i], -1));
+            form_label(kAltLabel[i]);
+            if (position_combo(kAltId[i], v, S(200.0f), "None")) cur.ints[kAlt[i]] = v;
+        }
+        if (cur.has("overallrating"))
+            int_box("Overall", "##overall", cur.ints["overallrating"], 1, 99,
+                    "With an archetype: the target the attributes are reshaped to (the position's formula gives it)");
+        form_label("Archetype", "Optional (2.3): his attributes reshaped to a role so that the formula for the position gives the "
+                                "Overall above; None keeps the attributes below");
+        archetype_combo("##carch", arch, position, S(220.0f), "None: the template's attributes");
+        if (cur.has("potential")) int_box("Potential", "##potential", cur.ints["potential"], 1, 99);
+        if (cur.has_birthdate) {
+            form_label("Birth date", "Day, month, year: his exact birth date unless you change it");
+            int d = cur.birth.day, m = cur.birth.month, y = cur.birth.year;
+            ImGui::SetNextItemWidth(S(50.0f));
+            if (ImGui::InputInt("##bday", &d, 0)) cur.birth.day = std::max(1, std::min(d, 31));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(S(50.0f));
+            if (ImGui::InputInt("##bmonth", &m, 0)) cur.birth.month = std::max(1, std::min(m, 12));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(S(70.0f));
+            if (ImGui::InputInt("##byear", &y, 0)) cur.birth.year = std::max(1950, std::min(y, 2030));
+        }
+        if (cur.has("nationality")) int_box("Nationality ID", "##nationality", cur.ints["nationality"], 0, 100000);
+        if (cur.has("preferredfoot")) {
+            form_label("Preferred foot");
+            ImGui::SetNextItemWidth(S(110.0f));
+            int64_t& foot = cur.ints["preferredfoot"];
+            if (ImGui::BeginCombo("##foot", foot == 2 ? "Left" : "Right")) {
+                if (ImGui::Selectable("Right", foot == 1)) foot = 1;
+                if (ImGui::Selectable("Left", foot == 2)) foot = 2;
+                ImGui::EndCombo();
+            }
+        }
+        if (cur.has("height")) int_box("Height (cm)", "##height", cur.ints["height"], 130, 230);
+        if (cur.has("weight")) int_box("Weight (kg)", "##weight", cur.ints["weight"], 30, 150);
+        // the archetype's attributes for that overall, shown before Create (they replace the boxes below)
+        const int target = static_cast<int>(cur.get("overallrating", p.overall));
         const CreateArchetype* ca = nullptr;
         bool arch_ok = true;
+        ImGui::SeparatorText("Attributes");
         if (arch >= 0) {
-            ca = &create_archetype(app, p, arch, position, overall);
-            ImGui::SeparatorText("Attributes");
+            ca = &create_archetype(app, p, arch, position, target);
             if (!ca->have) {
-                ImGui::TextDisabled("The archetype needs the 34 attribute fields; this database lacks some.");
+                ImGui::TextDisabled("The archetype needs the 34 attribute fields; this game's player table lacks some.");
                 arch_ok = false;
             } else {
-                ImGui::Text("%s: the template's attributes reshaped for %s", archetypes::all()[static_cast<size_t>(arch)].name, position_name(position));
+                ImGui::Text("%s: his attributes reshaped for %s", archetypes::all()[static_cast<size_t>(arch)].name, position_name(position));
                 const int closest = archetype_result_lines(ca->r, position);
                 arch_ok = ca->r.ok;
                 if (closest > 0) {
                     char ub[48];
                     std::snprintf(ub, sizeof(ub), "Use %d##cclosest", closest);
-                    if (ImGui::Button(ub)) overall = closest;
+                    if (ImGui::Button(ub)) cur.ints["overallrating"] = closest;
                 } else {
                     int changed = 0;
                     for (int i = 0; i < overall::kAttrCount; ++i) changed += ca->r.attrs[static_cast<size_t>(i)] != ca->from[static_cast<size_t>(i)];
@@ -803,9 +901,33 @@ static void create_dialog(App& app, const PlayerRow& p) {
                     }
                 }
             }
+        } else if (ImGui::TreeNode("His attributes (edit any)###cattrs")) {
+            if (ImGui::BeginTable("##cattrtable", 4, ImGuiTableFlags_SizingFixedFit)) {
+                for (int i = 0; i < overall::kAttrCount; ++i) {
+                    const char* f = overall::kAttrNames[i];
+                    if (!cur.has(f)) continue;
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(field_label(f).c_str());
+                    ImGui::TableNextColumn();
+                    char id[48];
+                    std::snprintf(id, sizeof(id), "##ca_%s", f);
+                    ImGui::SetNextItemWidth(S(60.0f));
+                    int x = static_cast<int>(cur.ints[f]);
+                    if (ImGui::InputInt(id, &x, 0)) cur.ints[f] = std::max(1, std::min(x, 99));
+                }
+                ImGui::EndTable();
+            }
+            ImGui::TreePop();
         }
-        bool has_name = first[0] || last[0] || common[0];
-        bool can = has_name && app.model.team(teamid) != nullptr && idv.ok && arch_ok;
+        const overall::Attrs* arch_attrs = (ca && ca->have && ca->r.ok) ? &ca->r.attrs : nullptr;
+        const create_form::Overrides d = create_form::diff(orig, cur, arch_attrs);
+        st.playerid = p.playerid;
+        st.orig = orig;
+        st.cur = cur;
+        st.pending = d.set;
+        if (!d.error.empty()) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Not possible: %s", d.error.c_str());
+        const bool has_name = !cur.names.first.empty() || !cur.names.last.empty() || !cur.names.common.empty();
+        bool can = has_name && app.model.team(teamid) != nullptr && idv.ok && arch_ok && d.error.empty() && pt != nullptr;
         if (!has_name) ImGui::TextDisabled("Give the player a name.");
         if (!can) ImGui::BeginDisabled();
         bool create = ImGui::Button("Create player");
@@ -822,30 +944,14 @@ static void create_dialog(App& app, const PlayerRow& p) {
         }
         if (create) {
             const player_id::Verdict& now = g_create_id.verdict;
-            GameDate bd{birth_year, 7, 1};
-            json set = json::object();
-            const Table* pt = app.db.table("players");
-            auto put = [&](const char* field, int64_t v) {
-                if (pt && pt->field(field)) set[field] = v;   // only fields this game's players table has
-            };
-            put("overallrating", overall);
-            put("potential", potential);
-            put("preferredposition1", position);
-            // the archetype's attributes: all 34 as previewed (the template's could still move before Lua copies them)
-            if (ca && ca->have && ca->r.ok)
-                for (int i = 0; i < overall::kAttrCount; ++i) put(overall::kAttrNames[i], ca->r.attrs[static_cast<size_t>(i)]);
-            put("nationality", nationality);
-            put("preferredfoot", foot);
-            put("height", height);
-            put("weight", weight);
-            put("birthdate", gregorian_days_from_date(bd));
-            json o = {{"source", {{"playerid", p.playerid}}}, {"teamid", teamid}, {"set", set},
-                      {"names", names_json(first, last, common, jname)}};
+            json o = create_form::command(orig, d, teamid);
             put_player_id(o, now);
             g_create_id.sent = o;
             app.log(now.automatic ? std::string("Create player: automatic player id")
                                   : "Create player: player id " + std::to_string(now.id) + " typed" +
                                         (o.contains("id_assets") ? " (game files: " + now.assets_line + ")" : std::string()));
+            app.log("Create player from " + std::to_string(p.playerid) + ": " + std::to_string(d.set.size()) + " changed field(s)" +
+                    (d.names.empty() ? std::string(", names kept") : std::string(", names changed")));
             app.send({{"op", "run"}, {"module", "create_player"}, {"overrides", o}}, "Create player");
             ImGui::CloseCurrentPopup();
         }
@@ -897,7 +1003,11 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new player with the same fields in a club of your choice");
     ImGui::SameLine();
     if (ImGui::Button("Create player...")) ImGui::OpenPopup("##pcreate");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new player from this one as the template: names, club, position, ratings, age");
+    if (g_pending_create != 0 && g_pending_create == p.playerid && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+        g_pending_create = 0;
+        ImGui::OpenPopup("##pcreate");
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new player from this one: every box starts as his own data; only what you change differs from him");
     ImGui::SameLine();
     if (ImGui::Button("From CMTracker...")) ImGui::OpenPopup("##pcmt");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fully populated new player picked from the CMTracker CSV library: stats, positions, PlayStyles, appearance, names, miniface");

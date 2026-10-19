@@ -276,6 +276,20 @@ void cmt_body(App& app) {
                 if (!ps.empty()) ImGui::TextWrapped("PlayStyles: %s", ps.c_str());
                 ImGui::TextDisabled("Real face on CMTracker: %s. Contract to %s.", c("info.real_face").c_str(),
                                     c("info.contract.enddate").c_str());
+                // 2.19: the player is already in this career: his Create player dialog, every box from his own row
+                const int64_t in_db = database_match(app, sel->id, sel->name, birthdate_days(c("info.birthdate")));
+                if (in_db > 0) {
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "In this career: %s (ID %lld)", app.model.player_name(in_db).c_str(),
+                                       static_cast<long long>(in_db));
+                    if (ImGui::Button("Create from his career data...##pcmtdb")) {
+                        request_create_from(app, in_db);
+                        app.request_tab = 0;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Opens Create player with this player as the template: every box starts as his own data; only what you "
+                                          "change is written. Create player below makes him from the CMTracker row instead.");
+                }
                 ImGui::SeparatorText("Club");
                 club_picker(app, teamid);
                 club_notes(app, teamid);
