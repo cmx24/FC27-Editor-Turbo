@@ -298,6 +298,7 @@ ui_cmtracker.cpp	Button	Check again##packrecheck	1
 ui_cmtracker.cpp	Button	Choose pack folder...##packchoose	1
 ui_cmtracker.cpp	Button	Close##packclose	1
 ui_cmtracker.cpp	Button	Close##pcmt	1
+ui_cmtracker.cpp	Button	Create from his career data...##pcmtdb	1
 ui_cmtracker.cpp	Button	Create player	1
 ui_cmtracker.cpp	Button	Reload	1
 ui_cmtracker.cpp	Button	Season pack...	1
@@ -878,12 +879,26 @@ ui_players.cpp	checkbox_right	Free agent	1
 ui_players.cpp	checkbox_right	My club	1
 ui_players.cpp	checkbox_right	Retiring	1
 ui_presets.cpp	-	###carchchg	1
+ui_presets.cpp	-	##ca_%s	1
 ui_presets.cpp	-	##carch	1
+ui_presets.cpp	-	##common	1
+ui_presets.cpp	-	##first	1
+ui_presets.cpp	-	##height	1
+ui_presets.cpp	-	##jname	1
+ui_presets.cpp	-	##last	1
+ui_presets.cpp	-	##nationality	1
+ui_presets.cpp	-	##overall	1
 ui_presets.cpp	-	##pexcsvpick	1
 ui_presets.cpp	-	##pexjsonpick	1
 ui_presets.cpp	-	##pexnamepick	1
 ui_presets.cpp	-	##pfbrowser	1
+ui_presets.cpp	-	##pimportdb	1
 ui_presets.cpp	-	##position	1
+ui_presets.cpp	-	##position2	1
+ui_presets.cpp	-	##position3	1
+ui_presets.cpp	-	##position4	1
+ui_presets.cpp	-	##potential	1
+ui_presets.cpp	-	##weight	1
 ui_presets.cpp	-	Use %d##cclosest	1
 ui_presets.cpp	-	Use##pid%lld	1
 ui_presets.cpp	BeginCombo	##foot	1
@@ -915,24 +930,21 @@ ui_presets.cpp	Button	Import...	1
 ui_presets.cpp	Button	Repair names##prepair	1
 ui_presets.cpp	Button	Replace and export	1
 ui_presets.cpp	Button	Use a hidden player's id...	1
-ui_presets.cpp	InputInt	##birthyear	1
-ui_presets.cpp	InputInt	##height	1
+ui_presets.cpp	InputInt	##bday	1
+ui_presets.cpp	InputInt	##bmonth	1
+ui_presets.cpp	InputInt	##byear	1
 ui_presets.cpp	InputInt	##jersey	1
-ui_presets.cpp	InputInt	##nationality	1
-ui_presets.cpp	InputInt	##overall	1
-ui_presets.cpp	InputInt	##potential	1
-ui_presets.cpp	InputInt	##weight	1
-ui_presets.cpp	InputText	##common	2
-ui_presets.cpp	InputText	##first	2
-ui_presets.cpp	InputText	##jname	2
-ui_presets.cpp	InputText	##last	2
+ui_presets.cpp	InputText	##common	1
+ui_presets.cpp	InputText	##first	1
+ui_presets.cpp	InputText	##jname	1
+ui_presets.cpp	InputText	##last	1
 ui_presets.cpp	InputTextWithHint	##pfile	1
 ui_presets.cpp	InputTextWithHint	##pidsearch	1
 ui_presets.cpp	InputTextWithHint	##playerid	1
 ui_presets.cpp	InputTextWithHint	File name	1
 ui_presets.cpp	OpenPopup	##pclone	1
 ui_presets.cpp	OpenPopup	##pcmt	1
-ui_presets.cpp	OpenPopup	##pcreate	1
+ui_presets.cpp	OpenPopup	##pcreate	2
 ui_presets.cpp	OpenPopup	##pexnamepick	1
 ui_presets.cpp	OpenPopup	##pexport	1
 ui_presets.cpp	OpenPopup	##pfbrowser	1
@@ -943,6 +955,7 @@ ui_presets.cpp	RadioButton	A new player in a club	1
 ui_presets.cpp	RadioButton	This player	1
 ui_presets.cpp	Selectable	Left	1
 ui_presets.cpp	Selectable	Right	1
+ui_presets.cpp	TreeNode	###cattrs	1
 ui_presets.cpp	checkbox_right	Copy the miniface next to the JSON	1
 ui_presets.cpp	checkbox_right	Live Editor preset CSV (its Import from preset reads it)	1
 ui_presets.cpp	checkbox_right	Turbo player JSON (every field, names, club links, loan)	1

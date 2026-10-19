@@ -902,20 +902,19 @@ static void create_dialog(App& app, const PlayerRow& p) {
                 }
             }
         } else if (ImGui::TreeNode("His attributes (edit any)###cattrs")) {
-            if (ImGui::BeginTable("##cattrtable", 4, ImGuiTableFlags_SizingFixedFit)) {
-                for (int i = 0; i < overall::kAttrCount; ++i) {
-                    const char* f = overall::kAttrNames[i];
-                    if (!cur.has(f)) continue;
-                    ImGui::TableNextColumn();
-                    ImGui::TextUnformatted(field_label(f).c_str());
-                    ImGui::TableNextColumn();
-                    char id[48];
-                    std::snprintf(id, sizeof(id), "##ca_%s", f);
-                    ImGui::SetNextItemWidth(S(60.0f));
-                    int x = static_cast<int>(cur.ints[f]);
-                    if (ImGui::InputInt(id, &x, 0)) cur.ints[f] = std::max(1, std::min(x, 99));
-                }
-                ImGui::EndTable();
+            // two per line: the name, then the box (a plain layout, no table)
+            int shown = 0;
+            for (int i = 0; i < overall::kAttrCount; ++i) {
+                const char* f = overall::kAttrNames[i];
+                if (!cur.has(f)) continue;
+                if (shown++ % 2) ImGui::SameLine(S(300.0f));
+                char id[48];
+                std::snprintf(id, sizeof(id), "##ca_%s", f);
+                ImGui::SetNextItemWidth(S(60.0f));
+                int x = static_cast<int>(cur.ints[f]);
+                if (ImGui::InputInt(id, &x, 0)) cur.ints[f] = std::max(1, std::min(x, 99));
+                ImGui::SameLine();
+                ImGui::TextUnformatted(field_label(f).c_str());
             }
             ImGui::TreePop();
         }

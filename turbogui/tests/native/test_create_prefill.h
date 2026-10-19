@@ -82,6 +82,14 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(pt != nullptr, "players table");
         if (!pt) return;
         const int64_t tpl = 1002;
+        // the editor's button row is clipped in a small window (as in test_player_id.h): large for this case, put back at its end
+        ImGuiWindow* mw = ImGui::FindWindowByName("FC 27 LE Turbo");
+        const ImVec2 saved_pos = mw ? mw->Pos : ImVec2(0, 0), saved_size = mw ? mw->SizeFull : ImVec2(0, 0);
+        if (mw) {
+            ImGui::SetWindowPos(mw, ImVec2(20, 20));
+            ImGui::SetWindowSize(mw, ImVec2(1600, 1000));
+        }
+        ui.frames(3);
         json captured = json::array();
         auto take = [&](const std::string& label) {
             CHECK(app.busy(), "a command queued by '" + label + "'");
@@ -95,9 +103,12 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         auto open = [&]() {
             if (ui.find("Cancel##pcreate", "##pcreate")) ui.click("Cancel##pcreate", "##pcreate");
             ui.frames(2);
-            CHECK(ui.click("Players"), "Players tab");
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), std::to_string(tpl)), "search");
+            app.request_tab = 0;
+            ui.frames(2);
             if (!ui.click(std::to_string(tpl), "##plist")) app.sel_player = tpl;
+            ui.frames(2);
+            for (ImGuiWindow* w : GImGui->Windows)
+                if (std::string(w->Name).find("##pedit") != std::string::npos) ImGui::SetScrollY(w, 0.0f);
             ui.frames(2);
             CHECK(app.sel_player == tpl, "template selected");
             CHECK(ui.click("Create player...", "##pedit"), "create dialog");
@@ -176,11 +187,14 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
             const int64_t acc = st.orig.get("acceleration");
             const int64_t acc_want = acc == 77 ? 78 : 77;
             CHECK(ui.type_into(ui.find("##ca_acceleration", "##pcreate"), std::to_string(acc_want)), "acceleration box");
+            ui.click("His attributes (edit any)###cattrs", "##pcreate");  // closed: the dialog fits the screen again (the edit is kept)
+            ui.frames(2);
+            CHECK(st.cur.get("acceleration") == acc_want, "the edit is kept with the attributes closed");
             CHECK(ui.click("Create player", "##pcreate"), "Create (acceleration)");
             o = take("Create player (acceleration)");
             CHECK(o["set"] == json({{"acceleration", acc_want}}), "one attribute: " + o.dump());
+            captured.erase(captured.size() - 1);  // the Lua command world has no attribute columns: this one is checked in the GUI only
             open();
-            ui.click("His attributes (edit any)###cattrs", "##pcreate");  // closed again for the other cases
         }
         CHECK(ui.click("Cancel##pcreate", "##pcreate"), "close the dialog");
 
@@ -193,7 +207,11 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
             const std::string t = results[i].value("text", std::string());
             CHECK(results[i].value("ok", false) && t.find("new player") != std::string::npos, captured[i]["label"].get<std::string>() + ": " + t);
         }
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+        if (mw) {
+            ImGui::SetWindowPos(mw, saved_pos);
+            ImGui::SetWindowSize(mw, saved_size);
+        }
+        ui.frames(3);
     });
 }
 
