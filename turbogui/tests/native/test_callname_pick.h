@@ -205,7 +205,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         std::ofstream(mp2.string()) << R"({"language": "deu_de", "game": "fc27", "real_players": [2001], "generic_ids": [900099],
                                           "names": {"2001": "Nur Deutsch"}})";
         const fs::path game = g_out / "fakegame";
-        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+        make_live_pack(game, "ita_it");  // the suite's registry Locale is it_IT (test_main.cpp)
         app.game_root = game;
         app.callnames.refreshed = false;
         app.voice_service = &fv;
@@ -328,13 +328,12 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         fv.on = true;
         // ---- the loaded language decides the list
         app.gui_settings["callnames"]["override_language"] = "deu_de";
-        fs::create_directories(game / "commentary" / "commentaryfull_deu_de");
         app.callnames.refreshed = false;
         ui.frames(3);
         CHECK(pg.language == "deu_de" && pg.rows_listed == 2 && ui.find("###p2001", "cnplist") && !ui.find("###g900017", "cnplist") &&
                   !ui.find("###p1001", "cnplist"),
               fmt("deu_de loaded: its two rows only (%s, %d)", pg.language.c_str(), pg.rows_listed));
-        fs::remove_all(game / "commentary" / "commentaryfull_deu_de");  // only ita_it's folder is left
+        // the override removed: the registry Locale (it_IT, its pack live) decides again
         if (app.gui_settings.contains("callnames")) app.gui_settings["callnames"].erase("override_language");
         app.callnames.refreshed = false;
         ui.frames(3);
@@ -345,7 +344,6 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         std::ofstream(mp3.string()) << R"({"language": "dut_nl", "game": "fc26", "real_players": [216433, 198190, 299001, 1002], "generic_ids": [900010],
                                           "names": {"216433": "Anwar El Ghazi", "198190": "Greg Cunningham", "299001": "Davy Klaassen"}})";
         app.gui_settings["callnames"]["override_language"] = "dut_nl";
-        fs::create_directories(game / "commentary" / "commentaryfull_dut_nl");
         app.callnames.refreshed = false;
         ui.frames(3);
         app.callnames.use_bank(make_bank("dut_nl", "", {900010}, {{299001, kBankSimple}}));
@@ -383,7 +381,6 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.voice_store.entries.empty(), "undone");
         if (app.gui_settings.contains("callnames")) app.gui_settings["callnames"].erase("override_language");
         fs::remove(mp3);
-        fs::remove_all(game / "commentary" / "commentaryfull_dut_nl");
         app.callnames.refreshed = false;
         ui.frames(3);
         // ---- clean up
@@ -392,7 +389,6 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         fs::remove(voice::store_path(le));
         fs::remove(mp);
         fs::remove(mp2);
-        fs::remove_all(game / "commentary" / "commentaryfull_deu_de");
         app.game_root.clear();
         app.callnames.refreshed = false;
         ui.frames(2);

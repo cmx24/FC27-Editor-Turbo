@@ -402,7 +402,7 @@ static void language_line(App& app) {
             refresh_all(app);
         }
         for (const auto& pk : cn.packs) {
-            std::string label = pk.code + (pk.downloaded ? " (downloaded)" : " (base game)");
+            std::string label = pk.code + " (installed)";
             if (ImGui::Selectable(label.c_str(), pk.code == cn.lang)) {
                 app.gui_settings["callnames"]["override_language"] = pk.code;  // manual override (detection off)
                 app.save_gui_settings();

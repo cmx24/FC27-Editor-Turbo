@@ -37,12 +37,15 @@
 // it; Career > Changes & undo moves a club's kit rows, a callname or a player's edits to Global or This career.
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "app.h"
+#include "core/compdata_profile.h"
 #include "imgui.h"
 #include "ui_career_page.h"
 #include "ui_identity.h"
@@ -334,12 +337,48 @@ void App::update_career_identity() {
     if (it != reapply.careers.end() && it->second.label != career_label) save_reapply();
 }
 
+// 2.21 compdata guard (core/compdata_profile.h): once per career load, right after the identity. Reads the launcher's record
+// (turbo_output\compdata_profile.json), stats the 11 Eerste files, looks the identity up in turbo_config.json
+// "compdata_profile.careers" (built-in fallback: SPARTA = eerste) and logs one "compdata profile:" line. A mismatch raises the
+// red "do not save" line in the overlay's message area (App::draw, also while Turbo is hidden) until the next career load or
+// leaving the career. Writes nothing.
+void App::check_compdata_profile() {
+    compdata_banner.clear();
+    compdata_line.clear();
+    const auto& st = bridge.state();
+    if (!st.loaded || !st.in_cm) return;  // judged only inside a career
+    namespace cd = compdata;
+    auto read_all = [](const fs::path& p, std::string& out) {
+        std::ifstream f(p, std::ios::binary);
+        if (!f) return false;
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        out = ss.str();
+        return true;
+    };
+    std::string rtext, ctext;
+    const bool present = read_all(cd::record_path(bridge.root()), rtext);
+    read_all(bridge.root() / "turbo_config.json", ctext);
+    const cd::Record rec = cd::parse_record(rtext, present);
+    const cd::DiskState disk = cd::read_disk_state(bridge.root());
+    const cd::Installed inst = cd::installed_profile(rec, disk);
+    const cd::Careers careers = cd::parse_careers(ctext);
+    const cd::Profile need = cd::career_need(careers, reapply.career);
+    const cd::Decision d =
+        cd::decide(inst, need, reapply.career, career_label, careers.source + (careers.note.empty() ? std::string() : " [" + careers.note + "]"));
+    compdata_line = d.line;
+    log(d.line);
+    if (log_hook) log_hook(d.line);
+    if (d.verdict == cd::Verdict::Mismatch) compdata_banner = d.banner;
+}
+
 void App::maybe_reapply() {
     const std::string key = reapply_key();
     // the identity first, once per career load (also when nothing is kept: new edits need it)
     if (key != identity_key_) {
         identity_key_ = key;
         update_career_identity();
+        check_compdata_profile();  // 2.21: read-only; one log line, a red line on a mismatch (core/compdata_profile.h)
         team_names_publish();  // the club names in effect in this career (a career's names only in it)
     }
     // only a career database: the tables outside a career are not the ones the edits were made in
