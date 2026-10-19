@@ -92,7 +92,7 @@
         "scope": { "user_team": true },
         "filters": { "max_age": 21 },
         "set": { "isretiring": 0 },
-        "actions": { "fitness": 95, "development": { "xp_multiplier": 2.0, "bonus_xp": 0, "no_decline": true } }
+        "actions": { "fitness": 95, "development": { "xp_multiplier": 1.0, "bonus_xp": 0, "no_decline": false } }
       },
       "scope": { "user_team": true },
       "filters": {},
