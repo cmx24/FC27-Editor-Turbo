@@ -5,7 +5,7 @@
 //
 // What is guarded: the value rules (clamp, change by, PlayStyle give / take away); the field list offers every Int field of the
 // players table with a plain title and no player ID or name id; the clicks (Add field -> a field -> its row); and the Tester's W3
-// check done offline (the fixture players table has no jersey fit; the same path is exercised with Preferred Foot): one field on two players, read back, Undo puts both back; a refused value leaves the player alone.
+// check done offline (the fixture players table has no jersey fit; the same path is exercised with Preferred Foot): one field on two players, read back, Undo puts both back.
 #pragma once
 #include "ui/ui_bulk_edit.h"
 
@@ -139,17 +139,29 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         bulkedit::run_to_end(app);
         CHECK(read_field(app, a, "preferredfoot") == v && read_field(app, b, "preferredfoot") == v, "both players read back the new value");
         CHECK(read_field(app, other, "preferredfoot") == other0, "a player who was not picked is untouched");
-        {   // the log line the live check reads: "<Name>: Preferred Foot <before> -> <after>  [players.preferredfoot = <value>]"
-            int n = 0;
-            for (const std::string& l : app.log_lines)
-                if (l.find("[players.preferredfoot = " + std::to_string(v) + "]") != std::string::npos && l.find("Preferred Foot") != std::string::npos) ++n;
-            CHECK(n >= 2, "the log has one line per player: " + std::to_string(n));
+        {   // the lines the live check reads (2.20_bulk_check.py): the edit, then the read back after the run
+            int edits = 0, back = 0;
+            for (const std::string& l : app.log_lines) {
+                const std::string tag = "[players.preferredfoot = " + std::to_string(v) + "]";
+                if (l.find(tag) == std::string::npos) continue;
+                if (l.rfind("Bulk edit read back (", 0) == 0) ++back;
+                else if (l.find("Preferred Foot changed ") == 0 && l.find(" (") != std::string::npos) ++edits;
+            }
+            CHECK(edits >= 2 && back == 2, "the log has the edit and the read-back line for each player: " + std::to_string(edits) + " / " + std::to_string(back));
         }
         CHECK(bulkedit::state().result.find("Changed 2 players") != std::string::npos, "the result line: " + bulkedit::state().result);
         CHECK(bulkedit::state().undo_players == 2 && bulkedit::state().undo_what == "Preferred Foot", "Undo knows what it puts back");
         CHECK(bulkedit::start_undo(app), "Undo starts");
         bulkedit::run_to_end(app);
         CHECK(read_field(app, a, "preferredfoot") == a0 && read_field(app, b, "preferredfoot") == b0, "Undo put both back");
+        {
+            int put = 0;
+            for (const std::string& l : app.log_lines)
+                if (l.rfind("Bulk edit put back (", 0) == 0 && (l.find("[players.preferredfoot = " + std::to_string(a0) + "]") != std::string::npos ||
+                                                               l.find("[players.preferredfoot = " + std::to_string(b0) + "]") != std::string::npos))
+                    ++put;
+            CHECK(put >= 2, "the log has a put-back line for each player: " + std::to_string(put));
+        }
         CHECK(!bulkedit::start_undo(app), "nothing left to undo");
         // applying the value they already hold changes nobody
         r = bulkedit::row_of("preferredfoot");
@@ -197,7 +209,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         bulkedit::reset();
     });
 
-    run_case("Bulk edit: Apply stays greyed out for no player, a nation not chosen, and a big group without the tick", [&] {
+    run_case("Bulk edit: Apply stays greyed out for no field, no player and a nation not chosen", [&] {
         if (app.busy()) ui.click("Cancel");
         bulkedit::reset();
         show(ui);
