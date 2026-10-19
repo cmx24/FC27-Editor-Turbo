@@ -18,6 +18,7 @@
 #include "move_rules.h"
 #include "playstyles.h"
 #include "ui_bodytypes.h"
+#include "ui_visual_picker.h"
 #include "ui_club_search.h"
 #include "ui_images.h"
 #include "ui_names.h"
@@ -1404,6 +1405,7 @@ static void player_editor(App& app) {
             tattoo_editor(app, *t, p->rec);
             ImGui::SeparatorText("Hair, boots, gloves and accessories");
             item_galleries(app, *t, p->rec);
+            visual_pickers_section(app, *t, p->rec);  // ui_visual_picker.cpp (2.20 V): run style, free kick and looks by animation / picture
             ImGui::SeparatorText("Every appearance field");
             ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his miniface as it is: Choose a real face changes both together.");
             std::vector<std::string> names;

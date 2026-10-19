@@ -3282,6 +3282,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
+#include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -9803,6 +9804,7 @@ static void test_ui() {
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
+        visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -15573,6 +15575,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
+    visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();

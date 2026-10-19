@@ -6,6 +6,7 @@
 #include "ui_sections.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -53,6 +54,8 @@ void draw_settings_page(App& app) {
     }
     draw_status_health(app);  // pictures, health, technical details (collapsed)
     draw_log_section(app, "settings.log");
+    // 2.20 V: the RDBM26 folder of the pickers (ui_visual_picker.cpp), closed at first and last so it moves no other section
+    if (collapsing_section(app, "settings.pictures", "Pictures for the pickers", false)) visual_pictures_setting(app);
 }
 
 }  // namespace
