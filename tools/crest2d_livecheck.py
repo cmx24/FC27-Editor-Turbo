@@ -8,13 +8,15 @@ turbo_output. One PASS / FAIL / INFO line per point and one RESULT line. ASCII o
   py -3 -I tools/crest2d_livecheck.py --self-test      (offline: synthetic passing and failing logs)
 
 The Tester's steps (LEICESTER, never saved, about 2 minutes; the runner launches and kills the game):
-  0. Before launch: Leicester 95's crest in mods\\legacy visibly altered (backup first, restore at teardown) and
-     turbo_output\\kits\\crest2d.json = {"teams": [95]} (Turbo's Kits page, club Leicester, More, "Use my crest on the shirt").
+  0. Before launch: turbo_output\\kits\\crest2d.json = {"teams": [95]} (Turbo's Kits page, club Leicester, More, "Use my crest on
+     the shirt"). NOTHING in mods\\legacy is touched (Pit wall, after 13:35: global file, no crest alteration). The file is global: untick
+     (or delete it) at teardown and check it is gone.
   1. Open one kit preview of Leicester (Kick Off team/kit select): the mannequin / static-jersey paths commit C guards.
   2. Kick Off, Leicester at home, until the players walk out / the first close-up. Screenshot of a Leicester shirt: --shot.
      Crowd (commit B): a wide shot of the stands with low-res crowd shirts as a second screenshot (a second run with --shot).
-  3. Kill the game (runner). Run this script. Judge the picture by eye: --look pass when the shirt crest is the altered Turbo crest,
-     --look fail for the stock stitched crest or the plain crest_fallback decal (this script never judges a picture).
+  3. Kill the game (runner). Run this script WITHOUT --look: the verdict is the log items; the picture is informational (with the
+     stock crest file the 2D crest looks like the club's badge, flat instead of stitched). --look pass|fail exists for a later boot
+     with an altered crest, if Cassio allows it.
 
 What it reads:
   served    turbo_gui.log 'lua_loader: player_kit served: v4 built in memory (stock md5 S, <note>, N B, md5 M)': note must say
