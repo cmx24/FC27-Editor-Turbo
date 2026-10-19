@@ -306,7 +306,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         visual_apply(app, *p, rec, "runstylecode", before_code);
     });
 
-    run_case("UI: no RDBM26 folder -> the picker is a names-only list that still writes", [&] {
+    run_case("UI: visual picker without the RDBM26 folder is a names-only list that still writes", [&] {
         if (!p || !rec) return;
         visual_pictures_override((test_tmp_dir("visual_none") / "nowhere").u8string());
         visual_pictures_refresh(app);
@@ -364,7 +364,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
     };
 
-    run_case("UI: PERF opening the run-style picker never takes more than 16 ms of a frame (22 real-size animations)", [&] {
+    run_case("UI: visual picker PERF: opening the run-style picker never takes more than 16 ms of a frame (22 real-size animations)", [&] {
         if (!p || !rec) return;
         const fs::path fake = make_fake_rdbm(test_tmp_dir("visual_fake_rdbm"));
         measure((fake / "Resources").u8string(), "synthetic 22 x 336x576x29");
