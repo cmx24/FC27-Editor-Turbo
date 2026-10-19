@@ -116,7 +116,8 @@ void presets_frame(App& app) {
     } else if (!s1.opt_in) {
         s1.tactic_now = "not read. Turn on \"Let Turbo change my tactic\" below so Turbo can look at it.";
     } else {
-        s1.tactic_now = "not read. Go to your career's main hub and close Team Management.";
+        // 2.20: the real reason in plain words (until 2.20 every failure said "go to the hub", also in the hub; brief 2.20-T-tactics cause B)
+        s1.tactic_now = "not read. " + tpreset::live_why_plain(live1.why.empty() ? std::string("not read yet") : live1.why);
     }
     tag(s1.tag, theme::warn());
     ImGui::SameLine();
@@ -200,7 +201,9 @@ void update_team_sheet_state(App& app) {
     if (sw2.on_file && !live_tactic_opt_in(app)) s2.bench_hint = "Also turn on \"Let Turbo change my tactic\" on Tactic presets, so Turbo can find your team sheet.";
 
     s2.sheet_read = live2.ok;
-    s2.sheet_why = live2.ok ? std::string() : (live_tactic_opt_in(app) ? "Go to your career's main hub and close Team Management." : "Turn on \"Let Turbo change my tactic\" on Tactic presets first.");
+    s2.sheet_why = live2.ok ? std::string()
+                            : (live_tactic_opt_in(app) ? tpreset::live_why_plain(live2.why.empty() ? std::string("not read yet") : live2.why)
+                                                       : "Turn on \"Let Turbo change my tactic\" on Tactic presets first.");
     s2.starting.clear();
     s2.bench.clear();
     if (live2.ok) {
@@ -293,6 +296,11 @@ struct Sliders {
     bool have_pending = false;
     std::string pending_name;
     std::string raw_message;
+    std::vector<std::string> errors;  // 2.20: the files load_presets skipped (shown, never dropped)
+    bool sliders_ok = false;          // 2.20: the Custom sliders block the game saved last (first look + Refresh)
+    std::map<std::string, int> sliders;
+    std::string sliders_why;
+    int refreshes = 0;
 } sl;
 
 const tpreset::Preset* selected_preset() {
@@ -300,9 +308,29 @@ const tpreset::Preset* selected_preset() {
     return &sl.presets[size_t(sl.idx[size_t(sl.sel)])];
 }
 
+void read_sliders_now(App& app) {
+    std::string layout, map_build;
+    sl.sliders.clear();
+    sl.sliders_ok = game_settings_current(app, sl.sliders, layout, map_build, sl.sliders_why);
+    if (sl.sliders_ok) sl.sliders_why.clear();
+}
+
+std::string sliders_now_line() {
+    if (!sl.sliders_ok) return "Custom sliders now: not read (" + sl.sliders_why + ")";
+    auto val = [](const char* k) {
+        auto it = sl.sliders.find(k);
+        return it == sl.sliders.end() ? std::string("?") : std::to_string(it->second);
+    };
+    return "Custom sliders now: " + std::to_string(sl.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
+           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ")";
+}
+
 void load_presets_now(App& app) {
-    std::vector<std::string> errors;
-    sl.presets = tpreset::load_presets(tpreset::presets_dir(out_dir(app)), &errors);
+    std::vector<std::string>& errors = sl.errors;
+    errors.clear();
+    const fs::path dir = tpreset::presets_dir(out_dir(app));
+    sl.presets = tpreset::load_presets(dir, &errors);
+    log_line(app, "game sliders: " + tpreset::scan_line(sl.presets.size(), errors, dir.u8string()));
     sl.idx.clear();
     for (size_t i = 0; i < sl.presets.size(); ++i)
         if (sl.presets[i].settings.present) sl.idx.push_back(int(i));
@@ -343,12 +371,18 @@ void plan_selected(App& app) {
 }
 
 void update_sliders_state(App& app) {
-    if (!sl.loaded) load_presets_now(app);
+    if (!sl.loaded) {
+        load_presets_now(app);
+        read_sliders_now(app);
+    }
     read_pending(app);
     plan_selected(app);
     s3.names.clear();
     for (int i : sl.idx) s3.names.push_back(sl.presets[size_t(i)].name);
     s3.selected = sl.sel;
+    s3.skipped = sl.errors;
+    s3.sliders_now = sliders_now_line();
+    s3.refreshes = sl.refreshes;
     s3.tag = "Effect in matches: not tested yet";
     const tpreset::Preset* p = selected_preset();
     s3.counts_line.clear();
@@ -403,19 +437,30 @@ void sliders_select_panel(App& app, void*) {
     ImGui::TextUnformatted("Slider presets");
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh###gsrefresh")) {
+        // 2.20: the folder, the prepared file and the Custom sliders, all read again (until 2.20 only the folder)
         load_presets_now(app);
-        s3.message = "Read the presets again.";
+        read_pending(app, true);
+        read_sliders_now(app);
+        ++sl.refreshes;
+        log_line(app, "game sliders: refresh: " + std::to_string(sl.idx.size()) + " slider preset(s) listed, " + std::to_string(sl.errors.size()) +
+                          " file(s) skipped; custom sliders " + (sl.sliders_ok ? "read: " + std::to_string(sl.sliders.size()) + " values" : "not read: " + sl.sliders_why));
+        s3.message = "Read again: " + std::to_string(sl.idx.size()) + " slider preset" + (sl.idx.size() == 1 ? "" : "s") +
+                     (sl.errors.empty() ? std::string() : ", " + std::to_string(sl.errors.size()) + " file(s) could not be used") + ".";
     }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the presets and the Custom sliders again");
     for (size_t k = 0; k < sl.idx.size(); ++k) {
         const tpreset::Preset& p = sl.presets[size_t(sl.idx[k])];
         const std::string label = p.name + "  -  " + std::to_string(p.settings.values.size()) + " sliders###gsel" + std::to_string(k);
         if (ImGui::Selectable(label.c_str(), sl.sel == int(k), 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+            if (sl.sel != int(k)) log_line(app, "game sliders: picked \"" + p.name + "\": " + tpreset::summary(p));
             sl.sel = int(k);
             sl.plan_for = -2;
             s3.message.clear();
         }
     }
-    if (sl.idx.empty()) theme::muted_text("No slider presets yet. Save one on Tactic presets with \"Include gameplay sliders\" ticked.");
+    if (sl.idx.empty() && sl.errors.empty()) theme::muted_text("No slider presets yet. Save one on Tactic presets with \"Include gameplay sliders\" ticked.");
+    if (!sl.errors.empty()) theme::warn_text("%zu preset file(s) could not be used:", sl.errors.size());
+    for (const std::string& e : sl.errors) ImGui::TextWrapped("Skipped %s", e.c_str());
 }
 
 void sliders_editor_panel(App& app, void*) {
@@ -424,6 +469,7 @@ void sliders_editor_panel(App& app, void*) {
     ImGui::TextUnformatted(p ? p->name.c_str() : "Game sliders");
     ImGui::PopFont();
     tag(s3.tag, theme::warn());
+    theme::muted_text("%s", s3.sliders_now.c_str());
     if (!p) {
         theme::muted_text("Pick a slider preset on the left.");
         return;

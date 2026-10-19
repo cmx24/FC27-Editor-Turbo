@@ -62,6 +62,9 @@ inline const std::map<std::string, NamedCodes>& named_tables() {
     {"preferredfoot", {{1, "Right"}, {2, "Left"}}},
     {"gender", {{0, "Male"}, {1, "Female"}}},
     {"headclasscode", {{0, "Specific"}, {1, "Generic"}}},
+    // 2.20: the kit type of a teamkits row (teamkittypetechid). Live Editor names 0..3 (loc/eng_us/localize.json teamkittypetechid_0..3:
+    // Home, Away, GK, Third); 4..9 are described below. "Goalkeeper" (not LE's short "GK") matches the kit pages' slot names.
+    {"teamkittypetechid", {{0, "Home"}, {1, "Away"}, {2, "Goalkeeper"}, {3, "Third"}}},
     };
     // Live Editor's localization: the match weather (0..4), player morale (0..4), injury types (0..84)
     for (const data::LocNamed& e : data::kLocNamed) t[e.table].emplace_back(e.code, e.name);
@@ -74,6 +77,12 @@ inline const std::map<std::string, NamedCodes>& named_tables() {
 // preview (checked against the 3D looks of the real faces: 21 renders black, 19 and 20 brown, 27 red)
 inline const std::map<std::string, NamedCodes>& described_tables() {
     static const std::map<std::string, NamedCodes> m = {
+    // 2.20: kit types 4..9, after the folder names of the game's own 3D kits (<kind>_<type>_0: fourth_4_0, referee_5_0, training_home_6_0,
+    // training_away_7_0, training_home_bibs_8_0, training_away_bibs_9_0; turbo_output\KITS_IMPORT_RESEARCH.txt 1a, ui_identity.cpp kit_type_name)
+    {"teamkittypetechid", {{4, "Fourth"}, {5, "Referee"}, {6, "Training home"}, {7, "Training away"}, {8, "Training home bibs"}, {9, "Training away bibs"}}},
+    // free kick run-up: 0..2 are the game's three standard run-ups (TXT_FREE_KICK_STYLE_*; visual_names.json fkanim), 3.. are signature stances
+    // (freekick_style.STAR_n, n = code - 2: code_label), which belong to players
+    {"animfreekickstartposcode", {{0, "Default"}, {1, "Far From Ball"}, {2, "90 Degrees From Ball"}}},
     {"haircolorcode", {{15, "Pale Blonde"}, {16, "Golden Blonde"}, {17, "Honey Blonde"}, {18, "Dark Blonde"}, {19, "Brown"}, {20, "Chestnut Brown"}, {21, "Jet Black"}, {22, "Cool Black"}, {23, "Dark Grey"}, {24, "Platinum"}, {25, "Orange Red"}, {26, "Auburn"}, {27, "Copper"}}},
     };
     return m;
@@ -86,6 +95,7 @@ inline std::string table_key(const std::string& field) {
     while (!k.empty() && std::isdigit(static_cast<unsigned char>(k.back()))) k.pop_back();
     if (k == "role" || k == "accessorycode" || k == "accessorycolourcode" || k == "shoecolorcode") return k;
     if (field == "facialhaircolorcode") return "haircolorcode";
+    if (field == "crowdskintonecode") return "skintonecode";  // 2.20: the stands use the same ten-step scale (the base file holds 20, 40, 70, 90)
     return field;
 }
 
@@ -156,6 +166,12 @@ inline const char* item_noun(const std::string& field) {
         {"bodytypecode", "Body type"}, {"facialhairtypecode", "Facial hair"}, {"hairtypecode", "Hair"},
         {"tattoohead", "Tattoo"}, {"tattoofront", "Tattoo"}, {"tattooback", "Tattoo"}, {"tattooleftarm", "Tattoo"},
         {"tattoorightarm", "Tattoo"}, {"tattooleftleg", "Tattoo"}, {"tattoorightleg", "Tattoo"},
+        // 2.20 (Kits & club): the stadium and kit style indexes nothing names (schema ranges: goal net style 0..63, net pattern 0..1, pitch and
+        // line colours 0..10, corner flag pole colour 0..20, jersey type 0..2, shirt template 0..11, shorts template 0..2, socks template 0..4)
+        {"stadiumgoalnetstyle", "Goal net style"}, {"stadiumgoalnetpattern", "Goal net pattern"}, {"pitchcolor", "Pitch colour"},
+        {"pitchlinecolor", "Pitch line colour"}, {"cornerflagpolecolor", "Corner flag pole colour"}, {"jerseytype", "Jersey type"},
+        {"jerseytemplateindex", "Shirt template"}, {"shortstemplateindex", "Shorts template"}, {"sockstemplateindex", "Socks template"},
+        {"jerseycollargeometrytype", "Collar"}, {"sleevetypeid", "Sleeve"}, {"stadiummowpattern_code", "Mow pattern"},
     };
     auto it = m.find(field);
     return it == m.end() ? nullptr : it->second;
@@ -189,7 +205,11 @@ inline const std::vector<EnumDef>& enum_defs() {
         {"undershortstyle", 0, {"None", "Visible"}},
         {"shoedesigncode", 0, {"Standard", "Laced", "Laceless", "High-cut"}},
         {"muscularitycode", 0, {"Regular", "Muscular"}},
-        {"runstylecode", 0, {"Default", "Short step", "Long step", "Smooth", "Upright", "Hunched", "Bouncy", "Mixed"}},
+        // the game's own run styles (enum SSFRunStyle + the TXT_CUSTOM_RUN_STYLE_* strings; Track V, 2.20/visual-pickers 310e0b0
+        // turbogui/data/visual_names.json is the source of truth). 3 "Big Man" has no game string in the FC 26 dump (the enum name).
+        {"runstylecode", 0, {"Default", "Darting Striker", "The General", "Big Man", "T-Rex", "Morning Sunshine", "Big Bird", "Freight Train", "Head Down",
+                             "The Buzz", "The Machine", "Elbows Out", "Got Game", "Arched Back", "The Norse", "Dasher", "El Pato", "Rising Star",
+                             "The Captain", "Phonz", "Turtle", "Medalist", "Matilda", "Lioness"}},
         {"growthprofile", 0, {"Default", "Early", "Normal", "Late", "Very late"}},
     };
     return d;
@@ -260,6 +280,13 @@ inline const std::map<std::string, std::string>& title_table() {
         {"accessorycode2", "Accessory 2"}, {"accessorycode3", "Accessory 3"}, {"accessorycode4", "Accessory 4"},
         {"accessorycolourcode1", "Accessory 1 colour"}, {"accessorycolourcode2", "Accessory 2 colour"},
         {"accessorycolourcode3", "Accessory 3 colour"}, {"accessorycolourcode4", "Accessory 4 colour"},
+        // 2.20 (Kits & club)
+        {"teamkittypetechid", "Kit type"}, {"stadiumgoalnetstyle", "Goal net style"}, {"stadiumgoalnetpattern", "Goal net pattern"},
+        {"pitchcolor", "Pitch colour"}, {"pitchlinecolor", "Pitch line colour"}, {"cornerflagpolecolor", "Corner flag pole colour"},
+        {"jerseytype", "Jersey type"}, {"jerseytemplateindex", "Shirt template"}, {"shortstemplateindex", "Shorts template"},
+        {"sockstemplateindex", "Socks template"}, {"jerseycollargeometrytype", "Collar"}, {"sleevetypeid", "Sleeve"},
+        {"stadiummowpattern_code", "Mow pattern"}, {"crowdskintonecode", "Crowd skin tone"},
+        {"teamcolorprimpercent", "Primary colour (%)"}, {"teamcolorsecpercent", "Secondary colour (%)"}, {"teamcolortertpercent", "Tertiary colour (%)"},
     };
     return m;
 }
@@ -376,15 +403,19 @@ inline Label code_label(const std::string& field, int64_t v, const std::string& 
         std::string who;
         if (const data::Users* u = find_users(field, v)) who = users_text(u->players, u->names);
         else if (live && live->players > 0 && !live->names.empty()) who = users_text(live->players, live->names);
-        if (!who.empty()) return {field == "bodytypecode" ? "Unique: " + who : std::string(item) + " " + std::to_string(v) + ": " + who, Kind::Described};
+        // free kick stances from code 3 on are "Signature stance <code - 2>" (the game's freekick_style.STAR_n)
+        const std::string what = field == "animfreekickstartposcode" && v >= 3 ? "Signature stance " + std::to_string(v - 2) : std::string(item) + " " + std::to_string(v);
+        if (!who.empty()) return {field == "bodytypecode" ? "Unique: " + who : what + ": " + who, Kind::Described};
+        if (field == "animfreekickstartposcode" && v >= 3) return {what, Kind::Described};
         return field == "bodytypecode" ? Label{"Player-specific body model " + std::to_string(v), Kind::Unnamed} : Label{item_n(item, v), Kind::Described};
     }
-    if (field == "skintonecode" && named) {  // between two of the ten: the nearest one
+    if (table_key(field) == "skintonecode" && named) {  // between two of the ten: the nearest one
         const int64_t k = std::clamp<int64_t>((v + 5) / 10, 1, 10) * 10;
         return {"Skin tone " + std::to_string(v) + " (near " + find_name(*named, k) + ")", Kind::Described};
     }
     // accessories are items the game has pictures for (the gallery offers ids Live Editor does not name)
     if (named && table_key(field) == "accessorycode") return {item_n("Accessory", v), Kind::Described};
+    if (field == "teamkittypetechid") return {item_n("Kit type", v), Kind::Described};  // 2.20: the game's assets use 0..9, the schema allows 0..22
     if (named) return {unnamed_n(v), Kind::Unnamed};
     if (field == "hairtypecode") return {hair_text(v), Kind::Described};
     if (field == "facialhairtypecode") return {facial_hair_text(v), Kind::Described};
@@ -452,6 +483,22 @@ inline std::vector<int64_t> offered_codes(const std::string& field, const std::v
 // true when a field's combo should list its descriptors alphabetically (it has names: roles, colours, weather...);
 // item catalogues ("Boots #1432") stay in code order
 inline bool has_descriptors(const std::string& field) { return enum_def(field) != nullptr || named_codes(field) != nullptr; }
+
+// ---------------------------------------------------------------- the Kits & club page (2.20)
+// The code-valued fields the Kits & club page draws, by table: ui_identity.cpp draws its grids from these lists and the descriptor test
+// (test_team_preset.h) walks them over the schema range, so a code added to the page without a descriptor fails there.
+//   teams    the Stadium card: goal net, pitch, lines, corner flags, jersey type
+//   teamkits each kit's header (teamkittypetechid, the code on hover only) and the template grid
+// teamcolor*percent are plain percentages (0..100), not codes: the page keeps them as numbers.
+inline const std::vector<std::string>& page_stadium_fields() {
+    static const std::vector<std::string> v = {"stadiumgoalnetstyle", "stadiumgoalnetpattern", "pitchcolor", "pitchlinecolor", "cornerflagpolecolor", "jerseytype"};
+    return v;
+}
+inline const std::vector<std::string>& page_kit_template_fields() {
+    static const std::vector<std::string> v = {"jerseytemplateindex", "shortstemplateindex", "sockstemplateindex"};
+    return v;
+}
+inline const char* page_kit_type_field() { return "teamkittypetechid"; }
 
 // ---------------------------------------------------------------- positions
 // The game's 28 position codes, in code order. A copy of core/model.cpp kPositions (this header stays free of the model;

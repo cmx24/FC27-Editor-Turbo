@@ -475,7 +475,7 @@ static void test_kit_import() {
         o.settings = false;
         o.minikit = false;
         pk = kits::load_kit_zip(make_kit_zip(dir / "bad" / "nosettings.zip", spec, o), spec);
-        CHECK(!pk.ok && pk.problems.size() == 2 && pk.error.find("settings.json is missing (and 1 more)") == 0, "settings and minikit missing: " + pk.error);
+        CHECK(!pk.ok && pk.problems.size() == 1 && pk.error == "settings.json is missing", "settings missing (2.20: a missing minikit.png is a note, Turbo draws one): " + pk.error);
         o = Opts();
         o.settings_text = R"({"teamcolorprim": "blue"})";
         pk = kits::load_kit_zip(make_kit_zip(dir / "bad" / "badsettings.zip", spec, o), spec);
@@ -677,7 +677,12 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!mini.empty() && parse_dds_format(file_bytes(mini), got, &err) && got.pixel == DdsFormat::Pixel::DXT5 && got.w == 64 && got.mips == 7 &&
                   decode_image(file_bytes(mini), mimg, &err) && mimg.at(8, 32)[1] > 150 && mimg.at(8, 32)[0] < 60 && mimg.at(56, 32)[0] > 200,
               "minikit written as the game's 64 x 64 DXT5 with 7 mips, the picture scaled to it: " + err);
-        CHECK(app.legacy.custom_file(kits::minikit_path(7, kits::Slot::Away)).empty(), "no away minikit (the game has none)");
+        {  // 2.20 K4: the game has no away minikit: written in the proven MK1 form
+            const fs::path am = app.legacy.custom_file(kits::minikit_path(7, kits::Slot::Away));
+            std::string cerr_;
+            CHECK(!am.empty() && kits::check_minikit_dds(file_bytes(am), &cerr_), "away minikit (the game has none) written in the MK1 form: " + cerr_);
+            CHECK(ui.toast_contains("Minikit updated"), "toast says the minikit was updated");
+        }
         // ---- 3. staged textures
         const fs::path home = kits::slot_dir(le, 7, kits::Slot::Home), away = kits::slot_dir(le, 7, kits::Slot::Away);
         CHECK(fs::exists(home / "manifest.json") && fs::exists(home / "jersey_color.dds") && fs::exists(home / "crest_color.dds") &&
@@ -802,6 +807,7 @@ static void kit_import_ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.toast_contains("import undone"), "toast");
         std::string msg;
         CHECK(undo_kit_import(app, 7, kits::Slot::Away, &msg) && !fs::exists(away), "away undone: " + msg);
+        CHECK(app.legacy.custom_file(kits::minikit_path(7, kits::Slot::Away)).empty(), "the away minikit Turbo wrote is gone with the undo (2.20)");
         CHECK(!undo_kit_import(app, 7, kits::Slot::Away, &msg) && msg.find("nothing imported") != std::string::npos, "nothing left to undo");
         ReapplyStore on_disk;
         on_disk.career = app.reapply.career;  // 2.15: the rows of this career are the ones in effect here

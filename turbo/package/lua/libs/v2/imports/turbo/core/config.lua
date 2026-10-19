@@ -36,7 +36,7 @@ M.DEFAULTS = {
             players = {},
             user_team = false,
             weekly = 1,           -- 0..5
-            no_decline = true,
+            no_decline = false,    -- OFF by default everywhere (2.20): the user turns it on
             events = { "WEEK_PASSED", "POST_LOAD_PREPARE" },
         },
         pap_playstyles = {

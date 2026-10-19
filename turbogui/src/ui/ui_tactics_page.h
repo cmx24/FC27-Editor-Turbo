@@ -64,6 +64,10 @@ struct GameSlidersPageState {
     std::string steps;                     // the three steps in one string, one per line
     bool can_prepare = false, can_discard = false, prepared = false;
     std::string message;                   // the last Prepare / Discard outcome in plain words
+    // 2.20 (brief 2.20-T-tactics): files of the store that could not be used (never silent), the Custom sliders the game saved last
+    std::vector<std::string> skipped;      // "x.json: why"
+    std::string sliders_now;               // "Custom sliders now: 125 values (...)" / "... not read (why)"
+    int refreshes = 0;
 };
 const GameSlidersPageState& game_sliders_page_state();
 void draw_game_sliders_page(App& app);

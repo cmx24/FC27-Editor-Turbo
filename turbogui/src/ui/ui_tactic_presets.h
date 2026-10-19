@@ -41,6 +41,12 @@ struct TacticPresetsState {
     std::string last_line;              // "Last load: <preset> (loaded) ..." ("" = none)
     std::string reapply;                // the Re-apply prompt ("" = none)
     std::vector<std::string> errors;    // preset files that were skipped (not valid) and why
+    // 2.20 (brief 2.20-T-tactics): the plain reason of a failed live read (tpreset::live_why_plain), the Custom sliders block the game saved
+    // last (read at the first look and at every Refresh), and how often Refresh ran
+    std::string live_plain;
+    bool sliders_ok = false;
+    std::string sliders_line;           // "Custom sliders now: 125 values (sprint speed you 50 / CPU 50, acceleration you 50)" / "... not read: why"
+    int refreshes = 0;
 };
 const TacticPresetsState& tactic_presets_state();
 

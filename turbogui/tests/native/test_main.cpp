@@ -346,7 +346,9 @@ static void test_field_labels() {
               "GK gloves: " + code_text("gkglovetypecode", 37, ""));
         CHECK(has(offered_codes("shoetypecode", {}, 0), 389) && has(offered_codes("gkglovetypecode", {}, 0), 150), "every boot and glove id with a brand is offered");
         // stances and running animations: 0 standard, the others by their players
-        CHECK(code_text("animfreekickstartposcode", 0, "") == "Standard" && code_text("animfreekickstartposcode", 4, "") == "Free kick stance 4: Lionel Messi",
+        CHECK(code_text("animfreekickstartposcode", 0, "") == "Default" && code_text("animfreekickstartposcode", 1, "") == "Far From Ball" &&
+                  code_text("animfreekickstartposcode", 2, "") == "90 Degrees From Ball" && code_text("animfreekickstartposcode", 4, "") == "Signature stance 2: Lionel Messi" &&
+                  code_text("animfreekickstartposcode", 29, "") == "Signature stance 27",
               "free kick stances: " + code_text("animfreekickstartposcode", 4, ""));
         CHECK(code_text("animpenaltiesstartposcode", 1, "").find(" +127 more") != std::string::npos &&
                   code_text("runningcode2", 99, "") == "Running animation 2 #99",
@@ -3174,6 +3176,7 @@ static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
+#include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -3671,12 +3674,14 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
 #include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
+#include "test_tactics_page.h"  // 2.20 tactics: the Tactics pages against the real store, live read honesty (tactics_page_test::run, ::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
 #include "test_attrib_two_copies.h"  // 2.10 A0: second copy (databases/simulation) of an attrib asset, per-location write log (attrib_two_copies_test::run)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
+#include "test_callname_pick.h"  // 2.20: the one-list Callname page (callname_pick_test::run, ::ui_cases)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
@@ -3685,7 +3690,9 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
+#include "test_team_preset.h"     // 2.20: the My team preset (5 fields), growth defaults OFF, Kits & Club descriptors (team_preset_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
+#include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_club_fields.h"  // 2.20 K3: club, crowd, stadium and kit fields (club_fields_test::run / ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
@@ -3997,6 +4004,11 @@ static void test_ui() {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
         app.visible = true;
+        // 2.20 S3-window: the panel now starts maximized; the cases below were written against the old first-use window (1180x760 at 60,54 on
+        // the 1920x1080 test display), so they keep it through a stored rectangle. The maximized default has its own cases (test_window_settings.h)
+        app.prefs.window.maximized = false;
+        app.prefs.window.has_rect = true;
+        app.prefs.window.rect = turbo::WindowRect{60.0f, 54.0f, 1180.0f, 760.0f};
         app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
         app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
@@ -4864,7 +4876,7 @@ static void test_ui() {
             ui.frames(2);
             // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
             CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
-            CHECK(ui.find("Home kit (type 0, kit id 70)", "##tcolours") != nullptr, "Everton's home kit listed");
+            CHECK(ui.find("Home kit", "##tcolours") != nullptr, "Everton's home kit listed");
             const Table* t = app.db.table("teams");
             uint64_t rec = app.db.find(*t, "teamid", 7);
             uint8_t rgb[3];
@@ -4990,6 +5002,7 @@ static void test_ui() {
             CHECK(!apply_crest(app, 241, src, Framing(), false, 40, &msg) && msg.find("not loaded yet") != std::string::npos, "unknown formats: refused (" + msg + ")");
         });
         kit_import_ui_cases(app, ui, le);  // test_kit_import.h: Teams > Kits (2.3)
+        minikit_test::ui_cases(app, ui, le);  // test_minikits.h: the minikits an import makes (2.20 K4)
 
         run_case("UI: Managers, edit text within the field's byte limit", [&] {
             CHECK(ui.click("Managers"), "Managers tab");
@@ -6866,6 +6879,7 @@ static void test_ui() {
             ui.frames(2);
         });
         ui_cases_club_search(app, ui, mem, kMb);  // test_club_search.h
+        callname_use_legacy_page(true);  // 2.20: the Callname cases below drive the older tabbed editor (callname_editor_legacy); the new page is tested after them
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");
@@ -8272,6 +8286,8 @@ static void test_ui() {
             app.log_hook = nullptr;
             ui.frames(2);
         });
+        callname_use_legacy_page(false);
+        callname_pick_test::ui_cases(app, ui, mem, kMb);  // test_callname_pick.h (2.20: the one-list Callname page)
         run_case("UI: 2.15 kept edits by scope: not assigned and global rows in every career, a career's rows only in it (identity: the manager row)", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log
@@ -9701,12 +9717,14 @@ static void test_ui() {
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
         page_tactics_test::ui_cases(app, ui, le);  // test_page_tactics.h: Tactic presets frame, Team sheet & bench, Game sliders (2.16)
+        tactics_page_test::ui_cases(app, ui, le);  // test_tactics_page.h: store scan, pick, Refresh re-reads, plain read failure (2.20)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
+        window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -9714,6 +9732,7 @@ static void test_ui() {
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
         create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h
+        team_preset_test::run_ui(app, ui, mem, kMb);  // test_team_preset.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
@@ -15417,6 +15436,7 @@ int main(int argc, char** argv) {
     test_images();
     std::printf("native kit import\n");
     test_kit_import();
+    minikit_test::unit();  // test_minikits.h (2.20 K4)
     test_kit_fonts();
     club_fields_test::run();  // test_club_fields.h (2.20 K3)
     kit_share_test::run();  // test_kit_share.h (2.13)
@@ -15465,6 +15485,7 @@ int main(int argc, char** argv) {
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
+    window_settings_test::run();  // test_window_settings.h (pure cases)
     test_shell();  // test_shell.h: shell contract (pure cases)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
@@ -15485,6 +15506,7 @@ int main(int argc, char** argv) {
     gsettings_test::run_custom();  // test_game_settings.h (2.10: the Custom u8 block)
     settings_presets_test::run();  // test_settings_presets.h (2.10)
     tactic_presets_test::run();  // test_tactic_presets.h (2.12)
+    tactics_page_test::run();  // test_tactics_page.h (2.20)
     attrib_ebx_test::run();
     oodle_dispatch_test::run();  // test_oodle_dispatch.h (2.11)
     minhook_reloc_test::run();  // test_minhook_reloc.h (2.15)
@@ -15504,6 +15526,9 @@ int main(int argc, char** argv) {
     archetype_target_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();
+    std::printf("native My team preset, growth defaults, descriptors (2.20)\n");
+    team_preset_test::run_core();
+    team_preset_test::run_descriptors();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");

@@ -19,6 +19,7 @@
 #include "geo.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "preload.h"
 #include "ui_zoom.h"
 #include "ui_asset_browser.h"
@@ -1731,19 +1732,95 @@ void App::draw() {
     const float max_w = ds.x > 100.0f ? ds.x : S(1180.0f), max_h = ds.y > 100.0f ? ds.y : S(760.0f);
     ImGui::SetNextWindowSize(ImVec2(std::min(S(1180.0f), max_w * 0.9f), std::min(S(760.0f), max_h * 0.88f)), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(std::min(S(60.0f), max_w * 0.04f), std::min(S(60.0f), max_h * 0.05f)), ImGuiCond_FirstUseEver);
-    if (ui_scale_changed_from > 0.0f && main_window_size_.x > 0.0f) {
+    // 2.20 S3-window (gui_prefs.h WindowPrefs): the panel starts maximized (the whole viewport) unless gui_settings.json gui.window
+    // holds a usable rectangle; Maximize / Restore in the title strip; a moved or resized panel is saved once it rests. THE SETTING
+    // WINS over turbo_gui_layout_v2.ini: the ini only seeds a window when it is created, and the place and size from gui_settings.json
+    // are set with ImGuiCond_Always on the first frame (and again on Maximize / Restore and when the viewport changes while maximized).
+    // (No NoSavedSettings on the panel: its tables inherit it and would lose their saved column widths.)
+    WindowPrefs& wprefs = prefs.window;
+    WindowTracker& wtrack = prefs.window_rt;
+    const bool win_known = ds.x > 100.0f && ds.y > 100.0f;  // the host reports the viewport (before that the defaults above hold)
+    if (win_known && wtrack.need_apply(wprefs.maximized, ds.x, ds.y)) {
+        const WindowRect dflt{std::min(S(60.0f), max_w * 0.04f), std::min(S(60.0f), max_h * 0.05f),
+                              std::min(S(1180.0f), max_w * 0.9f), std::min(S(760.0f), max_h * 0.88f)};
+        const WindowPlan plan = window_plan(wprefs, ds.x, ds.y, wtrack.restoring, dflt);
+        wprefs.maximized = plan.maximized;
+        if (!plan.maximized) { wprefs.rect = plan.rect; wprefs.has_rect = true; }
+        ImGui::SetNextWindowPos(ImVec2(plan.rect.x, plan.rect.y), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(plan.rect.w, plan.rect.h), ImGuiCond_Always);
+        wtrack.applied(ds.x, ds.y);
+        if (wtrack.save_on_apply) {
+            wtrack.save_on_apply = false;
+            if (!save_gui_settings()) notify("cannot save the window size", true);
+        }
+    } else if (ui_scale_changed_from > 0.0f && main_window_size_.x > 0.0f && !wprefs.maximized) {
         // UI size changed: the window grows or shrinks with its contents (clamped below)
         const float r = ui_scale_applied / ui_scale_changed_from;
         ImGui::SetNextWindowSize(ImVec2(main_window_size_.x * r, main_window_size_.y * r), ImGuiCond_Always);
     }
     ui_scale_changed_from = 0.0f;
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(S(480.0f), max_w), std::min(S(320.0f), max_h)), ImVec2(max_w, max_h));
-    if (!ImGui::Begin("FC 27 LE Turbo", &visible, ImGuiWindowFlags_NoCollapse)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, wprefs.maximized ? 0.0f : ImGui::GetStyle().WindowRounding);
+    const bool main_open = ImGui::Begin("FC 27 LE Turbo", &visible,
+                                        ImGuiWindowFlags_NoCollapse |
+                                            (wprefs.maximized ? ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize : 0));
+    ImGui::PopStyleVar();
+    if (!main_open) {
         ImGui::End();
         return;
     }
     main_window_size_.x = ImGui::GetWindowSize().x;
     main_window_size_.y = ImGui::GetWindowSize().y;
+    {   // Maximize / Restore in the title strip, left of the close button (drawn by hand: no layout item, the content never changes)
+        ImGuiWindow* mwin = ImGui::GetCurrentWindow();
+        const ImGuiStyle& wst = ImGui::GetStyle();
+        const char* const mlabel = wprefs.maximized ? "Restore" : "Maximize";
+        const ImRect tb = mwin->TitleBarRect();
+        const ImVec2 tsz = ImGui::CalcTextSize(mlabel);
+        const float bx1 = tb.Max.x - wst.FramePadding.x - ImGui::GetFontSize() - wst.ItemInnerSpacing.x - S(6.0f);
+        const ImRect bb(ImVec2(bx1 - tsz.x - wst.FramePadding.x * 2.0f, tb.Min.y + S(2.0f)), ImVec2(bx1, tb.Max.y - S(2.0f)));
+        const ImGuiID mid = mwin->GetID("###winmax");
+        ImGui::PushClipRect(tb.Min, tb.Max, false);
+        if (ImGui::ItemAdd(bb, mid)) {
+            bool hov = false, held = false;
+            const bool pressed = ImGui::ButtonBehavior(bb, mid, &hov, &held);
+            mwin->DrawList->AddRectFilled(bb.Min, bb.Max, ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : hov ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
+                                          wst.FrameRounding);
+            mwin->DrawList->AddText(ImVec2(bb.Min.x + wst.FramePadding.x, bb.Min.y + (bb.GetHeight() - tsz.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), mlabel);
+            if (hov) ImGui::SetTooltip("%s", wprefs.maximized ? "Back to the window size you chose (drag its edges to resize it)" : "Make Turbo fill the whole game screen");
+            if (pressed) {  // the whole screen <-> the window you sized
+                if (wprefs.maximized) {
+                    wtrack.restoring = true;  // back to the stored rectangle (or the first-use size)
+                } else {
+                    const WindowRect here{mwin->Pos.x, mwin->Pos.y, mwin->Size.x, mwin->Size.y};
+                    if (window_rect_usable(here, ds.x, ds.y, kWindowSoftMinW, kWindowSoftMinH)) { wprefs.rect = here; wprefs.has_rect = true; }
+                    wprefs.maximized = true;
+                }
+                wtrack.apply_pending = true;
+                wtrack.save_on_apply = true;  // written on the next frame, when the state is settled
+            }
+        }
+        ImGui::PopClipRect();
+        // toasts (top-right, no input) stay readable above a maximized panel, which a click would bring to the front
+        if (!toasts.empty())
+            if (ImGuiWindow* tw = ImGui::FindWindowByName("##turbo_toasts")) ImGui::BringWindowToDisplayFront(tw);
+    }
+    {
+        const WindowRect cur{ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, main_window_size_.x, main_window_size_.y};
+        if (wprefs.maximized) {
+            // moved or resized from code (a test, another feature): it is no longer maximized
+            if (!window_is_full(cur, ds.x, ds.y) && !wtrack.apply_pending && win_known) {
+                wprefs.maximized = false;
+                wprefs.rect = cur;
+                wprefs.has_rect = true;
+                wtrack.have_seen = false;
+            }
+        } else if (wtrack.observe(cur, now, ImGui::IsMouseDown(0))) {
+            wprefs.rect = cur;  // the last place and size the person left it at (written once, not per frame)
+            wprefs.has_rect = true;
+            if (!save_gui_settings()) notify("cannot save the window size", true);
+        }
+    }
 
     // Status line (2.16 step 2): the link in a word and your club; the version, Refresh, the show/hide key and the Advanced switch are
     // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load

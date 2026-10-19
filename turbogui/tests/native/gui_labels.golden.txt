@@ -41,6 +41,7 @@ table_registry.h	-	##chgrows	1
 table_registry.h	-	##clubrows	1
 table_registry.h	-	##clubs	1
 table_registry.h	-	##cnalltable	1
+table_registry.h	-	##cnptable	1
 table_registry.h	-	##cntable	1
 table_registry.h	-	##comptable	1
 table_registry.h	-	##cptable	1
@@ -116,7 +117,9 @@ ui_bodytypes.cpp	OpenPopup	Copy body type from player##btcopy	1
 ui_bodytypes.cpp	PushID	##bodytypes	1
 ui_bodytypes.cpp	checkbox_right	Allow a player-specific body on this head (untested)##btallow	1
 ui_bodytypes.cpp	checkbox_right	Used by players only##btused	1
+ui_callname_play.cpp	-	###cnpreview	1
 ui_callname_play.cpp	-	##play_%c%lld	1
+ui_callnames.cpp	-	###	1
 ui_callnames.cpp	-	##cnallscope	1
 ui_callnames.cpp	-	##row%lld	1
 ui_callnames.cpp	-	##vsconfirm	1
@@ -130,6 +133,7 @@ ui_callnames.cpp	-	Remove##vs	1
 ui_callnames.cpp	BeginChild	##cnall	1
 ui_callnames.cpp	BeginChild	##cnames	1
 ui_callnames.cpp	BeginChild	##cnclublist	1
+ui_callnames.cpp	BeginChild	##cnplist	1
 ui_callnames.cpp	BeginChild	##cplayers	1
 ui_callnames.cpp	BeginChild	##vslist	1
 ui_callnames.cpp	BeginCombo	##cnlang	1
@@ -145,11 +149,15 @@ ui_callnames.cpp	BeginTabItem	By player	1
 ui_callnames.cpp	BeginTabItem	Players without own recording	1
 ui_callnames.cpp	BeginTabItem	Voice swaps	1
 ui_callnames.cpp	BeginTable	##cnalltable	1
+ui_callnames.cpp	BeginTable	##cnptable	1
 ui_callnames.cpp	BeginTable	##cntable	1
 ui_callnames.cpp	BeginTable	##cptable	1
 ui_callnames.cpp	BeginTable	##vstable	1
+ui_callnames.cpp	Button	###cnapply	1
 ui_callnames.cpp	Button	###cncapture	1
+ui_callnames.cpp	Button	###cnpreview	1
 ui_callnames.cpp	Button	###cnrebuild	1
+ui_callnames.cpp	Button	###cnundo	1
 ui_callnames.cpp	Button	Assign anyway##cnown	1
 ui_callnames.cpp	Button	Assign as common name	1
 ui_callnames.cpp	Button	Assign as last name	1
@@ -171,6 +179,7 @@ ui_callnames.cpp	Checkbox	Keep the shown name (editedplayernames)	1
 ui_callnames.cpp	Checkbox	Keep the shown name (editedplayernames)##all	1
 ui_callnames.cpp	Checkbox	Use his own recording##vs	1
 ui_callnames.cpp	InputTextWithHint	##cnallsearch	1
+ui_callnames.cpp	InputTextWithHint	##cnpsearch	1
 ui_callnames.cpp	InputTextWithHint	##cnsearch	1
 ui_callnames.cpp	InputTextWithHint	##cpsearch	1
 ui_callnames.cpp	OpenPopup	##cnown	1
