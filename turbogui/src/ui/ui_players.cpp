@@ -23,7 +23,6 @@
 #include "ui_names.h"
 #include "ui_archetype.h"
 #include "ui_presets.h"
-#include "ui_player_profile.h"
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
 #include "ui_team_filter.h"
@@ -533,7 +532,7 @@ static bool move_button(App& app, const char* label, const char* key, const std:
 // M.list): the game lists on YOUR club whoever the player is, so for another club's player they say why instead
 // (move_rules::why_not); List status runs for anyone.
 // "Transfer list" / "Loan list" / "Remove from lists" (+ "List status" with_status) for one player (player_moves module)
-void list_buttons(App& app, const PlayerRow& p, bool with_status) {
+static void list_buttons(App& app, const PlayerRow& p, bool with_status) {
     const int64_t pid = p.playerid;
     const move_rules::Facts facts = move_facts(app, p);
     struct B { const char* label; const char* action; const char* key; const char* tip; };
@@ -595,7 +594,7 @@ void transfer_ban_section(App& app, const char* what, int64_t id) {
 // The squad role of one player of YOUR club (features/squad_role.lua with a playerid: through the game's own PlayerStatusManager
 // calls, Turbo.dll squad_role op 14, else in memory; a player without a squad status entry gets one). Read = the role the game
 // holds now. The game has squad roles for the user's club only; the Squad screen reads them when it is built.
-void squad_role_section(App& app, const PlayerRow& p) {
+static void squad_role_section(App& app, const PlayerRow& p) {
     const BridgeState& st = app.bridge.state();
     if (!st.in_cm || st.user_team <= 0 || p.club != st.user_team) return;
     ImGui::SeparatorText("Squad role (your club)");
@@ -676,7 +675,7 @@ static bool career_button(App& app, const char* label, const char* key, const ch
     return clicked && !off;
 }
 
-void career_dev_tab(App& app, const PlayerRow& p) {
+static void career_dev_tab(App& app, const PlayerRow& p) {
     static int delta = 1, potential = 0, weekly = 1;
     static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);  // OFF; a saved value never turns it on
     ImGui::TextDisabled("Manager Career: these run through Turbo's Lua side on the next career-mode event.");
@@ -1488,8 +1487,5 @@ void draw_players(App& app) {
     player_editor(app);
     ImGui::EndChild();
 }
-
-// 2.20 IA (ui_player_profile.h): the Profile page draws the full player-type editor through this pointer
-static const bool s_ability_hook = (g_ability_archetype_bar = archetype_bar, true);
 
 }  // namespace turbo
