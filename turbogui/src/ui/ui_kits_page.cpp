@@ -353,10 +353,30 @@ void pitch_tick(App& app, int64_t team, Slot slot, bool custom) {
     g_state.pitch_line = line;
     ImGui::PushTextWrapPos(0.0f);
     theme::muted_text("%s", line.c_str());
+    // 2.20: the kit's swap plan (made once when the kit is staged; the game start only loads it)
+    const kitswap::Status st = rt && opted ? rt->status() : kitswap::Status();
+    const int sl = kits::slot_type(slot);
+    const kitswap::Status::PlanRow* plan = nullptr;
+    for (const auto& p : st.plans)
+        if (p.team == int(team) && p.slot == sl) plan = &p;
+    bool plan_ready = !plan || plan->state == "ready";
+    if (rt && opted && plan && (staged || active_swap)) {
+        if (plan->state == "planning") {
+            theme::warn_text("Planning your kit... (about %.0f s)", std::max(1.0, st.plan_estimate_s));
+        } else if (plan->state == "queued") {
+            theme::muted_text("Waiting to plan your kit (%d %s to plan first).", std::max(0, st.plans_queued - 1), st.plans_queued - 1 == 1 ? "kit" : "kits");
+        } else if (plan->state != "ready" && active_swap) {
+            theme::warn_text("Off on the pitch: %s.", plan->reason.empty() ? "this kit has no swap plan" : plan->reason.c_str());
+            if (ImGui::SmallButton("Plan it now##kpplan")) {
+                rt->request_plan(int(team), sl, true);
+                app.log("kit swap: team " + std::to_string(team) + " " + kits::slot_label(slot) + ": plan asked for");
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the game's kit data for this kit once (about 20 s). The game start then only loads the result.");
+        }
+    }
     // why a kit is only partly served: the club names of the shared kits, in plain words
-    if (rt && opted && active_swap) {
-        const kitswap::Status st = rt->status();
-        const std::string said = kit_swap_status_line(st, team, kits::slot_type(slot), [&](int64_t id) { return app.model.team_name(id); });
+    if (rt && opted && active_swap && plan_ready) {
+        const std::string said = kit_swap_status_line(st, team, sl, [&](int64_t id) { return app.model.team_name(id); });
         if (said.compare(0, 7, "swapped") == 0) {
             theme::ok_text("Shows on the pitch from the next match.");
         } else if (!said.empty()) {
@@ -364,6 +384,23 @@ void pitch_tick(App& app, int64_t team, Slot slot, bool custom) {
             const size_t cut = said.find("; tick");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", (cut == std::string::npos ? said : said.substr(0, cut)).c_str());
         }
+        // 2.20 (donor help): the clubs whose kits use the same game data, said plainly instead of offering to change them
+        const std::string also = kit_swap_shared_clubs(st, team, sl, [&](int64_t id) { return app.model.team_name(id); });
+        if (!also.empty()) theme::muted_text("This design would also appear on %s.", also.c_str());
+    }
+    // 2.20: the old full build, only as an explicit action (Advanced): every kit planned again, one after the other
+    if (rt && opted && app.prefs.advanced_mode && !st.slots.empty()) {
+        const bool busy = st.plans_queued > 0 || st.state == "planning";
+        if (busy) ImGui::BeginDisabled();
+        char label[96];
+        std::snprintf(label, sizeof(label), "Rebuild all kit plans (%zu %s, about %.0f s each)##kpreplan", st.slots.size(), st.slots.size() == 1 ? "kit" : "kits", 20.0);
+        if (ImGui::SmallButton(label)) {
+            rt->replan_all();
+            app.log("kit swap: every kit plan asked for again (" + std::to_string(st.slots.size()) + " kits)");
+        }
+        if (busy) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Diagnostics: plans every switched-on kit again from the game's files. Needed only after a game update or when a kit says so.");
     }
     ImGui::PopTextWrapPos();
 }

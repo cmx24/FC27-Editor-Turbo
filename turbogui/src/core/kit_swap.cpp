@@ -2,6 +2,8 @@
 #include "kit_swap.h"
 
 #include <algorithm>
+#include <array>
+#include <map>
 #include <chrono>
 #include <cmath>
 #include <cctype>
@@ -814,6 +816,31 @@ bool TableBuilder::add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint
     return true;
 }
 void TableBuilder::exclude_item(uint32_t item) { d_->excluded.insert(item); }
+std::vector<PlanRecord> TableBuilder::records() const {
+    std::vector<PlanRecord> out(d_->storage.size());
+    for (size_t i = 0; i < out.size(); ++i) {
+        out[i].swap = d_->swap[i] != 0;
+        out[i].data = d_->storage[i];
+        out[i].src_file = d_->src_file[i];
+        out[i].src_off = d_->src_off[i];
+    }
+    for (const auto& r : d_->recs) {
+        PlanBlock b;
+        b.csize = r.e.csize;
+        b.dsize = r.e.dsize;
+        b.head = r.e.head;
+        b.fnv = r.e.fnv;
+        const auto& sp = d_->storage[r.e.item];
+        if (r.e.data && sp) b.off = uint64_t(r.e.data - sp->data());
+        out[r.e.item].blocks.push_back(b);
+    }
+    return out;
+}
+uint32_t TableBuilder::add_record(const PlanRecord& r) {
+    const uint32_t id = add_item(r.data, r.swap, r.src_file, r.src_off);
+    for (const PlanBlock& b : r.blocks) add_block(id, b.csize, b.dsize, b.head, b.fnv, r.data && b.off != ~0ULL ? r.data->data() + b.off : nullptr, nullptr);
+    return id;
+}
 
 static uint64_t mix(uint32_t cs, uint32_t ds, uint64_t head) {
     uint64_t h = head * 0x9E3779B97F4A7C15ULL;
@@ -2050,6 +2077,478 @@ bool load_table_cache(const fs::path& file, const TableCacheKey& key, CachedBuil
     }
 }
 
+// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (swap_plan.bin)
+const char* const kPlanStaleReason = "Re-stage this kit (planned for another game version)";
+const char* const kPlanNoneReason = "Re-stage this kit (it has no swap plan yet)";
+const char* const kPlanOptionsReason = "Re-stage this kit (planned with other kit options)";
+const char* const kPlanStagedReason = "Re-stage this kit (its staged pictures changed since it was planned)";
+const char* const kPlanDamagedReason = "Re-stage this kit (its swap plan file is damaged)";
+static const char* const kPlanFormatReason = "Re-stage this kit (planned by an older Turbo)";
+
+namespace {
+constexpr uint32_t kPlanMagic = 0x4C504B54;  // "TKPL"
+const char* const kKeyFormat = "plan format";
+const char* const kKeyBuild = "game build";
+const char* const kKeyIndex = "kit index (the game's tocs)";
+}  // namespace
+
+Options plan_options(const Options& base, const SlotState& s) {
+    Options o = base;
+    o.include_decals = s.decals;
+    o.keep_game_crest = s.keep_crest;
+    o.share_within_club = s.share_club;
+    o.share_other_clubs = s.share_other;
+    return o;
+}
+
+PlanKey make_plan_key(const std::string& game_build, const std::string& index_sig, const SlotState& s, const fs::path& dir, const Options& o) {
+    PlanKey k;
+    k.add(kKeyFormat, std::to_string(kPlanFormat));
+    k.add(kKeyBuild, game_build);
+    k.add(kKeyIndex, index_sig);
+    k.add("kit", std::to_string(s.team) + ":" + std::to_string(s.slot));
+    k.add("manifest", file_hash(dir / "manifest.json"));
+    // the hotspots file the manifest names (load_staged's rule), "missing" when there is none
+    std::string hot = "missing";
+    try {
+        std::ifstream mf(dir / "manifest.json", std::ios::binary);
+        const json mj = mf ? json::parse(mf, nullptr, false) : json();
+        const std::string hs = mj.is_object() && mj.contains("hotspots") && mj["hotspots"].is_string() ? mj["hotspots"].get<std::string>() : std::string();
+        std::error_code ec0;
+        if (!hs.empty() && hs.find_first_of("/\\") == std::string::npos && fs::is_regular_file(dir / hs, ec0)) hot = file_hash(dir / hs);
+    } catch (...) {
+    }
+    k.add("hotspots", hot);
+    k.add("mode", mode_name(s.mode));
+    std::ostringstream ko;
+    ko << "decals " << s.decals << " crest " << s.keep_crest << " share_club " << s.share_club << " share_other " << s.share_other;
+    k.add("kit options", ko.str());
+    std::ostringstream go;
+    go << "watch " << o.watch_club << " min_csize " << o.min_csize << " census " << o.census;
+    // the names-and-numbers switch changes only a kit that has a hotspots file (it is not saved in swap_state.json, so keying every kit
+    // to it would switch every kit off after a restart with the switch moved)
+    if (hot != "missing") go << " hotspots " << o.apply_hotspots;
+    k.add("global options", go.str());
+    return k;
+}
+
+SwapPlan make_swap_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, const StagedKit& staged, const SlotState& slot, const Options& base,
+                        const PlanKey& key, Progress* progress) {
+    SwapPlan sp;
+    sp.key = key;
+    TableBuilder tb;
+    const auto t0 = std::chrono::steady_clock::now();
+    sp.plan = build_plan(files, oodle, index, staged, plan_options(base, slot), slot.mode == Mode::Swap, tb, progress);
+    sp.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    sp.records = tb.records();
+    const auto k = index.kinds.find(staged.team);
+    if (k != index.kinds.end()) sp.kinds = k->second;
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for (const KitBundle& b : index.bundles) {
+        if (b.team != staged.team) continue;
+        std::ostringstream e;
+        e << (b.toc >= 0 && size_t(b.toc) < index.tocs.size() ? index.tocs[size_t(b.toc)] : std::string("?")) << "#" << b.bundle << ":" << b.kind << ":" << b.slot_mask << ";";
+        const std::string s = e.str();
+        h = fnv1a64(reinterpret_cast<const uint8_t*>(s.data()), s.size(), h);
+    }
+    sp.donor = hex64(h);
+    // a verdict a read error shaped is never kept (the next staging plans again)
+    for (const auto& n : sp.plan.notes) sp.transient = sp.transient || n.find("cannot be read") != std::string::npos || n.find("unreadable") != std::string::npos;
+    for (const auto& it : sp.plan.items) sp.transient = sp.transient || it.reason.find("cannot be read") != std::string::npos;
+    return sp;
+}
+
+struct SwapPlanIO {
+    static void put_key(Wr& w, const PlanKey& key) {
+        w.u32(uint32_t(key.fields.size()));
+        for (const auto& f : key.fields) {
+            w.str(f.first);
+            w.str(f.second);
+        }
+    }
+    static bool save(const fs::path& file, const SwapPlan& sp) {
+        Wr w;
+        w.u32(kPlanMagic);
+        w.u32(kPlanFormat);
+        put_key(w, sp.key);
+        const Plan& p = sp.plan;
+        w.i32(p.team);
+        w.i32(p.slot);
+        w.u8(p.ok);
+        w.str(p.error);
+        w.i32(p.swapped);
+        w.i32(p.skipped);
+        w.i32(p.probes);
+        w.u64(uint64_t(sp.seconds * 1000.0 + 0.5));
+        w.str(sp.donor);
+        w.u32(uint32_t(p.notes.size()));
+        for (const auto& n : p.notes) w.str(n);
+        w.u32(uint32_t(sp.kinds.size()));
+        for (const auto& k : sp.kinds) w.str(k);
+        w.u32(uint32_t(p.items.size()));
+        for (const PlanItem& it : p.items) {
+            w.str(it.res);
+            w.str(it.kind);
+            w.str(it.role);
+            w.u8(it.swap);
+            w.str(it.reason);
+            w.u8(it.probe);
+            w.i32(it.blocks);
+            w.u64(it.bytes);
+            w.u32(it.table_item);
+            w.u8(uint8_t(it.left_by));
+            put_users(w, it.shared);
+        }
+        w.u32(uint32_t(p.folders.size()));
+        for (const FolderVerdict& f : p.folders) {
+            w.i32(f.team);
+            w.i32(f.slot);
+            w.str(f.kind);
+            w.u8(f.swapped);
+            w.u8(uint8_t(f.why));
+            w.str(f.role);
+            w.str(f.reason);
+            put_users(w, f.shared);
+            w.i32(f.details_left);
+        }
+        w.u32(uint32_t(sp.records.size()));
+        for (const PlanRecord& r : sp.records) {
+            w.u8(r.swap);
+            if (!r.data) {
+                w.u8(0);
+            } else if (r.src_file.empty()) {  // a patched hotspot asset: small, stored inline
+                if (r.data->size() > (1u << 20)) return false;
+                w.u8(1);
+                w.u32(uint32_t(r.data->size()));
+                w.b.insert(w.b.end(), r.data->begin(), r.data->end());
+            } else {  // a staged picture: named relative to the plan's folder (the kit's staged folder), checked by size and hash at load
+                w.u8(2);
+                const fs::path rel = fs::u8path(r.src_file).lexically_relative(file.parent_path());
+                const std::string rs = rel.generic_u8string();
+                w.str(!rel.empty() && rel.is_relative() && rs.compare(0, 2, "..") != 0 ? "rel:" + rs : r.src_file);
+                w.u64(r.src_off);
+                w.u64(r.data->size());
+                w.u64(fnv1a64(r.data->data(), r.data->size()));
+            }
+            w.u32(uint32_t(r.blocks.size()));
+            for (const PlanBlock& b : r.blocks) {
+                if (r.data && b.off != ~0ULL && (b.off > r.data->size() || r.data->size() - b.off < b.dsize)) return false;  // never an offset the data cannot serve
+                w.u32(b.csize);
+                w.u32(b.dsize);
+                w.u64(b.head);
+                w.u64(b.fnv);
+                w.u64(b.off);
+            }
+        }
+        w.u64(fnv1a64(w.b.data(), w.b.size()));
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        const fs::path tmp = file.string() + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(w.b.data()), std::streamsize(w.b.size()));
+            if (!f) return false;
+        }
+        fs::remove(file, ec);
+        fs::rename(tmp, file, ec);
+        return !ec;
+    }
+
+    static bool load(const fs::path& file, const PlanKey& key, SwapPlan& out, std::string* why) {
+        auto no = [&](const std::string& w) {
+            if (why) *why = w;
+            return false;
+        };
+        std::vector<uint8_t> d;
+        {
+            std::error_code ec;
+            if (!fs::exists(file, ec)) return no("no plan");
+            std::ifstream f(file, std::ios::binary | std::ios::ate);
+            if (!f) return no("no plan");
+            const std::streamoff n = f.tellg();
+            if (n < 24 || n > (std::streamoff(1) << 30)) return no("damaged (size)");
+            d.resize(size_t(n));
+            f.seekg(0);
+            f.read(reinterpret_cast<char*>(d.data()), n);
+            if (!f) return no("damaged (read)");
+        }
+        uint64_t sum = 0;
+        std::memcpy(&sum, &d[d.size() - 8], 8);
+        if (fnv1a64(d.data(), d.size() - 8) != sum) return no("damaged (checksum)");
+        d.resize(d.size() - 8);
+        Rd r(d);
+        if (r.u32() != kPlanMagic || !r.ok) return no("damaged (not a swap plan)");
+        const uint32_t fmt = r.u32();
+        if (fmt != kPlanFormat) return no(std::string("stale: ") + kKeyFormat);
+        const uint32_t nf = r.u32();
+        if (!r.ok || nf > 1000) return no("damaged (key)");
+        SwapPlan sp;
+        for (uint32_t i = 0; i < nf && r.ok; ++i) {
+            std::string a = r.str();
+            std::string b = r.str();
+            sp.key.fields.emplace_back(std::move(a), std::move(b));
+        }
+        if (!r.ok) return no("damaged (key)");
+        for (size_t i = 0; i < std::max(sp.key.fields.size(), key.fields.size()); ++i) {
+            if (i >= sp.key.fields.size()) return no("stale: " + key.fields[i].first);
+            if (i >= key.fields.size() || sp.key.fields[i].first != key.fields[i].first) return no("stale: " + sp.key.fields[i].first);
+            if (sp.key.fields[i].second != key.fields[i].second) return no("stale: " + key.fields[i].first);
+        }
+        Plan& p = sp.plan;
+        p.team = r.i32();
+        p.slot = r.i32();
+        p.ok = r.u8() != 0;
+        p.error = r.str();
+        p.swapped = r.i32();
+        p.skipped = r.i32();
+        p.probes = r.i32();
+        sp.seconds = double(r.u64()) / 1000.0;
+        sp.donor = r.str();
+        const uint32_t nn = r.u32();
+        if (!r.ok || nn > 100000) return no("damaged (notes)");
+        for (uint32_t i = 0; i < nn && r.ok; ++i) p.notes.push_back(r.str());
+        const uint32_t nk = r.u32();
+        if (!r.ok || nk > 100000) return no("damaged (kit folders)");
+        for (uint32_t i = 0; i < nk && r.ok; ++i) sp.kinds.insert(r.str());
+        const uint32_t ni = r.u32();
+        if (!r.ok || ni > 1000000) return no("damaged (items)");
+        for (uint32_t i = 0; i < ni && r.ok; ++i) {
+            PlanItem it;
+            it.res = r.str();
+            it.kind = r.str();
+            it.role = r.str();
+            it.swap = r.u8() != 0;
+            it.reason = r.str();
+            it.probe = r.u8() != 0;
+            it.blocks = r.i32();
+            it.bytes = r.u64();
+            it.table_item = r.u32();
+            const uint8_t lb = r.u8();
+            if (lb > uint8_t(LeftBy::Other)) return no("damaged (item)");
+            it.left_by = LeftBy(lb);
+            if (!get_users(r, it.shared)) return no("damaged (item users)");
+            p.items.push_back(std::move(it));
+        }
+        const uint32_t nfo = r.u32();
+        if (!r.ok || nfo > 100000) return no("damaged (folders)");
+        for (uint32_t i = 0; i < nfo && r.ok; ++i) {
+            FolderVerdict f;
+            f.team = r.i32();
+            f.slot = r.i32();
+            f.kind = r.str();
+            f.swapped = r.u8() != 0;
+            const uint8_t lb = r.u8();
+            if (lb > uint8_t(LeftBy::Other)) return no("damaged (folder)");
+            f.why = LeftBy(lb);
+            f.role = r.str();
+            f.reason = r.str();
+            if (!get_users(r, f.shared)) return no("damaged (folder users)");
+            f.details_left = r.i32();
+            p.folders.push_back(std::move(f));
+        }
+        const uint32_t nr = r.u32();
+        if (!r.ok || nr > 1000000) return no("damaged (records)");
+        // the staged bytes: one read per distinct (file, offset, size, hash), checked against what the plan served
+        std::map<std::tuple<std::string, uint64_t, uint64_t, uint64_t>, std::shared_ptr<std::vector<uint8_t>>> files_read;
+        for (uint32_t i = 0; i < nr && r.ok; ++i) {
+            PlanRecord rec;
+            rec.swap = r.u8() != 0;
+            const uint8_t kind = r.u8();
+            if (!r.ok) return no("damaged (record)");
+            if (kind == 1) {
+                const uint32_t n = r.u32();
+                if (!r.ok || d.size() - r.p < n) return no("damaged (inline data)");
+                rec.data = std::make_shared<std::vector<uint8_t>>(d.begin() + std::ptrdiff_t(r.p), d.begin() + std::ptrdiff_t(r.p + n));
+                r.p += n;
+            } else if (kind == 2) {
+                const std::string named = r.str();
+                const std::string src = named.compare(0, 4, "rel:") == 0 ? (file.parent_path() / fs::u8path(named.substr(4))).u8string() : named;
+                const uint64_t off = r.u64();
+                const uint64_t n = r.u64();
+                const uint64_t h = r.u64();
+                if (!r.ok || n > (uint64_t(1) << 31) || off > (uint64_t(1) << 31)) return no("damaged (file data)");
+                auto& slot = files_read[std::make_tuple(src, off, n, h)];
+                if (!slot) {
+                    auto data = std::make_shared<std::vector<uint8_t>>();
+                    std::ifstream f(fs::u8path(src), std::ios::binary | std::ios::ate);
+                    if (!f) return no("staged data changed: " + src + " cannot be opened");
+                    const std::streamoff fsz = f.tellg();
+                    if (fsz < 0 || uint64_t(fsz) != off + n) return no("staged data changed: " + src + " has another size");
+                    data->resize(size_t(n));
+                    f.seekg(std::streamoff(off));
+                    f.read(reinterpret_cast<char*>(data->data()), std::streamsize(n));
+                    if (!f) return no("staged data changed: " + src + " cannot be read");
+                    if (fnv1a64(data->data(), data->size()) != h) return no("staged data changed: " + src + " (other bytes)");
+                    slot = std::move(data);
+                }
+                rec.data = slot;
+                rec.src_file = src;
+                rec.src_off = off;
+            } else if (kind != 0) {
+                return no("damaged (record kind)");
+            }
+            const uint32_t nb = r.u32();
+            if (!r.ok || nb > 1000000) return no("damaged (blocks)");
+            for (uint32_t k = 0; k < nb && r.ok; ++k) {
+                PlanBlock b;
+                b.csize = r.u32();
+                b.dsize = r.u32();
+                b.head = r.u64();
+                b.fnv = r.u64();
+                b.off = r.u64();
+                if (!r.ok || !b.csize || !b.dsize) return no("damaged (block)");
+                if (b.off != ~0ULL) {
+                    if (!rec.data || b.off > rec.data->size() || rec.data->size() - b.off < b.dsize) return no("damaged (block data)");
+                } else if (rec.data) {
+                    return no("damaged (block without data)");
+                }
+                rec.blocks.push_back(b);
+            }
+            sp.records.push_back(std::move(rec));
+        }
+        if (!r.ok || r.p != d.size()) return no("damaged (length)");
+        for (const PlanItem& it : p.items)
+            if (it.table_item != 0xFFFFFFFFu && it.table_item >= sp.records.size()) return no("damaged (item number)");
+        out = std::move(sp);
+        if (why) why->clear();
+        return true;
+    }
+};
+
+bool save_swap_plan(const fs::path& file, const SwapPlan& p) {
+    try {
+        return SwapPlanIO::save(file, p);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool load_swap_plan(const fs::path& file, const PlanKey& key, SwapPlan& out, std::string* why, std::string* reason) {
+    std::string w;
+    bool ok = false;
+    try {
+        ok = SwapPlanIO::load(file, key, out, &w);
+    } catch (...) {
+        w = "damaged (exception)";
+    }
+    if (why) *why = w;
+    if (reason) *reason = ok ? std::string() : plan_reason_words(w);
+    return ok;
+}
+
+std::string plan_reason_words(const std::string& why) {
+    if (why.empty()) return "";
+    if (why == "no plan") return kPlanNoneReason;
+    if (why.compare(0, 7, "damaged") == 0) return kPlanDamagedReason;
+    if (why.compare(0, 19, "staged data changed") == 0) return kPlanStagedReason;
+    if (why.compare(0, 7, "stale: ") == 0) {
+        const std::string f = why.substr(7);
+        if (f == kKeyFormat) return kPlanFormatReason;
+        if (f == kKeyBuild || f == kKeyIndex) return kPlanStaleReason;
+        if (f == "manifest" || f == "hotspots" || f == "kit") return kPlanStagedReason;
+        return kPlanOptionsReason;
+    }
+    return kPlanDamagedReason;
+}
+
+void replay_plan(const SwapPlan& sp, TableBuilder& tb, Plan& plan) {
+    plan = sp.plan;
+    std::vector<uint32_t> ids;
+    ids.reserve(sp.records.size());
+    for (const PlanRecord& r : sp.records) ids.push_back(tb.add_record(r));
+    for (PlanItem& it : plan.items)
+        if (it.table_item != 0xFFFFFFFFu) it.table_item = it.table_item < ids.size() ? ids[it.table_item] : 0xFFFFFFFFu;
+}
+
+Assembled assemble_table(std::vector<Plan>& plans, TableBuilder& tb) {
+    Assembled a;
+    // The table. A clash (the same game block wanted with other bytes, by two of the zip's pictures or by two active kits) takes those
+    // textures out; when one is a jersey / shorts / socks picture its whole kit folder goes too (2.13: never half a kit), and the table is
+    // finished again without them.
+    std::map<uint32_t, std::pair<size_t, size_t>> where;  // table item -> (plan, item)
+    for (size_t pi = 0; pi < plans.size(); ++pi)
+        for (size_t ii = 0; ii < plans[pi].items.size(); ++ii)
+            if (plans[pi].items[ii].table_item != 0xFFFFFFFFu) where[plans[pi].items[ii].table_item] = {pi, ii};
+    for (int pass = 0; pass < 8; ++pass) {
+        std::set<uint32_t> dropped_items;
+        std::map<uint32_t, std::set<uint32_t>> clash;
+        a.table = tb.finish(nullptr, &dropped_items, &clash);
+        if (dropped_items.empty()) break;
+        struct Lost {
+            size_t plan;
+            PlanItem by;
+        };
+        std::vector<Lost> lost;
+        for (uint32_t id : dropped_items) {
+            tb.exclude_item(id);
+            const auto w = where.find(id);
+            if (w == where.end()) continue;
+            Plan& pl = plans[w->second.first];
+            PlanItem& it = pl.items[w->second.second];
+            if (!it.swap) continue;
+            std::vector<KitUser> with;  // the other kits that want the same game data
+            bool other_kit = false;
+            for (uint32_t o : clash[id]) {
+                const auto wo = where.find(o);
+                if (wo == where.end()) continue;
+                const Plan& op = plans[wo->second.first];
+                const PlanItem& oi = op.items[wo->second.second];
+                other_kit = other_kit || wo->second.first != w->second.first;
+                if (wo->second.first != w->second.first) add_user(with, KitUser{op.team, op.slot, oi.kind});
+            }
+            it.swap = false;
+            it.table_item = 0xFFFFFFFFu;
+            it.left_by = LeftBy::Clash;
+            for (const KitUser& u : with) add_user(it.shared, u);
+            it.reason = other_kit ? "the game uses the same data in " + users_text(with) + ", which another active kit wants with other bytes: left to the game"
+                                  : "the game uses the same data for two of the zip's pictures (for example crest and crest_shorts): left to the game";
+            if (kit_role(it.role)) lost.push_back({w->second.first, it});
+        }
+        for (const Lost& l : lost)
+            for (uint32_t id : leave_folder(plans[l.plan], l.by.kind, l.by.left_by, l.by.role, l.by.reason, l.by.shared)) tb.exclude_item(id);
+        for (Plan& pl : plans) {  // counts and verdicts after the clash
+            pl.swapped = pl.skipped = 0;
+            for (const PlanItem& it : pl.items)
+                if (!it.probe) ++(it.swap ? pl.swapped : pl.skipped);
+            for (FolderVerdict& f : pl.folders) {
+                if (!f.swapped) continue;
+                f.details_left = 0;
+                for (const PlanItem& it : pl.items)
+                    if (!it.probe && it.kind == f.kind && !it.swap && detail_role(it.role)) ++f.details_left;
+            }
+        }
+    }
+    if (!a.table) a.table = tb.finish(nullptr);
+    for (const Plan& pl : plans) {
+        a.swapped += pl.swapped;
+        a.skipped += pl.skipped;
+        for (const auto& f : pl.folders) a.folders.push_back(f);
+        for (const auto& it : pl.items) {
+            ItemStatus st;
+            st.team = pl.team;
+            st.slot = pl.slot;
+            st.res = it.res;
+            st.kind = it.kind;
+            st.role = it.role;
+            st.reason = it.reason;
+            st.swap = it.swap;
+            st.probe = it.probe;
+            st.blocks = it.blocks;
+            st.table_item = it.table_item;
+            st.left_by = it.left_by;
+            st.shared = it.shared;
+            if (!it.swap && !it.probe) {  // the same resource left to the game at several places (big clubs): one line
+                bool merged = false;
+                for (auto& o : a.items)
+                    if (!o.swap && !o.probe && o.team == st.team && o.slot == st.slot && o.res == st.res && o.reason == st.reason) { ++o.copies; merged = true; break; }
+                if (merged) continue;
+            }
+            a.items.push_back(st);
+        }
+    }
+    return a;
+}
+
 // ---------------------------------------------------------------- runtime
 const char* mode_name(Mode m) {
     switch (m) {
@@ -2175,7 +2674,7 @@ bool Runtime::set_slot_options(int team, int slot, bool decals, bool keep_crest,
         if (!found) return false;
         save_state_locked();
     }
-    rebuild_async();
+    request_plan(team, slot);  // 2.20: the kit is planned again with its new options (stage time, not the next start)
     return true;
 }
 
@@ -2194,9 +2693,55 @@ bool Runtime::slot_options(int team, int slot, bool* decals, bool* keep_crest, b
 
 std::set<std::string> Runtime::kinds_of(int team) const {
     std::lock_guard<std::mutex> lk(m_);
-    if (!index_) return {};
+    if (!index_) {  // 2.20: the start reads no index; the club's plans carry its kit folders
+        auto pk = plan_kinds_.find(team);
+        return pk == plan_kinds_.end() ? std::set<std::string>() : pk->second;
+    }
     auto it = index_->kinds.find(team);
     return it == index_->kinds.end() ? std::set<std::string>() : it->second;
+}
+
+fs::path Runtime::plan_path(int team, int slot) const { return staged_dir(team, slot) / "swap_plan.bin"; }
+
+void Runtime::request_plan(int team, int slot, bool force) {
+    if (team < 0 || slot < 0 || slot > 4) return;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        const auto k = std::make_pair(team, slot);
+        bool found = false;
+        for (auto& p : pending_plans_)
+            if (p.first == k) {
+                p.second = p.second || force;
+                found = true;
+            }
+        if (!found) pending_plans_.push_back({k, force});
+        Status::PlanRow& row = plan_rows_[k];
+        row.team = team;
+        row.slot = slot;
+        row.state = "queued";
+        row.reason.clear();
+        if (planning_ == k) progress_.cancel = true;  // the plan being made is already out of date: made again
+    }
+    rebuild_async();
+}
+
+void Runtime::replan_all() {
+    std::vector<SlotState> slots;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        slots = slots_;
+    }
+    for (const SlotState& s : slots) request_plan(s.team, s.slot, true);
+}
+
+void Runtime::rebuild() {
+    std::vector<SlotState> slots;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        slots = slots_;
+    }
+    for (const SlotState& s : slots) request_plan(s.team, s.slot, false);
+    if (slots.empty()) rebuild_async();
 }
 
 void Runtime::set_killed(bool k) {
@@ -2238,7 +2783,7 @@ bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
         if (!found) slots_.push_back({team, slot, mode});
         save_state_locked();
     }
-    rebuild_async();
+    request_plan(team, slot);  // 2.20: kept when its plan matches (switching on is then instant), else planned now: the user asked for it
     return true;
 }
 
@@ -2264,12 +2809,13 @@ bool Runtime::is_active(int team, int slot, Mode* mode) const {
 void Runtime::rebuild_async() {
     std::lock_guard<std::mutex> lk(m_);
     generation_++;
-    state_ = "building";
-    message_ = "reading the game's kit data";
-    if (running_) {
-        progress_.cancel = true;  // the running build restarts with the new state
-        return;
+    if (state_ != "planning") {
+        state_ = "building";
+        message_ = "loading the kit plans";
     }
+    // 2.20: a running worker sees the new generation and publishes again when it is done (a plan being made is not thrown away; the
+    // kill switch and request_plan for the same kit cancel it themselves)
+    if (running_) return;
     running_ = true;
     if (worker_.joinable()) worker_.join();
     worker_ = std::thread(&Runtime::worker, this);
@@ -2295,6 +2841,149 @@ void Runtime::publish(std::shared_ptr<Table> t) {
     table_.store(t ? t.get() : nullptr);
 }
 
+// 2.20: the kits asked for by request_plan, one after the other (stage time: an import, an option, switching a kit on, Rebuild all kit
+// plans). Each plan is written to the kit's staged folder; the worker then publishes the table from the plans as at start.
+void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Options& base, int) {
+    for (;;) {
+        std::pair<int, int> k;
+        bool force = false;
+        SlotState s;
+        double estimate = 0;
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            if (pending_plans_.empty() || stop_.load() || killed_.load()) {
+                planning_ = {-1, -1};
+                return;
+            }
+            k = pending_plans_.front().first;
+            force = pending_plans_.front().second;
+            pending_plans_.erase(pending_plans_.begin());
+            planning_ = k;
+            s = SlotState{k.first, k.second, Mode::Swap};  // a kit that is not switched on yet: planned the way switching it on uses it
+            for (const SlotState& x : slots_)
+                if (x.team == k.first && x.slot == k.second) s = x;
+            estimate = last_plan_s_ > 0 ? last_plan_s_ : 20.0;
+            state_ = "planning";
+            char b[120];
+            std::snprintf(b, sizeof(b), "Planning your kit... (about %.0f s)", std::max(1.0, estimate));
+            message_ = b;
+            Status::PlanRow& row = plan_rows_[k];
+            row.team = k.first;
+            row.slot = k.second;
+            row.state = "planning";
+            row.reason.clear();
+            progress_.cancel = false;
+        }
+        const fs::path dir = staged_dir(k.first, k.second);
+        const PlanKey key = make_plan_key(game_build, sig, s, dir, base);
+        auto finish_row = [&](const std::string& state, const std::string& reason, double secs) {
+            std::lock_guard<std::mutex> lk(m_);
+            Status::PlanRow& row = plan_rows_[k];
+            row.state = state;
+            row.reason = reason;
+            row.seconds = secs;
+        };
+        if (!force) {  // a plan that still matches is kept (switching a planned kit on is instant)
+            auto sp = std::make_shared<SwapPlan>();
+            if (load_swap_plan(plan_path(k.first, k.second), key, *sp)) {
+                std::error_code ec;
+                const auto mt = fs::last_write_time(plan_path(k.first, k.second), ec);
+                loaded_[k] = {sp, mt};
+                finish_row(sp->plan.ok ? "ready" : "failed", sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
+                continue;
+            }
+        }
+        // the kit index (which game bundles hold which club's kits): kit_index.cache, read in milliseconds; scanned from the game's tocs only
+        // here, at stage time, when a game patch made the saved one stale (about 2 minutes, once)
+        std::shared_ptr<KitIndex> index;
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            index = index_;
+        }
+        if (!index) {
+            auto ni = std::make_shared<KitIndex>();
+            std::string err;
+            if (load_index_cache(files, index_cache_path(), *ni)) {
+                index = ni;
+                std::lock_guard<std::mutex> lk(m_);
+                index_ = ni;
+                index_cached_ = true;
+            } else {
+                {
+                    std::lock_guard<std::mutex> lk(m_);
+                    message_ = "Planning your kit... reading the game's kit list first (about 2 min, once after a game update)";
+                    scanning_ = true;
+                }
+                const bool ok = scan_kits(files, oodle_, *ni, &progress_, &err);
+                {
+                    std::lock_guard<std::mutex> lk(m_);
+                    scanning_ = false;
+                }
+                if (ok) {
+                    index = ni;
+                    save_index_cache(files, *ni, index_cache_path());
+                    std::lock_guard<std::mutex> lk(m_);
+                    index_ = ni;
+                    index_cached_ = false;
+                    index_seconds_ = ni->seconds;
+                } else if (err == "cancelled") {
+                    std::lock_guard<std::mutex> lk(m_);
+                    pending_plans_.insert(pending_plans_.begin(), {k, force});  // asked again by the next pass (or dropped by the kill switch / stop)
+                    continue;
+                } else {
+                    finish_row("failed", "The game's kit list could not be read: " + err, 0);
+                    continue;
+                }
+            }
+        }
+        StagedKit sk;
+        std::string e;
+        if (!load_staged(dir, sk, &e)) {
+            finish_row("failed", "Re-stage this kit (" + e + ")", 0);
+            continue;
+        }
+        if (sk.team != k.first || sk.slot != k.second) {
+            finish_row("failed", "Re-stage this kit (the staged pictures belong to another club or slot)", 0);
+            continue;
+        }
+        auto sp = std::make_shared<SwapPlan>(make_swap_plan(files, oodle_, *index, sk, s, base, key, &progress_));
+        if (sp->plan.error == "cancelled") {
+            std::lock_guard<std::mutex> lk(m_);
+            bool again = false;
+            for (const auto& p : pending_plans_) again = again || p.first == k;
+            if (!again && !stop_.load() && !killed_.load()) pending_plans_.insert(pending_plans_.begin(), {k, force});
+            continue;
+        }
+        std::string line;
+        if (sp->transient) {
+            finish_row("failed", "A game file could not be read while planning this kit: plan it again", sp->seconds);
+            line = "kit swap: plan for team " + std::to_string(k.first) + " " + slot_folder_name(k.second) + " not kept (a game file could not be read)";
+        } else if (!save_swap_plan(plan_path(k.first, k.second), *sp)) {
+            finish_row("failed", "The plan could not be written to " + plan_path(k.first, k.second).u8string(), sp->seconds);
+            line = "kit swap: plan for team " + std::to_string(k.first) + " " + slot_folder_name(k.second) + " could not be written";
+        } else {
+            std::error_code ec;
+            const auto mt = fs::last_write_time(plan_path(k.first, k.second), ec);
+            loaded_[k] = {sp, mt};
+            finish_row(sp->plan.ok ? "ready" : "failed", sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
+            char b[200];
+            std::snprintf(b, sizeof(b), "kit swap: planned team %d %s in %.1f s: %d textures served, %d left to the game%s", k.first, slot_folder_name(k.second), sp->seconds,
+                          sp->plan.swapped, sp->plan.skipped, sp->plan.ok ? "" : " (no plan: ");
+            line = b;
+            if (!sp->plan.ok) line += sp->plan.error + ")";
+            std::lock_guard<std::mutex> lk(m_);
+            last_plan_s_ = std::max(1.0, sp->seconds);
+            plan_kinds_[k.first].insert(sp->kinds.begin(), sp->kinds.end());
+        }
+        if (log_line) {
+            try {
+                log_line(line);
+            } catch (...) {
+            }
+        }
+    }
+}
+
 void Runtime::worker() {
     if (worker_init) {
         try {
@@ -2306,272 +2995,198 @@ void Runtime::worker() {
         if (stop_.load()) {
             std::lock_guard<std::mutex> lk(m_);
             running_ = false;
+            planning_ = {-1, -1};
             return;
         }
-        if (killed_.load() || (require_opt_in && !opted_in())) {  // no scan, no table while the kill switch / a missing opt-in says so
+        if (killed_.load() || (require_opt_in && !opted_in())) {  // nothing read, planned or published while the kill switch / a missing opt-in says so
             std::lock_guard<std::mutex> lk(m_);
             state_ = "off";
             message_ = killed_.load() ? "kill switch turbo_output\\kits3d_off.txt is present: nothing is read or swapped" : "turbo_output\\kits3d_on.txt is missing: nothing is read or swapped";
             build_skipped_ = true;
             running_ = false;
+            planning_ = {-1, -1};
             return;
         }
         const int gen = generation_.load();
         progress_.cancel = false;
         progress_.done = 0;
         progress_.total = 0;
-        std::vector<SlotState> slots;
+        bool pending = false;
         {
             std::lock_guard<std::mutex> lk(m_);
-            slots = slots_;
+            pending = !pending_plans_.empty();
         }
         std::string state, message;
         std::vector<ItemStatus> items;
         std::vector<FolderVerdict> folders;
         std::shared_ptr<Table> table;
-        double idx_s = 0;
-        // 2.19: the table cache (kit_table.cache): tried first; a hit is published before the kit index is read (that only serves the UI)
-        const double t_build0 = now_s();
-        bool cached = false, committed = false, transient = false;
-        std::string cache_why = use_table_cache ? "" : "table cache off";
-        TableCacheKey key;
-        auto commit = [&]() {  // publishes the result (under the lock) and records when
-            const double now = now_s();
-            std::string line, ready;
+        std::vector<std::string> off_lines;
+        std::map<std::pair<int, int>, Status::PlanRow> rows;
+        int planned = 0;
+        double t_load0 = now_s();
+        std::vector<SlotState> slots;
+        GameFiles files(game_);
+        std::string err;
+        bool files_ok = false;
+        if (!oodle_) {
+            state = "error";
+            message = "no Oodle decompressor in this process";
+        } else if (!files.init(&err)) {
+            state = "error";
+            message = err;
+        } else {
+            files_ok = true;
+        }
+        if (!files_ok) {  // no plan can be made without the game's files: the rows asked for say why (and the worker does not spin)
+            std::lock_guard<std::mutex> lk(m_);
+            for (const auto& p : pending_plans_) {
+                Status::PlanRow& row = plan_rows_[p.first];
+                row.team = p.first.first;
+                row.slot = p.first.second;
+                row.state = "failed";
+                row.reason = message;
+            }
+            pending_plans_.clear();
+        }
+        if (files_ok) {
+            const Options base = get_options();
+            const std::string sig = index_signature(files);
+            if (pending) plan_pending(files, sig, base, gen);  // stage time: the kits asked for (seconds each)
+            if (stop_.load() || killed_.load()) continue;     // the loop's top ends it
+            t_load0 = now_s();
             {
                 std::lock_guard<std::mutex> lk(m_);
-                state_ = state;
-                message_ = message;
-                index_seconds_ = idx_s;
-                build_skipped_ = false;
-                items_ = items;
-                folders_ = folders;
-                swap_any_ = false;
-                for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
-                table_cached_ = cached;
-                table_ms_ = (now - t_build0) * 1000.0;
-                ready_after_ms_ = started_s_ >= 0 ? (now - started_s_) * 1000.0 : -1;
-                ready_at_ms_ = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
-                cache_note_ = cached ? "from cache" : "built" + (cache_why.empty() ? std::string() : " (cache not used: " + cache_why + ")");
-                if (table) {
-                    char b[160];
-                    std::snprintf(b, sizeof(b), "kit swap: table %s (%zu blocks, %.0f ms; %.0f ms after start)", cached ? "from cache" : "built", table->size(), table_ms_,
-                                  ready_after_ms_);
-                    line = b;
-                    if (!cached && !cache_why.empty()) line += "; cache not used: " + cache_why;
-                    char r2[160];
-                    std::snprintf(r2, sizeof(r2), "kit swap: table ready (%s, %zu blocks, %.0f ms after start)", cached ? "from cache" : "built", table->size(), ready_after_ms_);
-                    ready = r2;
-                }
+                slots = slots_;
             }
-            publish(table);
-            committed = true;
-            if (!line.empty() && log_line) {
-                try {
+            // the start path: the table from the kits' plans, nothing scanned or planned
+            TableBuilder tb;
+            std::vector<Plan> plans;
+            std::vector<std::string> msgs;
+            for (const SlotState& s : slots) {
+                const auto k = std::make_pair(s.team, s.slot);
+                Status::PlanRow row;
+                row.team = s.team;
+                row.slot = s.slot;
+                const PlanKey key = make_plan_key(game_build, sig, s, staged_dir(s.team, s.slot), base);
+                std::error_code ec;
+                const auto mt = fs::last_write_time(plan_path(s.team, s.slot), ec);
+                std::shared_ptr<SwapPlan> sp;
+                std::string why, reason;
+                auto lp = loaded_.find(k);
+                if (!ec && lp != loaded_.end() && lp->second.mtime == mt && lp->second.plan->key.fields == key.fields) {
+                    sp = lp->second.plan;
+                } else {
+                    auto np = std::make_shared<SwapPlan>();
+                    if (load_swap_plan(plan_path(s.team, s.slot), key, *np, &why, &reason)) {
+                        sp = np;
+                        loaded_[k] = {np, mt};
+                    } else {
+                        loaded_.erase(k);
+                    }
+                }
+                const std::string name = "team " + std::to_string(s.team) + " " + slot_folder_name(s.slot);
+                if (!sp) {
+                    row.state = why == "no plan" ? "none" : why.compare(0, 7, "damaged") == 0 ? "failed" : "stale";
+                    row.reason = reason;
+                    off_lines.push_back("kit swap: " + name + " is off: " + reason + " [" + why + "]");
+                } else if (!sp->plan.ok) {
+                    row.state = "failed";
+                    row.reason = sp->plan.error;
+                    row.seconds = sp->seconds;
+                    msgs.push_back(name + ": " + sp->plan.error);
+                } else {
+                    row.state = "ready";
+                    row.seconds = sp->seconds;
+                    Plan p;
+                    replay_plan(*sp, tb, p);
+                    plans.push_back(std::move(p));
+                    ++planned;
+                    std::lock_guard<std::mutex> lk(m_);
+                    plan_kinds_[s.team].insert(sp->kinds.begin(), sp->kinds.end());
+                }
+                rows[k] = row;
+            }
+            Assembled a = assemble_table(plans, tb);
+            table = a.table;
+            items = std::move(a.items);
+            folders = std::move(a.folders);
+            state = "ready";
+            message = std::to_string(a.swapped) + " textures in the table, " + std::to_string(a.skipped) + " left to the game";
+            if (planned < int(slots.size()))
+                message += "; " + std::to_string(int(slots.size()) - planned) + (int(slots.size()) - planned == 1 ? " kit is" : " kits are") + " off until planned (see the Kits page)";
+            for (const auto& m : msgs) message += "; " + m;
+            if (table->size() == 0 && !slots.empty()) message += " (nothing matchable)";
+            if (slots.empty()) {  // no kit switched on: no table at all (the hook recognises nothing), as before plans
+                state = "off";
+                message.clear();
+                table.reset();
+            }
+        }
+        if (generation_.load() != gen) continue;  // a newer request (a kit switched on, a plan asked for): publish once more
+        // publish (under the lock) and say when
+        const double now = now_s();
+        std::string line, ready;
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            if (!pending_plans_.empty()) continue;  // asked for while this pass ran
+            state_ = state;
+            message_ = message;
+            build_skipped_ = false;
+            items_ = items;
+            folders_ = folders;
+            swap_any_ = false;
+            for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
+            table_cached_ = false;
+            table_origin_ = table ? "from plans" : "";
+            table_ms_ = (now - t_load0) * 1000.0;
+            ready_after_ms_ = started_s_ >= 0 ? (now - started_s_) * 1000.0 : -1;
+            ready_at_ms_ = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+            cache_note_ = std::to_string(planned) + " of " + std::to_string(slots.size()) + " kits from their plans; the game's tocs were not read";
+            for (const auto& r : rows) {
+                Status::PlanRow& pr = plan_rows_[r.first];
+                if (pr.state != "queued" && pr.state != "planning") pr = r.second;
+            }
+            if (table && !slots.empty()) {
+                char b[200];
+                std::snprintf(b, sizeof(b), "kit swap: table from plans (%zu blocks, %.0f ms; %.0f ms after start; %d of %zu kits)", table->size(), table_ms_, ready_after_ms_,
+                              planned, slots.size());
+                line = b;
+                char r2[160];
+                std::snprintf(r2, sizeof(r2), "kit swap: table ready (from plans, %zu blocks, %.0f ms after start)", table->size(), ready_after_ms_);
+                ready = r2;
+            }
+        }
+        publish(table);
+        if (log_line) {
+            try {
+                if (!line.empty()) {
                     log_line(line);
                     log_line(ready);
-                } catch (...) {
                 }
+                for (const auto& l : off_lines) log_line(l);
+            } catch (...) {
             }
-        };
-        if (slots.empty()) {
-            state = "off";
-        } else {
-            GameFiles files(game_);
-            std::string err;
-            std::shared_ptr<KitIndex> index;
+        }
+        // the kit index for the Kits page's folder list: kit_index.cache when it is there (milliseconds); never scanned at start
+        if (files_ok) {
+            bool have = false;
             {
                 std::lock_guard<std::mutex> lk(m_);
-                index = index_;
+                have = index_ != nullptr;
             }
-            if (!oodle_) {
-                state = "error";
-                message = "no Oodle decompressor in this process";
-            } else if (!files.init(&err)) {
-                state = "error";
-                message = err;
-            } else {
-                const Options base_opts = get_options();  // one copy for the key and the build
-                if (use_table_cache) {
-                    std::vector<fs::path> dirs;
-                    for (const SlotState& s : slots) dirs.push_back(staged_dir(s.team, s.slot));
-                    key = make_table_cache_key(turbo_version, game_build, index_signature(files), slots, dirs, base_opts);
-                    CachedBuild cb;
-                    if (load_table_cache(table_cache_path(), key, cb, &cache_why, &progress_.cancel)) {
-                        cached = true;
-                        table = cb.table;
-                        items = std::move(cb.items);
-                        folders = std::move(cb.folders);
-                        state = "ready";
-                        message = cb.message;
-                        if (generation_.load() == gen && !progress_.cancel.load()) commit();
-                    }
-                }
-                const std::string cached_state = state, cached_message = message;
-                if (!index) {
-                    auto ni = std::make_shared<KitIndex>();
-                    if (load_index_cache(files, index_cache_path(), *ni)) {  // the game's tocs are unchanged since the last scan
-                        index = ni;
-                        std::lock_guard<std::mutex> lk(m_);
-                        index_ = ni;
-                        index_cached_ = true;
-                    } else if (scan_kits(files, oodle_, *ni, &progress_, &err)) {
-                        index = ni;
-                        save_index_cache(files, *ni, index_cache_path());
-                        std::lock_guard<std::mutex> lk(m_);
-                        index_ = ni;
-                        index_cached_ = false;
-                    } else if (err != "cancelled") {
-                        state = "error";
-                        message = "reading the game's kit data failed: " + err;
-                    }
-                }
-                if (cached) {  // the cached table stands whatever the index did (the index only serves the UI's kit folder list)
-                    state = cached_state;
-                    message = cached_message;
-                    if (index) idx_s = index->seconds;
-                } else if (index && state != "error") {
-                    idx_s = index->seconds;
-                    TableBuilder tb;
-                    std::vector<std::string> msgs;
-                    std::vector<Plan> plans;
-                    for (const SlotState& s : slots) {
-                        if (progress_.cancel.load()) break;
-                        StagedKit sk;
-                        std::string e;
-                        if (!load_staged(staged_dir(s.team, s.slot), sk, &e)) {
-                            msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + e);
-                            continue;
-                        }
-                        Options opts = base_opts;
-                        opts.include_decals = s.decals;
-                        opts.keep_game_crest = s.keep_crest;
-                        opts.share_within_club = s.share_club;
-                        opts.share_other_clubs = s.share_other;
-                        Plan pl = build_plan(files, oodle_, *index, sk, opts, s.mode == Mode::Swap, tb, &progress_);
-                        if (!pl.ok) {
-                            msgs.push_back("team " + std::to_string(s.team) + " " + slot_folder_name(s.slot) + ": " + pl.error);
-                            continue;
-                        }
-                        plans.push_back(std::move(pl));
-                    }
-                    // 2.19: a verdict a read error shaped is never cached (the next start builds again)
-                    for (const Plan& pl : plans) {
-                        for (const auto& n : pl.notes) transient = transient || n.find("cannot be read") != std::string::npos || n.find("unreadable") != std::string::npos;
-                        for (const auto& it : pl.items) transient = transient || it.reason.find("cannot be read") != std::string::npos;
-                    }
-                    if (!progress_.cancel.load()) {
-                        // The table. A clash (the same game block wanted with other bytes, by two of the zip's pictures or by two active kits)
-                        // takes those textures out; when one is a jersey / shorts / socks picture its whole kit folder goes too (2.13: never
-                        // half a kit), and the table is finished again without them.
-                        std::map<uint32_t, std::pair<size_t, size_t>> where;  // table item -> (plan, item)
-                        for (size_t pi = 0; pi < plans.size(); ++pi)
-                            for (size_t ii = 0; ii < plans[pi].items.size(); ++ii)
-                                if (plans[pi].items[ii].table_item != 0xFFFFFFFFu) where[plans[pi].items[ii].table_item] = {pi, ii};
-                        for (int pass = 0; pass < 8; ++pass) {
-                            std::set<uint32_t> dropped_items;
-                            std::map<uint32_t, std::set<uint32_t>> clash;
-                            table = tb.finish(nullptr, &dropped_items, &clash);
-                            if (dropped_items.empty()) break;
-                            struct Lost {
-                                size_t plan;
-                                PlanItem by;
-                            };
-                            std::vector<Lost> lost;
-                            for (uint32_t id : dropped_items) {
-                                tb.exclude_item(id);
-                                const auto w = where.find(id);
-                                if (w == where.end()) continue;
-                                Plan& pl = plans[w->second.first];
-                                PlanItem& it = pl.items[w->second.second];
-                                if (!it.swap) continue;
-                                std::vector<KitUser> with;  // the other kits that want the same game data
-                                bool other_kit = false;
-                                for (uint32_t o : clash[id]) {
-                                    const auto wo = where.find(o);
-                                    if (wo == where.end()) continue;
-                                    const Plan& op = plans[wo->second.first];
-                                    const PlanItem& oi = op.items[wo->second.second];
-                                    other_kit = other_kit || wo->second.first != w->second.first;
-                                    if (wo->second.first != w->second.first) add_user(with, KitUser{op.team, op.slot, oi.kind});
-                                }
-                                it.swap = false;
-                                it.table_item = 0xFFFFFFFFu;
-                                it.left_by = LeftBy::Clash;
-                                for (const KitUser& u : with) add_user(it.shared, u);
-                                it.reason = other_kit ? "the game uses the same data in " + users_text(with) + ", which another active kit wants with other bytes: left to the game"
-                                                      : "the game uses the same data for two of the zip's pictures (for example crest and crest_shorts): left to the game";
-                                if (kit_role(it.role)) lost.push_back({w->second.first, it});
-                            }
-                            for (const Lost& l : lost)
-                                for (uint32_t id : leave_folder(plans[l.plan], l.by.kind, l.by.left_by, l.by.role, l.by.reason, l.by.shared)) tb.exclude_item(id);
-                            for (Plan& pl : plans) {  // counts and verdicts after the clash
-                                pl.swapped = pl.skipped = 0;
-                                for (const PlanItem& it : pl.items)
-                                    if (!it.probe) ++(it.swap ? pl.swapped : pl.skipped);
-                                for (FolderVerdict& f : pl.folders) {
-                                    if (!f.swapped) continue;
-                                    f.details_left = 0;
-                                    for (const PlanItem& it : pl.items)
-                                        if (!it.probe && it.kind == f.kind && !it.swap && detail_role(it.role)) ++f.details_left;
-                                }
-                            }
-                        }
-                        int swapped = 0, skipped = 0;
-                        for (const Plan& pl : plans) {
-                            swapped += pl.swapped;
-                            skipped += pl.skipped;
-                            for (const auto& f : pl.folders) folders.push_back(f);
-                            for (const auto& it : pl.items) {
-                                ItemStatus st;
-                                st.team = pl.team;
-                                st.slot = pl.slot;
-                                st.res = it.res;
-                                st.kind = it.kind;
-                                st.role = it.role;
-                                st.reason = it.reason;
-                                st.swap = it.swap;
-                                st.probe = it.probe;
-                                st.blocks = it.blocks;
-                                st.table_item = it.table_item;
-                                st.left_by = it.left_by;
-                                st.shared = it.shared;
-                                if (!it.swap && !it.probe) {  // the same resource left to the game at several places (big clubs): one line
-                                    bool merged = false;
-                                    for (auto& o : items)
-                                        if (!o.swap && !o.probe && o.team == st.team && o.slot == st.slot && o.res == st.res && o.reason == st.reason) { ++o.copies; merged = true; break; }
-                                    if (merged) continue;
-                                }
-                                items.push_back(st);
-                            }
-                        }
-                        state = "ready";
-                        message = std::to_string(swapped) + " textures in the table, " + std::to_string(skipped) + " left to the game";
-                        for (const auto& m : msgs) message += "; " + m;
-                        if (table->size() == 0) message += " (nothing matchable)";
-                    }
+            if (!have) {
+                auto ni = std::make_shared<KitIndex>();
+                if (load_index_cache(files, index_cache_path(), *ni)) {
+                    std::lock_guard<std::mutex> lk(m_);
+                    index_ = ni;
+                    index_cached_ = true;
+                    index_seconds_ = ni->seconds;
                 }
             }
-        }
-        if (generation_.load() != gen || progress_.cancel.load()) continue;  // a newer request: build again
-        if (!committed) {
-            commit();
-        } else {
-            std::lock_guard<std::mutex> lk(m_);
-            index_seconds_ = idx_s;  // the kit index was read after the cached table went out
-        }
-        // 2.19: a built table is saved for the next start (never one a read error may have shaped; the key holds what it was built from)
-        if (!cached && use_table_cache && state == "ready" && table && !transient && !key.fields.empty()) {
-            const bool saved = save_table_cache(table_cache_path(), key, *table, message, items, folders);
-            std::lock_guard<std::mutex> lk(m_);
-            cache_note_ += saved ? "; saved to kit_table.cache" : "; could not be saved";
-        } else if (!cached && transient) {
-            std::lock_guard<std::mutex> lk(m_);
-            cache_note_ += "; not saved (a game file could not be read)";
         }
         {
             std::lock_guard<std::mutex> lk(m_);
-            if (generation_.load() != gen) continue;
+            if (generation_.load() != gen || !pending_plans_.empty()) continue;
             running_ = false;
         }
         flush_log(true);
@@ -2657,7 +3272,14 @@ Status Runtime::status() const {
     s.ready_after_ms = ready_after_ms_;
     s.ready_at_ms = ready_at_ms_;
     s.cache_note = cache_note_;
-    s.scanning = running_ && !index_;
+    s.table_origin = table_origin_;
+    for (const auto& r : plan_rows_) {
+        const bool active = std::any_of(slots_.begin(), slots_.end(), [&](const SlotState& x) { return x.team == r.first.first && x.slot == r.first.second; });
+        if (active || r.second.state == "queued" || r.second.state == "planning" || r.second.state == "ready" || r.second.state == "failed") s.plans.push_back(r.second);
+    }
+    s.plans_queued = int(pending_plans_.size());
+    s.plan_estimate_s = planning_.first >= 0 ? (last_plan_s_ > 0 ? last_plan_s_ : 20.0) : 0;
+    s.scanning = scanning_;
     s.scan_done = progress_.done.load();
     s.scan_total = progress_.total.load();
     // per club and kit folder: what the match decompressed (replaced textures and watch-only ones)
@@ -2747,11 +3369,54 @@ void Runtime::flush_log(bool force) {
     }
     if (s.ready_at_ms) {
         char tb[200];
-        std::snprintf(tb, sizeof(tb), "table: %s, %zu blocks, %.0f ms, published %s (%.0f ms after start)", s.table_cached ? "from cache" : "built", s.blocks, s.table_ms,
+        std::snprintf(tb, sizeof(tb), "table: %s, %zu blocks, %.0f ms, published %s (%.0f ms after start)", s.table_origin.empty() ? "none" : s.table_origin.c_str(), s.blocks, s.table_ms,
                       clock_text(s.ready_at_ms).c_str(), s.ready_after_ms);
         o << tb << "; " << s.cache_note << "\n";
     }
-    o << "kit index: " << (s.index_cached ? "from turbo_output\\kits\\kit_index.cache" : "scanned from the game's tocs") << "\n";
+    // 2.20: one line per kit: its swap plan (made once at stage time; the start only loads it)
+    for (const auto& p : s.plans) {
+        o << "plan team " << p.team << " " << slot_folder_name(p.slot) << ": " << p.state;
+        if (p.state == "ready") {
+            char b[64];
+            std::snprintf(b, sizeof(b), " (planned in %.1f s)", p.seconds);
+            o << b;
+        }
+        if (!p.reason.empty()) o << ": " << p.reason;
+        o << "\n";
+    }
+    // 2.20: one line per club with a kit in the table: where the table came from, how many of its textures the table holds and how many the game
+    // has loaded through it so far (the in-game check reads this line: club id + the count the plan writer printed before the boot)
+    {
+        std::map<int, std::array<uint64_t, 3>> by_team;  // textures in the table, of them loaded, blocks loaded
+        std::map<int, uint64_t> first;
+        for (const auto& it : s.items) {
+            if (!it.swap || it.team < 0) continue;
+            auto& c = by_team[it.team];
+            ++c[0];
+            if (it.hits) {
+                ++c[1];
+                c[2] += it.hits;
+                auto f = first.find(it.team);
+                if (f == first.end() || it.first_ms < f->second) first[it.team] = it.first_ms;
+            }
+        }
+        const std::string origin = s.table_origin.empty() ? std::string("no table") : s.table_origin;
+        for (const auto& t : by_team) {
+            o << "served team " << t.first << " " << origin << ": " << t.second[1] << " of " << t.second[0] << " textures in the table loaded by the game, " << t.second[2]
+              << " blocks";
+            if (t.second[1]) o << " (first " << clock_text(first[t.first]) << ")";
+            o << "\n";
+        }
+    }
+    {
+        const std::string idx = [&]() -> std::string {
+            if (s.scanning) return "being scanned from the game's tocs while a kit is planned (once after a game update)";
+            if (s.index_seconds > 0 && !s.index_cached) return "scanned from the game's tocs while a kit was planned";
+            if (s.index_cached) return "from turbo_output\\kits\\kit_index.cache (the Kits page's folder list; the table does not need it)";
+            return "not read (the table comes from the kits' plans)";
+        }();
+        o << "kit index: " << idx << "\n";
+    }
     o << "KIT FOLDERS THE GAME LOADED (per club and kit folder: textures seen / registered, blocks decompressed; 0 = that folder was not used):\n";
     for (const auto& k : s.kinds) o << "  team " << k.team << " " << k.kind << ": " << k.textures_seen << " of " << k.textures << " textures, " << k.blocks_seen << " blocks\n";
     for (const auto& it : s.items)

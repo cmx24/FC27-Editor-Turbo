@@ -3694,6 +3694,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
+#include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 // ================================================================ live team names (core/teamname_override.h)
@@ -15410,6 +15411,7 @@ int main(int argc, char** argv) {
     test_kit_import();
     test_kit_fonts();
     kit_share_test::run();  // test_kit_share.h (2.13)
+    kit_plan_test::run();   // test_kit_plan.h (2.20 K1)
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");
