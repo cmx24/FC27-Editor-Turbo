@@ -249,6 +249,30 @@ H.case("create_player, current gate: a new id never carries another player's gam
     clear()
 end)
 
+H.case("2.20 create_player automatic id: never a real player's id (a stale gate's ids, head ids the save uses, the player-career id); a typed id unchanged", function()
+    clear()
+    local first = assert(cp.free_playerid(0, cp.GENERATED_MIN - 1))  -- the id an automatic pick would take today
+    -- a gate of another GUI session (stale: not trusted for heads) that lists that id (head) and the next (miniface)
+    set_gate({ first }, "another-session", { "miniface " .. (first + 1) })
+    local g = agate.load()
+    H.eq(g.status, "stale", g.reason)
+    H.eq(next(agate.taken_ids(g)), nil, "a stale gate takes no id for the typed check (as before)")
+    local skip = cp.automatic_skip(g, agate.taken_ids(g))
+    H.ok(skip[first] and skip[first + 1], "the stale gate's head and miniface ids are passed over by an automatic id")
+    H.ok(skip[cp.PLAYER_CAREER_ID], "the player-career player's id too")
+    local used = agate.db_heads().used
+    local any = next(used)
+    H.ok(any ~= nil and skip[any] ~= nil, "and every head id a row of the save uses")
+    local free = assert(cp.free_playerid(0, cp.GENERATED_MIN - 1, skip))
+    H.ok(free > first + 1 and not skip[free], "free id " .. tostring(free) .. " above the skipped ones")
+    -- end to end: the automatic id skips them (a typed id is the user's choice and does not go through automatic_skip: t27)
+    H.write_config({ turbo = { dry_run = true } })  -- the mock's teamplayerlinks is full after the cases above: the plan is enough
+    local ok, msg, pid = create("AutoStale", 0)
+    H.write_config({ turbo = { dry_run = false } })
+    H.eq(ok, true, msg); H.eq(pid, free, "automatic id")
+    clear()
+end)
+
 H.case("no unmapped memory reads", function() H.eq(sim.unmapped_reads, 0) end)
 
 

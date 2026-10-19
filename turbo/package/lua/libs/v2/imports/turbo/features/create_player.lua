@@ -56,7 +56,8 @@ M.ID_TABLES = { "players", "editedplayernames", "teamplayerlinks", "playerloans"
 -- head, miniface or callname recording, from a current asset gate) are passed over
 function M.free_playerid(min_id, max_id, skip)
     local top = 0
-    for _, t in ipairs({ "players", "teamplayerlinks", "editedplayernames", "playerloans" }) do
+    -- 2.20: above every id any player table of this career has or had (M.ID_TABLES, the typed id's list too)
+    for _, t in ipairs(M.ID_TABLES) do
         local tbl = db.get_table(t)
         if tbl and db.has_field(tbl, "playerid") then
             for rec in db.records(tbl) do
@@ -69,6 +70,27 @@ function M.free_playerid(min_id, max_id, skip)
     while skip and skip[pid] and pid < max_id do pid = pid + 1 end
     if pid >= max_id then return nil, string.format("no free player id below %d (highest used: %d)", max_id, top) end
     return pid
+end
+
+-- 2.20 (10-18: a created player with a real player's id got that player's head edits): the ids an AUTOMATIC id passes over.
+-- The asset gate's game head / miniface / callname ids (taken, a current gate) and, when the gate is not current, the same
+-- families of the last gate written (an older list of the game files still names real players' ids); every head id a row
+-- of this save uses (players / manager headassetid); the player-career player. A typed id is not affected (Pit wall 11:52:
+-- "give the head" with a typed id is a working feature).
+function M.automatic_skip(gate, taken)
+    local skip = {}
+    for id, fam in pairs(taken or {}) do skip[id] = fam end
+    if type(gate) == "table" and gate.status ~= "current" and type(gate.fam) == "table" then
+        for fam, set in pairs(gate.fam) do
+            if fam == "head3d" or fam == "miniface" or tostring(fam):match("^callname") then
+                for id in pairs(set) do skip[id] = skip[id] or fam end
+            end
+        end
+    end
+    local agate = require 'imports/turbo/core/asset_gate'
+    for h in pairs(agate.db_heads().used) do skip[h] = skip[h] or "head" end
+    skip[M.PLAYER_CAREER_ID] = "player career"
+    return skip
 end
 
 -- Source values: { field = value } for the players table, names { firstname = ... } (may be empty)
@@ -321,7 +343,7 @@ function M.run(ctx)
         typed_taken = taken[pid]
         id_how = "typed" .. (note and ("; " .. note) or "")
     else
-        local free, ferr = M.free_playerid(min_id, max_id, taken)
+        local free, ferr = M.free_playerid(min_id, max_id, M.automatic_skip(gate, taken))
         if not free then return false, ferr end
         pid = free
         id_how = string.format("automatic: the first free id above every existing one, below %d", max_id + 1)

@@ -231,14 +231,24 @@ static void ui_cases_miniface_show(App& app, Ui& ui, const fs::path& le) {
                  // Lua delivers it: shown
                  const size_t made = app.textures.created();
                  mf_write(cached, encode_dds_dxt5(solid(180, 180, 30, 160, 30)));
-                 ui.frames(3);
-                 CHECK(app.legacy.waiting_for(path) < 0.0 && app.textures.created() > made, "delivered and shown");
+                 // 2.20: a picture not there is looked at once a second (never in every frame): shown within about a second
+                 int frames = 0;
+                 while (frames < 90 && (app.legacy.waiting_for(path) >= 0.0 || app.textures.created() <= made)) {
+                     ui.frame();
+                     ++frames;
+                 }
+                 CHECK(app.legacy.waiting_for(path) < 0.0 && app.textures.created() > made,
+                       "delivered and shown (after " + std::to_string(frames) + " frames of 1/60 s)");
                  PictureInfo shown;
                  shown.state = LegacyImages::State::Game;
                  shown.drawn = true;
                  CHECK(picture_status_line(app, shown, "miniface") == "The game's own", "the game's own");
                  // a custom file Turbo cannot read: the box says why (tooltip, the line under it, the log)
-                 mf_write(custom, mf_bc7_dds());
+                 // 2.19: in a career Turbo writes the career's own copy (core/career_faces.h); Remove takes that copy away
+                 {
+                     std::string werr;
+                     CHECK(app.write_face_picture(path, mf_bc7_dds(), &werr), "unreadable picture written in this career: " + werr);
+                 }
                  ui.frames(3);
                  CHECK(log_has(app, "picture unreadable: ", "p2002.dds: DDS DX10 format BC7 (DXGI 98) is not supported"), "logged with its format");
                  PictureInfo bad;

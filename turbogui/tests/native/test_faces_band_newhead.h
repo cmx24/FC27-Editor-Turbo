@@ -110,7 +110,8 @@ static void test_band_new_head_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(apply_real_face(app, 3001, 1003, head_only, &msg, &in_step), "head of 1003 given to 3001: " + msg);
         CHECK(app.db.get_int(*t, rec, "headassetid", 0) == app.db.get_int(*t, orec, "headassetid", -1), "the head is his now");
         CHECK(p_is(rec, 12, 30), "band codes replaced by the owner's own hair 12 / beard 30 (got " + p_codes(rec) + ")");
-        CHECK(!in_step && msg.find("still shows the old face") != std::string::npos, "no picture copied (the game has none): " + msg);
+        // 2.20: his picture follows the faces-safety rules (kept when real, made when he has none); only the band codes are this case's
+        CHECK(msg.find("given to") != std::string::npos, "given: " + msg);
         CHECK(app.undo(3001) && p_is(rec, H, B), "one Undo puts the head and his band codes back (got " + p_codes(rec) + ")");
         // only the part with a band code is replaced; codes outside the bands stay his own when hair / beard are not asked
         set_p(rec, H, 7);
@@ -166,6 +167,7 @@ static void test_band_new_head_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(m_is(33, 4), "manager: no band code, his own 33 / 4 untouched (got " + m_codes() + ")");
 
         // put everything back
+        faces_safety_reset();  // 2.20: no miniface left queued for 3001
         set_faces_catalog(app.asset_catalog());
         for (const auto& [f, v] : keep_p) app.db.set_int(*t, rec, f, v);
         for (const auto& [f, v] : keep_o) app.db.set_int(*t, orec, f, v);
