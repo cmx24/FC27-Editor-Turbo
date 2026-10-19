@@ -105,6 +105,8 @@ if ($Section -in 'L1', 'All') {
   $s = New-Scratch 'l1_guards'
   $r = Run $Prof (PArgs $s @('-Set', 'stock') 'powershell' 'none')
   Check ($r.code -eq 10 -and (CountDir $s.aside) -eq 0) 'running-process refusal: a running process of a guarded name -> exit 10, nothing moved'
+  $r = Run $Prof (PArgs $s @('-Set', 'stock') 'NoSuchProcA,powershell' 'none')
+  Check ($r.code -eq 10 -and (CountDir $s.aside) -eq 0) 'a comma-joined list is split (NoSuchProcA,powershell): the second name still refuses -> exit 10'
   $r = Run $Prof (PArgs $s @('-Set', 'stock') 'none' $NoTask)
   Check ($r.code -eq 11 -and $r.out -match 'MISSING' -and (CountDir $s.aside) -eq 0) 'task refusal: a task that is not Ready (here: missing) -> exit 11, nothing moved'
   $r = Run $Prof ((PArgs $s @('-Set', 'stock')) + @('-RecordPath', (Join-Path $Scratch 'no_such_record.json')))

@@ -30,8 +30,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 # the value 'none' means "no such guard" (offline self-test only: a scratch round trip must not depend on whether Cassio's launcher tasks run)
-$ProcessNames = @($ProcessNames | Where-Object { $_ -and $_ -ne 'none' })
-$TaskNames = @($TaskNames | Where-Object { $_ -and $_ -ne 'none' })
+# (through -File a list arrives as ONE comma-joined string, so every value is split on commas first)
+$ProcessNames = @($ProcessNames | ForEach-Object { $_ -split ',' } | Where-Object { $_ -and $_ -ne 'none' })
+$TaskNames = @($TaskNames | ForEach-Object { $_ -split ',' } | Where-Object { $_ -and $_ -ne 'none' })
 function Md5([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm MD5).Hash.ToLower() }
 function Say([string]$m, [string]$c = '') { if ($c) { Write-Host $m -ForegroundColor $c } else { Write-Host $m } }
 function Fail([int]$code, [string]$m) { Write-Host ('REFUSED: ' + $m) -ForegroundColor Red; exit $code }
