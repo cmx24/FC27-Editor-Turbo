@@ -87,7 +87,7 @@ static void ui_cases(App& app, Ui& ui) {
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Advanced", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
         struct Sign { const char* area; const char* page; Page want; };
-        for (const Sign& s : {Sign{"Players", "Create a player", Page::CreatePlayer}, Sign{"Players", "Commentary names", Page::CommentaryNames}}) {
+        for (const Sign& s : {Sign{"Players", "Commentary names", Page::CommentaryNames}}) {
             CHECK(ui.open_page(s.area, s.page) && app.place() == shell::place_of(s.want), std::string("opens: ") + s.area + " > " + s.page);
             CHECK(ui.find("###navgo") != nullptr, std::string("a button that goes to the feature: ") + s.page);
             CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::PlayerEdit)), std::string("it opens Edit a player: ") + s.page);

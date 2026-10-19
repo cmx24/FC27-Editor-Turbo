@@ -8,6 +8,7 @@
 #include "ui_changes.h"
 #include "ui_diagnostics_page.h"
 #include "ui_kits_page.h"
+#include "ui_player_creation.h"
 #include "ui_player_page.h"
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
@@ -25,6 +26,10 @@ static void draw_player_edit(App& app) {
     else draw_players(app);
 }
 TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_edit);
+
+// Players > Player creation (2.20 ia-creation): create / clone / import / export / delete in one page. The signpost of ui_nav_pages.cpp stays
+// registered the old way and answers when Settings > Use the old pages is on.
+TURBO_REGISTER_NEW_PAGE(shell::Page::CreatePlayer, draw_player_creation);
 
 // Tactics
 TURBO_REGISTER_NEW_PAGE(shell::Page::TacticPresets, draw_tactics_presets_page);

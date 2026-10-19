@@ -23,7 +23,7 @@ using turbo::shell::Page;
 // Registered in BOTH registries on purpose (the 2.16 page replaces the older page of the same id until the old pages are asked for).
 // Wiring chunk 2 adds the pages it replaces; anything else registered twice is a mistake to look at.
 static const Page kBoth[] = {Page::Kits,      Page::Identity, Page::TacticPresets, Page::TeamSheet, Page::GameplayPresets,
-                             Page::Transfers, Page::JobOffer, Page::ChangesUndo,   Page::AdvExport};
+                             Page::Transfers, Page::JobOffer, Page::ChangesUndo,   Page::AdvExport,  Page::CreatePlayer};
 
 static void run() {
     using namespace turbo::shell;

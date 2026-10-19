@@ -24,7 +24,7 @@ struct PageInfo {
 const PageInfo kPages[] = {
     {Page::PlayerEdit, Area::Squad, "Edit a player", 0},
     {Page::Squad, Area::Squad, "My squad", 1},
-    {Page::CreatePlayer, Area::Squad, "Create a player", -1},
+    {Page::CreatePlayer, Area::Squad, "Player creation", -1},  // 2.20: create / clone / import / export / delete (ui_player_creation.cpp)
     {Page::Staff, Area::Squad, "Managers & staff", 2},
     {Page::CommentaryNames, Area::Squad, "Commentary names", -1},
 
