@@ -29,6 +29,9 @@ namespace turbo {
 using nlohmann::json;
 namespace fs = std::filesystem;
 
+// 2.20 R3 (Pit wall 13:35): Populate in the Create player form (ui_archetype_populate.h); weak, null until that track's .cpp is linked
+bool archetype_populate_create(App& app, const PlayerRow& tmpl, create_form::Form& cur) __attribute__((weak));
+
 static std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
@@ -846,6 +849,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
         form_label("Archetype", "Optional (2.3): his attributes reshaped to a role so that the formula for the position gives the "
                                 "Overall above; None keeps the attributes below");
         archetype_combo("##carch", arch, position, S(220.0f), "None: the template's attributes");
+        if (archetype_populate_create && archetype_populate_create(app, p, cur)) arch = -1;  // R3 Populate (weak: nothing before that track links)
         if (cur.has("potential")) int_box("Potential", "##potential", cur.ints["potential"], 1, 99);
         if (cur.has_birthdate) {
             form_label("Birth date", "Day, month, year: his exact birth date unless you change it");
