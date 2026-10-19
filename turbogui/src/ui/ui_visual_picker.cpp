@@ -448,7 +448,7 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
             draw_picture(app, s.src, idx, true, a, ImVec2(pw, ph));
             ImGui::Dummy(ImVec2(pw, ph));
             ImGui::TextWrapped("%s", s.src.names[static_cast<size_t>(idx)].c_str());
-            ImGui::TextDisabled("%s %lld%s", s.src.title.c_str(), static_cast<long long>(pv), pv == s.ui.current ? ", his now" : "");
+            ImGui::TextDisabled("%s %lld%s", s.src.title.c_str(), static_cast<long long>(pv), pv == s.ui.current ? ", the current one" : "");
         }
         ImGui::EndChild();
     }
