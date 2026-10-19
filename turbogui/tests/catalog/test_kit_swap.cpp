@@ -482,6 +482,14 @@ static void test_hotspots(const fs::path& base) {
         std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
         check(log.find("hotspots_95_0_0") != std::string::npos && log.find("hotspot rectangle(s) patched") != std::string::npos && log.find("jersey/numberback (0.5890,") != std::string::npos,
               "the log lists the patched rectangles with old and new values");
+        {  // 2.19: the patched asset lives only in memory: the table cache stores it inline, a second session serves it from there
+            Runtime r2(w.le, w.root, stand_in_oodle());
+            r2.start();
+            r2.wait_idle();
+            std::vector<uint8_t> o2(orig.begin(), orig.end());
+            check(r2.status().table_cached && r2.on_decompressed(&stream[size_t(bl[0].payload)], bl[0].csize, o2.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 && o2 == e,
+                  "table cache: the patched hotspot asset (inline) is served by the next session: " + r2.status().cache_note);
+        }
         Options o = rt.get_options();
         o.apply_hotspots = false;
         rt.set_options(o);
@@ -1043,6 +1051,7 @@ static void test_guards_and_cache(const fs::path& base) {
     // ---- the kill switch stops a build that is running (the plan reads the game's texture headers through the slow decompressor)
     {
         fs::remove(w.le / "turbo_output" / "kits" / "kit_index.cache");
+        fs::remove(w.le / "turbo_output" / "kits" / "kit_table.cache");  // 2.19: a cached table would be published without a build
         std::atomic<int> calls{0};
         OodleFn slow = [&](const uint8_t* src, size_t n, uint8_t* dst, size_t dn) {
             ++calls;
@@ -1062,6 +1071,234 @@ static void test_guards_and_cache(const fs::path& base) {
         check(rt.table() == nullptr, "... and publishes no table");
     }
     fs::remove(opt_in);
+}
+
+// ---------------------------------------------------------------- 2.19: the finished table on disk (kit_table.cache)
+static std::vector<uint8_t> read_all(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+static void write_all(const fs::path& p, const std::vector<uint8_t>& d) {
+    std::ofstream(p, std::ios::binary | std::ios::trunc).write(reinterpret_cast<const char*>(d.data()), std::streamsize(d.size()));
+}
+// Every block of every chunk of the synthetic game through two runtimes: the same answer and the same output bytes
+static bool same_answers(World& w, Runtime& a, Runtime& b, int* served) {
+    bool same = true;
+    *served = 0;
+    for (const auto& c : w.g.chunk_locs) {
+        std::vector<uint8_t> chunk(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+        std::vector<Block> bl;
+        if (!block_headers(chunk, bl)) continue;
+        for (const Block& k : bl) {
+            std::vector<uint8_t> oa(k.dsize, 0xEE), ob(k.dsize, 0xEE);
+            const int ra = a.on_block(&chunk[size_t(k.payload)], k.csize, oa.data(), k.dsize);
+            const int rb = b.on_block(&chunk[size_t(k.payload)], k.csize, ob.data(), k.dsize);
+            same = same && ra == rb && oa == ob;
+            if (ra == 2) ++*served;
+        }
+    }
+    return same;
+}
+static bool same_status(const Status& a, const Status& b, std::string* why) {
+    auto no = [&](const std::string& w) {
+        *why = w;
+        return false;
+    };
+    if (a.state != b.state || a.message != b.message) return no("state / message");
+    if (a.blocks != b.blocks || a.bytes != b.bytes) return no("blocks / bytes");
+    if (a.items.size() != b.items.size()) return no("item count");
+    for (size_t i = 0; i < a.items.size(); ++i) {
+        const auto &x = a.items[i], &y = b.items[i];
+        if (x.team != y.team || x.slot != y.slot || x.res != y.res || x.kind != y.kind || x.role != y.role || x.reason != y.reason || x.swap != y.swap || x.probe != y.probe ||
+            x.copies != y.copies || x.blocks != y.blocks || x.table_item != y.table_item || x.left_by != y.left_by || users_text(x.shared) != users_text(y.shared))
+            return no("item " + std::to_string(i) + " " + x.res);
+    }
+    if (a.folders.size() != b.folders.size()) return no("folder count");
+    for (size_t i = 0; i < a.folders.size(); ++i) {
+        const auto &x = a.folders[i], &y = b.folders[i];
+        if (x.team != y.team || x.slot != y.slot || x.kind != y.kind || x.swapped != y.swapped || x.why != y.why || x.role != y.role || x.reason != y.reason ||
+            x.details_left != y.details_left || users_text(x.shared) != users_text(y.shared))
+            return no("folder " + x.kind);
+    }
+    return true;
+}
+
+static void test_table_cache(const fs::path& base) {
+    World w = make_world(base / "tc");
+    stage_home(w);
+    const fs::path kits = w.le / "turbo_output" / "kits";
+    const fs::path cache = kits / "kit_table.cache";
+    std::vector<std::string> lines;
+    auto setup = [&](Runtime& rt, bool use) {
+        rt.turbo_version = "T1";
+        rt.game_build = "6AC07E31-2145C000";
+        rt.use_table_cache = use;
+        rt.log_line = [&](const std::string& l) { lines.push_back(l); };
+    };
+    {  // the first session builds the table and saves it (the crest / crest_shorts clash is part of what is saved)
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        std::string err;
+        check(rt.activate(95, 0, Mode::Swap, &err), "table cache: activate swap: " + err);
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(s.state == "ready" && !s.table_cached && fs::exists(cache) && s.cache_note.find("saved to kit_table.cache") != std::string::npos,
+              "table cache: the first build is built and saved: " + s.cache_note);
+        check(lines.size() >= 2 && lines[lines.size() - 2].find("kit swap: table built (") != std::string::npos && lines.back().find("kit swap: table ready (built, ") != std::string::npos,
+              "table cache: the host log lines say built, then table ready: " + (lines.empty() ? "" : lines.back()));
+    }
+    const std::vector<uint8_t> good = read_all(cache);
+    Runtime ref(w.le, w.root, stand_in_oodle());  // the same build without the cache: the reference
+    setup(ref, false);
+    ref.start();
+    ref.wait_idle();
+    check(ref.status().state == "ready" && !ref.status().table_cached && read_all(cache) == good, "table cache: a runtime with the cache off builds and leaves the file alone");
+    {  // round trip: the next session publishes the table from the cache, and it answers every block exactly as the built one
+        lines.clear();
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        rt.start();
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(s.state == "ready" && s.table_cached && s.cache_note == "from cache" && s.ready_after_ms >= 0 && s.ready_at_ms > 0, "table cache: second session from the cache: " + s.cache_note);
+        check(lines.size() == 2 && lines[0].find("kit swap: table from cache (") != std::string::npos && lines[0].find(" blocks, ") != std::string::npos &&
+                  lines[1].find("kit swap: table ready (from cache, ") != std::string::npos,
+              "table cache: the host log line says from cache: " + (lines.empty() ? "" : lines[0]));
+        std::string why;
+        check(same_status(ref.status(), s, &why), "table cache: items, verdicts, message and totals equal the built table's (" + why + ")");
+        int served = 0;
+        check(same_answers(w, ref, rt, &served) && served > 0, "table cache: every block of the game gets the same answer and the same bytes (" + std::to_string(served) + " served)");
+        check(rt.kinds_of(95).count("home_0_0") == 1, "table cache: the kit index is read after the cached table (kit folders for the UI)");
+        rt.flush_log(true);
+        const std::vector<uint8_t> lg = read_all(rt.log_path());
+        const std::string log(lg.begin(), lg.end());
+        check(log.find("table: from cache, ") != std::string::npos && log.find(" after start)") != std::string::npos, "table cache: kit_swap_log.txt names the origin and the ready time");
+    }
+    // every field of the key: a difference builds the table again and says which field
+    auto expect_miss = [&](const std::function<void(Runtime&)>& tweak, const std::string& field, const std::string& what) {
+        write_all(cache, good);
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        tweak(rt);
+        rt.start();
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(s.state == "ready" && !s.table_cached && s.cache_note.find(field) != std::string::npos, "table cache: " + what + ": built again (" + s.cache_note + ")");
+    };
+    expect_miss([](Runtime& r) { r.game_build = "6AC07E31-0000000"; }, "key changed: game build", "another game build");
+    expect_miss([](Runtime& r) { r.turbo_version = "T2"; }, "key changed: turbo version", "another Turbo version");
+    expect_miss([](Runtime& r) { r.options.min_csize = 2048; }, "key changed: options", "other options");
+    const std::vector<uint8_t> state = read_all(kits / "swap_state.json");
+    {
+        json j = json::parse(std::string(state.begin(), state.end()));
+        j["kits"][0]["share_within_club"] = true;
+        std::ofstream(kits / "swap_state.json", std::ios::trunc) << j.dump(2);
+    }
+    expect_miss([](Runtime&) {}, "key changed: kits (swap_state)", "swap_state.json changed (a per-kit option)");
+    {
+        json j = json::parse(std::string(state.begin(), state.end()));
+        j["kits"][0]["mode"] = "observe";
+        std::ofstream(kits / "swap_state.json", std::ios::trunc) << j.dump(2);
+    }
+    expect_miss([](Runtime&) {}, "key changed: kits (swap_state)", "swap_state.json changed (swap -> observe)");
+    write_all(kits / "swap_state.json", state);
+    const fs::path dds = kits / "95" / "home" / "jersey_color.dds";
+    const auto t0 = fs::last_write_time(dds);
+    fs::last_write_time(dds, t0 + std::chrono::seconds(5));
+    expect_miss([](Runtime&) {}, "key changed: staged team 95 slot 0", "a staged file's write time changed");
+    fs::last_write_time(dds, t0);
+    {
+        const std::vector<uint8_t> m = read_all(kits / "95" / "home" / "manifest.json");
+        const auto mt = fs::last_write_time(kits / "95" / "home" / "manifest.json");
+        std::vector<uint8_t> m2 = m;
+        m2.push_back('\n');
+        write_all(kits / "95" / "home" / "manifest.json", m2);
+        expect_miss([](Runtime&) {}, "key changed: staged team 95 slot 0", "manifest.json changed");
+        write_all(kits / "95" / "home" / "manifest.json", m);
+        fs::last_write_time(kits / "95" / "home" / "manifest.json", mt);
+    }
+    {  // the format number in the file
+        std::vector<uint8_t> f = good;
+        f[4] ^= 0x7F;
+        const uint64_t sum = fnv1a64(f.data(), f.size() - 8);
+        std::memcpy(&f[f.size() - 8], &sum, 8);
+        write_all(cache, f);
+        CachedBuild cb;
+        std::string why;
+        check(!load_table_cache(cache, TableCacheKey(), cb, &why) && why.find("key changed: format") != std::string::npos, "table cache: another format number is refused: " + why);
+    }
+    // damaged files: truncated at many places, garbage, a flipped byte: never loaded, the build runs
+    {
+        bool any = false;
+        CachedBuild cb;
+        for (size_t cut : {good.size() - 1, good.size() - 9, good.size() / 2, size_t(40), size_t(8), size_t(0)}) {
+            std::vector<uint8_t> f(good.begin(), good.begin() + std::ptrdiff_t(cut));
+            write_all(cache, f);
+            std::string why;
+            TableCacheKey k;
+            any = any || load_table_cache(cache, k, cb, &why);
+        }
+        std::mt19937 rng(5);
+        std::vector<uint8_t> junk(good.size());
+        for (auto& b : junk) b = uint8_t(rng());
+        write_all(cache, junk);
+        any = any || load_table_cache(cache, TableCacheKey(), cb, nullptr);
+        check(!any, "table cache: truncated and garbage files are never loaded");
+        std::vector<uint8_t> flip = good;
+        flip[flip.size() / 2] ^= 1;
+        write_all(cache, flip);
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "ready" && !rt.status().table_cached && rt.status().cache_note.find("damaged") != std::string::npos,
+              "table cache: one flipped byte: damaged, built again: " + rt.status().cache_note);
+        check(read_all(cache) != flip, "table cache: ... and a good file replaces the damaged one");
+    }
+    write_all(cache, good);
+    {  // the kill switch: nothing is read, nothing is published
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        rt.set_killed(true);
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "off" && rt.table() == nullptr && !rt.status().table_cached, "table cache: the kill switch at start: no table, not even the cached one");
+    }
+    {  // the opt-in file missing (the host requires it): nothing is read either
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        rt.require_opt_in = true;
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().state == "off" && rt.table() == nullptr, "table cache: without kits3d_on.txt no table, not even the cached one");
+    }
+    {  // a staged picture with other bytes, same size, write time put back: the key matches, the bytes do not: built again, the new picture served
+        std::vector<uint8_t> d = read_all(dds);
+        for (size_t i = kDdsHeader; i < d.size(); i += 7) d[i] ^= 0x5A;
+        write_all(dds, d);
+        fs::last_write_time(dds, t0);
+        write_all(cache, good);
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt, true);
+        rt.start();
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(s.state == "ready" && !s.table_cached && s.cache_note.find("staged data changed") != std::string::npos, "table cache: same size and time, other bytes: built again: " + s.cache_note);
+        const auto& c = w.g.chunk_locs[0];
+        std::vector<uint8_t> chunk(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+        std::vector<Block> bl;
+        block_headers(chunk, bl);
+        std::vector<uint8_t> out(bl[0].dsize, 0xEE);
+        check(rt.on_block(&chunk[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize) == 2 &&
+                  std::memcmp(out.data(), d.data() + kDdsHeader, out.size()) == 0,
+              "table cache: ... and the new picture is served, never the old one");
+    }
+    {  // a changed toc (a game update): the kit index signature differs
+        write_all(cache, read_all(cache));
+        std::ofstream t(w.root / "Data" / "Win32" / "contentsb.toc", std::ios::binary | std::ios::app);
+        t.put('\0');
+    }
+    expect_miss([](Runtime&) {}, "key changed: kit index", "a changed toc (game update)");
 }
 
 // ---------------------------------------------------------------- optional: the real install (read only)
@@ -1211,6 +1448,7 @@ int main(int argc, char** argv) {
     test_any_club_slots(base);
     test_runtime_slots(base);
     test_guards_and_cache(base);
+    test_table_cache(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

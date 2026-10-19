@@ -141,6 +141,34 @@ static void ui_cases(App& app, Ui& ui) {
         ui.frames(3);
     });
 
+    run_case("Edit a player (2.19): the full editor (filters, resizable list) in Simple and Advanced without the old-pages switch; the card page only as an opt-in", [&] {
+        const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode, was_card = app.player_card_view;
+        app.legacy_pages = false;
+        app.player_card_view = false;
+        for (bool adv : {false, true}) {
+            app.prefs.advanced_mode = adv;
+            app.go(Page::PlayerEdit);
+            ui.frames(3);
+            const std::string v = adv ? " (Advanced)" : " (Simple)";
+            CHECK(ui.find("##psearch", "##plist") != nullptr && ui.find("##fpos", "##plist") != nullptr && ui.find("Clear##filters", "##plist") != nullptr,
+                  "the full editor's list with its filters is drawn" + v);
+            CHECK(ui.find("###pcardview") != nullptr, "the Card view (beta) switch is on the page" + v);
+        }
+        CHECK(ui.click("###pcardview"), "switch the card view on");
+        ui.frames(3);
+        CHECK(app.player_card_view && ui.find("##psearch", "##plist") == nullptr, "card view: the 2.16 card page instead of the full editor");
+        CHECK(app.gui_settings["gui"].value("player_card_view", false), "the choice is saved (gui.player_card_view)");
+        CHECK(ui.click("###pcardview"), "switch the card view off");
+        ui.frames(3);
+        CHECK(!app.player_card_view && ui.find("##psearch", "##plist") != nullptr, "the full editor is back");
+        CHECK(!app.gui_settings["gui"].contains("player_card_view"), "the default is not stored");
+        app.legacy_pages = was_legacy;
+        app.prefs.advanced_mode = was_adv;
+        app.player_card_view = was_card;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
     run_case("P213: the proven panels are where a user clicks them (Simple view): area tab, then the page strip", [&] {
         app.prefs.advanced_mode = false;
         app.sel_team = 7;  // Everton: the club pages and the club panel show a club

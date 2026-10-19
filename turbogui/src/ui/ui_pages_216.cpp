@@ -3,6 +3,7 @@
 // the pages registered before 2.16 and the legacy panels stay exactly where they were, and App::legacy_pages (Settings > Use the old pages)
 // brings them back. Nothing is deleted.
 #include "app.h"
+#include "imgui.h"
 #include "ui_career_pages.h"
 #include "ui_changes.h"
 #include "ui_diagnostics_page.h"
@@ -14,8 +15,16 @@
 
 namespace turbo {
 
-// Players: Edit a player
-TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_page);
+// Players: Edit a player. 2.19: the full editor (draw_players: the filters, the resizable list / rows / frames, the archetype attribute
+// editor) is the page in both views, as before 2.16; the 2.16 card page (draw_player_page) is an opt-in ("Card view (beta)",
+// gui.player_card_view). Nothing is deleted; Settings > Use the old pages still draws the old panel.
+static void draw_player_edit(App& app) {
+    if (ImGui::Checkbox("Card view (beta)###pcardview", &app.player_card_view)) app.save_gui_settings();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 2.16 card page instead of the full editor (filters, resizable list, archetype editor)");
+    if (app.player_card_view) draw_player_page(app);
+    else draw_players(app);
+}
+TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_edit);
 
 // Tactics
 TURBO_REGISTER_NEW_PAGE(shell::Page::TacticPresets, draw_tactics_presets_page);

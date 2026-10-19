@@ -149,6 +149,9 @@ public:
     std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
     GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
     bool legacy_pages = false;  // 2.16: draw the pre-2.16 panels instead of the new pages (gui.legacy_pages; Settings, Advanced view; the tests set it)
+    // 2.19: Players > Edit a player draws the full editor (draw_players: filters, resizable list and rows, archetype editor) unless the person
+    // opts into the 2.16 card page (gui.player_card_view; the "Card view (beta)" switch on the page)
+    bool player_card_view = false;
     RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5

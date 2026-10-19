@@ -209,8 +209,14 @@ public:
     uint32_t min_csize() const { return min_csize_; }
     uint32_t max_csize() const { return max_csize_; }
 
+    // 2.19: the staged file an item's replacement bytes were read from ("" = none, or patched in memory) and their offset in it
+    std::string source_file(uint32_t item) const { return item < src_file_.size() ? src_file_[item] : std::string(); }
+
 private:
     friend class TableBuilder;
+    friend struct TableCacheIO;  // 2.19: turbo_output\kits\kit_table.cache (kit_swap.cpp)
+    void alloc_counters();  // hit / first / last counters for n_items_
+    void index_slots();     // the open-addressing slots for entries_
     void bump(uint32_t i) const {
         if (i >= n_items_) return;
         hits_[i].fetch_add(1);
@@ -226,6 +232,8 @@ private:
     std::unique_ptr<std::atomic<uint64_t>[]> hits_, first_ms_, last_ms_;
     std::vector<uint32_t> alias_pool_;
     std::vector<uint8_t> item_swap_;  // 1 = overwrite, 0 = observe only
+    std::vector<std::string> src_file_;  // 2.19: per item, the staged file its bytes came from ("" = none)
+    std::vector<uint64_t> src_off_;      // 2.19: per item, the offset of those bytes in that file
     uint32_t n_items_ = 0;
     uint64_t bytes_ = 0;
     uint32_t min_csize_ = 0xFFFFFFFFu, max_csize_ = 0;
@@ -340,7 +348,8 @@ public:
     ~TableBuilder();
     // Adds a plan's blocks; plan items are numbered by the builder (item index = running count over all plans)
     // data == nullptr: a watch-only item (its blocks carry no replacement and never conflict with a real one)
-    uint32_t add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap);
+    // src_file / src_off (2.19): the staged file the bytes were read from and their offset in it (the table cache reads them again from there)
+    uint32_t add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap, const std::string& src_file = std::string(), uint64_t src_off = 0);
     bool add_block(uint32_t item, uint32_t csize, uint32_t dsize, uint64_t head, uint64_t fnv, const uint8_t* data, std::string* conflict);
     // 2.13: the item's blocks stay out of every later finish() (a kit folder left whole after a clash); finish() can run again
     void exclude_item(uint32_t item);
@@ -413,7 +422,39 @@ struct Status {
     bool index_cached = false;    // the kit index came from turbo_output\kits\kit_index.cache (no scan of the game's tocs)
     int scan_done = 0, scan_total = 0;  // a running scan of the game's tocs (bundles)
     bool scanning = false;
+    // 2.19: the table of the last build: read from turbo_output\kits\kit_table.cache (no plan) or built; how long it took, when it was
+    // published, and why the cache was not used ("" when it was)
+    bool table_cached = false;
+    double table_ms = 0;          // the build (or the cache load) in ms
+    double ready_after_ms = -1;   // ms from start() to the publication of the table (-1 = not published since start)
+    uint64_t ready_at_ms = 0;     // wall clock (ms since the Unix epoch) of that publication
+    std::string cache_note;       // "from cache", "built: <why the cache was not used>; saved" ...
 };
+
+// ---------------------------------------------------------------- 2.19: the finished table on disk (turbo_output\kits\kit_table.cache)
+// The game-start build takes minutes with many kits (the block census reads every kit chunk of the game), and every kit the game loads
+// before it is ready shows the game's own picture (and stays cached). The finished table (entries, items, verdicts, watch items) is saved
+// after each build; at start it is used only when EVERY field of its key equals the current one, and every staged picture it serves is
+// read again and must hash to the bytes the build served. Any difference, damage or doubt: the table is built as before (never a wrong one).
+constexpr uint32_t kTableCacheFormat = 1;  // bump with every change to the plan rules or to the file layout
+struct TableCacheKey {
+    std::vector<std::pair<std::string, std::string>> fields;  // (name, value), in order; a miss names the first field that differs
+    void add(const std::string& name, const std::string& value) { fields.emplace_back(name, value); }
+};
+// The key of a build: format, Turbo version, game build, kit index signature (the game's tocs), the options and the kits (canonical, as
+// the worker uses them), and per kit its staged folder (manifest.json and hotspots content hashes, size + write time of every file)
+TableCacheKey make_table_cache_key(const std::string& turbo_version, const std::string& game_build, const std::string& index_sig, const std::vector<SlotState>& slots,
+                                   const std::vector<std::filesystem::path>& staged_dirs, const Options& base);
+struct CachedBuild {
+    std::shared_ptr<Table> table;
+    std::string message;
+    std::vector<ItemStatus> items;
+    std::vector<FolderVerdict> folders;
+};
+bool save_table_cache(const std::filesystem::path& file, const TableCacheKey& key, const Table& table, const std::string& message, const std::vector<ItemStatus>& items,
+                      const std::vector<FolderVerdict>& folders);
+// false + why ("no cache file", "key changed: staged team 10 home", "damaged", "staged data changed: ...", "cancelled") = build it
+bool load_table_cache(const std::filesystem::path& file, const TableCacheKey& key, CachedBuild& out, std::string* why = nullptr, const std::atomic<bool>* cancel = nullptr);
 class Runtime {
 public:
     // le_root: the Live Editor folder (state and logs under turbo_output); game_root: the install; oodle: the game's own decompressor
@@ -428,6 +469,13 @@ public:
     // player who never uses the feature has no hook at all. false + reason = not installed (activation refused). Unset = no hook
     // needed (tests).
     std::function<bool(std::string* why)> ensure_hook;
+    // 2.19: part of the table cache key (the host sets them before start(): kGuiVersion and the running FC27.exe build key)
+    std::string turbo_version;
+    std::string game_build;
+    // 2.19: one line per published table ("kit swap: table from cache (N blocks, X ms)" / "kit swap: table built ..."); the host logs it
+    std::function<void(const std::string&)> log_line;
+    // 2.19: false = never read or write turbo_output\kits\kit_table.cache (tests, the offline timing tool's cold run)
+    bool use_table_cache = true;
     // Loads turbo_output\kits\swap_state.json and starts building the table for the slots in it (async)
     void start();
     // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
@@ -463,6 +511,7 @@ public:
     std::filesystem::path state_path() const;
     std::filesystem::path log_path() const;
     std::filesystem::path index_cache_path() const;
+    std::filesystem::path table_cache_path() const;  // 2.19: turbo_output\kits\kit_table.cache
     std::filesystem::path staged_dir(int team, int slot) const;
     // Tests: the table as published
     const Table* table() const { return table_.load(); }
@@ -501,6 +550,12 @@ private:
     std::atomic<bool> killed_{false};
     bool build_skipped_ = false;  // a build did not run because of the kill switch / missing opt-in (m_)
     bool index_cached_ = false;   // (m_)
+    // 2.19 (m_): the last published table's origin and timing (Status::table_cached ...)
+    bool table_cached_ = false;
+    double table_ms_ = 0, ready_after_ms_ = -1;
+    uint64_t ready_at_ms_ = 0;
+    std::string cache_note_;
+    double started_s_ = -1;       // now_s() at start()
     std::atomic<const Table*> table_{nullptr};
     std::atomic<bool> swap_any_{false};
     std::vector<std::shared_ptr<Table>> keep_;                 // published tables (m_)

@@ -1530,6 +1530,9 @@ void App::load_gui_settings() {
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
         gui_settings["gui"]["legacy_pages"].is_boolean())
         legacy_pages = gui_settings["gui"]["legacy_pages"].get<bool>();
+    if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("player_card_view") &&
+        gui_settings["gui"]["player_card_view"].is_boolean())
+        player_card_view = gui_settings["gui"]["player_card_view"].get<bool>();
     // the asset catalog's commentary team ("" automatic, "*" every team, "dr" ...): Callnames, docs/asset-catalog.md
     if (gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
         const json& c = gui_settings["callnames"];
@@ -1544,6 +1547,8 @@ bool App::save_gui_settings() {
     prefs.save(gui_settings);
     if (legacy_pages) gui_settings["gui"]["legacy_pages"] = true;
     else if (gui_settings["gui"].is_object()) gui_settings["gui"].erase("legacy_pages");
+    if (player_card_view) gui_settings["gui"]["player_card_view"] = true;
+    else if (gui_settings["gui"].is_object()) gui_settings["gui"].erase("player_card_view");
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
 

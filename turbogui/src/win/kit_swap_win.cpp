@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <thread>
 
 #include "core/kit_swap.h"
@@ -60,6 +61,23 @@ void install_kit_swap(turbo::App& app) {
     // The reading of the game's kit data (and the plan) runs below normal priority so it does not compete with the game's own loading
     rt->worker_init = []() { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); };
     rt->set_killed(file_exists(le_root() / "turbo_output" / "kits3d_off.txt"));  // before start(): the kill switch also stops the first build
+    // 2.19: turbo_output\kits\kit_table.cache is used only for this Turbo version and this running game build (and the rest of its key)
+    rt->turbo_version = turbo::kGuiVersion;
+    rt->game_build = game_build_key();
+    if (rt->game_build.empty()) {  // game_hooks did not read the image: the running FC27.exe's PE header, the same key format
+        const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        if (base && dos->e_magic == IMAGE_DOS_SIGNATURE) {
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+            if (nt->Signature == IMAGE_NT_SIGNATURE) {
+                char b[32];
+                std::snprintf(b, sizeof(b), "%08X-%08X", static_cast<unsigned>(nt->FileHeader.TimeDateStamp), static_cast<unsigned>(nt->OptionalHeader.SizeOfImage));
+                rt->game_build = b;
+            }
+        }
+    }
+    if (rt->game_build.empty()) rt->game_build = "unknown";
+    rt->log_line = [](const std::string& line) { log("%s", line.c_str()); };
     // The hook goes in when a kit is first switched on (or one was left on last session), never for a player who does not use it
     rt->ensure_hook = [rt](std::string* why_out) {
         std::string why;

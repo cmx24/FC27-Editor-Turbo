@@ -566,6 +566,11 @@ struct Wr {
         for (int i = 0; i < 4; ++i) b.push_back(uint8_t(v >> (8 * i)));
     }
     void i32(int32_t v) { u32(uint32_t(v)); }
+    void u64(uint64_t v) {
+        u32(uint32_t(v));
+        u32(uint32_t(v >> 32));
+    }
+    void u8(uint8_t v) { b.push_back(v); }
     void str(const std::string& s) {
         u32(uint32_t(s.size()));
         b.insert(b.end(), s.begin(), s.end());
@@ -583,6 +588,14 @@ struct Rd {
         return v;
     }
     int32_t i32() { return int32_t(u32()); }
+    uint64_t u64() {
+        const uint64_t lo = u32();
+        return lo | uint64_t(u32()) << 32;
+    }
+    uint8_t u8() {
+        if (b.size() - p < 1) { ok = false; return 0; }
+        return b[p++];
+    }
     std::string str() {
         const uint32_t n = u32();
         if (!ok || b.size() - p < n) { ok = false; return {}; }
@@ -773,12 +786,16 @@ struct TableBuilder::Impl {
     std::vector<Rec> recs;
     std::vector<std::shared_ptr<std::vector<uint8_t>>> storage;
     std::vector<uint8_t> swap;
+    std::vector<std::string> src_file;  // 2.19: per item, the staged file of its bytes
+    std::vector<uint64_t> src_off;
     std::set<uint32_t> excluded;  // 2.13: items left out of the table (a kit folder left whole after a clash)
 };
 TableBuilder::TableBuilder() : d_(new Impl) {}
 TableBuilder::~TableBuilder() = default;
 uint32_t TableBuilder::items() const { return uint32_t(d_->storage.size()); }
-uint32_t TableBuilder::add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap) {
+uint32_t TableBuilder::add_item(std::shared_ptr<std::vector<uint8_t>> data, bool swap, const std::string& src_file, uint64_t src_off) {
+    d_->src_file.push_back(data ? src_file : std::string());
+    d_->src_off.push_back(data ? src_off : 0);
     d_->storage.push_back(std::move(data));
     d_->swap.push_back(swap ? 1 : 0);
     return uint32_t(d_->storage.size() - 1);
@@ -865,16 +882,11 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
         for (uint32_t it : poisoned) dropped->push_back("item " + std::to_string(it) + ": the same compressed block is also wanted with other bytes");
     auto t = std::make_shared<Table>();
     t->n_items_ = uint32_t(d_->storage.size());
-    t->hits_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
-    for (uint32_t i = 0; i < t->n_items_; ++i) t->hits_[i].store(0);
-    t->first_ms_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
-    t->last_ms_.reset(new std::atomic<uint64_t>[t->n_items_ ? t->n_items_ : 1]);
-    for (uint32_t i = 0; i < t->n_items_; ++i) {
-        t->first_ms_[i].store(0);
-        t->last_ms_[i].store(0);
-    }
+    t->alloc_counters();
     t->item_swap_ = d_->swap;
     t->storage_ = d_->storage;
+    t->src_file_ = d_->src_file;
+    t->src_off_ = d_->src_off;
     for (size_t ri = 0; ri < recs.size(); ++ri) {
         auto& r = recs[ri];
         if (r.dead || poisoned.count(r.e.item)) continue;
@@ -891,17 +903,32 @@ std::shared_ptr<Table> TableBuilder::finish(std::vector<std::string>* dropped, s
         t->min_csize_ = std::min(t->min_csize_, e.csize);
         t->max_csize_ = std::max(t->max_csize_, e.csize);
     }
-    uint32_t cap = 16;
-    while (cap < t->entries_.size() * 2 + 2) cap <<= 1;
-    t->slots_.assign(cap, 0);
-    t->mask_ = cap - 1;
-    for (size_t i = 0; i < t->entries_.size(); ++i) {
-        const Entry& e = t->entries_[i];
-        uint32_t s = uint32_t(mix(e.csize, e.dsize, e.head)) & t->mask_;
-        while (t->slots_[s]) s = (s + 1) & t->mask_;
-        t->slots_[s] = uint32_t(i + 1);
-    }
+    t->index_slots();
     return t;
+}
+
+void Table::alloc_counters() {
+    hits_.reset(new std::atomic<uint64_t>[n_items_ ? n_items_ : 1]);
+    first_ms_.reset(new std::atomic<uint64_t>[n_items_ ? n_items_ : 1]);
+    last_ms_.reset(new std::atomic<uint64_t>[n_items_ ? n_items_ : 1]);
+    for (uint32_t i = 0; i < (n_items_ ? n_items_ : 1); ++i) {
+        hits_[i].store(0);
+        first_ms_[i].store(0);
+        last_ms_[i].store(0);
+    }
+}
+
+void Table::index_slots() {
+    uint32_t cap = 16;
+    while (cap < entries_.size() * 2 + 2) cap <<= 1;
+    slots_.assign(cap, 0);
+    mask_ = cap - 1;
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        const Entry& e = entries_[i];
+        uint32_t s = uint32_t(mix(e.csize, e.dsize, e.head)) & mask_;
+        while (slots_[s]) s = (s + 1) & mask_;
+        slots_[s] = uint32_t(i + 1);
+    }
 }
 
 bool Table::may_match(uint64_t srclen, uint64_t dstlen) const {
@@ -1208,6 +1235,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         for (const auto& s : staged.textures) by_role[s.role] = &s;
         std::vector<Cand> cands;
         std::map<size_t, std::shared_ptr<std::vector<uint8_t>>> data_of;
+        std::map<size_t, std::string> file_of;  // 2.19: the staged file of those bytes (they start at kDdsHeader in it)
         std::map<std::string, std::shared_ptr<std::vector<uint8_t>>> role_data;  // one copy of a staged picture's data per role
         std::set<std::string> seen_tex;                                          // the same resource at the same place, listed by several bundles
         for (const Tex& t : texs) {
@@ -1320,6 +1348,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             it.reason = club_note;
             plan.items.push_back(it);
             data_of[c.plan_index] = rd->second;
+            file_of[c.plan_index] = st.file.u8string();
             cands.push_back(std::move(c));
         }
         // 3. the block census: an OTHER kit chunk that holds a byte-identical compressed block would show the replacement too. Such a
@@ -1462,7 +1491,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         for (Cand& c : cands) {
             PlanItem& it = plan.items[c.plan_index];
             if (!it.swap) continue;
-            const uint32_t id = tb.add_item(data_of[c.plan_index], swap);
+            const uint32_t id = tb.add_item(data_of[c.plan_index], swap, file_of[c.plan_index], kDdsHeader);
             uint64_t at = 0;
             const uint8_t* base = data_of[c.plan_index]->data();
             for (size_t b = 0; b < c.blocks.size(); ++b) {
@@ -1611,6 +1640,416 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
     return plan;
 }
 
+// ---------------------------------------------------------------- 2.19: the finished table on disk (kit_table.cache)
+namespace {
+constexpr uint32_t kTableMagic = 0x43544B54;  // "TKTC"
+std::string hex64(uint64_t v) {
+    char b[20];
+    std::snprintf(b, sizeof(b), "%016llx", static_cast<unsigned long long>(v));
+    return b;
+}
+// FNV-1a 64 of a whole file, "missing" when it cannot be read
+std::string file_hash(const fs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return "missing";
+    std::vector<char> buf(1 << 16);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    while (f) {
+        f.read(buf.data(), std::streamsize(buf.size()));
+        const std::streamsize n = f.gcount();
+        if (n > 0) h = fnv1a64(reinterpret_cast<const uint8_t*>(buf.data()), size_t(n), h);
+    }
+    return hex64(h);
+}
+void put_users(Wr& w, const std::vector<KitUser>& us) {
+    w.u32(uint32_t(us.size()));
+    for (const auto& u : us) {
+        w.i32(u.team);
+        w.i32(u.slot);
+        w.str(u.kind);
+    }
+}
+bool get_users(Rd& r, std::vector<KitUser>& us) {
+    const uint32_t n = r.u32();
+    if (!r.ok || n > 100000) return false;
+    us.clear();
+    for (uint32_t i = 0; i < n && r.ok; ++i) {
+        KitUser u;
+        u.team = r.i32();
+        u.slot = r.i32();
+        u.kind = r.str();
+        us.push_back(std::move(u));
+    }
+    return r.ok;
+}
+}  // namespace
+
+TableCacheKey make_table_cache_key(const std::string& turbo_version, const std::string& game_build, const std::string& index_sig, const std::vector<SlotState>& slots,
+                                   const std::vector<fs::path>& staged_dirs, const Options& o) {
+    TableCacheKey k;
+    k.add("format", std::to_string(kTableCacheFormat));
+    k.add("turbo version", turbo_version);
+    k.add("game build", game_build);
+    k.add("kit index (the game's tocs)", index_sig);
+    std::ostringstream op;
+    op << "decals " << o.include_decals << " crest " << o.keep_game_crest << " share_club " << o.share_within_club << " share_other " << o.share_other_clubs << " watch "
+       << o.watch_club << " min_csize " << o.min_csize << " census " << o.census << " hotspots " << o.apply_hotspots;
+    k.add("options", op.str());
+    std::ostringstream sl;
+    for (const SlotState& s : slots)
+        sl << s.team << ":" << s.slot << ":" << mode_name(s.mode) << ":" << s.decals << s.keep_crest << s.share_club << s.share_other << ";";
+    k.add("kits (swap_state)", sl.str());
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const fs::path dir = i < staged_dirs.size() ? staged_dirs[i] : fs::path();
+        std::string v = "manifest " + file_hash(dir / "manifest.json") + " hotspots " + file_hash(dir / "hotspots.hotspot");
+        std::vector<std::string> files;
+        std::error_code ec;
+        if (fs::is_directory(dir, ec)) {
+            for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                std::error_code e2;
+                if (!it->is_regular_file(e2)) continue;
+                const auto sz = fs::file_size(it->path(), e2);
+                const auto tm = fs::last_write_time(it->path(), e2);
+                files.push_back(fs::relative(it->path(), dir, e2).generic_u8string() + ":" + (e2 ? std::string("?") : std::to_string(sz) + ":" + std::to_string(tm.time_since_epoch().count())));
+            }
+        } else {
+            files.push_back("no folder");
+        }
+        std::sort(files.begin(), files.end());
+        for (const auto& f : files) v += "|" + f;
+        k.add("staged team " + std::to_string(slots[i].team) + " slot " + std::to_string(slots[i].slot), v);
+    }
+    return k;
+}
+
+struct TableCacheIO {
+    static bool save(const fs::path& file, const TableCacheKey& key, const Table& t, const std::string& message, const std::vector<ItemStatus>& items,
+                     const std::vector<FolderVerdict>& folders) {
+        Wr w;
+        w.u32(kTableMagic);
+        w.u32(kTableCacheFormat);
+        w.u32(uint32_t(key.fields.size()));
+        for (const auto& f : key.fields) {
+            w.str(f.first);
+            w.str(f.second);
+        }
+        // the replacement data: one blob per distinct buffer (the items of a plan share one per picture); a staged DDS is referenced (file,
+        // offset, size, hash of the bytes served), a patched hotspot asset is stored inline
+        std::map<const std::vector<uint8_t>*, uint32_t> blob_of;
+        std::vector<uint32_t> item_blob(t.n_items_, 0xFFFFFFFFu);
+        Wr blobs;
+        uint32_t nblobs = 0;
+        for (uint32_t i = 0; i < t.n_items_; ++i) {
+            const std::shared_ptr<std::vector<uint8_t>> sp = i < t.storage_.size() ? t.storage_[i] : nullptr;
+            if (!sp) continue;
+            auto it = blob_of.find(sp.get());
+            if (it == blob_of.end()) {
+                const std::string src = i < t.src_file_.size() ? t.src_file_[i] : std::string();
+                const uint64_t off = i < t.src_off_.size() ? t.src_off_[i] : 0;
+                if (src.empty()) {
+                    if (sp->size() > (1u << 20)) return false;  // only small in-memory data (hotspot assets) is stored inline
+                    blobs.u8(1);
+                    blobs.u32(uint32_t(sp->size()));
+                    blobs.b.insert(blobs.b.end(), sp->begin(), sp->end());
+                } else {
+                    blobs.u8(2);
+                    // a staged file under the cache's folder (turbo_output\kits) is named relative to it ("10/home/jersey_color.dds")
+                    const fs::path rel = fs::u8path(src).lexically_relative(file.parent_path());
+                    const std::string rs = rel.generic_u8string();
+                    blobs.str(!rel.empty() && rel.is_relative() && rs.compare(0, 2, "..") != 0 ? "rel:" + rs : src);
+                    blobs.u64(off);
+                    blobs.u64(sp->size());
+                    blobs.u64(fnv1a64(sp->data(), sp->size()));
+                }
+                it = blob_of.emplace(sp.get(), nblobs++).first;
+            }
+            item_blob[i] = it->second;
+        }
+        w.u32(nblobs);
+        w.b.insert(w.b.end(), blobs.b.begin(), blobs.b.end());
+        w.u32(t.n_items_);
+        for (uint32_t i = 0; i < t.n_items_; ++i) {
+            w.u32(item_blob[i]);
+            w.u8(i < t.item_swap_.size() ? t.item_swap_[i] : 0);
+        }
+        w.u32(uint32_t(t.entries_.size()));
+        for (const Entry& e : t.entries_) {
+            w.u32(e.csize);
+            w.u32(e.dsize);
+            w.u64(e.head);
+            w.u64(e.fnv);
+            w.u32(e.item);
+            w.u32(e.alias_off);
+            w.u32(e.alias_n);
+            uint64_t off = 0xFFFFFFFFFFFFFFFFULL;
+            if (e.data) {
+                const std::shared_ptr<std::vector<uint8_t>> sp = e.item < t.storage_.size() ? t.storage_[e.item] : nullptr;
+                if (!sp || e.data < sp->data() || e.data + e.dsize > sp->data() + sp->size()) return false;  // never a pointer the file cannot name
+                off = uint64_t(e.data - sp->data());
+            }
+            w.u64(off);
+        }
+        w.u32(uint32_t(t.alias_pool_.size()));
+        for (uint32_t a : t.alias_pool_) w.u32(a);
+        w.u64(t.bytes_);
+        w.u32(t.min_csize_);
+        w.u32(t.max_csize_);
+        // what the UI and the log show
+        w.str(message);
+        w.u32(uint32_t(items.size()));
+        for (const auto& it : items) {
+            w.i32(it.team);
+            w.i32(it.slot);
+            w.str(it.res);
+            w.str(it.kind);
+            w.str(it.role);
+            w.str(it.reason);
+            w.u8(it.swap);
+            w.u8(it.probe);
+            w.i32(it.copies);
+            w.i32(it.blocks);
+            w.u32(it.table_item);
+            w.u8(uint8_t(it.left_by));
+            put_users(w, it.shared);
+        }
+        w.u32(uint32_t(folders.size()));
+        for (const auto& f : folders) {
+            w.i32(f.team);
+            w.i32(f.slot);
+            w.str(f.kind);
+            w.u8(f.swapped);
+            w.u8(uint8_t(f.why));
+            w.str(f.role);
+            w.str(f.reason);
+            put_users(w, f.shared);
+            w.i32(f.details_left);
+        }
+        w.u64(fnv1a64(w.b.data(), w.b.size()));  // the whole file's checksum
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        const fs::path tmp = file.string() + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(w.b.data()), std::streamsize(w.b.size()));
+            if (!f) return false;
+        }
+        fs::remove(file, ec);
+        fs::rename(tmp, file, ec);
+        return !ec;
+    }
+
+    static bool load(const fs::path& file, const TableCacheKey& key, CachedBuild& out, std::string* why, const std::atomic<bool>* cancel) {
+        auto no = [&](const std::string& w) {
+            if (why) *why = w;
+            return false;
+        };
+        std::vector<uint8_t> d;
+        {
+            std::ifstream f(file, std::ios::binary | std::ios::ate);
+            if (!f) return no("no cache file");
+            const std::streamoff n = f.tellg();
+            if (n < 24 || n > (std::streamoff(1) << 30)) return no("damaged (size)");
+            d.resize(size_t(n));
+            f.seekg(0);
+            f.read(reinterpret_cast<char*>(d.data()), n);
+            if (!f) return no("damaged (read)");
+        }
+        uint64_t sum = 0;
+        std::memcpy(&sum, &d[d.size() - 8], 8);
+        if (fnv1a64(d.data(), d.size() - 8) != sum) return no("damaged (checksum)");
+        d.resize(d.size() - 8);
+        Rd r(d);
+        if (r.u32() != kTableMagic || !r.ok) return no("damaged (not a table cache)");
+        const uint32_t fmt = r.u32();
+        if (fmt != kTableCacheFormat) return no("key changed: format (" + std::to_string(fmt) + " -> " + std::to_string(kTableCacheFormat) + ")");
+        const uint32_t nf = r.u32();
+        if (!r.ok || nf > 100000) return no("damaged (key)");
+        std::vector<std::pair<std::string, std::string>> fields;
+        for (uint32_t i = 0; i < nf && r.ok; ++i) {
+            std::string a = r.str();
+            std::string b = r.str();
+            fields.emplace_back(std::move(a), std::move(b));
+        }
+        if (!r.ok) return no("damaged (key)");
+        for (size_t i = 0; i < std::max(fields.size(), key.fields.size()); ++i) {
+            if (i >= fields.size()) return no("key changed: " + key.fields[i].first + " (new)");
+            if (i >= key.fields.size()) return no("key changed: " + fields[i].first + " (gone)");
+            if (fields[i].first != key.fields[i].first) return no("key changed: " + key.fields[i].first + " (was " + fields[i].first + ")");
+            if (fields[i].second != key.fields[i].second) return no("key changed: " + key.fields[i].first);
+        }
+        // the replacement data, read again from the staged files and checked against the hash of the bytes the build served
+        const uint32_t nb = r.u32();
+        if (!r.ok || nb > 1000000) return no("damaged (blobs)");
+        std::vector<std::shared_ptr<std::vector<uint8_t>>> blobs;
+        std::vector<std::string> blob_src;
+        std::vector<uint64_t> blob_off;
+        for (uint32_t i = 0; i < nb; ++i) {
+            if (cancel && cancel->load()) return no("cancelled");
+            const uint8_t kind = r.u8();
+            if (!r.ok) return no("damaged (blob)");
+            if (kind == 1) {
+                const uint32_t n = r.u32();
+                if (!r.ok || d.size() - r.p < n) return no("damaged (inline blob)");
+                blobs.push_back(std::make_shared<std::vector<uint8_t>>(d.begin() + std::ptrdiff_t(r.p), d.begin() + std::ptrdiff_t(r.p + n)));
+                r.p += n;
+                blob_src.emplace_back();
+                blob_off.push_back(0);
+            } else if (kind == 2) {
+                const std::string named = r.str();
+                const std::string src = named.compare(0, 4, "rel:") == 0 ? (file.parent_path() / fs::u8path(named.substr(4))).u8string() : named;
+                const uint64_t off = r.u64();
+                const uint64_t n = r.u64();
+                const uint64_t h = r.u64();
+                if (!r.ok || n > (uint64_t(1) << 31) || off > (uint64_t(1) << 31)) return no("damaged (file blob)");
+                auto data = std::make_shared<std::vector<uint8_t>>();
+                {
+                    std::ifstream f(fs::u8path(src), std::ios::binary | std::ios::ate);
+                    if (!f) return no("staged data changed: " + src + " cannot be read");
+                    const std::streamoff fsz = f.tellg();
+                    if (fsz < 0 || uint64_t(fsz) != off + n) return no("staged data changed: " + src + " has another size");
+                    data->resize(size_t(n));
+                    f.seekg(std::streamoff(off));
+                    f.read(reinterpret_cast<char*>(data->data()), std::streamsize(n));
+                    if (!f) return no("staged data changed: " + src + " cannot be read");
+                }
+                if (fnv1a64(data->data(), data->size()) != h) return no("staged data changed: " + src + " (other bytes)");
+                blobs.push_back(std::move(data));
+                blob_src.push_back(src);
+                blob_off.push_back(off);
+            } else {
+                return no("damaged (blob kind)");
+            }
+        }
+        auto t = std::make_shared<Table>();
+        t->n_items_ = r.u32();
+        if (!r.ok || t->n_items_ > 10000000) return no("damaged (items)");
+        t->storage_.resize(t->n_items_);
+        t->src_file_.resize(t->n_items_);
+        t->src_off_.resize(t->n_items_, 0);
+        t->item_swap_.resize(t->n_items_, 0);
+        for (uint32_t i = 0; i < t->n_items_ && r.ok; ++i) {
+            const uint32_t b = r.u32();
+            t->item_swap_[i] = r.u8() ? 1 : 0;
+            if (!r.ok) return no("damaged (item)");
+            if (b == 0xFFFFFFFFu) continue;
+            if (b >= blobs.size()) return no("damaged (item blob)");
+            t->storage_[i] = blobs[b];
+            t->src_file_[i] = blob_src[b];
+            t->src_off_[i] = blob_off[b];
+        }
+        const uint32_t ne = r.u32();
+        if (!r.ok || ne > 50000000) return no("damaged (entries)");
+        t->entries_.reserve(ne);
+        for (uint32_t i = 0; i < ne && r.ok; ++i) {
+            Entry e;
+            e.csize = r.u32();
+            e.dsize = r.u32();
+            e.head = r.u64();
+            e.fnv = r.u64();
+            e.item = r.u32();
+            e.alias_off = r.u32();
+            e.alias_n = r.u32();
+            const uint64_t off = r.u64();
+            if (!r.ok || e.item >= t->n_items_ || !e.csize || !e.dsize) return no("damaged (entry)");
+            if (off != 0xFFFFFFFFFFFFFFFFULL) {
+                const auto& sp = t->storage_[e.item];
+                if (!sp || off > sp->size() || sp->size() - off < e.dsize) return no("damaged (entry data)");
+                e.data = sp->data() + off;
+            } else if (t->storage_[e.item]) {
+                return no("damaged (entry without data)");
+            }
+            t->entries_.push_back(e);
+        }
+        const uint32_t na = r.u32();
+        if (!r.ok || na > 50000000) return no("damaged (aliases)");
+        for (uint32_t i = 0; i < na && r.ok; ++i) {
+            const uint32_t a = r.u32();
+            if (a >= t->n_items_) return no("damaged (alias)");
+            t->alias_pool_.push_back(a);
+        }
+        for (const Entry& e : t->entries_)
+            if (uint64_t(e.alias_off) + e.alias_n > t->alias_pool_.size()) return no("damaged (alias range)");
+        t->bytes_ = r.u64();
+        t->min_csize_ = r.u32();
+        t->max_csize_ = r.u32();
+        CachedBuild cb;
+        cb.message = r.str();
+        const uint32_t ni = r.u32();
+        if (!r.ok || ni > 10000000) return no("damaged (item list)");
+        for (uint32_t i = 0; i < ni && r.ok; ++i) {
+            ItemStatus it;
+            it.team = r.i32();
+            it.slot = r.i32();
+            it.res = r.str();
+            it.kind = r.str();
+            it.role = r.str();
+            it.reason = r.str();
+            it.swap = r.u8() != 0;
+            it.probe = r.u8() != 0;
+            it.copies = r.i32();
+            it.blocks = r.i32();
+            it.table_item = r.u32();
+            const uint8_t lb = r.u8();
+            if (lb > uint8_t(LeftBy::Other)) return no("damaged (item)");
+            it.left_by = LeftBy(lb);
+            if (!get_users(r, it.shared)) return no("damaged (item users)");
+            if (it.table_item != 0xFFFFFFFFu && it.table_item >= t->n_items_) return no("damaged (item number)");
+            cb.items.push_back(std::move(it));
+        }
+        const uint32_t nfo = r.u32();
+        if (!r.ok || nfo > 1000000) return no("damaged (folders)");
+        for (uint32_t i = 0; i < nfo && r.ok; ++i) {
+            FolderVerdict f;
+            f.team = r.i32();
+            f.slot = r.i32();
+            f.kind = r.str();
+            f.swapped = r.u8() != 0;
+            const uint8_t lb = r.u8();
+            if (lb > uint8_t(LeftBy::Other)) return no("damaged (folder)");
+            f.why = LeftBy(lb);
+            f.role = r.str();
+            f.reason = r.str();
+            if (!get_users(r, f.shared)) return no("damaged (folder users)");
+            f.details_left = r.i32();
+            cb.folders.push_back(std::move(f));
+        }
+        if (!r.ok || r.p != d.size()) return no("damaged (length)");
+        // the totals must be the entries' own (a table that disagrees with itself is never used)
+        uint64_t bytes = 0;
+        uint32_t mn = 0xFFFFFFFFu, mx = 0;
+        for (const Entry& e : t->entries_) {
+            if (e.data) bytes += e.dsize;
+            mn = std::min(mn, e.csize);
+            mx = std::max(mx, e.csize);
+        }
+        if (bytes != t->bytes_ || mn != t->min_csize_ || mx != t->max_csize_) return no("damaged (totals)");
+        t->alloc_counters();
+        t->index_slots();
+        cb.table = t;
+        out = std::move(cb);
+        if (why) why->clear();
+        return true;
+    }
+};
+
+bool save_table_cache(const fs::path& file, const TableCacheKey& key, const Table& table, const std::string& message, const std::vector<ItemStatus>& items,
+                      const std::vector<FolderVerdict>& folders) {
+    try {
+        return TableCacheIO::save(file, key, table, message, items, folders);
+    } catch (...) {
+        return false;
+    }
+}
+
+bool load_table_cache(const fs::path& file, const TableCacheKey& key, CachedBuild& out, std::string* why, const std::atomic<bool>* cancel) {
+    try {
+        return TableCacheIO::load(file, key, out, why, cancel);
+    } catch (...) {
+        if (why) *why = "damaged (exception)";
+        return false;
+    }
+}
+
 // ---------------------------------------------------------------- runtime
 const char* mode_name(Mode m) {
     switch (m) {
@@ -1642,6 +2081,7 @@ bool Runtime::opted_in() const {
 fs::path Runtime::state_path() const { return le_ / "turbo_output" / "kits" / "swap_state.json"; }
 fs::path Runtime::log_path() const { return le_ / "turbo_output" / "kit_swap_log.txt"; }
 fs::path Runtime::index_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_index.cache"; }
+fs::path Runtime::table_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_table.cache"; }
 fs::path Runtime::staged_dir(int team, int slot) const { return le_ / "turbo_output" / "kits" / std::to_string(team) / slot_folder_name(slot); }
 
 void Runtime::set_hook_installed(bool on, const std::string& why) {
@@ -1681,6 +2121,7 @@ bool Runtime::hook_ready(std::string* err) {
 void Runtime::start() {
     {
         std::lock_guard<std::mutex> lk(m_);
+        started_s_ = now_s();
         std::ifstream f(state_path(), std::ios::binary);
         if (f) {
             json j = json::parse(f, nullptr, false);
@@ -1889,6 +2330,50 @@ void Runtime::worker() {
         std::vector<FolderVerdict> folders;
         std::shared_ptr<Table> table;
         double idx_s = 0;
+        // 2.19: the table cache (kit_table.cache): tried first; a hit is published before the kit index is read (that only serves the UI)
+        const double t_build0 = now_s();
+        bool cached = false, committed = false, transient = false;
+        std::string cache_why = use_table_cache ? "" : "table cache off";
+        TableCacheKey key;
+        auto commit = [&]() {  // publishes the result (under the lock) and records when
+            const double now = now_s();
+            std::string line, ready;
+            {
+                std::lock_guard<std::mutex> lk(m_);
+                state_ = state;
+                message_ = message;
+                index_seconds_ = idx_s;
+                build_skipped_ = false;
+                items_ = items;
+                folders_ = folders;
+                swap_any_ = false;
+                for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
+                table_cached_ = cached;
+                table_ms_ = (now - t_build0) * 1000.0;
+                ready_after_ms_ = started_s_ >= 0 ? (now - started_s_) * 1000.0 : -1;
+                ready_at_ms_ = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                cache_note_ = cached ? "from cache" : "built" + (cache_why.empty() ? std::string() : " (cache not used: " + cache_why + ")");
+                if (table) {
+                    char b[160];
+                    std::snprintf(b, sizeof(b), "kit swap: table %s (%zu blocks, %.0f ms; %.0f ms after start)", cached ? "from cache" : "built", table->size(), table_ms_,
+                                  ready_after_ms_);
+                    line = b;
+                    if (!cached && !cache_why.empty()) line += "; cache not used: " + cache_why;
+                    char r2[160];
+                    std::snprintf(r2, sizeof(r2), "kit swap: table ready (%s, %zu blocks, %.0f ms after start)", cached ? "from cache" : "built", table->size(), ready_after_ms_);
+                    ready = r2;
+                }
+            }
+            publish(table);
+            committed = true;
+            if (!line.empty() && log_line) {
+                try {
+                    log_line(line);
+                    log_line(ready);
+                } catch (...) {
+                }
+            }
+        };
         if (slots.empty()) {
             state = "off";
         } else {
@@ -1906,6 +2391,23 @@ void Runtime::worker() {
                 state = "error";
                 message = err;
             } else {
+                const Options base_opts = get_options();  // one copy for the key and the build
+                if (use_table_cache) {
+                    std::vector<fs::path> dirs;
+                    for (const SlotState& s : slots) dirs.push_back(staged_dir(s.team, s.slot));
+                    key = make_table_cache_key(turbo_version, game_build, index_signature(files), slots, dirs, base_opts);
+                    CachedBuild cb;
+                    if (load_table_cache(table_cache_path(), key, cb, &cache_why, &progress_.cancel)) {
+                        cached = true;
+                        table = cb.table;
+                        items = std::move(cb.items);
+                        folders = std::move(cb.folders);
+                        state = "ready";
+                        message = cb.message;
+                        if (generation_.load() == gen && !progress_.cancel.load()) commit();
+                    }
+                }
+                const std::string cached_state = state, cached_message = message;
                 if (!index) {
                     auto ni = std::make_shared<KitIndex>();
                     if (load_index_cache(files, index_cache_path(), *ni)) {  // the game's tocs are unchanged since the last scan
@@ -1924,10 +2426,13 @@ void Runtime::worker() {
                         message = "reading the game's kit data failed: " + err;
                     }
                 }
-                if (index && state != "error") {
+                if (cached) {  // the cached table stands whatever the index did (the index only serves the UI's kit folder list)
+                    state = cached_state;
+                    message = cached_message;
+                    if (index) idx_s = index->seconds;
+                } else if (index && state != "error") {
                     idx_s = index->seconds;
                     TableBuilder tb;
-                    const Options base_opts = get_options();
                     std::vector<std::string> msgs;
                     std::vector<Plan> plans;
                     for (const SlotState& s : slots) {
@@ -1949,6 +2454,11 @@ void Runtime::worker() {
                             continue;
                         }
                         plans.push_back(std::move(pl));
+                    }
+                    // 2.19: a verdict a read error shaped is never cached (the next start builds again)
+                    for (const Plan& pl : plans) {
+                        for (const auto& n : pl.notes) transient = transient || n.find("cannot be read") != std::string::npos || n.find("unreadable") != std::string::npos;
+                        for (const auto& it : pl.items) transient = transient || it.reason.find("cannot be read") != std::string::npos;
                     }
                     if (!progress_.cancel.load()) {
                         // The table. A clash (the same game block wanted with other bytes, by two of the zip's pictures or by two active kits)
@@ -2044,18 +2554,21 @@ void Runtime::worker() {
             }
         }
         if (generation_.load() != gen || progress_.cancel.load()) continue;  // a newer request: build again
-        {
+        if (!committed) {
+            commit();
+        } else {
             std::lock_guard<std::mutex> lk(m_);
-            state_ = state;
-            message_ = message;
-            index_seconds_ = idx_s;
-            build_skipped_ = false;
-            items_ = items;
-            folders_ = folders;
-            swap_any_ = false;
-            for (const auto& s : slots_) swap_any_ = swap_any_.load() || s.mode == Mode::Swap;
+            index_seconds_ = idx_s;  // the kit index was read after the cached table went out
         }
-        publish(table);
+        // 2.19: a built table is saved for the next start (never one a read error may have shaped; the key holds what it was built from)
+        if (!cached && use_table_cache && state == "ready" && table && !transient && !key.fields.empty()) {
+            const bool saved = save_table_cache(table_cache_path(), key, *table, message, items, folders);
+            std::lock_guard<std::mutex> lk(m_);
+            cache_note_ += saved ? "; saved to kit_table.cache" : "; could not be saved";
+        } else if (!cached && transient) {
+            std::lock_guard<std::mutex> lk(m_);
+            cache_note_ += "; not saved (a game file could not be read)";
+        }
         {
             std::lock_guard<std::mutex> lk(m_);
             if (generation_.load() != gen) continue;
@@ -2139,6 +2652,11 @@ Status Runtime::status() const {
         it.last_ms = in ? t->last_ms(it.table_item) : 0;
     }
     s.index_cached = index_cached_;
+    s.table_cached = table_cached_;
+    s.table_ms = table_ms_;
+    s.ready_after_ms = ready_after_ms_;
+    s.ready_at_ms = ready_at_ms_;
+    s.cache_note = cache_note_;
     s.scanning = running_ && !index_;
     s.scan_done = progress_.done.load();
     s.scan_total = progress_.total.load();
@@ -2226,6 +2744,12 @@ void Runtime::flush_log(bool force) {
             o << "LEFT TO THE GAME: " << f.role << ": " << f.reason;
         }
         o << "\n";
+    }
+    if (s.ready_at_ms) {
+        char tb[200];
+        std::snprintf(tb, sizeof(tb), "table: %s, %zu blocks, %.0f ms, published %s (%.0f ms after start)", s.table_cached ? "from cache" : "built", s.blocks, s.table_ms,
+                      clock_text(s.ready_at_ms).c_str(), s.ready_after_ms);
+        o << tb << "; " << s.cache_note << "\n";
     }
     o << "kit index: " << (s.index_cached ? "from turbo_output\\kits\\kit_index.cache" : "scanned from the game's tocs") << "\n";
     o << "KIT FOLDERS THE GAME LOADED (per club and kit folder: textures seen / registered, blocks decompressed; 0 = that folder was not used):\n";
