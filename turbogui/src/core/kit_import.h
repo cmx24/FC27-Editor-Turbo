@@ -130,6 +130,30 @@ bool parse_settings(const std::string& text, KitSettings& out, std::string* err 
 // "#234f8e" -> 0x23, 0x4f, 0x8e
 bool parse_hex_colour(const std::string& s, uint8_t rgb[3]);
 
+// ---------------------------------------------------------------- minikits (2.20 K4)
+// The form of the 39 minikits installed by MK1 and seen in game: 256 x 256, 8-bit BGRA, 4 mip levels, the game's own 128-byte legacy
+// header (flags 0x81007, linear size 262144, masks R 0x00ff0000 G 0x0000ff00 B 0xff A 0xff000000, caps 0x401008): 348,288 bytes.
+constexpr int kMinikitSize = 256;
+constexpr size_t kMinikitBytes = 348288;
+std::vector<uint8_t> minikit_header();   // the 128 bytes
+// `img` as a minikit file (a square picture of another size is framed to 256 first); empty with err otherwise
+std::vector<uint8_t> encode_minikit_dds(const Rgba& img, std::string* err = nullptr);
+// The size / header check done before any minikit is written: exactly kMinikitBytes and minikit_header()
+bool check_minikit_dds(const std::vector<uint8_t>& dds, std::string* err = nullptr);
+// True when a game file's layout is the minikit form (256 x 256, BGRA8, 4 mips, no DX10 header): it is then written with
+// encode_minikit_dds, byte for byte the MK1 form
+bool is_minikit_form(const DdsFormat& f);
+// Colours a kit's settings.json names (teamcolorprim / teamcolorsec): they steer the shirt that render_minikit draws
+struct MinikitHints {
+    bool have_prim = false, have_sec = false;
+    uint8_t prim[3] = {0, 0, 0}, sec[3] = {0, 0, 0};
+};
+MinikitHints minikit_hints(const KitSettings& s);
+// A minikit drawn by Turbo (256 x 256) for a kit zip that carries no minikit.png [A: never seen in game]: a shirt in the dominant
+// colours of the jersey texture `jersey` (the colour nearest the hints when given), collar and cuffs in the second colour, the
+// club's 2D crest (`crest`, may be null) on the chest. Empty with err when the jersey picture is empty.
+Rgba render_minikit(const Rgba& jersey, const Rgba* crest, const MinikitHints& hints = MinikitHints(), std::string* err = nullptr);
+
 // ---------------------------------------------------------------- one kit zip, checked
 struct KitPackage {
     std::filesystem::path source;
@@ -147,7 +171,7 @@ struct KitPackage {
     uint64_t size = 0;                  // of the zip file
     uint32_t crc = 0;                   // CRC-32 of the zip file (the manifest names the source exactly)
 };
-// Reads one zip and checks everything: the 12 main textures, minikit.png and settings.json present; every PNG decodes;
+// Reads one zip and checks everything: the 12 main textures and settings.json present (minikit.png is optional since 2.20: Turbo draws one); every PNG decodes;
 // each texture is its spec size or 2 / 4 / 8 times it (then scaled down); the decals all present or all absent;
 // settings.json valid. Never throws.
 KitPackage load_kit_zip(const std::filesystem::path& zip, const std::vector<TexSpec>& spec = fc27_kit_spec());

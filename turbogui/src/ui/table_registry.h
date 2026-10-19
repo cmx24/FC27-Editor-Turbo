@@ -45,6 +45,7 @@ inline const std::vector<Spec>& all() {
         {"##cntable", "Players > Callname", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##vstable", "Players > Callname > Voice swaps", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##cnalltable", "Players > Callname > All callnames", kData | ImGuiTableFlags_SizingStretchProp, false},
+        {"##cnptable", "Players > Callname", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##cptable", "Players > Callname > club players", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##nmidtable", "Players > Names > name ids", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##teams", "Teams > list", kData | ImGuiTableFlags_ScrollY, true},

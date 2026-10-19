@@ -346,7 +346,9 @@ static void test_field_labels() {
               "GK gloves: " + code_text("gkglovetypecode", 37, ""));
         CHECK(has(offered_codes("shoetypecode", {}, 0), 389) && has(offered_codes("gkglovetypecode", {}, 0), 150), "every boot and glove id with a brand is offered");
         // stances and running animations: 0 standard, the others by their players
-        CHECK(code_text("animfreekickstartposcode", 0, "") == "Standard" && code_text("animfreekickstartposcode", 4, "") == "Free kick stance 4: Lionel Messi",
+        CHECK(code_text("animfreekickstartposcode", 0, "") == "Default" && code_text("animfreekickstartposcode", 1, "") == "Far From Ball" &&
+                  code_text("animfreekickstartposcode", 2, "") == "90 Degrees From Ball" && code_text("animfreekickstartposcode", 4, "") == "Signature stance 2: Lionel Messi" &&
+                  code_text("animfreekickstartposcode", 29, "") == "Signature stance 27",
               "free kick stances: " + code_text("animfreekickstartposcode", 4, ""));
         CHECK(code_text("animpenaltiesstartposcode", 1, "").find(" +127 more") != std::string::npos &&
                   code_text("runningcode2", 99, "") == "Running animation 2 #99",
@@ -3203,6 +3205,7 @@ static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
+#include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -3276,6 +3279,8 @@ struct FakeCapture : capture::CaptureService {
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
+#include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
+#include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
@@ -3700,12 +3705,14 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
 #include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
+#include "test_tactics_page.h"  // 2.20 tactics: the Tactics pages against the real store, live read honesty (tactics_page_test::run, ::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
 #include "test_attrib_two_copies.h"  // 2.10 A0: second copy (databases/simulation) of an attrib asset, per-location write log (attrib_two_copies_test::run)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
+#include "test_callname_pick.h"  // 2.20: the one-list Callname page (callname_pick_test::run, ::ui_cases)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
@@ -3715,7 +3722,9 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
+#include "test_team_preset.h"     // 2.20: the My team preset (5 fields), growth defaults OFF, Kits & Club descriptors (team_preset_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
+#include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
@@ -3726,6 +3735,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
+#include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
@@ -4030,6 +4040,11 @@ static void test_ui() {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
         app.visible = true;
+        // 2.20 S3-window: the panel now starts maximized; the cases below were written against the old first-use window (1180x760 at 60,54 on
+        // the 1920x1080 test display), so they keep it through a stored rectangle. The maximized default has its own cases (test_window_settings.h)
+        app.prefs.window.maximized = false;
+        app.prefs.window.has_rect = true;
+        app.prefs.window.rect = turbo::WindowRect{60.0f, 54.0f, 1180.0f, 760.0f};
         app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
         app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
@@ -4892,7 +4907,7 @@ static void test_ui() {
             ui.frames(2);
             // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
             CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
-            CHECK(ui.find("Home kit (type 0, kit id 70)", "##tcolours") != nullptr, "Everton's home kit listed");
+            CHECK(ui.find("Home kit", "##tcolours") != nullptr, "Everton's home kit listed");
             const Table* t = app.db.table("teams");
             uint64_t rec = app.db.find(*t, "teamid", 7);
             uint8_t rgb[3];
@@ -5015,6 +5030,7 @@ static void test_ui() {
             CHECK(!apply_crest(app, 241, src, Framing(), false, 40, &msg) && msg.find("not loaded yet") != std::string::npos, "unknown formats: refused (" + msg + ")");
         });
         kit_import_ui_cases(app, ui, le);  // test_kit_import.h: Teams > Kits (2.3)
+        minikit_test::ui_cases(app, ui, le);  // test_minikits.h: the minikits an import makes (2.20 K4)
 
         run_case("UI: Managers, edit text within the field's byte limit", [&] {
             CHECK(ui.click("Managers"), "Managers tab");
@@ -5911,6 +5927,7 @@ static void test_ui() {
         });
 
         run_case("UI: Players > Miniface: picture file to custom DDS, backup, remove", [&] {
+            career_faces_test::reset(app, ui);  // 2.19: the UI world is an identified career: Save writes that career's own copy
             fs::path pics = le / "turbo_minifaces";
             fs::create_directories(pics);
             { std::ofstream f(pics / "face.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
@@ -5938,13 +5955,14 @@ static void test_ui() {
             CHECK(app.legacy.locate(legacy_path::player_miniface(1002), nullptr) == LegacyImages::State::Custom, "now custom");
             CHECK(ui.click("Save as miniface"), "save again");
             size_t backups = 0;
-            for (auto& e : fs::directory_iterator(le / "turbo_output" / "miniface_backups")) { (void)e; ++backups; }
+            // 2.19: in a career the earlier copy is that career's (turbo_outputreers<id>_undo)
+            for (auto& e : fs::directory_iterator(le / "turbo_output" / "careers" / app.career_faces_wanted() / "_undo")) { (void)e; ++backups; }
             CHECK(backups == 1, "previous custom miniface backed up");
             CHECK(ui.click("Remove custom miniface"), "Remove");
             ui.frames(2);
             CHECK(ui.click("Remove", "##rmminiface"), "confirm");
             CHECK(!fs::exists(out), "custom miniface removed");
-            CHECK(ui.toast_contains("Custom miniface removed"), "toast");
+            CHECK(ui.toast_contains("miniface removed"), "toast");
         });
 
         run_case("UI: Managers > Miniface: 512 x 512 heads_staff file", [&] {
@@ -6112,15 +6130,24 @@ static void test_ui() {
             fs::path cached = le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1003.dds";
             CHECK(fs::exists(cached), "p1003 in the cache");
             CHECK(app.textures.size() >= 6, fmt("pictures shown: %zu", app.textures.size()));
-            CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
             const Table* t = app.db.table("players");
             uint64_t rec = app.db.find(*t, "playerid", 3001);
-            CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
-            CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
-            CHECK(app.db.get_int(*t, rec, "skintonecode") == 9, "skin not copied unless asked");
-            fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
-            CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head");
-            CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
+            const uint64_t rec1003 = app.db.find(*t, "playerid", 1003);
+            const int64_t skintype0 = app.db.get_int(*t, rec, "skintypecode");
+            const int64_t skin0 = app.db.get_int(*t, rec, "skintonecode");
+            {
+                // 2.20: he has no miniface (the game says so), so the head's comes with it; one he had would be kept
+                career_faces_test::NoGamePicture none(app, {legacy_path::player_miniface(3001)});
+                CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
+                CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
+                CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
+                CHECK(app.db.get_int(*t, rec, "skintonecode") == app.db.get_int(*t, rec1003, "skintonecode"),
+                      "2.20: the skin tone goes with the head (a linked field)");
+                CHECK(app.db.get_int(*t, rec, "skintypecode") == skintype0, "the rest of the skin not copied unless asked");
+                fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+                CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head (he had none)");
+                CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
+            }
             // tattoos: the first Choose... is the head (FC 27 area order); a real face now has the Hair & beard (3D) card above the
             // tattoos, so the view is scrolled down to them first
             ui.frames(2);
@@ -6194,6 +6221,7 @@ static void test_ui() {
             }
             app.legacy.refresh_missing();
             for (int i = 0; i < 5; ++i) CHECK(app.db.set_int(*t, rec, kHeadFields[i], before[i]), std::string("restored ") + kHeadFields[i]);
+            CHECK(app.db.set_int(*t, rec, "skintonecode", skin0), "restored skintonecode (2.20: it goes with a head)");
             app.model.refresh_player(3001, app.today());
             ui.frames(2);
         });
@@ -6486,10 +6514,18 @@ static void test_ui() {
             const uint64_t mrec = app.db.find(*mt, "managerid", 503);
             fs::path staff = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_503.dds";
             fs::remove(staff);
+            // 2.20: he has no picture (the game says so), so the head's comes with it; one he had would be kept
+            career_faces_test::NoGamePicture no_staff(app, {legacy_path::staff_miniface_for(503, 0)});
+            const int64_t mskin0 = app.db.get_int(*mt, mrec, "skintonecode");
             CHECK(ui.click("face1004", "Choose a real face##mgr"), "pick 1004's head");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 1004 && app.db.get_int(*mt, mrec, "headclasscode") == 0 &&
                       app.db.get_int(*mt, mrec, "headtypecode") == 104, "manager head fields written");
-            CHECK(app.db.get_int(*mt, mrec, "skintonecode") == 20, "skin not copied unless asked");
+            {
+                const Table* ptab = app.db.table("players");
+                const uint64_t r1004 = app.db.find(*ptab, "playerid", 1004);
+                CHECK(app.db.get_int(*mt, mrec, "skintonecode") == app.db.get_int(*ptab, r1004, "skintonecode"),
+                      "2.20: the skin tone goes with the head (a linked field)");
+            }
             Rgba img;
             CHECK(load_image_file(staff, img) && img.w == 512 && img.h == 512, "the player's miniface as his own heads_staff_503.dds, 512 x 512");
             CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows p1004.dds"), "toast");
@@ -6520,12 +6556,13 @@ static void test_ui() {
             CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows heads_staff_501.dds"),
                   "toast: Arteta's own picture comes with his head");
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
-                      app.db.set_int(*mt, mrec, "headtypecode", 7), "Chivu restored");
+                      app.db.set_int(*mt, mrec, "headtypecode", 7) && app.db.set_int(*mt, mrec, "skintonecode", mskin0),
+                  "Chivu restored");
             app.request_tab = 0;
             ui.frames(2);
         });
 
-        run_case("UI: a head given through the chooser comes with its miniface, and ONE Undo puts both back (never a mixed result)", [&] {
+        run_case("UI: a head given through the chooser to a player with NO miniface comes with its miniface (career copy), and ONE Undo puts both back", [&] {
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             CHECK(pt && pr, "player 3001");
@@ -6535,8 +6572,12 @@ static void test_ui() {
             std::vector<int64_t> before;
             for (const char* f : hf) before.push_back(app.db.get_int(*pt, prec, f, -1));
             const std::string mpath = legacy_path::player_miniface(3001);
+            career_faces_test::reset(app, ui);  // 2.19: no career copy of p3001 left from the case before
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
+            // 2.20: he has NO miniface (the game has none, no file): the head's picture may come with it (with no capture service:
+            // the owner's picture, copied as the career's own copy). A player WITH a real one keeps it (test_career_faces.h)
+            career_faces_test::NoGamePicture none(app, {mpath});
             const size_t undo0 = app.undo_count(3001);
             app.request_tab = 0;
             ui.frames(2);
@@ -6561,7 +6602,8 @@ static void test_ui() {
             ui.frames(2);
         });
 
-        run_case("UI: Undo of a head given over a CUSTOM miniface puts that custom picture back byte for byte", [&] {
+        run_case("UI: a head given to a player whose miniface is a CUSTOM picture Turbo did not make leaves it byte for byte, Undo too (2.20)", [&] {
+            career_faces_test::reset(app, ui);  // 2.20: the custom picture below has no record of Turbo's (a real one): never replaced
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             if (!pt || !pr) return;
@@ -6587,18 +6629,23 @@ static void test_ui() {
             std::ifstream a(custom, std::ios::binary);
             std::vector<uint8_t> mid((std::istreambuf_iterator<char>(a)), std::istreambuf_iterator<char>());
             a.close();
-            CHECK(!mid.empty() && mid != own_bytes, "1004's picture replaced his custom one");
+            CHECK(mid == own_bytes, "his custom picture is byte for byte the same (2.20: before, 1004's picture replaced it)");
+            CHECK(!career_faces::has_overlay(app.career_faces_paths(), app.career_faces_wanted(), legacy_path::player_miniface(3001)), "no career copy over it");
             CHECK(app.undo(3001), "Undo");
             std::ifstream b(custom, std::ios::binary);
             std::vector<uint8_t> back((std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
             b.close();
-            CHECK(back == own_bytes, "his own custom picture is back byte for byte (from turbo_output\\miniface_backups)");
+            CHECK(back == own_bytes, "and still the same after the Undo");
             fs::remove(custom);
             ui.click("Close##faces");
             ui.frames(2);
         });
 
-        run_case("UI: a TYPED head change offers the matching miniface; using it joins the head's undo step; a generic head offers nothing", [&] {
+        career_faces_test::ui_cases(app, ui, le);  // test_career_faces.h (2.19)
+
+        run_case("UI: a TYPED head id offers 'Apply the linked fields' (2.20: the old 'Use the matching miniface' copied the donor's picture "
+                 "over his own); a generic head offers nothing",
+                 [&] {
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             const PlayerRow* owner = app.model.player(1004);
@@ -6608,31 +6655,46 @@ static void test_ui() {
             CHECK(fh && fc, "head fields");
             if (!fh || !fc) return;
             const int64_t h0 = app.db.get_int(*pt, pr->rec, "headassetid", -1), c0 = app.db.get_int(*pt, pr->rec, "headclasscode", -1);
+            career_faces_test::reset(app, ui);  // 2.19
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
             app.head_miniface_kept.clear();
+            const size_t u0 = app.undo_count(3001), uo = app.undo_count(1004);
+            // the donor's skin tone differs from his (a linked field to bring)
+            const int64_t s0 = app.db.get_int(*pt, pr->rec, "skintonecode", -1);
+            if (app.db.get_int(*pt, owner->rec, "skintonecode", -1) == s0)
+                CHECK(app.edit_field(*pt, owner->rec, *pt->field("skintonecode"), Value::of_int(s0 <= 90 ? s0 + 10 : 10)), "donor skin tone");
             const int64_t owner_head = app.db.get_int(*pt, owner->rec, "headassetid", -1);
             CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(0)) && app.edit_field(*pt, pr->rec, *fh, Value::of_int(owner_head)),
                   "typed: head class 0, head " + std::to_string(owner_head));
-            CHECK(owner_head == 1004 && app.head_miniface_mismatch(3001) == 1004, "the editor sees 1004's head next to his old picture");
+            CHECK(owner_head == 1004 && head_link_offer(app, 3001) == 1004, "the editor sees 1004's head without its linked fields");
             app.request_tab = 0;
             ui.frames(2);
             CHECK(ui.click("3001", "##plist"), "player 3001");
             ui.frames(2);
-            CHECK(ui.find("Use the matching miniface##hmf") != nullptr, "the banner with its button");
-            CHECK(ui.click("Use the matching miniface##hmf"), "use it");
+            CHECK(ui.find("Use the matching miniface##hmf") == nullptr, "the old picture copy is gone");
+            CHECK(ui.find("Apply the linked fields##hl") != nullptr, "the line with its button");
+            CHECK(ui.click("Apply the linked fields##hl"), "apply");
             ui.frames(2);
-            CHECK(fs::exists(custom) && app.head_miniface_mismatch(3001) == 0, "p3001.dds written, nothing mixed any more");
-            CHECK(app.undo(3001), "Undo (the head id step, with the picture attached)");
-            CHECK(!fs::exists(custom), "the picture went back with the head id");
-            CHECK(app.undo(3001), "Undo the class step");
+            CHECK(app.db.get_int(*pt, pr->rec, "skintonecode", -1) == app.db.get_int(*pt, owner->rec, "skintonecode", -2), "skin tone linked");
+            CHECK(head_link_offer(app, 3001) == 0, "nothing left to link");
+            {
+                // he had none: a picture may come, but only as this career's own copy (never a global file, never over a real one)
+                const career_faces::OwnerInfo fo = career_faces::owner_of(app.career_faces_paths(), legacy_path::player_miniface(3001));
+                CHECK(!fs::exists(custom) || fo.owner == career_faces::Owner::TurboCareer,
+                      "no picture written outside this career's own copy (owner " + std::to_string(static_cast<int>(fo.owner)) + ")");
+            }
+            CHECK(app.undo(3001), "Undo the linked fields (one step)");
+            CHECK(app.undo(3001) && app.undo(3001), "Undo the typed head id and the class");
             CHECK(app.db.get_int(*pt, pr->rec, "headassetid", -1) == h0 && app.db.get_int(*pt, pr->rec, "headclasscode", -1) == c0,
                   "head as before");
             // a generic head (class 1): the game draws it, no offer
             CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(1)), "class 1");
-            CHECK(app.head_miniface_mismatch(3001) == 0, "a generic head is never mixed (the game draws it)");
-            app.undo(3001);
+            CHECK(head_link_offer(app, 3001) == 0, "a generic head is never offered");
+            while (app.undo_count(3001) > u0) app.undo(3001);
+            while (app.undo_count(1004) > uo) app.undo(1004);
             app.head_miniface_kept.clear();
+            career_faces_test::reset(app, ui);
         });
 
         run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', unsure values, Only heads with a 3D look", [&] {
@@ -6891,6 +6953,7 @@ static void test_ui() {
             ui.frames(2);
         });
         ui_cases_club_search(app, ui, mem, kMb);  // test_club_search.h
+        callname_use_legacy_page(true);  // 2.20: the Callname cases below drive the older tabbed editor (callname_editor_legacy); the new page is tested after them
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");
@@ -8297,6 +8360,8 @@ static void test_ui() {
             app.log_hook = nullptr;
             ui.frames(2);
         });
+        callname_use_legacy_page(false);
+        callname_pick_test::ui_cases(app, ui, mem, kMb);  // test_callname_pick.h (2.20: the one-list Callname page)
         run_case("UI: 2.15 kept edits by scope: not assigned and global rows in every career, a career's rows only in it (identity: the manager row)", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log
@@ -9730,12 +9795,14 @@ static void test_ui() {
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
         page_tactics_test::ui_cases(app, ui, le);  // test_page_tactics.h: Tactic presets frame, Team sheet & bench, Game sliders (2.16)
+        tactics_page_test::ui_cases(app, ui, le);  // test_tactics_page.h: store scan, pick, Refresh re-reads, plain read failure (2.20)
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
+        window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -9744,6 +9811,7 @@ static void test_ui() {
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
         create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h
+        team_preset_test::run_ui(app, ui, mem, kMb);  // test_team_preset.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
@@ -15447,8 +15515,10 @@ int main(int argc, char** argv) {
     test_images();
     std::printf("native kit import\n");
     test_kit_import();
+    minikit_test::unit();  // test_minikits.h (2.20 K4)
     test_kit_fonts();
     kit_share_test::run();  // test_kit_share.h (2.13)
+    kit_plan_test::run();   // test_kit_plan.h (2.20 K1)
     std::printf("native dev service\n");
     test_devops();
     std::printf("native signature scanning\n");
@@ -15486,6 +15556,8 @@ int main(int argc, char** argv) {
     test_player_capture();
     test_capture_sequence();  // test_capture_sequence.h (2.17 looks C)
     crest_serve_test::run();  // test_crest_serve.h (2.18)
+    crest2d_test::run();  // test_crest2d.h (2.20 K2)
+    career_faces_test::run();  // test_career_faces.h (2.19)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     std::printf("native kept edits store\n");
     test_reapply_store();
@@ -15494,6 +15566,7 @@ int main(int argc, char** argv) {
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
+    window_settings_test::run();  // test_window_settings.h (pure cases)
     test_shell();  // test_shell.h: shell contract (pure cases)
     nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
@@ -15515,6 +15588,7 @@ int main(int argc, char** argv) {
     gsettings_test::run_custom();  // test_game_settings.h (2.10: the Custom u8 block)
     settings_presets_test::run();  // test_settings_presets.h (2.10)
     tactic_presets_test::run();  // test_tactic_presets.h (2.12)
+    tactics_page_test::run();  // test_tactics_page.h (2.20)
     attrib_ebx_test::run();
     oodle_dispatch_test::run();  // test_oodle_dispatch.h (2.11)
     minhook_reloc_test::run();  // test_minhook_reloc.h (2.15)
@@ -15534,6 +15608,9 @@ int main(int argc, char** argv) {
     archetype_target_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();
+    std::printf("native My team preset, growth defaults, descriptors (2.20)\n");
+    team_preset_test::run_core();
+    team_preset_test::run_descriptors();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");

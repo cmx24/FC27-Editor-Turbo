@@ -111,8 +111,12 @@ public:
     // Re-read missing.txt / status.txt now, without writing want.txt (the game editors' early pass)
     void refresh_missing() {
         game_present_.clear();
+        waiting_seen_.clear();
         read_missing();
     }
+    // 2.20: the next locate() of this path looks at its file even if it was found absent less than a second ago (a pass
+    // that reads the file itself, such as the game editors' collect, which runs once a second anyway)
+    void look_now(const std::string& path) { waiting_seen_.erase(path); }
     // 2.16 gui/perf-3: the App calls this once per frame; only then are a folder's look and a found game picture kept
     // (within the frame / for a second). Direct callers that never call it (the unit tests, tools) look every time.
     void next_frame() { ++frame_; }
@@ -151,6 +155,11 @@ public:
     // Empty the cache folder and start a new generation (Lua looks at everything again)
     bool clear_cache(std::string* err = nullptr);
 
+    // 2.19 career faces: files under mods\legacy changed behind LegacyImages (core/career_faces.h): no folder look is kept
+    void forget_folder_looks() {
+        std::lock_guard<std::mutex> lock(custom_dirs_m_);
+        custom_dirs_.clear();
+    }
     // Custom file under mods\legacy (any letter case of the name), or empty
     std::filesystem::path custom_file(const std::string& path) const;
     // Write a custom file (previous custom file backed up first). Returns false with a reason.
@@ -203,6 +212,11 @@ private:
     // looking at the file for a second after it last saw it (calls without ticks always look). Forgotten by reload() and
     // clear_cache(), and when a look finds the file gone.
     std::unordered_map<std::string, double> game_present_;  // path -> now_ when the file was last seen
+    // 2.20: the negative side. A picture found absent (Waiting for its export, or Missing) is looked at again at most once a
+    // second (tick() looks at every asked picture once a second and drops what arrived; a new missing.txt, reload() and
+    // clear_cache() look at once). Before, every frame that drew it opened its file (gui perf: a manager picture the game
+    // never delivers, 2 to 4 file calls per frame for as long as the page was open).
+    std::unordered_map<std::string, double> waiting_seen_;  // path -> now_ when its file was last found absent
     uint64_t frame_ = 0;  // next_frame() count: 0 = never called (every call looks at the files)
     double last_progress_ = 0.0;  // a wanted picture arrived or was refused, Lua's status changed, or one was newly asked
     std::string status_;

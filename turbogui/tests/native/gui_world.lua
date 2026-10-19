@@ -251,7 +251,7 @@ local function build_world(sim)
             -- 1004: 16, a unique body type the generated labels know (Cristiano Ronaldo's); 1002: 499, one only this database has;
             -- 1001 keeps 2 (Average and Normal: the body type gallery's "Copy body type from player..." test); 2002 (i = 8): 9
             bodytypecode = (i == 4) and 16 or ((i == 2) and 499 or (1 + i % 9)),
-            contractvaliduntil = 2028 + (i % 3), isretiring = (i == 3) and 1 or 0, nationality = 14,
+            contractvaliduntil = 2028 + (i % 3), jerseyfit = (i == 2) and 2 or 0, isretiring = (i == 3) and 1 or 0, nationality = 14,
         }
         for k, a in ipairs(MORE_ATTRS) do prow[#prow][a] = 55 + (i * 3 + k) % 30 end
         for k, tid in ipairs(p[5]) do
@@ -314,6 +314,7 @@ local function build_world(sim)
             { name = "tattoohead", short = "thd_", depth = 10 },
             { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },   -- FC 27's schema (fc27_db_schema.json): 1 .. 512
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
+            { name = "jerseyfit", short = "jfit", depth = 2 },   -- 0 Normal, 1 Tight, 2 Team Kit Fit (the My team preset test)
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },
         },

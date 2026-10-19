@@ -12,6 +12,7 @@
 #include "core/field_labels.h"
 #include "core/overall.h"
 #include "core/range_filter.h"
+#include "core/team_preset.h"
 #include "geo.h"
 #include "imgui.h"
 #include "move_rules.h"
@@ -22,6 +23,7 @@
 #include "ui_names.h"
 #include "ui_archetype.h"
 #include "ui_presets.h"
+#include "ui_faces.h"
 #include "ui_faces3d_gate.h"
 #include "ui_team_filter.h"
 
@@ -675,7 +677,7 @@ static bool career_button(App& app, const char* label, const char* key, const ch
 
 static void career_dev_tab(App& app, const PlayerRow& p) {
     static int delta = 1, potential = 0, weekly = 1;
-    static bool no_decline = true;
+    static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);  // OFF; a saved value never turns it on
     ImGui::TextDisabled("Manager Career: these run through Turbo's Lua side on the next career-mode event.");
     ImGui::SeparatorText("Scouting");
     if (career_button(app, "Reveal data", "reveal",
@@ -1291,19 +1293,8 @@ static void player_editor(App& app) {
     }
     ImGui::Separator();
 
-    // never a mixed result: another player's real head next to his old miniface (App::head_miniface_mismatch)
-    if (const int64_t mh = app.head_miniface_mismatch(p->playerid)) {
-        const PlayerRow* owner = app.model.player(mh);
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "His head is %s's (head %lld), but his miniface still shows his old face.",
-                           owner ? owner->name.c_str() : "another player", static_cast<long long>(mh));
-        if (ImGui::Button("Use the matching miniface##hmf")) {
-            std::string m;
-            const bool ok = app.give_matching_miniface(p->playerid, &m);
-            app.notify(m, !ok);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Keep his old picture##hmfk")) app.head_miniface_kept[p->playerid] = mh;
-    }
+    // 2.20: a head id written alone: the fields that go with it, through the chooser's safe give (ui_faces.h)
+    head_link_banner(app, *p, "##hl");
 
     // undo of the last direct edits of this player (at most App::kUndoSteps)
     {

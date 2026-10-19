@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "app.h"
+#include "ui_faces.h"
 #include "core/field_labels.h"
 #include "core/legacy.h"
 #include "core/model.h"
@@ -600,18 +601,8 @@ void editor_panel(App& app, void*) {
         if (n == 0) ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Puts back the last change made to this player");
     }
-    // never a mixed result: another player's real head next to his old small picture
-    if (const int64_t mh = app.head_miniface_mismatch(p->playerid)) {
-        const PlayerRow* owner = app.model.player(mh);
-        theme::warn_text("His face is %s's, but his small picture still shows his old face.", owner ? owner->name.c_str() : "another player's");
-        if (ImGui::Button("Use the matching picture###pp_hmf")) {
-            std::string m;
-            const bool ok = app.give_matching_miniface(p->playerid, &m);
-            app.notify(m, !ok);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Keep his old picture###pp_hmfk")) app.head_miniface_kept[p->playerid] = mh;
-    }
+    // 2.20: a head id written alone: the fields that go with it, through the chooser's safe give (ui_faces.h)
+    head_link_banner(app, *p, "##pp_hl");
     ImGui::Separator();
 
     looks_card(app, *t, *p);

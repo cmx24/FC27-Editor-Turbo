@@ -60,4 +60,20 @@ void faces3d_stop();         // stop sending (the request in flight still finish
 // Forget the chooser's cached 3D render of a head (turbo_output\cache\faces3d\p_<id>.dds / m_<id>.dds): after his look changed
 void faces3d_forget_render(App& app, bool manager, int64_t id);
 
+// 2.20 faces safety (Cassio 2026-10-19): before Turbo's first head change of a player / manager in a scope (the identified
+// career, or the squad file outside a career) his own head fields are kept once in turbo_output\careers\<scope>\heads_own.json;
+// "His own head" writes them back (and removes the picture Turbo made for him in that career). A head given to a player with a
+// real miniface leaves it as it is; one with none gets a miniface rendered from his new 3D head (career only, by tick_faces3d).
+bool has_own_head(App& app, bool manager, int64_t id);  // a record to put back (cached; no file work per frame)
+bool restore_own_head(App& app, bool manager, int64_t id, std::string* msg);
+// The linked head fields (2.20): a head comes with its class, quality, type, variation and skin tone (the chooser copies them
+// from the head owner's row, a game head writes its gate set). A head id written alone leaves them as they were: the player
+// pages show one line (head_link_banner) with "Apply the linked fields", the same give as the chooser (real miniface kept; his
+// own head kept first from the edit history, never the typed id). head_link_offer: that head id, or 0 when nothing to link.
+int64_t head_link_offer(App& app, int64_t playerid);
+bool apply_linked_head_fields(App& app, int64_t playerid, std::string* msg);
+void head_link_banner(App& app, const PlayerRow& p, const char* id_suffix);  // id_suffix "##..." (two different buttons)
+void faces_safety_reset();      // drops the queued minifaces (tests)
+size_t faces_safety_pending();  // minifaces queued or in flight
+
 }  // namespace turbo

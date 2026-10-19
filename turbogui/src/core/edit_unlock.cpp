@@ -1122,6 +1122,7 @@ std::vector<std::string> EditUnlock::collect(const Options& opt) {
         if (h.is_string()) ours.insert(h.get<std::string>());
     for (const auto& path : needed(opt)) {
         fs::path cache;
+        legacy_.look_now(path);  // 2.20: this pass (once a second) always looks at the file itself
         LegacyImages::State st = legacy_.locate(path, &cache, false);
         const bool have = has_original(path);
         if (st == LegacyImages::State::Game) {

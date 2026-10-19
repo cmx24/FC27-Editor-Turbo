@@ -341,6 +341,19 @@ std::vector<uint32_t> leave_folder(Plan& plan, const std::string& kind, LeftBy w
                                    const std::vector<KitUser>& shared);
 // "team 2 goalie_home_2_0, team 50 goalie_home_2_0"
 std::string users_text(const std::vector<KitUser>& users);
+// 2.20: one table item a plan added to a TableBuilder, as the swap plan file keeps it (core/kit_swap.h "swap plan")
+struct PlanBlock {
+    uint32_t csize = 0, dsize = 0;
+    uint64_t head = 0, fnv = 0;
+    uint64_t off = ~0ULL;  // offset of the replacement bytes in the item's data (~0 = a watch-only block, no data)
+};
+struct PlanRecord {
+    bool swap = false;
+    std::shared_ptr<std::vector<uint8_t>> data;  // the replacement bytes (nullptr = watch only)
+    std::string src_file;                        // the staged file they were read from ("" = made in memory: a patched hotspot asset)
+    uint64_t src_off = 0;                        // their offset in that file
+    std::vector<PlanBlock> blocks;
+};
 // Builds the plan and appends the accepted blocks to `b` (see TableBuilder). Never throws.
 class TableBuilder {
 public:
@@ -358,6 +371,10 @@ public:
     std::shared_ptr<Table> finish(std::vector<std::string>* dropped, std::set<uint32_t>* dropped_items = nullptr,
                                   std::map<uint32_t, std::set<uint32_t>>* clash_with = nullptr);
     uint32_t items() const;
+    // 2.20: every item added so far with its blocks, in the order they were added (the swap plan of one kit: build_plan into a fresh builder)
+    std::vector<PlanRecord> records() const;
+    // 2.20: adds a record (a swap plan read back); returns the item number
+    uint32_t add_record(const PlanRecord& r);
 
 private:
     struct Impl;
@@ -429,6 +446,19 @@ struct Status {
     double ready_after_ms = -1;   // ms from start() to the publication of the table (-1 = not published since start)
     uint64_t ready_at_ms = 0;     // wall clock (ms since the Unix epoch) of that publication
     std::string cache_note;       // "from cache", "built: <why the cache was not used>; saved" ...
+    // 2.20: where the published table came from: "from plans" (the boot and every republish: the kits' swap_plan.bin files, nothing scanned
+    // or built at start), "" before the first publication
+    std::string table_origin;
+    // 2.20: per kit of swap_state.json (and per kit being planned): its swap plan
+    struct PlanRow {
+        int team = -1, slot = -1;
+        std::string state;   // "ready", "queued", "planning", "none" (no plan file), "stale" (made for another game build / files / options), "failed", "nothing" (planned: the game has no 3D textures for this slot)
+        std::string reason;  // for none / stale / failed: the words the Kits page shows ("Re-stage this kit (planned for another game version)")
+        double seconds = 0;  // how long the plan took when it was made
+    };
+    std::vector<PlanRow> plans;
+    double plan_estimate_s = 0;  // "Planning your kit... (about N s)": the expected time of one plan (0 = not planning)
+    int plans_queued = 0;        // plans still to make (Rebuild all kit plans)
 };
 
 // ---------------------------------------------------------------- 2.19: the finished table on disk (turbo_output\kits\kit_table.cache)
@@ -454,7 +484,64 @@ struct CachedBuild {
 bool save_table_cache(const std::filesystem::path& file, const TableCacheKey& key, const Table& table, const std::string& message, const std::vector<ItemStatus>& items,
                       const std::vector<FolderVerdict>& folders);
 // false + why ("no cache file", "key changed: staged team 10 home", "damaged", "staged data changed: ...", "cancelled") = build it
+// 2.20: legacy. The Runtime no longer reads or writes kit_table.cache (its key holds the Turbo version, so no 2.19 file can match a 2.20
+// build); the functions stay for the 2.19 tests and tools.
 bool load_table_cache(const std::filesystem::path& file, const TableCacheKey& key, CachedBuild& out, std::string* why = nullptr, const std::atomic<bool>* cancel = nullptr);
+
+// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (turbo_output\kits\<team>\<slot>\swap_plan.bin)
+// The census and the block plan of a kit run ONCE, when the kit is staged (import, a slot option change, switching it on), for that kit only,
+// on the worker thread, and the result is written next to its staged pictures. At game start the Runtime only loads the plans whose key
+// matches (milliseconds) and publishes the table from them: it never scans the game's tocs and never builds. A kit without a matching plan
+// is off with a reason the Kits page shows; nothing is planned behind the user's back at start.
+// The plan holds what build_plan decided (items, verdicts, notes), the table items it added (blocks; the replacement bytes by reference to
+// the staged DDS file, offset, size and FNV-1a 64; a patched hotspot asset inline) and the club's kit folders (the Kits page list).
+// Replaying the plans of several kits in swap_state.json order into one TableBuilder gives the same item numbers and blocks the old
+// all-kits build gave; the clash rule between kits (assemble_table) then runs as before.
+constexpr uint32_t kPlanFormat = 1;  // bump with every change to the plan rules (census, sharing, never half a kit) or to the file layout
+// The words a kit's row shows when its plan was made for another game build or another state of the game's files
+extern const char* const kPlanStaleReason;      // "Re-stage this kit (planned for another game version)"
+extern const char* const kPlanNoneReason;       // "Re-stage this kit (it has no swap plan yet)"
+extern const char* const kNothingToSwap;        // "the game has no 3D kit textures for this club's slot (nothing to swap)": row state "nothing"
+extern const char* const kPlanOptionsReason;    // "Re-stage this kit (planned with other kit options)"
+extern const char* const kPlanStagedReason;     // "Re-stage this kit (its staged pictures changed since it was planned)"
+extern const char* const kPlanDamagedReason;    // "Re-stage this kit (its swap plan file is damaged)"
+using PlanKey = TableCacheKey;                   // (name, value) fields in order
+// The key of one kit's plan: plan format, game build (TimeDateStamp-SizeOfImage of FC27.exe), the kit index signature (size and write
+// time of layout.toc and every toc: a game patch changes it), the staged manifest.json and hotspots FNV-1a 64 (a re-stage changes them),
+// the kit's options and mode, and the global options that shape a plan (watch_club, min_csize, census, apply_hotspots).
+PlanKey make_plan_key(const std::string& game_build, const std::string& index_sig, const SlotState& slot, const std::filesystem::path& staged_dir, const Options& base);
+// The options build_plan runs with for one kit (the global ones with the kit's own)
+Options plan_options(const Options& base, const SlotState& slot);
+struct SwapPlan {
+    PlanKey key;
+    Plan plan;                        // PlanItem::table_item = index in `records` (0xFFFFFFFF = not in the table)
+    std::vector<PlanRecord> records;  // the table items build_plan added, in order
+    std::set<std::string> kinds;      // the club's kit folders (KitIndex::kinds), for the Kits page without the index
+    std::string donor;                // FNV-1a 64 of the club's kit bundle entries in the index (toc, bundle, folder, slots): which game data it was planned on
+    double seconds = 0;               // how long build_plan took
+    bool transient = false;           // a game file could not be read while planning: never saved
+};
+std::string plan_row_state(const SwapPlan& sp);  // "ready", "nothing" (planned, nothing in the game to swap: not a fault) or "failed"
+// Plans one kit (build_plan into a fresh builder) and fills `out` (key, records, kinds, donor). out.plan.ok false = no plan (error says why).
+SwapPlan make_swap_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, const StagedKit& staged, const SlotState& slot, const Options& base,
+                        const PlanKey& key, Progress* progress = nullptr);
+bool save_swap_plan(const std::filesystem::path& file, const SwapPlan& p);
+// false + why: "no plan" / "stale: <first field that differs>" / "damaged (...)" / "staged data changed: ..."; `reason` gets the Kits page words.
+// The staged bytes are read back and must hash to what the plan served.
+bool load_swap_plan(const std::filesystem::path& file, const PlanKey& key, SwapPlan& out, std::string* why = nullptr, std::string* reason = nullptr);
+// The Kits page words for a load_swap_plan `why`
+std::string plan_reason_words(const std::string& why);
+// Adds a plan's records to `tb` and gives `plan` the builder's item numbers (a copy of SwapPlan::plan)
+void replay_plan(const SwapPlan& sp, TableBuilder& tb, Plan& plan);
+// The table from the plans added to `tb` (in order): the clash rule between kits (2.13: the same game block wanted with other bytes takes
+// those textures out, a jersey / shorts / socks one with its whole folder), then the status lists. The worker and the tests use it.
+struct Assembled {
+    std::shared_ptr<Table> table;
+    std::vector<ItemStatus> items;
+    std::vector<FolderVerdict> folders;
+    int swapped = 0, skipped = 0;
+};
+Assembled assemble_table(std::vector<Plan>& plans, TableBuilder& tb);
 class Runtime {
 public:
     // le_root: the Live Editor folder (state and logs under turbo_output); game_root: the install; oodle: the game's own decompressor
@@ -474,20 +561,28 @@ public:
     std::string game_build;
     // 2.19: one line per published table ("kit swap: table from cache (N blocks, X ms)" / "kit swap: table built ..."); the host logs it
     std::function<void(const std::string&)> log_line;
-    // 2.19: false = never read or write turbo_output\kits\kit_table.cache (tests, the offline timing tool's cold run)
+    // 2.19: kept for the API; 2.20 never reads or writes turbo_output\kits\kit_table.cache (legacy file, left where it is)
     bool use_table_cache = true;
-    // Loads turbo_output\kits\swap_state.json and starts building the table for the slots in it (async)
+    // Loads turbo_output\kits\swap_state.json and publishes the table from the kits' swap plans (async, milliseconds): no scan, no build.
+    // A kit without a matching plan is off (Status::plans says why) and is never planned here.
     void start();
-    // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; async build. false + reason: nothing staged, unknown slot
+    // Activates a staged kit (turbo_output\kits\<team>\<slot>) in `mode`; its plan is made when it has none for this mode and options (an
+    // explicit user action), then the table is published again. false + reason: nothing staged, unknown slot
     bool activate(int team, int slot, Mode mode, std::string* err);
     void deactivate(int team, int slot);
-    // Per-kit choices (decals, keep the game's badge, share within the club, share with other clubs): saved, and the table is built again
+    // Per-kit choices (decals, keep the game's badge, share within the club, share with other clubs): saved, the kit is planned again
     bool set_slot_options(int team, int slot, bool decals, bool keep_crest, bool share_club, bool share_other);
     bool slot_options(int team, int slot, bool* decals, bool* keep_crest, bool* share_club, bool* share_other = nullptr) const;
-    // The kit folders the game has for a club (empty until the kit index exists)
+    // The kit folders the game has for a club (from the kit index when it is loaded, else from the club's plans; empty without either)
     std::set<std::string> kinds_of(int team) const;
-    // Builds the table again (the staged textures of an active kit changed)
-    void rebuild() { rebuild_async(); }
+    // 2.20: plan this kit now (stage time: after an import staged its pictures; worker thread). Without `force`, a plan whose key matches is
+    // kept. A kit that is not in swap_state.json is planned with its defaults (swap, the default options), the way switching it on uses it.
+    void request_plan(int team, int slot, bool force = false);
+    // 2.20: "Rebuild all kit plans" (Advanced): every kit of swap_state.json planned again, one after the other (about N s each)
+    void replan_all();
+    // 2.20: the global options changed (watch_club, hotspots): the kits whose plan no longer matches are planned again (an explicit action)
+    void rebuild();
+    std::filesystem::path plan_path(int team, int slot) const;  // turbo_output\kits\<team>\<slot>\swap_plan.bin
     bool is_active(int team, int slot, Mode* mode = nullptr) const;
     Status status() const;
     // The kill switch: raised, it stops a running scan / build and the hot path; released, a build that was skipped because of it runs
@@ -555,6 +650,21 @@ private:
     double table_ms_ = 0, ready_after_ms_ = -1;
     uint64_t ready_at_ms_ = 0;
     std::string cache_note_;
+    // 2.20 (m_): the plans
+    std::string table_origin_;
+    std::vector<std::pair<std::pair<int, int>, bool>> pending_plans_;  // (team, slot) -> force, in request order
+    std::pair<int, int> planning_{-1, -1};                            // the kit being planned now
+    std::map<std::pair<int, int>, Status::PlanRow> plan_rows_;
+    std::map<int, std::set<std::string>> plan_kinds_;                  // per club, from its plans (kinds_of without the index)
+    double last_plan_s_ = 0;                                           // the last plan's time (the "about N s")
+    bool scanning_ = false;                                            // the kit index is being scanned (stage time only, after a game update)
+    // worker only: plans already read this session (key fields + file write time), so a republish reads no staged file twice
+    struct LoadedPlan {
+        std::shared_ptr<SwapPlan> plan;
+        std::filesystem::file_time_type mtime;
+    };
+    std::map<std::pair<int, int>, LoadedPlan> loaded_;
+    void plan_pending(GameFiles& files, const std::string& sig, const Options& base, int gen);
     double started_s_ = -1;       // now_s() at start()
     std::atomic<const Table*> table_{nullptr};
     std::atomic<bool> swap_any_{false};

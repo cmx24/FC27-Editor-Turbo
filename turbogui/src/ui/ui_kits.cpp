@@ -199,6 +199,34 @@ static json kept_now(App& app, const std::string& scope, int64_t teamid, int64_t
     return f == k->fields.end() ? json() : json(f->second);
 }
 
+// ================================================================ minikits (2.20 K4)
+// The per-club switch: turbo_output\kits\<teamid>\minikit_off.txt (next to the club's slot folders, so Undo of one slot never
+// removes it). On by default; off = the import leaves the club's minikits alone.
+static fs::path minikit_off_file(App& app, int64_t teamid) { return kits::kits_dir(app.bridge.root()) / std::to_string(teamid) / "minikit_off.txt"; }
+
+bool minikit_enabled(App& app, int64_t teamid) {
+    std::error_code ec;
+    return !fs::exists(minikit_off_file(app, teamid), ec);
+}
+
+bool set_minikit_enabled(App& app, int64_t teamid, bool on) {
+    std::error_code ec;
+    const fs::path f = minikit_off_file(app, teamid);
+    if (on) {
+        fs::remove(f, ec);
+        return !fs::exists(f, ec);
+    }
+    return write_text_atomic(f, "Teams > Kits leaves this club's minikits alone when a kit is imported. Delete this file to switch it on again.\n", nullptr);
+}
+
+// The club's own 2D crest (crest/light, a custom one first) for the drawn minikit; false while it is not there yet
+static bool club_crest(App& app, int64_t teamid, Rgba& out) {
+    fs::path f;
+    const LegacyImages::State st = app.legacy.locate(crest_main_path(teamid), &f, true);
+    if (st != LegacyImages::State::Custom && st != LegacyImages::State::Game) return false;
+    return load_image_file(f, out, nullptr) && !out.empty();
+}
+
 // ================================================================ apply / undo
 KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk) {
     KitApply res;
@@ -219,7 +247,8 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
     fs::path game_mini;
     const LegacyImages::State mst = app.legacy.locate(mpath, &game_mini, false);
     if (mst == LegacyImages::State::Waiting) {
-        res.line = "not applied yet: the game's minikit (" + mpath + ") is still loading from the game; try again in a moment";
+        res.line = "not applied yet: the game's minikit for this kit is still loading from the game; try again in a moment";
+        app.log("kit import: waiting for the game's minikit " + mpath);
         return res;
     }
     const int64_t type = kits::slot_type(s);
@@ -325,51 +354,86 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
                 rec.kept_before.emplace_back(d.field, k ? *k : (same_kept_row ? json() : kept_now(app, rec.kept_scope, teamid, type, kitid, d.field)));
             }
 
-    // ---- 2. the minikit, in the game file's own size / format / mips (the crest writer's way)
+    // ---- 2. the minikit (2.20 K4): the zip's minikit.png, or one Turbo draws from the jersey when the zip has none. Written in the
+    // form of the game's own file when the game has one, in the proven MK1 form (256 x 256 BGRA, 4 mips) when it has none (the
+    // Eerste clubs) or when its file already is that form
     rec.minikit = had_record && old.minikit;
     rec.minikit_had_custom = had_record ? old.minikit_had_custom : !app.legacy.custom_file(mpath).empty();
     rec.minikit_backup = had_record ? old.minikit_backup : std::string();
-    if (mst == LegacyImages::State::Game) {
-        DdsFormat fmt;
+    const bool first_write = !(had_record && old.minikit);  // the file Undo must bring back is the one there before the first WRITE
+    bool mini_drawn = false, mini_no_crest = false, mini_replaced = false;
+    if (!minikit_enabled(app, teamid)) {
+        res.minikit_note = "switched off for this club";
+    } else if (mst == LegacyImages::State::Game || mst == LegacyImages::State::Missing) {
         std::string err;
-        std::string text;
-        const bool readable = read_all(game_mini, text);
-        const std::vector<uint8_t> bytes(text.begin(), text.end());
-        if (!readable) {
-            res.minikit_note = "the game's minikit file cannot be read";
-        } else if (!parse_dds_format(bytes, fmt, &err)) {
-            res.minikit_note = "the game's minikit: " + err;
-        } else if (fmt.w != fmt.h || pk.minikit.w != pk.minikit.h) {
-            res.minikit_note = "the game's minikit is " + std::to_string(fmt.w) + " x " + std::to_string(fmt.h) + ", minikit.png " +
-                               std::to_string(pk.minikit.w) + " x " + std::to_string(pk.minikit.h) + ": only square pictures are written";
-        } else {
-            Rgba img = pk.minikit.w == fmt.w ? pk.minikit : frame_image(pk.minikit, fmt.w, Framing());
-            std::vector<uint8_t> dds = encode_dds(img, fmt, &err);
+        Rgba src = pk.minikit;
+        if (src.empty()) {
+            Rgba crest;
+            const bool have_crest = club_crest(app, teamid, crest);
+            mini_no_crest = !have_crest;
+            src = kits::render_minikit(pk.thumb, have_crest ? &crest : nullptr, kits::minikit_hints(pk.settings), &err);
+            mini_drawn = !src.empty();
+        }
+        DdsFormat fmt;
+        bool mk_form = mst == LegacyImages::State::Missing;
+        if (src.empty()) {
+            res.minikit_note = err.empty() ? std::string("there is no picture to write") : err;
+        } else if (mst == LegacyImages::State::Game) {
+            std::string text;
+            if (!read_all(game_mini, text)) res.minikit_note = "the game's minikit file cannot be read";
+            else if (!parse_dds_format(std::vector<uint8_t>(text.begin(), text.end()), fmt, &err)) res.minikit_note = "the game's minikit: " + err;
+            else if (fmt.w != fmt.h || src.w != src.h)
+                res.minikit_note = "the game's minikit is " + std::to_string(fmt.w) + " x " + std::to_string(fmt.h) + ", the picture " + std::to_string(src.w) +
+                                   " x " + std::to_string(src.h) + ": only square pictures are written";
+            else mk_form = kits::is_minikit_form(fmt);
+        } else if (src.w != src.h) {
+            res.minikit_note = "the picture is " + std::to_string(src.w) + " x " + std::to_string(src.h) + ": only square pictures are written";
+        }
+        if (res.minikit_note.empty()) {
+            std::vector<uint8_t> dds;
+            if (mk_form) {
+                dds = kits::encode_minikit_dds(src, &err);
+                if (!dds.empty() && !kits::check_minikit_dds(dds, &err)) dds.clear();
+            } else {
+                dds = encode_dds(src.w == fmt.w ? src : frame_image(src, fmt.w, Framing()), fmt, &err);
+            }
             fs::path backup;
             if (dds.empty()) {
-                res.minikit_note = "minikit: " + err;
+                res.minikit_note = err.empty() ? std::string("the file could not be made") : err;
             } else if (!app.legacy.save_custom(mpath, dds, &err, &backup)) {
-                res.minikit_note = "minikit not written: " + err;
+                res.minikit_note = "not written: " + err;
             } else {
                 res.minikit = true;
                 rec.minikit = true;
-                // the custom minikit there before the FIRST import (Undo brings it back)
-                if (!had_record && !backup.empty()) rec.minikit_backup = path_text(backup);
+                mini_replaced = first_write && !backup.empty();
+                // the custom minikit there before the first write (Undo brings it back); a record from an import that wrote none
+                // (a game without the file, the club switched off) gets it now
+                if (first_write) {
+                    rec.minikit_had_custom = !backup.empty();
+                    rec.minikit_backup = backup.empty() ? std::string() : path_text(backup);
+                }
                 app.textures.forget(app.legacy.custom_file(mpath));
             }
         }
-    } else if (mst == LegacyImages::State::Missing) {
-        res.minikit_note = "the game has no minikit for this kit (" + mpath + "): not written";
     } else if (mst != LegacyImages::State::Custom) {
-        res.minikit_note = "minikit path refused";
+        res.minikit_note = "this kit has no minikit place";
     }
+    if (!res.minikit_note.empty()) app.log("kit import: minikit " + mpath + ": " + res.minikit_note);
 
     std::string err;
     const bool saved = save_record(app, rec, &err);
     res.ok = saved;
+    std::string mini_card;
+    if (res.minikit) {
+        mini_card = mini_drawn ? "Minikit drawn by Turbo" : "Minikit updated";
+        if (mini_drawn && mini_no_crest) mini_card += " (without the crest: it was not ready)";
+        mini_card += mini_replaced ? " (the earlier one is kept for Undo)" : mst == LegacyImages::State::Game ? " (over the game's own, Undo brings it back)" : "";
+    } else {
+        mini_card = res.minikit_note.empty() ? std::string("Minikit unchanged") : "Minikit not updated: " + res.minikit_note;
+    }
     res.line = tr->name + " " + kit_type_name(type) + " kit: " + plural(size_t(res.fields), "setting field", "setting fields") + " written" +
                (res.skipped.empty() ? std::string() : " (" + plural(res.skipped.size(), "setting", "settings") + " not: " + res.skipped[0] + ")") +
-               "; minikit " + (res.minikit ? std::string("written") : res.minikit_note.empty() ? std::string("unchanged") : res.minikit_note) +
+               "; " + mini_card +
                (saved ? std::string() : "; the import record was not saved (" + err + "): Undo cannot put this back");
     app.log("kit import: " + res.line + " [" + rec.source + "]");
     for (const auto& sk : res.skipped) app.log("kit import: not written: " + sk);
@@ -634,7 +698,19 @@ void poll_jobs(App& app) {
         p.line = "textures staged for " + plural(ok, "kit", "kits") + " (" + std::to_string(files) + " files, " + mb +
                  ") in turbo_output\\kits; turn on 3D kit on the pitch under Kits imported for this club to use them in matches" +
                  (first_error.empty() ? std::string() : "; not staged: " + first_error);
-        if (ok && app.kit_swap && !app.kit_swap->status().slots.empty()) app.kit_swap->rebuild();  // new staged textures of an active kit
+        // 2.20: each kit staged now is planned once, here (the census and block plan on the worker thread, swap_plan.bin next to its
+        // pictures); the game start only loads the plan. Only with the 3D option on (kits3d_on.txt): without it nothing is read.
+        if (ok && app.kit_swap && app.kit_swap->opted_in()) {
+            size_t asked = 0;
+            for (const auto& r : rs) {
+                kitswap::StagedKit sk;
+                if (r.ok && kitswap::load_staged(r.dir, sk)) {
+                    app.kit_swap->request_plan(sk.team, sk.slot);
+                    ++asked;
+                }
+            }
+            if (asked) p.line += "; planning " + plural(asked, "kit", "kits") + " for the pitch now (about 20 s each, once)";
+        }
         app.notify("Kit import: " + p.line, !first_error.empty());
         p.stage.reset();
         p.staging.clear();

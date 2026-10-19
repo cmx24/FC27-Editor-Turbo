@@ -18,6 +18,7 @@
 #include "core/bridge.h"
 #include "core/callname_voice.h"
 #include "core/callnames.h"
+#include "core/career_faces.h"
 #include "core/commentary_audio.h"
 #include "core/edit_unlock_hook.h"
 #include "core/fce_standings.h"
@@ -105,6 +106,9 @@ public:
         struct Picture {
             std::string path;                 // legacy path, e.g. data/ui/imgAssets/heads/p1234.dds
             std::filesystem::path backup;     // the custom file it replaced (turbo_output\miniface_backups\...); empty = none
+            // 2.19 career faces: the career whose own copy (turbo_output\careers\<career>\...) was written; backup is then the
+            // career's earlier copy (careers\<career>\_undo), empty = the career had none. "" = the global mods\legacy file.
+            std::string career;
         };
         std::vector<Picture> pictures;
     };
@@ -118,7 +122,6 @@ public:
     // Returns that head id, or 0 when head and miniface go together (or the user chose to keep his picture).
     int64_t head_miniface_mismatch(int64_t playerid);
     std::map<int64_t, int64_t> head_miniface_kept;  // playerid -> head id for which "Keep his old picture" was chosen
-    bool give_matching_miniface(int64_t playerid, std::string* msg);
     static constexpr size_t kUndoSteps = 20;
     std::map<int64_t, std::deque<UndoStep>> undo_;
     size_t undo_count(int64_t playerid) const;
@@ -452,7 +455,29 @@ public:
     void set_asset_scope(const std::string& picker, assets::Scope s);
     std::filesystem::path turbo_output() const { return bridge.root() / "turbo_output"; }
 
+    // ---- 2.19 career faces (core/career_faces.h): a face picture chosen in a career lives only in that career
+    career_faces::Paths career_faces_paths() const;
+    // The career whose face pictures belong in mods\legacy now: the identified career while one is loaded and its identity is
+    // current for this load, else "" (main menu, Kick Off, a career not identified yet)
+    std::string career_faces_wanted() const;
+    // In a career (Lua reports career mode) whose identity Turbo does not know: a face picture may not be written anywhere
+    // (globally it would reach every career). `why` says so for the user.
+    bool career_faces_refused(std::string* why) const;
+    // Writes a face picture (miniface, heads_staff) the right way: in an identified career the career's own copy (then copied
+    // into mods\legacy while it is loaded), outside a career the global mods\legacy file as before. `rec` (optional) is what an
+    // Undo needs. Refused (false, err) in a career Turbo has not identified. Any other legacy path: global, as before.
+    bool write_face_picture(const std::string& rel, const std::vector<uint8_t>& bytes, std::string* err,
+                            UndoStep::Picture* rec = nullptr);
+    // Undo of one picture write_face_picture made (or a pre-2.19 global one)
+    bool undo_face_picture(const UndoStep::Picture& p, std::string* err);
+    // Makes mods\legacy match `career` now (career_faces::sync) and refreshes Turbo's own picture caches for every path it changed
+    void career_faces_sync(const std::string& career, const char* why);
+    const std::string& career_faces_active() const { return career_faces_active_; }
+
 private:
+    std::string career_faces_active_;    // the career career_faces_sync last ran for ("" = none)
+    bool career_faces_ticked_ = false;   // the first tick (the start-up restore's log line goes to the host log there)
+    std::string career_faces_start_line_;
     shell::Place place_{shell::Area::Squad, shell::Page::PlayerEdit};
     HookReport hook_report_cache_;      // hook_report_cached()
     double hook_report_cache_at_ = -1.0;  // App time of that report (< 0 = none)

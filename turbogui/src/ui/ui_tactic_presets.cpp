@@ -78,6 +78,11 @@ struct Pv {
     bool confirm_tactic = false, confirm_settings = false, confirm_card_undo = false;
     tpreset::LastLoad confirm_last;     // what the Yes will write
     tpreset::Preset confirm_preset;     // the preset being loaded (its settings block)
+    // 2.20: the Custom sliders block the game saved last (game_settings_current), read at the first look and at Refresh
+    bool sliders_ok = false;
+    std::map<std::string, int> sliders;
+    std::string sliders_why;
+    int refreshes = 0;
     // the job in flight
     JobKind job = JobKind::None;
     long long job_seq0 = 0;
@@ -111,21 +116,16 @@ void log_line(App& app, const std::string& s) {
 
 void load_presets_now(App& app) {
     g.errors.clear();
-    g.presets = tpreset::load_presets(tpreset::presets_dir(out_dir(app)), &g.errors);
+    const fs::path dir = tpreset::presets_dir(out_dir(app));
+    g.presets = tpreset::load_presets(dir, &g.errors);
     if (g.sel >= int(g.presets.size())) g.sel = -1;
+    // 2.20: one line per scan (first look, Refresh, Save, Delete): the live check counts the listed presets and names every skipped file
+    log_line(app, "tactic presets: " + tpreset::scan_line(g.presets.size(), g.errors, dir.u8string()));
 }
 
 void load_last_now(App& app) {
     g.last_err.clear();
     g.have_last = tpreset::load_last(tpreset::last_load_path(out_dir(app)), g.last, &g.last_err);
-}
-
-void first_look(App& app) {
-    if (g.loaded) return;
-    g.loaded = true;
-    g.include_settings = true;
-    load_presets_now(app);
-    load_last_now(app);
 }
 
 void read_live(App& app, bool force) {
@@ -136,6 +136,66 @@ void read_live(App& app, bool force) {
     g.have_live = live_tactic_read(app, lt, why);
     if (g.have_live) g.live = lt;
     g.live_why = why;
+}
+
+// 2.20: the Custom sliders block of the settings file the game saved last (the same read Save current uses)
+void read_sliders_now(App& app) {
+    std::string layout, map_build;
+    g.sliders.clear();
+    g.sliders_ok = game_settings_current(app, g.sliders, layout, map_build, g.sliders_why);
+    if (g.sliders_ok) g.sliders_why.clear();
+}
+
+std::string live_log_text() {
+    if (!g.have_live) return "not read: " + g.live_why;
+    return "ok: \"" + g.live.name + "\" team " + std::to_string(g.live.at.user) + ", approach " + std::to_string(g.live.approach) + ", line height " +
+           std::to_string(g.live.line_height) + ", build-up " + std::to_string(g.live.build_up) +
+           (g.live.at.records_probe.empty() ? std::string() : ", records: " + g.live.at.records_probe);  // 2.20 probe: the known-good record vector
+}
+
+std::string sliders_log_text() {
+    if (!g.sliders_ok) return "not read: " + g.sliders_why;
+    std::string s = "ok: " + std::to_string(g.sliders.size()) + " values";
+    for (const char* k : {"user.sprint_speed", "cpu.sprint_speed", "user.acceleration"}) {
+        auto it = g.sliders.find(k);
+        if (it != g.sliders.end()) s += std::string(", ") + k + " " + std::to_string(it->second);
+    }
+    return s;
+}
+
+// The reads the page shows, again, and one log line with what they returned ("open" at the first look, "refresh" at a Refresh click)
+void read_all(App& app, const char* why) {
+    read_live(app, true);
+    read_sliders_now(app);
+    log_line(app, std::string("tactic presets: live read (") + why + "): tactic " + live_log_text() + "; custom sliders " + sliders_log_text());
+}
+
+void first_look(App& app) {
+    if (g.loaded) return;
+    g.loaded = true;
+    g.include_settings = true;
+    load_presets_now(app);
+    load_last_now(app);
+    read_all(app, "open");
+}
+
+// Refresh (both select panels): the folder, the last-load file, the live tactic and the sliders block, all read again
+void refresh_all(App& app) {
+    load_presets_now(app);
+    load_last_now(app);
+    read_all(app, "refresh");
+    ++g.refreshes;
+    g.status = "Read again: " + std::to_string(g.presets.size()) + " preset" + (g.presets.size() == 1 ? "" : "s") +
+               (g.errors.empty() ? std::string() : ", " + std::to_string(g.errors.size()) + " file(s) skipped") + "; your tactic " +
+               (g.have_live ? std::string("read") : std::string("not read")) + "; Custom sliders " + (g.sliders_ok ? "read" : "not read") + ".";
+}
+
+void pick(App& app, int i) {
+    if (g.sel == i) return;
+    g.sel = i;
+    g.delete_armed = false;
+    if (i >= 0 && i < int(g.presets.size()))
+        log_line(app, "tactic presets: picked \"" + g.presets[size_t(i)].name + "\": " + tpreset::summary(g.presets[size_t(i)]));
 }
 
 void save_last(App& app, const tpreset::LastLoad& l) {
@@ -606,6 +666,19 @@ void update_state(App& app) {
                             tsheet::build_up_text(g.live.build_up);
     else
         g_state.live_line = "Your club's live tactic: not read (" + g.live_why + ")";
+    g_state.live_plain = g.have_live ? std::string() : tpreset::live_why_plain(g.live_why);
+    g_state.sliders_ok = g.sliders_ok;
+    if (g.sliders_ok) {
+        auto val = [](const char* k) {
+            auto it = g.sliders.find(k);
+            return it == g.sliders.end() ? std::string("?") : std::to_string(it->second);
+        };
+        g_state.sliders_line = "Custom sliders now: " + std::to_string(g.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
+                               val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ")";
+    } else {
+        g_state.sliders_line = "Custom sliders now: not read (" + g.sliders_why + ")";
+    }
+    g_state.refreshes = g.refreshes;
     g_state.opt_in = live_tactic_opt_in(app);
     g_state.include_settings = g.include_settings;
     g_state.include_unverified = g.include_unverified;
@@ -658,24 +731,20 @@ void undo_button_right(App& app, const char* label_with_id, const char* shown) {
 void presets_select_panel(App& app, void*) {
     ImGui::TextUnformatted("Presets");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh##tprefresh")) {  // a preset file edited or copied outside the game
-        load_presets_now(app);
-        load_last_now(app);
-        g.status = "The presets folder was read again";
-    }
+    if (ImGui::SmallButton("Refresh##tprefresh")) refresh_all(app);  // a preset file edited or copied outside the game, a tactic changed in game
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the presets folder, your live tactic and the Custom sliders again");
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##tpfilter", "Search", g.filter, sizeof(g.filter));
     for (size_t i = 0; i < g.presets.size() && i < g_state.summaries.size(); ++i) {
         const tpreset::Preset& p = g.presets[i];
         if (g.filter[0] && !contains_nocase(p.name, g.filter)) continue;
         const std::string label = p.name + "  -  " + g_state.summaries[i] + "##tpsel" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), g.sel == int(i), 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-            g.sel = int(i);
-            g.delete_armed = false;
-        }
+        if (ImGui::Selectable(label.c_str(), g.sel == int(i), 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) pick(app, int(i));
     }
-    if (g.presets.empty()) theme::muted_text("No preset yet: save your live tactic from the editor.");
-    for (const std::string& e : g.errors) theme::muted_text("Skipped %s", e.c_str());
+    if (g.presets.empty() && g.errors.empty()) theme::muted_text("No preset yet: save your live tactic from the editor.");
+    // 2.20: a file that cannot be used is never silent (until 2.20 a long note emptied the whole list with only a grey line)
+    if (!g.errors.empty()) theme::warn_text("%zu preset file(s) could not be used:", g.errors.size());
+    for (const std::string& e : g.errors) ImGui::TextWrapped("Skipped %s", e.c_str());
 }
 
 void presets_editor_panel(App& app, void*) {
@@ -697,7 +766,10 @@ void presets_editor_panel(App& app, void*) {
     }
 
     if (ImGui::CollapsingHeader("Live now##tpsec_live", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::TextWrapped("%s", g_state.live_line.c_str());
+        if (g_state.live_ok || app.prefs.advanced_mode) ImGui::TextWrapped("%s", g_state.live_line.c_str());
+        if (!g_state.live_ok) theme::warn_text("Your tactic: not read. %s", g_state.live_plain.c_str());
+        ImGui::TextWrapped("%s", g_state.sliders_line.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read from the settings file the game saved last: at the first look and at every Refresh");
         bool on = g_state.opt_in;
         if (checkbox_right("Let Turbo change my tactic###tpopt", &on)) {
             live_tactic_set_opt_in(app, on);
@@ -800,10 +872,7 @@ std::vector<int> gameplay_indices() {
 void gameplay_select_panel(App& app, void*) {
     ImGui::TextUnformatted("Slider presets");
     ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh##gprefresh")) {
-        load_presets_now(app);
-        g.status = "The presets folder was read again";
-    }
+    if (ImGui::SmallButton("Refresh##gprefresh")) refresh_all(app);
     const std::vector<int> idx = gameplay_indices();
     g_gp.names.clear();
     g_gp.selected = -1;
@@ -812,12 +881,11 @@ void gameplay_select_panel(App& app, void*) {
         g_gp.names.push_back(p.name);
         if (g.sel == idx[k]) g_gp.selected = int(k);
         const std::string label = p.name + "  -  " + std::to_string(p.settings.values.size()) + " sliders##gpsel" + std::to_string(k);
-        if (ImGui::Selectable(label.c_str(), g.sel == idx[k], 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-            g.sel = idx[k];
-            g.delete_armed = false;
-        }
+        if (ImGui::Selectable(label.c_str(), g.sel == idx[k], 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) pick(app, idx[k]);
     }
-    if (idx.empty()) theme::muted_text("No slider preset yet. Save one on Tactic presets with the Custom sliders block ticked.");
+    if (idx.empty() && g.errors.empty()) theme::muted_text("No slider preset yet. Save one on Tactic presets with the Custom sliders block ticked.");
+    if (!g.errors.empty()) theme::warn_text("%zu preset file(s) could not be used:", g.errors.size());
+    for (const std::string& e : g.errors) ImGui::TextWrapped("Skipped %s", e.c_str());
 }
 
 void gameplay_editor_panel(App& app, void*) {
@@ -829,6 +897,7 @@ void gameplay_editor_panel(App& app, void*) {
     undo_button_right(app, "Undo last load##gpundo", "Undo last load");
     g_gp.note = "Community slider presets. Write + EA screen read-back proven, on-pitch effect not measured.";
     theme::muted_text("%s", g_gp.note.c_str());
+    theme::muted_text("%s", g_state.sliders_line.c_str());
     g_gp.read_back_ok = false;
     if (have) {
         ImGui::TextWrapped("%zu sliders%s. Applying stages them; they are written to the game's settings file when FC 27 is closed "

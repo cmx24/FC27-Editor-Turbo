@@ -304,7 +304,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const PT pt = page_text(ui);
         CHECK(has(pt.all, "Name") && has(pt.all, "Colours") && has(pt.all, "Crest"), "the three cards");
         CHECK(has(pt.all, "have no Undo yet"), "the honest line: name and colour changes cannot be undone yet");
-        CHECK(!has(pt.only, "Home kit (type 0") && !has(pt.only, "(ID "), "no kit colours, no club number on the page");
+        CHECK(!has(pt.only, "Home kit") && !has(pt.only, "(ID "), "no kit colours, no club number on the page");
         CHECK(!has(pt.only, "Undo last"), "no promise of an Undo that does not exist");
         show(ui, draw_kit_diagnostics);
         CHECK(ui.find("Import kit zip...", "##kitspage_test") && ui.find("Import team folder...", "##kitspage_test"), "Kit diagnostics: the old Kits body, all of it");
