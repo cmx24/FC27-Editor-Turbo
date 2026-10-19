@@ -4,6 +4,8 @@
 # label: write it "Text###stable_id" first, then change the text. After an intended id change, regenerate with
 # TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
 app.cpp	-	###changes	1
+app.cpp	-	###winmax	1
+app.cpp	-	##turbo_toasts	1
 app.cpp	Begin	##texture_test	1
 app.cpp	Begin	##turbo_toasts	1
 app.cpp	Begin	FC 27 LE Turbo	1
@@ -71,6 +73,8 @@ table_registry.h	-	##squad	1
 table_registry.h	-	##tattoos	1
 table_registry.h	-	##teams	1
 table_registry.h	-	##teamsxf	1
+table_registry.h	-	##tpexttbl	1
+table_registry.h	-	##tproletbl	1
 table_registry.h	-	##vstable	1
 table_registry.h	-	##xfrows	1
 ui_asset_browser.cpp	-	##scope	1
@@ -117,6 +121,57 @@ ui_bodytypes.cpp	OpenPopup	Copy body type from player##btcopy	1
 ui_bodytypes.cpp	PushID	##bodytypes	1
 ui_bodytypes.cpp	checkbox_right	Allow a player-specific body on this head (untested)##btallow	1
 ui_bodytypes.cpp	checkbox_right	Used by players only##btused	1
+ui_bulk_edit.cpp	-	##	2
+ui_bulk_edit.cpp	-	###bk_apply	1
+ui_bulk_edit.cpp	-	###bk_chip_free	1
+ui_bulk_edit.cpp	-	###bk_chip_mine	1
+ui_bulk_edit.cpp	-	###bk_chip_retiring	1
+ui_bulk_edit.cpp	-	###bk_club	1
+ui_bulk_edit.cpp	-	###bk_confirm	1
+ui_bulk_edit.cpp	-	###bk_undo	1
+ui_bulk_edit.cpp	-	##bk_date	1
+ui_bulk_edit.cpp	-	##bk_delta	1
+ui_bulk_edit.cpp	-	##bk_mode	2
+ui_bulk_edit.cpp	-	##bk_nat	1
+ui_bulk_edit.cpp	-	##bk_nation	1
+ui_bulk_edit.cpp	-	##bk_num	1
+ui_bulk_edit.cpp	-	##bk_pos	1
+ui_bulk_edit.cpp	-	##bk_position	1
+ui_bulk_edit.cpp	-	##bk_team	1
+ui_bulk_edit.cpp	BeginChild	##bk_fieldlist	1
+ui_bulk_edit.cpp	BeginChild	##bk_list	1
+ui_bulk_edit.cpp	BeginCombo	##bk_bit	1
+ui_bulk_edit.cpp	BeginCombo	##bk_code	1
+ui_bulk_edit.cpp	BeginCombo	##bk_gender	1
+ui_bulk_edit.cpp	BeginCombo	##bk_switch	1
+ui_bulk_edit.cpp	BeginPopup	##bk_fieldpicker	1
+ui_bulk_edit.cpp	BeginPopupModal	##bk_preset_confirm	1
+ui_bulk_edit.cpp	Button	###bk_actions_go	1
+ui_bulk_edit.cpp	Button	###bk_addfield	1
+ui_bulk_edit.cpp	Button	###bk_preset	1
+ui_bulk_edit.cpp	Button	###bk_preset_cancel	1
+ui_bulk_edit.cpp	Button	###bk_preset_go	1
+ui_bulk_edit.cpp	Checkbox	##bk_tick	1
+ui_bulk_edit.cpp	CollapsingHeader	###bk_actions_head	1
+ui_bulk_edit.cpp	CollapsingHeader	###bk_preset_head	1
+ui_bulk_edit.cpp	InputTextWithHint	##bk_codefilter	1
+ui_bulk_edit.cpp	InputTextWithHint	##bk_fieldfilter	1
+ui_bulk_edit.cpp	InputTextWithHint	##bk_search	1
+ui_bulk_edit.cpp	OpenPopup	##bk_fieldpicker	1
+ui_bulk_edit.cpp	OpenPopup	##bk_preset_confirm	1
+ui_bulk_edit.cpp	Selectable	No	1
+ui_bulk_edit.cpp	Selectable	Yes	1
+ui_bulk_edit.cpp	SliderInt	##bk_fit	1
+ui_bulk_edit.cpp	SliderInt	##bk_form	1
+ui_bulk_edit.cpp	SliderInt	##bk_morale	1
+ui_bulk_edit.cpp	SliderInt	##bk_slide	1
+ui_bulk_edit.cpp	SmallButton	###bk_clear	1
+ui_bulk_edit.cpp	SmallButton	###bk_pickall	1
+ui_bulk_edit.cpp	SmallButton	###bk_picknone	1
+ui_bulk_edit.cpp	SmallButton	###bk_remove	1
+ui_bulk_edit.cpp	checkbox_right	###bk_fit_on	1
+ui_bulk_edit.cpp	checkbox_right	###bk_form_on	1
+ui_bulk_edit.cpp	checkbox_right	###bk_morale_on	1
 ui_callname_play.cpp	-	###cnpreview	1
 ui_callname_play.cpp	-	##play_%c%lld	1
 ui_callnames.cpp	-	###	1
@@ -611,6 +666,7 @@ ui_kits_page.cpp	-	##kpname	1
 ui_kits_page.cpp	-	##kpprev	1
 ui_kits_page.cpp	-	##kpslot	1
 ui_kits_page.cpp	-	##kpzip	1
+ui_kits_page.cpp	-	Rebuild all kit plans (%zu %s, about %.0f s each)##kpreplan	1
 ui_kits_page.cpp	-	Restore the game's kit##kprestore	1
 ui_kits_page.cpp	BeginChild	##identity	1
 ui_kits_page.cpp	BeginCombo	##kpfileslot	1
@@ -632,6 +688,7 @@ ui_kits_page.cpp	RadioButton	Leave them alone##kpshare	1
 ui_kits_page.cpp	RadioButton	Only in my matches, when no club sharing the kit plays##kpplanned	1
 ui_kits_page.cpp	SmallButton	Change club...##kpchange	1
 ui_kits_page.cpp	SmallButton	My club##kpmine	1
+ui_kits_page.cpp	SmallButton	Plan it now##kpplan	1
 ui_live_tactic.cpp	-	##ltap	1
 ui_live_tactic.cpp	-	##ltbu	1
 ui_live_tactic.cpp	-	##ltfoc	1
@@ -716,6 +773,11 @@ ui_names.cpp	Button	Restore database names##nm	1
 ui_names.cpp	Button	Save names##nm	1
 ui_names.cpp	InputTextWithHint	##nmidsearch	1
 ui_nav_pages.cpp	-	###navgo	1
+ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
+ui_pages_216.cpp	BeginTabItem	###pe_ability	1
+ui_pages_216.cpp	BeginTabItem	###pe_allfields	1
+ui_pages_216.cpp	BeginTabItem	###pe_appearance	1
+ui_pages_216.cpp	BeginTabItem	###pe_profile	1
 ui_pages_216.cpp	Checkbox	###pcardview	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
@@ -728,6 +790,20 @@ ui_parity.cpp	SliderInt	##scoutlvl	1
 ui_parity.cpp	SmallButton	Export now##xfexp	1
 ui_parity.cpp	SmallButton	Reload##xfre	1
 ui_parity.cpp	SmallButton	Reload##xftre	1
+ui_player_creation.cpp	-	###pc%lld	1
+ui_player_creation.cpp	-	###pc_chip_free	1
+ui_player_creation.cpp	-	###pc_chip_mine	1
+ui_player_creation.cpp	-	###pc_delconfirm	1
+ui_player_creation.cpp	-	##pcpos	1
+ui_player_creation.cpp	BeginTabBar	##pc_tabs	1
+ui_player_creation.cpp	BeginTabItem	###pc_tab_cmt	1
+ui_player_creation.cpp	BeginTabItem	###pc_tab_player	1
+ui_player_creation.cpp	BeginTable	##players	1
+ui_player_creation.cpp	Button	###pc_delclose	1
+ui_player_creation.cpp	Button	###pc_delete	1
+ui_player_creation.cpp	Button	###pc_delgo	1
+ui_player_creation.cpp	Button	###pc_delno	1
+ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
 ui_player_page.cpp	-	###	1
 ui_player_page.cpp	-	###pp%lld	1
 ui_player_page.cpp	-	###pp_body	1
@@ -793,6 +869,40 @@ ui_player_page.cpp	InputTextWithHint	##ppsearch	1
 ui_player_page.cpp	OpenPopup	###pp_movedlg	1
 ui_player_page.cpp	OpenPopup	Choose a real face	1
 ui_player_page.cpp	PushID	pp_role	1
+ui_player_profile.cpp	-	###ab_attrs	1
+ui_player_profile.cpp	-	###ab_bit%d	1
+ui_player_profile.cpp	-	###ab_bulkundo	1
+ui_player_profile.cpp	-	###ab_ovr	1
+ui_player_profile.cpp	-	###ab_ovr_down	1
+ui_player_profile.cpp	-	###ab_ovr_up	1
+ui_player_profile.cpp	-	###ab_positions	1
+ui_player_profile.cpp	-	###ab_style	1
+ui_player_profile.cpp	-	###ab_styles	1
+ui_player_profile.cpp	-	###ab_undo	1
+ui_player_profile.cpp	-	###pf%lld	1
+ui_player_profile.cpp	-	###pf_callname	1
+ui_player_profile.cpp	-	###pf_chip_free	1
+ui_player_profile.cpp	-	###pf_chip_mine	1
+ui_player_profile.cpp	-	###pf_club	1
+ui_player_profile.cpp	-	###pf_details	1
+ui_player_profile.cpp	-	###pf_names	1
+ui_player_profile.cpp	-	###pf_undo	1
+ui_player_profile.cpp	-	##ab_ovrgrid	1
+ui_player_profile.cpp	-	##ab_pos	1
+ui_player_profile.cpp	-	##ab_rolegrid	1
+ui_player_profile.cpp	-	##ab_stylegrid	1
+ui_player_profile.cpp	-	##pf_detailgrid	1
+ui_player_profile.cpp	-	##pf_flaggrid	1
+ui_player_profile.cpp	-	##pfpos	1
+ui_player_profile.cpp	BeginTable	##bits	1
+ui_player_profile.cpp	BeginTable	##players	1
+ui_player_profile.cpp	BeginTable	##sl	1
+ui_player_profile.cpp	Button	###pf_team	1
+ui_player_profile.cpp	InputTextWithHint	##pfsearch	1
+ui_player_profile.cpp	SmallButton	###ab_all	1
+ui_player_profile.cpp	SmallButton	###ab_none	1
+ui_player_profile.cpp	TreeNodeEx	###ab_roles	1
+ui_player_profile.cpp	TreeNodeEx	###pf_flags	1
 ui_players.cpp	-	###bulkundo	1
 ui_players.cpp	-	##appgrid	1
 ui_players.cpp	-	##arch	1
@@ -862,7 +972,7 @@ ui_players.cpp	Button	Read squad role	1
 ui_players.cpp	Button	Remove ban	1
 ui_players.cpp	Button	Set squad role	1
 ui_players.cpp	Button	Transfer / Loan...	1
-ui_players.cpp	Checkbox	Grow him every week while below his potential##dvw	1
+ui_players.cpp	Checkbox	Grow him weekly to his potential##dvw	1
 ui_players.cpp	Checkbox	No decline##dvw	1
 ui_players.cpp	Combo	##role	1
 ui_players.cpp	InputInt	##archtarget	1
@@ -1168,6 +1278,9 @@ ui_tactics_page.cpp	CollapsingHeader	###gsadv	1
 ui_tactics_page.cpp	SmallButton	###gsrefresh	1
 ui_tactics_page.cpp	SmallButton	###tsreadsp	1
 ui_tactics_page.cpp	checkbox_right	###tsbench	1
+ui_team_common.h	-	###	1
+ui_team_common.h	-	###teamask	1
+ui_team_common.h	Button	Cancel	1
 ui_team_filter.cpp	-	##teamcountry	1
 ui_team_filter.cpp	-	##teamleague	1
 ui_team_filter.cpp	-	%s (%lld)##team%lld	1
@@ -1175,6 +1288,76 @@ ui_team_filter.cpp	-	%s##geo%lld	1
 ui_team_filter.cpp	InputTextWithHint	##geoq	1
 ui_team_filter.cpp	InputTextWithHint	##teamq	1
 ui_team_filter.cpp	Selectable	Any club	1
+ui_team_players.cpp	-	###tpaddpts	1
+ui_team_players.cpp	-	###tpdevpot	1
+ui_team_players.cpp	-	###tpreadrole	1
+ui_team_players.cpp	-	###tprevclub	1
+ui_team_players.cpp	-	###tpsetpot	1
+ui_team_players.cpp	-	###tpsetrole	1
+ui_team_players.cpp	-	##team_players	1
+ui_team_players.cpp	-	##teamplclub	1
+ui_team_players.cpp	-	##tp_contract	1
+ui_team_players.cpp	-	##tp_form	1
+ui_team_players.cpp	-	##tp_growth	1
+ui_team_players.cpp	-	##tp_preset	1
+ui_team_players.cpp	-	##tp_role	1
+ui_team_players.cpp	-	##tpcontract	1
+ui_team_players.cpp	-	##tpgrowth	1
+ui_team_players.cpp	-	##tpl	1
+ui_team_players.cpp	BeginChild	##team_pl_cards	1
+ui_team_players.cpp	BeginChild	##team_pl_list	1
+ui_team_players.cpp	BeginChild	##team_pl_rows	1
+ui_team_players.cpp	BeginTabBar	##team_pl_tabs	1
+ui_team_players.cpp	BeginTabItem	###tptabplayer	1
+ui_team_players.cpp	BeginTabItem	###tptabsquad	1
+ui_team_players.cpp	Checkbox	###tpnodecline	1
+ui_team_players.cpp	Checkbox	###tpweeklyon	1
+ui_team_players.cpp	Combo	##role	1
+ui_team_players.cpp	InputInt	##tppoints	1
+ui_team_players.cpp	InputInt	##tppotential	1
+ui_team_players.cpp	InputTextWithHint	##teamplq	1
+ui_team_players.cpp	PushID	tprole	1
+ui_team_players.cpp	SliderInt	##tpweekly	1
+ui_team_transfers.cpp	-	###tpend	1
+ui_team_transfers.cpp	-	###tpext	1
+ui_team_transfers.cpp	-	###tpextall	1
+ui_team_transfers.cpp	-	###tplst1	1
+ui_team_transfers.cpp	-	###tplst2	1
+ui_team_transfers.cpp	-	###tplst3	1
+ui_team_transfers.cpp	-	###tplst4	1
+ui_team_transfers.cpp	-	###tpmvloan	1
+ui_team_transfers.cpp	-	###tpmvrelease	1
+ui_team_transfers.cpp	-	###tpmvtransfer	1
+ui_team_transfers.cpp	-	###tprole	1
+ui_team_transfers.cpp	-	###tproleread	1
+ui_team_transfers.cpp	-	###tpsignbtn	1
+ui_team_transfers.cpp	-	##team_transfers	1
+ui_team_transfers.cpp	-	##tpmv	1
+ui_team_transfers.cpp	-	##tpmvclub	1
+ui_team_transfers.cpp	-	##tpmvplayer	1
+ui_team_transfers.cpp	-	##tpsign	1
+ui_team_transfers.cpp	-	##tt_extend	1
+ui_team_transfers.cpp	-	##tt_loans	1
+ui_team_transfers.cpp	-	##tt_move	1
+ui_team_transfers.cpp	-	##tt_moves	1
+ui_team_transfers.cpp	-	##tt_roles	1
+ui_team_transfers.cpp	-	##tt_sign	1
+ui_team_transfers.cpp	-	##tttclub	1
+ui_team_transfers.cpp	BeginChild	##tt_extend_rows	1
+ui_team_transfers.cpp	BeginChild	##tt_moves_list	1
+ui_team_transfers.cpp	BeginChild	##tt_roles_rows	1
+ui_team_transfers.cpp	BeginTable	##tpexttbl	1
+ui_team_transfers.cpp	BeginTable	##tproletbl	1
+ui_team_transfers.cpp	Combo	##tpextby	1
+ui_team_transfers.cpp	Combo	##tprolepick	1
+ui_team_transfers.cpp	InputInt	##tpmvfee	1
+ui_team_transfers.cpp	InputInt	##tpmvloanm	1
+ui_team_transfers.cpp	InputInt	##tpmvmonths	1
+ui_team_transfers.cpp	InputInt	##tpmvwage	1
+ui_team_transfers.cpp	InputInt	##tpsignfee	1
+ui_team_transfers.cpp	InputInt	##tpsignmonths	1
+ui_team_transfers.cpp	InputInt	##tpsignwage	1
+ui_team_transfers.cpp	InputTextWithHint	##tpsignq	1
 ui_teams.cpp	-	##country	1
 ui_teams.cpp	-	##league	1
 ui_teams.cpp	-	##mall	1
@@ -1278,6 +1461,7 @@ ui_tools.cpp	BeginChild	##tools	1
 ui_tools.cpp	BeginPopupModal	##confirmdel	1
 ui_tools.cpp	BeginPopupModal	##overall_back_any_load	1
 ui_tools.cpp	Button	###squadgo	1
+ui_tools.cpp	Button	Apply the My team preset##teampreset	1
 ui_tools.cpp	Button	Cancel	2
 ui_tools.cpp	Button	Delete...	1
 ui_tools.cpp	Button	Put the overalls back...	1
