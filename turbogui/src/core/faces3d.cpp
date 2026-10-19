@@ -623,6 +623,16 @@ constexpr long long kCrestGenericCol = 47;                                      
 // so it stays stock here.
 constexpr const char* kCrestPlayerIns =
     " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1)";
+// crowd path (commit B): loadLowResCrowd's kitData (stock 5714) is a plain table (no metatable) without TeamId or KitColorJerseyPri;
+// its Kit is the club id (data.kitId). A listed club gets a small stand-in table for the generic branch: TeamId = Kit only when Kit
+// is a number, the folder from TeamColorPri when present, else dark. kitData itself is never written. The player's initData has a
+// metatable (strict), so it never takes this line.
+constexpr const char* kCrestCrowdAdd =
+    "\tif not is_generic_kit and TURBO_CREST2D ~= nil and getmetatable(initData) == nil and rawget(initData, \"TeamId\") == nil and "
+    "type(rawget(initData, \"Kit\")) == \"number\" and TURBO_CREST2D[initData.Kit] == true and type(rawget(initData, \"CrestAssetId\")) == "
+    "\"number\" and initData.CrestAssetId < 1 then initData = { TeamId = initData.Kit, CrestAssetId = initData.CrestAssetId, "
+    "KitColorJerseyPri = rawget(initData, \"TeamColorPri\") or { 0.05, 0.05, 0.05, 1 }, laneId = rawget(initData, \"laneId\") }; "
+    "is_generic_kit = true end  -- TURBO shirt crest, crowd";
 
 bool crest_splices(const std::vector<std::string>& L, const std::string& stock_md5, const CrestList& crest, const std::string& nl,
                    std::vector<Ins>& ins, std::vector<Add>& add, std::string& err) {
@@ -657,6 +667,7 @@ bool crest_splices(const std::vector<std::string>& L, const std::string& stock_m
     t += nl + "}";
     add.push_back(Add{kCrestBlank.n, kCrestBlank.md5, t});
     ins.push_back(Ins{kCrestGeneric.n, kCrestGeneric.md5, kCrestGenericCol, kCrestPlayerIns});
+    add.push_back(Add{kCrestGeneric.n, kCrestGeneric.md5, kCrestCrowdAdd});  // the line after is_generic_kit (and its fragment)
     return true;
 }
 

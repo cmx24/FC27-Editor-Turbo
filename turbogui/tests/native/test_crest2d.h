@@ -3,7 +3,7 @@
 // (ui/ui_crest_shirt.h crest_shirt::*). Acceptance tests of the brief:
 //   (i)   an empty list builds byte-identical to today's output: golden md5s afea57af (no saved list) and 83cceb6f (the launch set),
 //         the same values test_faces3d.cpp test_real_v4 pins;
-//   (ii)  with [95] the diff against (i) is exactly the TURBO_CREST2D block plus the _loadTeamCrest fragment (line ranges diffed);
+//   (ii)  with [95] the diff against (i) is exactly the TURBO_CREST2D block, the _loadTeamCrest fragment and the crowd line (ranges diffed);
 //   (iii) the generated file compiles in the suite's Lua 5.4 and _loadTeamCrest, run on stub loaders with a strict initData, calls the
 //         2D crest loader for a listed club and the stock bundle crest for the others;
 //   (iv)  the crowd's kitData (no TeamId, no KitColorJerseyPri) never raises;
@@ -144,9 +144,24 @@ ok(okc and c == "A:crest_95_0_0_color;crest_95_0_0_color;crest_0_0_0_color", "TU
 print("LUARESULT " .. n .. " " .. bad)
 )LUA";
 
-// Crowd expectation of this commit: the crowd path is stock (commit A ships the player path only)
-inline const char* kCrowdExpect = R"LUA(ok(okc and c == "A:crest_95_0_0_color;crest_95_0_0_color;crest_0_0_0_color", "(iv) crowd kitData of listed 95: no error, stock bundle crest (" .. tostring(c) .. ")")
+// Crowd expectation (commit B): a listed club in the crowd gets its 2D crest, dark folder unless TeamColorPri says light
+inline const char* kCrowdExpect = R"LUA(ok(okc and c == "D:data/ui/imgAssets/crest/dark/l95.dds;data/ui/imgAssets/crest/dark/notfound.dds", "(iv) crowd kitData of listed 95: no error, the 2D crest, dark folder (" .. tostring(c) .. ")")
+ok(calls[2] == "async crest_fallback_coeff" and calls[3] == "async crest_fallback_normal" and #calls == 3, "(iv) crowd 95: the generic branch's fallback coeff / normal")
+local kd2 = { laneId = 2, CrestAssetId = -1, Kit = 95, KitType = 0, KitYear = 0, isCustomKit = 0, TeamColorPri = { 0.9, 0.9, 0.9, 1 } }
+okc, c = run(kd2)
+ok(okc and c == "D:data/ui/imgAssets/crest/light/l95.dds;data/ui/imgAssets/crest/dark/notfound.dds", "(iv) crowd 95 with a light TeamColorPri: light folder (" .. tostring(c) .. ")")
+okc, c = run({ laneId = 1, CrestAssetId = -1, Kit = "95", KitType = 0, KitYear = 0 })
+ok(not okc or string.sub(c, 1, 2) == "A:", "(iv) a crowd Kit that is not a number never takes the branch (" .. tostring(c) .. ")")
+okc, c = run({ laneId = 1, CrestAssetId = 7, Kit = 95, KitType = 0, KitYear = 0, isCustomKit = 0 })
+ok(okc and c == "D:data/ui/imgAssets/crest/custom/l7.dds;data/ui/imgAssets/crest/ssf/l7.dds;data/ui/imgAssets/crest/ssf/notfound.dds", "(iv) crowd 95 with a custom crest id: stock custom path")
 )LUA";
+// The crowd line of commit B, as generate_body writes it (faces3d.cpp kCrestCrowdAdd)
+inline const char* kCrowdLine =
+    "\tif not is_generic_kit and TURBO_CREST2D ~= nil and getmetatable(initData) == nil and rawget(initData, \"TeamId\") == nil and "
+    "type(rawget(initData, \"Kit\")) == \"number\" and TURBO_CREST2D[initData.Kit] == true and type(rawget(initData, \"CrestAssetId\")) == "
+    "\"number\" and initData.CrestAssetId < 1 then initData = { TeamId = initData.Kit, CrestAssetId = initData.CrestAssetId, "
+    "KitColorJerseyPri = rawget(initData, \"TeamColorPri\") or { 0.05, 0.05, 0.05, 1 }, laneId = rawget(initData, \"laneId\") }; "
+    "is_generic_kit = true end  -- TURBO shirt crest, crowd";
 
 inline std::string slice(const std::string& s, const char* from, const char* to) {
     const size_t a = s.find(from);
@@ -247,7 +262,7 @@ inline void run() {
         CHECK(e.bytes.find("TURBO_CREST2D") == std::string::npos, "no crest word in today's output");
     });
 
-    run_case("crest2d (ii): with [95] only the crest block and the _loadTeamCrest fragment differ", [&] {
+    run_case("crest2d (ii): with [95] only the crest block, the _loadTeamCrest fragment and the crowd line differ", [&] {
         f3::Table t;
         std::string err;
         f3::parse_players_json(pj, t, &err);
@@ -266,9 +281,10 @@ inline void run() {
             CHECK(ea > p && A[p] == "local function _loadTeamCrest(initData, prefix)" && A[ea - 1] == "\tlocal is_generic_kit = initData.IsGeneric == 1" &&
                       ea - p == 8,
                   "the changed range of today's output is _loadTeamCrest's head .. is_generic_kit (" + std::to_string(ea - p) + " lines)");
-            const size_t block = (eb - p) - (ea - p);
-            CHECK(block == 6, "the added block is 6 lines (3 comment lines, TURBO_CREST2D = {, [95] = true, }): " + std::to_string(block));
-            bool block_ok = block == 6;
+            // commit B: B[p, eb) = the 6-line block, the same 8 lines (the last with the fragment), the crowd line
+            CHECK((eb - p) - (ea - p) == 7, "7 lines added in the changed range (6 block + 1 crowd): " + std::to_string((eb - p) - (ea - p)));
+            const size_t block = 6;
+            bool block_ok = (eb - p) - (ea - p) == 7;
             for (size_t i = 0; i < block && block_ok; ++i) {
                 const std::string& s = B[p + i];
                 block_ok = i < 3 ? s.compare(0, 3, "-- ") == 0 : (i == 3 ? s == "TURBO_CREST2D = {" : (i == 4 ? s == "\t[95] = true," : s == "}"));
@@ -278,16 +294,19 @@ inline void run() {
             for (size_t i = 0; same && i + 1 < ea - p; ++i) same = B[p + block + i] == A[p + i];
             CHECK(same, "_loadTeamCrest's lines down to is_generic_kit are untouched");
             const std::string frag = " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1)";
-            CHECK(eb >= 1 && B[eb - 1] == A[ea - 1] + frag, "is_generic_kit gets the one fragment: " + (eb >= 1 ? B[eb - 1] : std::string()));
-            CHECK(A.size() + block == B.size(), "nothing else differs (" + std::to_string(B.size() - A.size()) + " lines added)");
-            // and the other way round: take the block and the fragment out again, the bytes are (i)'s
+            CHECK(eb >= 2 && B[eb - 2] == A[ea - 1] + frag, "is_generic_kit gets the one fragment: " + (eb >= 2 ? B[eb - 2] : std::string()));
+            CHECK(eb >= 1 && B[eb - 1] == kCrowdLine, "the crowd line follows is_generic_kit: " + (eb >= 1 ? B[eb - 1] : std::string()));
+            CHECK(A.size() + 7 == B.size(), "nothing else differs (" + std::to_string(B.size() - A.size()) + " lines added)");
+            // and the other way round: take the block, the fragment and the crowd line out again, the bytes are (i)'s
             std::string back = b.bytes;
             const size_t bp = back.find("-- TURBO shirt crest");
             const size_t be = back.find("}\r\n", bp);
             if (bp != std::string::npos && be != std::string::npos) back.erase(bp, be + 3 - bp);
             const size_t fp = back.find(frag);
             if (fp != std::string::npos) back.erase(fp, frag.size());
-            CHECK(back == a.bytes, "block and fragment taken out = (i) byte for byte");
+            const size_t cp = back.find("\r\n" + std::string(kCrowdLine));
+            if (cp != std::string::npos) back.erase(cp, 2 + std::strlen(kCrowdLine));
+            CHECK(back == a.bytes, "block, fragment and crowd line taken out = (i) byte for byte");
             // the faces gate is in the common prefix: not one byte of the band changed
             CHECK(a.bytes.find("END TURBO PER-PLAYER FACE GATE") < a.bytes.find("local function _loadTeamCrest") &&
                       b.bytes.compare(0, b.bytes.find("-- TURBO shirt crest"), a.bytes, 0, b.bytes.find("-- TURBO shirt crest")) == 0,

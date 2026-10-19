@@ -79,7 +79,7 @@ def le_scope(lines, since):
     return out
 
 
-def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None):
+def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None, team=95):
     del results[:]
     rows = scope(turbo_text.splitlines(), since)
     print("INFO scope: %d Turbo log lines%s" % (len(rows), (" from " + since) if since else " from the last 'lua_loader: on (2.16' line"))
@@ -122,6 +122,9 @@ def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None):
         le = le_scope(le_text.splitlines(), since)
         errs = [l for l in le if LUA_ERR.search(l)]
         say("PASS" if not errs else "FAIL", "Live Editor log: %d lines in scope, %d Lua error line(s)%s" % (len(le), len(errs), (": " + errs[0][:200]) if errs else ""))
+        # informative only: with LE's legacy-file log flags on, the 2D crest the shirt asks for shows as a full-size crest path
+        hits = [l for l in le if ("imgAssets/crest/dark/l%d.dds" % team) in l or ("imgAssets/crest/light/l%d.dds" % team) in l]
+        print("INFO Live Editor log lines naming data/ui/imgAssets/crest/<dark|light>/l%d.dds: %d (needs log_load_legacy_file / log_try_find_legacy_file; the menus ask for it too)" % (team, len(hits)))
     if not shot:
         say("FAIL", "no pitch screenshot given (--shot)")
     elif not os.path.isfile(shot):
@@ -215,6 +218,7 @@ def main():
     ap.add_argument("--lelog", help="the Live Editor log of that day (logs\\live_editor_DD-MM-YYYY.log)")
     ap.add_argument("--since", help="'YYYY-MM-DD HH:MM:SS' local time of the launch")
     ap.add_argument("--clubs", type=int, default=1, help="clubs on the shirt-crest list (default 1: Leicester 95)")
+    ap.add_argument("--team", type=int, default=95, help="the listed club whose crest path is counted in the LE log (INFO only)")
     ap.add_argument("--shot", help="the Tester's pitch screenshot")
     ap.add_argument("--expect-k", dest="expect_k", type=int)
     ap.add_argument("--look", choices=["pass", "fail"])
@@ -232,7 +236,7 @@ def main():
         with open(a.lelog, encoding="utf-8", errors="replace") as f:
             le_text = f.read()
     print("crest2d_livecheck on %s" % a.log)
-    return 0 if check(turbo_text, le_text, a.since or "", a.clubs, a.shot, a.expect_k, a.look) == "PASS" else 1
+    return 0 if check(turbo_text, le_text, a.since or "", a.clubs, a.shot, a.expect_k, a.look, a.team) == "PASS" else 1
 
 
 if __name__ == "__main__":
