@@ -69,7 +69,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(club_page_state().wide && club_page_state().teamid == 7, "Identity: wide, Everton");
         CHECK(ui.find("##nfull", "##tname") && ui.find("##nshort", "##tname") && ui.find("Save", "##tname"), "Identity: the name form with its Save");
         CHECK(ui.find("##X", "##tcolours", "##c") != nullptr, "Identity: club colour pickers");
-        CHECK(ui.find("Home kit (type 0, kit id 70)", "##tcolours") == nullptr, "Identity: the kit colours live on the Kits page");
+        CHECK(ui.find("Home kit", "##tcolours") == nullptr, "Identity: the kit colours live on the Kits page");
         // Stadium & extras: stadium colours, the hub with its link to Kits
         show(ui, app, Page::StadiumExtras);
         CHECK(club_take_page_request() == shell::Page::None, "no page asked yet");

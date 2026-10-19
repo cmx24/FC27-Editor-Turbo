@@ -9,6 +9,7 @@
 #include <system_error>
 
 #include "app.h"
+#include "core/team_preset.h"
 #include "core/user_text.h"
 #include "file_picker.h"
 #include "hotkey_setting.h"
@@ -246,7 +247,7 @@ static void section_scouting(App& app) {
         // development (features/development.lua): squad-wide forced growth
         json& dv = auto_cfg(app, "development");
         static int squad_weekly = 1;
-        static bool squad_no_decline = true;
+        static bool squad_no_decline = teampreset::growth_default_no_decline(app.gui_settings);  // OFF; a saved value never turns it on
         form_label("Points per week");
         ImGui::SetNextItemWidth(S(160.0f));
         ImGui::SliderInt("##dvweekly", &squad_weekly, 1, 5);
@@ -402,7 +403,9 @@ static void section_bulk_edit(App& app) {
         static bool confirm_all = false;
         static char fnames[4][40] = {};
         static int fvals[4] = {};
-        static bool use_fit = false, use_form = false, use_morale = false, use_dev = false, no_decline = false;
+        static bool use_fit = false, use_form = false, use_morale = false;
+        static bool use_dev = teampreset::growth_default_extra_xp(app.gui_settings);
+        static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);
         static int fit = 95, form = 100, morale = 100, bonus_xp = 0;
         static float xp_mult = 2.0f;
 
@@ -577,6 +580,22 @@ static void section_bulk_edit(App& app) {
             ImGui::SameLine();
             if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
+        }
+        // after the existing controls, so none of them moves
+        // 2.20 S2: the "My team" preset (core/team_preset.h): exactly five things for every player of your club
+        ImGui::SeparatorText("My team preset");
+        {
+            std::string what;
+            for (const teampreset::Field& f : teampreset::fields()) what += (what.empty() ? "" : ", ") + std::string(f.title);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled("For every player of your club: %s. Nothing else is touched (no extra XP, no growth).", what.c_str());
+            ImGui::PopTextWrapPos();
+            const bool ok = st.in_cm && st.user_team > 0 && app.mailbox && !app.busy();
+            if (!ok) ImGui::BeginDisabled();
+            if (ImGui::Button("Apply the My team preset##teampreset")) team_preset_apply(app, st.user_team);
+            if (!ok) ImGui::EndDisabled();
+            if (!ok && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", !st.in_cm ? "Needs a loaded Manager Career" : "Wait for the running command to finish");
         }
     }
 

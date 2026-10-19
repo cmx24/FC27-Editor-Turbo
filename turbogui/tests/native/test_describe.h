@@ -30,7 +30,7 @@ static void test_describe_core() {
         CHECK(describe("players", "headtypecode", 20801) == "Head type 20801 (Mixed & other)", "head type with its group: " + describe("players", "headtypecode", 20801));
         CHECK(describe("players", "skintonecode", 30) == "Caucasian 3" && describe("players", "skintonecode", 33) == "Skin tone 33 (near Caucasian 3)", "skin tones are tens: " + describe("players", "skintonecode", 33));
         CHECK(describe("players", "haircolorcode", 21) == "Jet Black" && describe("players", "facialhaircolorcode", 3) == "Dark Brown", "hair colours 15..27 described, beard uses the hair palette");
-        CHECK(describe("players", "gkglovetypecode", 0) == "Default" && describe("players", "animfreekickstartposcode", 0) == "Standard", "the standard zero reads as a word");
+        CHECK(describe("players", "gkglovetypecode", 0) == "Default" && describe("players", "animfreekickstartposcode", 0) == "Default", "the standard zero reads as a word");
         CHECK(describe("players", "preferredfoot", 2) == "Left" && describe("players", "gender", 1) == "Female", "named fields without a 'code' suffix are words too");
         CHECK(describe("players", "overallrating", 87) == "87" && describe("players", "height", 181) == "181", "plain numbers stay numbers");
         // positions (2.0/ux-descriptors fix 1): the Database tab's preferredposition / formation slot cells read as the game's position names

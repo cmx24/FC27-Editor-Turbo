@@ -346,7 +346,9 @@ static void test_field_labels() {
               "GK gloves: " + code_text("gkglovetypecode", 37, ""));
         CHECK(has(offered_codes("shoetypecode", {}, 0), 389) && has(offered_codes("gkglovetypecode", {}, 0), 150), "every boot and glove id with a brand is offered");
         // stances and running animations: 0 standard, the others by their players
-        CHECK(code_text("animfreekickstartposcode", 0, "") == "Standard" && code_text("animfreekickstartposcode", 4, "") == "Free kick stance 4: Lionel Messi",
+        CHECK(code_text("animfreekickstartposcode", 0, "") == "Default" && code_text("animfreekickstartposcode", 1, "") == "Far From Ball" &&
+                  code_text("animfreekickstartposcode", 2, "") == "90 Degrees From Ball" && code_text("animfreekickstartposcode", 4, "") == "Signature stance 2: Lionel Messi" &&
+                  code_text("animfreekickstartposcode", 29, "") == "Signature stance 27",
               "free kick stances: " + code_text("animfreekickstartposcode", 4, ""));
         CHECK(code_text("animpenaltiesstartposcode", 1, "").find(" +127 more") != std::string::npos &&
                   code_text("runningcode2", 99, "") == "Running animation 2 #99",
@@ -3687,6 +3689,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
+#include "test_team_preset.h"     // 2.20: the My team preset (5 fields), growth defaults OFF, Kits & Club descriptors (team_preset_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
@@ -4865,7 +4868,7 @@ static void test_ui() {
             ui.frames(2);
             // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
             CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
-            CHECK(ui.find("Home kit (type 0, kit id 70)", "##tcolours") != nullptr, "Everton's home kit listed");
+            CHECK(ui.find("Home kit", "##tcolours") != nullptr, "Everton's home kit listed");
             const Table* t = app.db.table("teams");
             uint64_t rec = app.db.find(*t, "teamid", 7);
             uint8_t rgb[3];
@@ -9714,6 +9717,7 @@ static void test_ui() {
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
         create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h
+        team_preset_test::run_ui(app, ui, mem, kMb);  // test_team_preset.h
 
         parity_test::run_ui(app, ui, le);  // test_parity.h
 
@@ -15505,6 +15509,9 @@ int main(int argc, char** argv) {
     archetype_target_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();
+    std::printf("native My team preset, growth defaults, descriptors (2.20)\n");
+    team_preset_test::run_core();
+    team_preset_test::run_descriptors();
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");

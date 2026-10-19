@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "app.h"
+#include "core/team_preset.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
 #include "ui_club_search.h"
@@ -557,7 +558,7 @@ void card_growth(App& app) {
     hint("Weekly growth is built but not tested in a match yet.");
     json& dv = auto_cfg(app, "development");
     static int weekly = 1;
-    static bool no_decline = true;
+    static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);  // OFF; a saved value never turns it on
     form_label("Points each week", "How much each player grows every week (1 to 5).");
     ImGui::SetNextItemWidth(S(160.0f));
     ImGui::SliderInt("##careerweekly", &weekly, 1, 5);
