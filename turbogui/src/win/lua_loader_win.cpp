@@ -378,11 +378,17 @@ void run() {
     std::vector<ll::Override> overrides(rows.size());
     // product mode: the saved list (players.json) is read here, never on a game thread; the build runs at the boot capture
     auto saved = std::make_shared<turbo::faces3d::Table>();
+    auto crest = std::make_shared<turbo::faces3d::CrestList>();  // 2.20 K2: kits\crest2d.json, the shirt-crest list (same build)
     if (dec.in_memory) {
         std::string perr;
         if (!turbo::faces3d::load_players(out.u8string(), *saved, &perr)) {
             log("lua_loader: faces3d\\players.json unreadable (%s): the saved list is empty this start", perr.c_str());
             saved->clear();
+        }
+        {
+            std::string cline;  // read here, with players.json, never on a game thread; unreadable = no list, one line
+            *crest = turbo::faces3d::load_crest2d_for_boot(out.u8string(), cline);
+            if (!cline.empty()) log("%s", cline.c_str());
         }
         {
             std::lock_guard<std::mutex> lk(g_saved_m);
@@ -492,13 +498,13 @@ void run() {
     env.reader_capturable = reader_capturable;
     env.save_capture = save_capture;
     if (dec.in_memory)
-        env.build_override = [saved](const std::string& row, const std::string& stock, std::string& note,
+        env.build_override = [saved, crest](const std::string& row, const std::string& stock, std::string& note,
                                      std::string& why) -> std::shared_ptr<const std::string> {
             if (row != "player_kit") {
                 why = "no in-memory build for row " + row;
                 return nullptr;
             }
-            return turbo::faces3d::build_live_override(stock, *saved, note, why);
+            return turbo::faces3d::build_live_override(stock, *saved, note, why, *crest);
         };
     if (at.top_layout_ok) {  // the fallback's pop is safe only on the layout checked in lua_load's own bytes
         env.stack_depth = lua_stack_depth;

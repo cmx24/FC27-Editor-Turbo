@@ -344,6 +344,8 @@ ui_competitions.cpp	Button	Write table positions	1
 ui_competitions.cpp	InputTextWithHint	##compsearch	1
 ui_competitions.cpp	SmallButton	###dbcopylive	1
 ui_competitions.cpp	checkbox_right	Leagues only	1
+ui_crest_shirt.cpp	Checkbox	Use my crest on the shirt##kpcrestshirt	1
+ui_crest_shirt.cpp	SmallButton	Undo##kpcrestshirtundo	1
 ui_database.cpp	-	##rawclub	1
 ui_database.cpp	-	##rawpall	1
 ui_database.cpp	-	##rawplayer	1

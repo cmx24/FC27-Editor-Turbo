@@ -14,6 +14,7 @@
 #include "nlohmann/json.hpp"
 #include "ui_club_page.h"
 #include "ui_club_search.h"
+#include "ui_crest_shirt.h"
 #include "ui_identity.h"
 #include "ui_kits.h"
 #include "ui_shell.h"
@@ -410,6 +411,7 @@ void numbers_section(App& app, int64_t team, Slot slot, bool custom) {
 // More (folded): a whole team folder at once, and the kit files read
 void more_section(App& app, int64_t team, KitsCtx& c) {
     if (!ImGui::CollapsingHeader("More##kpmore")) return;
+    draw_crest_shirt_toggle(app, team);  // 2.20 K2: the club's crest picture on the shirt (ui_crest_shirt.cpp)
     const bool busy = kit_panel_busy();
     ImGui::PushTextWrapPos(0.0f);
     theme::muted_text("Read the home, away, third and goalkeeper files of one club at once.");

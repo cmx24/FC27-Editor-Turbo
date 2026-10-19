@@ -3250,6 +3250,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
+#include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
@@ -15467,6 +15468,7 @@ int main(int argc, char** argv) {
     test_player_capture();
     test_capture_sequence();  // test_capture_sequence.h (2.17 looks C)
     crest_serve_test::run();  // test_crest_serve.h (2.18)
+    crest2d_test::run();  // test_crest2d.h (2.20 K2)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     std::printf("native kept edits store\n");
     test_reapply_store();
