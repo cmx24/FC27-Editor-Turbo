@@ -484,6 +484,39 @@ static void run() {
         r2.wait_idle();
     });
 
+    run_case("kit plan (vi): a kit the game has no 3D textures for is planned as 'nothing': not off, not a fault, the club's other kit still served", [&] {
+        World w = make_world(base / "vi", Case::Own);
+        opt_in(w);
+        stage(w, kClub, 0);
+        stage(w, kClub, 1);  // the synthetic game has only club 95's home kit
+        std::string err;
+        {
+            ks::Runtime rt(w.le, w.root, oodle);
+            rt.game_build = "BUILD-A";
+            CHECK(rt.activate(kClub, 0, ks::Mode::Swap, &err) && rt.activate(kClub, 1, ks::Mode::Swap, &err), "home and away switched on: " + err);
+            rt.wait_idle();
+        }
+        ks::Runtime rt(w.le, w.root, oodle);
+        rt.game_build = "BUILD-A";
+        rt.start();
+        rt.wait_idle();
+        const ks::Status st = rt.status();
+        const ks::Status::PlanRow* home = nullptr;
+        const ks::Status::PlanRow* away = nullptr;
+        for (const auto& p : st.plans) (p.slot == 0 ? home : away) = &p;
+        CHECK(home && home->state == "ready" && st.table_origin == "from plans" && st.blocks > 0, "home: from its plan, served: " + st.message);
+        CHECK(away && away->state == "nothing" && away->reason == ks::kNothingToSwap && pfs::exists(rt.plan_path(kClub, 1)),
+              "away: planned as nothing (plan kept, so the next start does not plan it again): " + (away ? away->state + " / " + away->reason : std::string("no row")));
+        CHECK(st.message.find("off until planned") == std::string::npos, "the start does not call it off: " + st.message);
+        rt.flush_log(true);
+        const std::string sl = read_text(rt.log_path());
+        CHECK(sl.find(std::string("plan team 95 away: nothing: ") + ks::kNothingToSwap) != std::string::npos && sl.find("served team 95 from plans: 0 of ") != std::string::npos,
+              "kit_swap_log.txt: the away row says nothing, the club's served line is there");
+        rt.deactivate(kClub, 0);
+        rt.deactivate(kClub, 1);
+        rt.wait_idle();
+    });
+
     run_case("kit plan (v): every sharing and census rule gives the same verdict from a plan read back as from build_plan", [&] {
         struct RuleCase {
             Case c;

@@ -452,7 +452,7 @@ struct Status {
     // 2.20: per kit of swap_state.json (and per kit being planned): its swap plan
     struct PlanRow {
         int team = -1, slot = -1;
-        std::string state;   // "ready", "queued", "planning", "none" (no plan file), "stale" (made for another game build / files / options), "failed"
+        std::string state;   // "ready", "queued", "planning", "none" (no plan file), "stale" (made for another game build / files / options), "failed", "nothing" (planned: the game has no 3D textures for this slot)
         std::string reason;  // for none / stale / failed: the words the Kits page shows ("Re-stage this kit (planned for another game version)")
         double seconds = 0;  // how long the plan took when it was made
     };
@@ -501,6 +501,7 @@ constexpr uint32_t kPlanFormat = 1;  // bump with every change to the plan rules
 // The words a kit's row shows when its plan was made for another game build or another state of the game's files
 extern const char* const kPlanStaleReason;      // "Re-stage this kit (planned for another game version)"
 extern const char* const kPlanNoneReason;       // "Re-stage this kit (it has no swap plan yet)"
+extern const char* const kNothingToSwap;        // "the game has no 3D kit textures for this club's slot (nothing to swap)": row state "nothing"
 extern const char* const kPlanOptionsReason;    // "Re-stage this kit (planned with other kit options)"
 extern const char* const kPlanStagedReason;     // "Re-stage this kit (its staged pictures changed since it was planned)"
 extern const char* const kPlanDamagedReason;    // "Re-stage this kit (its swap plan file is damaged)"
@@ -520,6 +521,7 @@ struct SwapPlan {
     double seconds = 0;               // how long build_plan took
     bool transient = false;           // a game file could not be read while planning: never saved
 };
+std::string plan_row_state(const SwapPlan& sp);  // "ready", "nothing" (planned, nothing in the game to swap: not a fault) or "failed"
 // Plans one kit (build_plan into a fresh builder) and fills `out` (key, records, kinds, donor). out.plan.ok false = no plan (error says why).
 SwapPlan make_swap_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, const StagedKit& staged, const SlotState& slot, const Options& base,
                         const PlanKey& key, Progress* progress = nullptr);

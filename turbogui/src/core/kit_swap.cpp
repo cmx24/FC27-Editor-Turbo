@@ -1254,7 +1254,7 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
         bool any_in_slot = false;
         for (const Tex& t : texs) any_in_slot = any_in_slot || t.in_slot;
         if (!any_in_slot) {
-            plan.error = "the game has no 3D kit textures for this club's slot (nothing to swap)";
+            plan.error = kNothingToSwap;
             return plan;
         }
         // 2. check each against its staged texture and the sharing rules
@@ -2080,6 +2080,7 @@ bool load_table_cache(const fs::path& file, const TableCacheKey& key, CachedBuil
 // ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (swap_plan.bin)
 const char* const kPlanStaleReason = "Re-stage this kit (planned for another game version)";
 const char* const kPlanNoneReason = "Re-stage this kit (it has no swap plan yet)";
+const char* const kNothingToSwap = "the game has no 3D kit textures for this club's slot (nothing to swap)";
 const char* const kPlanOptionsReason = "Re-stage this kit (planned with other kit options)";
 const char* const kPlanStagedReason = "Re-stage this kit (its staged pictures changed since it was planned)";
 const char* const kPlanDamagedReason = "Re-stage this kit (its swap plan file is damaged)";
@@ -2099,6 +2100,12 @@ Options plan_options(const Options& base, const SlotState& s) {
     o.share_within_club = s.share_club;
     o.share_other_clubs = s.share_other;
     return o;
+}
+
+// a plan's row: "ready", "nothing" (planned: the game has no 3D kit textures for this slot, nothing to swap, not a fault), else "failed"
+std::string plan_row_state(const SwapPlan& sp) {
+    if (sp.plan.ok) return "ready";
+    return sp.plan.error == kNothingToSwap ? "nothing" : "failed";
 }
 
 PlanKey make_plan_key(const std::string& game_build, const std::string& index_sig, const SlotState& s, const fs::path& dir, const Options& o) {
@@ -2889,7 +2896,7 @@ void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Optio
                 std::error_code ec;
                 const auto mt = fs::last_write_time(plan_path(k.first, k.second), ec);
                 loaded_[k] = {sp, mt};
-                finish_row(sp->plan.ok ? "ready" : "failed", sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
+                finish_row(plan_row_state(*sp), sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
                 continue;
             }
         }
@@ -2965,7 +2972,7 @@ void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Optio
             std::error_code ec;
             const auto mt = fs::last_write_time(plan_path(k.first, k.second), ec);
             loaded_[k] = {sp, mt};
-            finish_row(sp->plan.ok ? "ready" : "failed", sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
+            finish_row(plan_row_state(*sp), sp->plan.ok ? std::string() : sp->plan.error, sp->seconds);
             char b[200];
             std::snprintf(b, sizeof(b), "kit swap: planned team %d %s in %.1f s: %d textures served, %d left to the game%s", k.first, slot_folder_name(k.second), sp->seconds,
                           sp->plan.swapped, sp->plan.skipped, sp->plan.ok ? "" : " (no plan: ");
@@ -3022,7 +3029,7 @@ void Runtime::worker() {
         std::shared_ptr<Table> table;
         std::vector<std::string> off_lines;
         std::map<std::pair<int, int>, Status::PlanRow> rows;
-        int planned = 0;
+        int planned = 0, nothing_n = 0;  // kits from their plans; kits planned with nothing in the game to swap (not off, not a fault)
         double t_load0 = now_s();
         std::vector<SlotState> slots;
         GameFiles files(game_);
@@ -3090,7 +3097,8 @@ void Runtime::worker() {
                     row.reason = reason;
                     off_lines.push_back("kit swap: " + name + " is off: " + reason + " [" + why + "]");
                 } else if (!sp->plan.ok) {
-                    row.state = "failed";
+                    row.state = plan_row_state(*sp);
+                    nothing_n += row.state == "nothing";
                     row.reason = sp->plan.error;
                     row.seconds = sp->seconds;
                     msgs.push_back(name + ": " + sp->plan.error);
@@ -3112,8 +3120,8 @@ void Runtime::worker() {
             folders = std::move(a.folders);
             state = "ready";
             message = std::to_string(a.swapped) + " textures in the table, " + std::to_string(a.skipped) + " left to the game";
-            if (planned < int(slots.size()))
-                message += "; " + std::to_string(int(slots.size()) - planned) + (int(slots.size()) - planned == 1 ? " kit is" : " kits are") + " off until planned (see the Kits page)";
+            const int off_n = int(slots.size()) - planned - nothing_n;
+            if (off_n > 0) message += "; " + std::to_string(off_n) + (off_n == 1 ? " kit is" : " kits are") + " off until planned (see the Kits page)";
             for (const auto& m : msgs) message += "; " + m;
             if (table->size() == 0 && !slots.empty()) message += " (nothing matchable)";
             if (slots.empty()) {  // no kit switched on: no table at all (the hook recognises nothing), as before plans
@@ -3275,7 +3283,7 @@ Status Runtime::status() const {
     s.table_origin = table_origin_;
     for (const auto& r : plan_rows_) {
         const bool active = std::any_of(slots_.begin(), slots_.end(), [&](const SlotState& x) { return x.team == r.first.first && x.slot == r.first.second; });
-        if (active || r.second.state == "queued" || r.second.state == "planning" || r.second.state == "ready" || r.second.state == "failed") s.plans.push_back(r.second);
+        if (active || r.second.state == "queued" || r.second.state == "planning" || r.second.state == "ready" || r.second.state == "failed" || r.second.state == "nothing") s.plans.push_back(r.second);
     }
     s.plans_queued = int(pending_plans_.size());
     s.plan_estimate_s = planning_.first >= 0 ? (last_plan_s_ > 0 ? last_plan_s_ : 20.0) : 0;

@@ -122,14 +122,20 @@ static int write_plans(const std::string& le, const std::string& game, std::stri
     const Status s = wait_done(rt, 120);
     print_status("START FROM PLANS (what the next boot does)", s, since(t0));
     int ready = 0;
-    for (const auto& p : s.plans) ready += p.state == "ready";
-    const bool ok = s.state == "ready" && s.table_origin == "from plans" && !s.plans.empty() && ready == int(s.plans.size());
+    int nothing = 0;  // planned, but the game has no 3D kit textures for that slot (nothing to swap): not a fault
+    for (const auto& p : s.plans) {
+        ready += p.state == "ready";
+        nothing += p.state == "nothing";
+        if (p.state != "ready") std::printf("  kit team %d slot %d: %s: %s\n", p.team, p.slot, p.state.c_str(), p.reason.c_str());
+    }
+    const bool ok = s.state == "ready" && s.table_origin == "from plans" && ready > 0 && ready + nothing == int(s.plans.size());
     // the count the in-game check expects for each club: kit_swap_log.txt "served team T from plans: X of <this> textures ..."
     std::map<int, int> per_team;
     for (const auto& it : s.items)
         if (it.swap && it.team >= 0) ++per_team[it.team];
     for (const auto& t : per_team) std::printf("EXPECT team %d: %d textures in the table (livecheck_kitcache.ps1 -Expect plans -Team %d -ExpectTextures %d)\n", t.first, t.second, t.first, t.second);
-    std::printf("PLAN WRITER: %s - %d of %zu kits planned; start from plans: %zu blocks, %.0f ms\n", ok ? "PASS" : "FAIL", ready, s.plans.size(), s.blocks, s.table_ms);
+    std::printf("PLAN WRITER: %s - %d of %zu kits planned (%d with nothing in the game to swap); start from plans: %zu blocks, %.0f ms\n", ok ? "PASS" : "FAIL", ready + nothing,
+                s.plans.size(), nothing, s.blocks, s.table_ms);
     return ok ? 0 : 1;
 }
 #endif
