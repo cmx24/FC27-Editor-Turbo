@@ -32,6 +32,9 @@ namespace tpreset {
 constexpr int kSchema = 1;
 constexpr int kSlots = tsheet::kSlots;
 constexpr size_t kMaxNameLen = 64, kMaxFileBytes = 256 * 1024;
+// 2.20: a note may be long (the 10-16 community slider presets carry 833..1208 characters of credits and mapping notes). Until 2.20 the
+// limit was 300, so every one of those files was refused and both preset lists were empty (brief 2.20-T-tactics, cause A).
+constexpr size_t kMaxNoteLen = 4000;
 inline const char* dir_name() { return "tactic_presets"; }                   // <Live Editor>\turbo_output\tactic_presets
 inline const char* last_load_file() { return "tactic_preset_last_load.json"; }  // turbo_output (outside the presets folder)
 inline const char* build() { return tsheet::kBuild; }
@@ -128,6 +131,12 @@ std::vector<std::string> diff_lines(const TacticBlock& want, const tsheet::LiveT
 std::string formation_note(const TacticBlock& want, const tsheet::LiveTactic& now);
 // One line for the list: "433, Defensive Approach High (2), Line Height 90, Build-Up Style Counter (1); 11 roles; 3 sliders"
 std::string summary(const Preset& p);
+// 2.20: the reason the live tactic read failed (live_tactic_read's `why`), in plain words for the Simple view: one line that says what is
+// going on and what to do. "" for an empty why. "layout mismatch ..." (e.g. "0 active tactic records") is NOT a hub problem: the line says
+// Turbo cannot read this career's tactic instead of sending the player to the hub (brief 2.20-T-tactics, cause B).
+std::string live_why_plain(const std::string& why);
+// The store scan in one log line: "store scan: 5 listed, 0 skipped in <dir>" + "; skipped: a.json: why | b.json: why" (reasons cut to 160)
+std::string scan_line(size_t listed, const std::vector<std::string>& errors, const std::string& dir);
 
 // ---- the files
 std::filesystem::path presets_dir(const std::filesystem::path& out_dir);       // <out_dir>\tactic_presets

@@ -352,6 +352,37 @@ std::string user_from_psm(Memory& mem, uint64_t managers, uint64_t psm_vtable, i
 }
 
 // ------------------------------------------------------------------------------------------------ L2 - L4
+static std::string read_name(Memory& mem, uint64_t r);
+
+std::string records_probe(Memory& mem, uint64_t rb, int n) {
+    std::string body;
+    int good = 0, act1 = 0;
+    const int shown = std::min(std::max(n, 0), kMaxRecords);
+    for (int i = 0; i < shown; ++i) {
+        const uint64_t r = rb + kRecStride * uint64_t(i);
+        uint8_t act = 0, b77 = 0;
+        int32_t src = 0, src2 = 0, fmt = 0, preset = 0, lh = 0;
+        const bool ra = mem.rd(r + kRecActive, act), rs = mem.rd(r + kRecSourceFormation, src), rs2 = mem.rd(r + kRecSourceFormation2, src2),
+                   rf = mem.rd(r + kRecFormation, fmt), rp = mem.rd(r + kRecPreset, preset), rl = mem.rd(r + kRecLineHeight, lh), rb77 = mem.rd(r + 0x77, b77);
+        auto num = [](bool ok, long long v) { return ok ? std::to_string(v) : std::string("?"); };
+        if (ra && act == 1) ++act1;
+        if (ra && rs && act == 1 && src > 0) ++good;
+        uint8_t raw[12] = {};
+        std::string rawhex = "?";
+        if (mem.read(r + 0x7C, raw, sizeof(raw))) {
+            static const char* d = "0123456789abcdef";
+            rawhex.clear();
+            for (uint8_t c : raw) {
+                rawhex += d[c >> 4];
+                rawhex += d[c & 15];
+            }
+        }
+        body += "; #" + std::to_string(i) + " act " + num(ra, act) + " src " + num(rs, src) + "/" + num(rs2, src2) + " fmt " + num(rf, fmt) + " preset " +
+                num(rp, preset) + " lh " + num(rl, lh) + " b77 " + num(rb77, b77) + " name '" + read_name(mem, r) + "' raw7C " + rawhex;
+    }
+    return std::to_string(n) + " record(s), " + std::to_string(good) + " with act 1 and src > 0, " + std::to_string(act1) + " with act 1" + body;
+}
+
 std::string locate(Memory& mem, uint64_t svc, int user, const Anchors& a, Located& out) {
     out = Located();
     out.svc = svc;
@@ -404,6 +435,7 @@ std::string locate(Memory& mem, uint64_t svc, int user, const Anchors& a, Locate
     out.records = int((re - rb) / kRecStride);
     out.rec_begin = rb;
     if (out.records < 1 || out.records > kMaxRecords) return mismatch(std::to_string(out.records) + " tactic records");
+    out.records_probe = records_probe(mem, rb, out.records);  // 2.20 probe (cause B): read only
     int active = 0;
     for (int i = 0; i < out.records; ++i) {
         const uint64_t r = rb + kRecStride * uint64_t(i);
@@ -416,7 +448,7 @@ std::string locate(Memory& mem, uint64_t svc, int user, const Anchors& a, Locate
             out.record_index = i;
         }
     }
-    if (active != 1) return mismatch(std::to_string(active) + " active tactic records (exactly 1 needed)");
+    if (active != 1) return mismatch(std::to_string(active) + " active tactic records (exactly 1 needed)") + " probe: " + out.records_probe;
     const uint64_t r = out.record;
     int32_t src1 = 0, src2 = 0;
     if (!mem.rd(r + kRecSourceFormation, src1) || !mem.rd(r + kRecSourceFormation2, src2) || src1 != src2)

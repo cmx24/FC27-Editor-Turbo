@@ -174,7 +174,8 @@ std::string validate(const Preset& p) {
     if (p.schema > kSchema) return "written by a newer Turbo (schema " + std::to_string(p.schema) + ", this one reads " + std::to_string(kSchema) + ")";
     if (p.schema != kSchema) return "unknown schema " + std::to_string(p.schema);
     if (p.name.empty() || !printable_text(p.name, kMaxNameLen)) return "the name is empty or not a plain text of at most " + std::to_string(kMaxNameLen) + " characters";
-    if (!printable_text(p.note, 300) || !printable_text(p.created, 40)) return "note or created is not a short plain text";
+    if (!printable_text(p.note, kMaxNoteLen)) return "the note is longer than " + std::to_string(kMaxNoteLen) + " characters or holds control characters";
+    if (!printable_text(p.created, 40)) return "created is not a short plain text";
     if (p.game_build != build())
         return "made for game build \"" + p.game_build + "\"; this Turbo knows only " + build() + " (the layouts it writes were verified on that build)";
     if (!p.tactic.present && !p.settings.present && !p.setpieces.present) return "holds neither a tactic, settings nor set pieces";
@@ -506,6 +507,31 @@ std::string summary(const Preset& p) {
     }
     if (p.settings.present) s += std::string(s.empty() ? "" : "; ") + std::to_string(p.settings.values.size()) + " sliders";
     if (p.setpieces.present) s += std::string(s.empty() ? "" : "; ") + std::to_string(p.setpieces.values.size()) + " set-piece fields";
+    return s;
+}
+
+std::string live_why_plain(const std::string& why) {
+    if (why.empty()) return "";
+    auto has = [&](const char* n) { return why.find(n) != std::string::npos; };
+    if (has("active tactic record"))  // seen in every hub read of Cassio's Ajax and Sparta careers (10-18, 10-19): not a hub problem
+        return "Turbo cannot read this career's tactic: its team sheet is not laid out the way Turbo knows. Tactic presets cannot be applied in "
+               "this career yet; slider presets still work.";
+    if (has("layout mismatch"))
+        return "Turbo cannot read your tactic right now: the team sheet is not laid out the way Turbo knows. Close Team Management and press "
+               "Refresh; if this stays, Turbo cannot read this career's tactic yet.";
+    if (has("not in a career")) return "Load your career and wait in its main hub, so Turbo can read your tactic.";
+    if (has("locating") || has("checking the service")) return "Turbo is still looking for your team sheet. Wait a few seconds, then press Refresh.";
+    if (has("your club") || has("the game's club")) return "Turbo does not know your club yet. Go to your career's main hub and wait a few seconds.";
+    return "Go to your career's main hub and close Team Management.";
+}
+
+std::string scan_line(size_t listed, const std::vector<std::string>& errors, const std::string& dir) {
+    std::string s = "store scan: " + std::to_string(listed) + " listed, " + std::to_string(errors.size()) + " skipped in " + dir;
+    for (size_t i = 0; i < errors.size(); ++i) {
+        std::string e = errors[i];
+        if (e.size() > 160) e = e.substr(0, 157) + "...";
+        s += (i == 0 ? "; skipped: " : " | ") + e;
+    }
     return s;
 }
 
