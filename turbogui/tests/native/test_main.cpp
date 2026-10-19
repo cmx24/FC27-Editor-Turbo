@@ -3115,8 +3115,37 @@ public:
             return true;
         }
         const ItemRec* r = find(label, win, scope);
+        if (!r) r = find_scrolling(label, win, scope);  // 2.20: a button one line below the visible part is scrolled to, as a user would
         if (!r) dump("click target not found: '" + label + "' in '" + win + "'");
         return click(r);
+    }
+    // The item drawn this frame with this label whose centre is outside the visible part of its window: scroll that window with the mouse wheel until
+    // it is visible (at most 8 steps). A layout that grows by one line (a page strip that wraps, a longer label) must not turn a click into "not found".
+    const ItemRec* find_scrolling(const std::string& label, const std::string& win, const std::string& scope) {
+        for (int step = 0; step < 8; ++step) {
+            const ItemRec* hid = nullptr;
+            for (const auto& kv : g_items) {
+                const ItemRec& r = kv.second;
+                if (r.frame != g_frame || r.label != label || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
+                if (!win.empty() && r.window.find(win) == std::string::npos) continue;
+                if (!scope.empty() && ImHashStr(scope.c_str(), 0, r.seed2) != r.seed) continue;
+                if (!r.clip.Contains(r.rect.GetCenter())) {
+                    hid = &r;
+                    break;
+                }
+            }
+            if (!hid || hid->clip.GetWidth() <= 0 || hid->clip.GetHeight() <= 0) return nullptr;
+            const float dir = hid->rect.GetCenter().y > hid->clip.Max.y ? -1.0f : hid->rect.GetCenter().y < hid->clip.Min.y ? 1.0f : 0.0f;
+            if (dir == 0.0f) return nullptr;
+            ImGuiIO& io = ImGui::GetIO();
+            const ImVec2 c = hid->clip.GetCenter();
+            io.AddMousePosEvent(c.x, c.y);
+            frame();
+            io.AddMouseWheelEvent(0.0f, dir);
+            frames(2);
+            if (const ItemRec* r = find(label, win, scope)) return r;
+        }
+        return nullptr;
     }
     // The way a user reaches a page (GUI revamp 2.13): the area tab, then the page in that area's strip (App::draw_pages pushes
     // "##shell" and "##pages"). False when either button is not on screen: the page moved to another area, its label changed, or
@@ -3689,6 +3718,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
+#include "test_page_team.h"    // 2.20 ia-team: Team > Players and Team > Transfers (page_team_test::ui_cases)
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
@@ -3696,17 +3726,20 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
-#include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
+#include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
 #include "test_page_creation.h"  // 2.20 IA: Players > Player Creation (page_creation_test::ui_cases)
+#include "test_page_profile.h"  // 2.20 IA pages, track profile: Profile and Positions, attributes & PlayStyles (profile_page_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 #include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
+#include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
+#include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -4044,7 +4077,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -9745,15 +9778,18 @@ static void test_ui() {
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         gui_perf_test::ui_cases(app, ui, le);  // test_gui_perf.h: per-frame cost of every page (before test_shell_app clears the registry)
         club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
-        page_kits_test::ui_cases(app, ui, le);  // test_page_kits.h: the tidy Kits & club pages (ui_kits_page.cpp)
+        page_kits_test::ui_cases(app, ui, le);  // test_page_kits.h: the tidy Team pages (ui_kits_page.cpp)
         changes_page_test::ui_cases(app, ui, le);  // test_page_changes.h: Career > Changes and undo (2.16 gui/page-changes)
         player_page_test::ui_cases(app, ui, le);  // test_page_player.h: the Player page (2.16 step 5)
         page_creation_test::ui_cases(app, ui, mem, kMb, le);  // test_page_creation.h: Players > Player Creation (2.20)
+        profile_page_test::ui_cases(app, ui, le);  // test_page_profile.h: Profile and Positions, attributes & PlayStyles (2.20)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
+        page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
+        nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
@@ -9771,6 +9807,7 @@ static void test_ui() {
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
         page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
+        page_team_test::ui_cases(app, ui, mem, kMb, le);  // test_page_team.h: Team > Players and Team > Transfers
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
         create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h
@@ -15531,6 +15568,7 @@ int main(int argc, char** argv) {
     test_ux_resize();  // test_ux_resize.h
     window_settings_test::run();  // test_window_settings.h (pure cases)
     test_shell();  // test_shell.h: shell contract (pure cases)
+    nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
     test_hair_catalog();

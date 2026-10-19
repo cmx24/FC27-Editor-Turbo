@@ -6,7 +6,7 @@ touches the game, the install or turbo_output (it only reads the log file it is 
   py -3 -I tools/looks_studio_livecheck.py --self-test      (offline: synthetic passing, failing and inconclusive logs)
 
 The operator's steps (LEICESTER, never saved, about 2 minutes; the Tester's runner launches and kills the game):
-  1. Career hub, Turbo window (F8): Faces & looks > Looks studio. Players. Search a real-face starter of the squad, click him.
+  1. Career hub, Turbo window (F8): the Appearance Editor tab (it was Faces & looks > Looks studio before 2.20). Players. Search a real-face starter of the squad, click him.
   2. Click "Draw him" under the large pane (the view "Full body" is the default), wait 2 s: it shows the game's picture ("Full body,
      drawn by the game at ..."; head to boots in kit, W2228). Screenshot S1.
   3. Body type card: click "Tall, stocky" (or any other generic body). Wait 2 s: the pane draws him again. Screenshot S2.

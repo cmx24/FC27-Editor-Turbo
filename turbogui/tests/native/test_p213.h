@@ -83,12 +83,11 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(3);
-        for (const char* area : {"Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings"})
+        for (const char* area : {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings"})
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Advanced", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
         struct Sign { const char* area; const char* page; Page want; };
-        for (const Sign& s : {Sign{"Players", "Create a player", Page::CreatePlayer}, Sign{"Players", "Commentary names", Page::CommentaryNames},
-                              Sign{"Faces & looks", "Faces & hair", Page::FacesHair}, Sign{"Faces & looks", "Body, tattoos & gear", Page::BodyGear}}) {
+        for (const Sign& s : {Sign{"Players", "Commentary names", Page::CommentaryNames}}) {
             CHECK(ui.open_page(s.area, s.page) && app.place() == shell::place_of(s.want), std::string("opens: ") + s.area + " > " + s.page);
             CHECK(ui.find("###navgo") != nullptr, std::string("a button that goes to the feature: ") + s.page);
             CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::PlayerEdit)), std::string("it opens Edit a player: ") + s.page);
@@ -143,6 +142,8 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("Edit a player (2.19): the full editor (filters, resizable list) in Simple and Advanced without the old-pages switch; the card page only as an opt-in", [&] {
         const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode, was_card = app.player_card_view;
+        const int was_tab = shell::player_edit_tab();
+        shell::player_edit_tab() = 3;  // 2.20: the full editor is the All fields tab of Edit a player
         app.legacy_pages = false;
         app.player_card_view = false;
         for (bool adv : {false, true}) {
@@ -165,6 +166,7 @@ static void ui_cases(App& app, Ui& ui) {
         app.legacy_pages = was_legacy;
         app.prefs.advanced_mode = was_adv;
         app.player_card_view = was_card;
+        shell::player_edit_tab() = was_tab;
         app.go(Page::PlayerEdit);
         ui.frames(3);
     });
@@ -196,7 +198,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.open_page("Career", "Transfers & money") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");
         // the other proven panels, each by its own primary control
         CHECK(ui.open_page("Players", "Edit a player") && ui.find("##psearch") != nullptr, "Squad & Players > Player edit: the players list");
-        CHECK(ui.open_page("Kits & club", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
+        CHECK(ui.open_page("Team", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
         CHECK(ui.open_page("Tactics", "Tactic presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
         CHECK(ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
         CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");

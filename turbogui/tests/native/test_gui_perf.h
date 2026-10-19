@@ -368,7 +368,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
         // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Players > My squad", "Kits & club > Kits", "Kits & club > Club name, colours & crest", "Advanced > Bulk edit", "Advanced > Kit diagnostics"})
+            for (const char* p : {"Players > My squad", "Team > Kits", "Team > Club name, colours & crest", "Advanced > Bulk edit", "Advanced > Kit diagnostics"})
                 if (what == p) return true;
             return false;
         };
@@ -376,7 +376,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             if (per_item_page(c.what)) {
                 // Identity's crest editor ('An image file' tab) lists the Turbo crests folder (<LE>\turbo_crests, a few user pictures)
                 // every frame it is shown: a known small listing, not fixed in 2.16 (about 3 directory reads per frame)
-                const long dir_ceiling = c.what == "Kits & club > Club name, colours & crest" ? 4L * c.frames : 8L;
+                const long dir_ceiling = c.what == "Team > Club name, colours & crest" ? 4L * c.frames : 8L;
                 CHECK(c.fs_per_frame() <= 30.0 && c.dir_calls() <= dir_ceiling,
                       fmt("%s: %.2f file calls per frame (ceiling 30 for the pictures drawn), %ld directory reads", c.what.c_str(), c.fs_per_frame(),
                           c.dir_calls()));

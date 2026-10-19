@@ -12,7 +12,7 @@ page label; App::notify, which logs every toast):
             "Lists refreshed from the game"): PASS; only the old text = FAIL (the old build is installed); nothing = FAIL (not pressed)
   changes   a frame-cost line for the page "Changes & undo" (step 2: the Changes button in the top bar opened it and it stayed 1 s)
   settings  a frame-cost line for "Settings" (step 2: the page that now holds Refresh, the show/hide key, the version and the Advanced switch)
-  looks     a frame-cost line for "Faces & hair" (step 4: the new Faces & looks area exists; the old build has no such page)
+  looks     a frame-cost line for "Appearance Editor" (2.20: the area that was Faces & looks; before 2.20 the page was "Faces & hair")
   players   a frame-cost line for "Edit a player" (step 4: the renamed first page of Players; the old build says "Player edit")
   errors    no "frame error:" line in the session (a draw exception in any new page)
 The operator also takes ONE screenshot of the top bar (the sheet lists what it must show): the slim status line and the Changes button
@@ -62,7 +62,7 @@ def check(text, since=""):
     for point, page, how in (
             ("changes", "Changes & undo", "click Changes in the top bar and stay 2 s on the page"),
             ("settings", "Settings", "open the Settings tab and stay 2 s"),
-            ("looks", "Faces & hair", "open Faces & looks > Faces & hair and stay 2 s (step 4: the page exists only in the revamp build)"),
+            ("looks", "Appearance Editor", "open the Appearance Editor tab and stay 2 s (2.20; the page exists only in the revamp build)"),
             ("players", "Edit a player", "open Players > Edit a player and stay 2 s (the old build calls it Player edit)")):
         if page in seen:
             out.append((point, "PASS", "page '%s' was shown for at least 60 frames" % page))
@@ -93,7 +93,7 @@ def _cost(t, page, why="left"):
 
 
 GOOD = ("2026-10-17 21:30:01.000  Turbo GUI loading in process 1234\n" + _cost("21:31:00.000", "Changes & undo") + _cost("21:31:05.000", "Settings") +
-        "2026-10-17 21:31:06.000  Lists reloaded from the game\n" + _cost("21:31:09.000", "Faces & hair") + _cost("21:31:12.000", "Edit a player"))
+        "2026-10-17 21:31:06.000  Lists reloaded from the game\n" + _cost("21:31:09.000", "Appearance Editor") + _cost("21:31:12.000", "Edit a player"))
 OLD_BUILD = ("2026-10-17 21:30:01.000  Turbo GUI loading in process 1234\n" + _cost("21:31:00.000", "Player edit") + _cost("21:31:05.000", "Settings") +
              "2026-10-17 21:31:06.000  Lists refreshed from the game\n" + _cost("21:31:09.000", "Squad"))
 NOT_PRESSED = GOOD.replace("Lists reloaded from the game", "something else")

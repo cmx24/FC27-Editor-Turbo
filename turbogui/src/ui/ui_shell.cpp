@@ -24,16 +24,17 @@ struct PageInfo {
 const PageInfo kPages[] = {
     {Page::PlayerEdit, Area::Squad, "Edit a player", 0},
     {Page::Squad, Area::Squad, "My squad", 1},
-    {Page::CreatePlayer, Area::Squad, "Create a player", -1},
+    {Page::CreatePlayer, Area::Squad, "Player creation", -1},  // 2.20: create / clone / import / export / delete (ui_player_creation.cpp)
+    {Page::BulkEdit, Area::Squad, "Bulk edit", -1},  // 2.20: any field of many players at once (ui_bulk_edit.cpp); Advanced > Bulk edit stays until the capability check passes
     {Page::Staff, Area::Squad, "Managers & staff", 2},
     {Page::CommentaryNames, Area::Squad, "Commentary names", -1},
 
-    {Page::FacesHair, Area::Looks, "Faces & hair", -1},
-    {Page::BodyGear, Area::Looks, "Body, tattoos & gear", -1},
-    {Page::LooksStudio, Area::Looks, "Looks studio", -1},  // 2.17 ui_looks_studio.cpp
+    {Page::LooksStudio, Area::Looks, "Appearance Editor", -1},  // 2.17 ui_looks_studio.cpp (the Looks studio); 2.20: renamed, and the only page of its area
 
     {Page::Kits, Area::Club, "Kits", 1},
     {Page::Identity, Area::Club, "Club name, colours & crest", 1},
+    {Page::TeamPlayers, Area::Club, "Players", -1},      // 2.20: career side of a club: contract, form, growth, squad role, team preset (ui_team_players.cpp)
+    {Page::TeamTransfers, Area::Club, "Transfers", -1},  // 2.20: moves, loans, signings, contract extensions (ui_team_transfers.cpp)
     {Page::StadiumExtras, Area::Club, "Stadium & extras", 5},
 
     {Page::TacticPresets, Area::Tactics, "Tactic presets", 1},
@@ -83,8 +84,8 @@ std::map<int, PageFn>& new_registry() {
 const char* area_label(Area a) {
     switch (a) {
         case Area::Squad: return "Players";
-        case Area::Looks: return "Faces & looks";
-        case Area::Club: return "Kits & club";
+        case Area::Looks: return "Appearance Editor";
+        case Area::Club: return "Team";
         case Area::Tactics: return "Tactics";
         case Area::Career: return "Career";
         case Area::Settings: return "Settings";
@@ -117,6 +118,11 @@ const std::vector<Page>& pages_of(Area a) {
 Page default_page(Area a) {
     const auto& v = pages_of(a);
     return v.empty() ? Page::None : v.front();
+}
+
+int& player_edit_tab() {
+    static int tab = 0;
+    return tab;
 }
 
 Place place_of(Page p) {

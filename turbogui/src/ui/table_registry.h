@@ -58,6 +58,8 @@ inline const std::vector<Spec>& all() {
         {"##mgrs", "Managers > list", kData | ImGuiTableFlags_ScrollY, true},
         {"##crestfiles", "Teams > Crest files", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##kitset", "Teams > Kits: a kit zip's settings next to the club's (2.3)", kData | ImGuiTableFlags_SizingFixedFit, false},
+        {"##tpexttbl", "Team > Transfers > Contract extensions", kData | ImGuiTableFlags_ScrollY, true},
+        {"##tproletbl", "Team > Transfers > Squad roles", kData | ImGuiTableFlags_ScrollY, true},
         {"##rolepreview", "Teams > Squad roles preview", kData | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp, true},
         {"##comptable", "Competitions > picker (combo popup)", ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit, false, true},
         {"##league", "Competitions > league table", kData | ImGuiTableFlags_ScrollY, true},

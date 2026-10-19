@@ -145,14 +145,15 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const int old_manager = app.sel_manager;
     ui.frames(3);
 
-    run_case("Looks studio: Faces & looks > Looks studio opens in the Simple view", [&] {
+    run_case("Looks studio: the Appearance Editor opens in the Simple view", [&] {
         app.prefs.advanced_mode = false;
         looks::looks_studio_reset_for_tests();
         app.capture = nullptr;
-        CHECK(ui.open_page("Faces & looks", "Looks studio") && app.place() == shell::place_of(shell::Page::LooksStudio), "Faces & looks > Looks studio");
+        // 2.20: the Appearance Editor is the only page of its area, so the area tab opens it (there is no page strip)
+        CHECK(ui.click("Appearance Editor", "FC 27 LE Turbo", "##shell") && (ui.frames(2), app.place() == shell::place_of(shell::Page::LooksStudio)), "Appearance Editor");
         ui.frames(2);
         CHECK(ui.find("###lsplayers", "FC 27 LE Turbo") != nullptr && ui.find("###lsmanagers", "FC 27 LE Turbo") != nullptr, "the person list is drawn");
-        CHECK(shell::default_page(shell::Area::Looks) == shell::Page::FacesHair, "Faces & hair stays the area's first page");
+        CHECK(shell::default_page(shell::Area::Looks) == shell::Page::LooksStudio && shell::pages_of(shell::Area::Looks).size() == 1, "the Appearance Editor is the area's only page");
         app.go(shell::Page::PlayerEdit);
         ui.frames(3);
     });

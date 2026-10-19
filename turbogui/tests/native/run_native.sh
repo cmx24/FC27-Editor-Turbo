@@ -104,9 +104,10 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/core/season_pack.cpp src/core/kit_fonts.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/core/kit_import.cpp src/core/kit_swap.cpp src/core/attrib_ebx.cpp src/core/oodle_dispatch.cpp src/ui/ui_kits.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/core/lua_loader.cpp src/core/faces3d.cpp src/ui/ui_faces3d_gate.cpp \
          src/ui/file_picker.cpp \
+         src/ui/ui_player_profile.cpp \
          src/ui/ui_looks_studio.cpp \
          src/ui/ui_career_page.cpp src/ui/ui_diagnostics_page.cpp src/ui/ui_kits_page.cpp \
-         src/ui/ui_crest_shirt.cpp \
+         src/ui/ui_crest_shirt.cpp src/ui/ui_team_players.cpp src/ui/ui_team_transfers.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
          src/core/bodytype_thumbs.cpp src/ui/ui_bodytype_thumbs.cpp \
@@ -115,6 +116,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_nav_pages.cpp src/ui/ui_pages_216.cpp src/ui/ui_player_page.cpp \
          src/ui/ui_tactics_page.cpp \
          src/ui/ui_player_creation.cpp \
+         src/ui/ui_bulk_edit.cpp \
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp tests/native/test_edit_unlock_hook.cpp tests/native/test_http_stub.cpp \
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/bench_probe.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \

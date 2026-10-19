@@ -51,10 +51,10 @@ static void test_shell() {
     run_case("shell: areas and pages (labels, one area per page, strips in order, defaults)", [&] {
         using namespace turbo::shell;
         CHECK(kAreaCount == 7, "six areas plus Advanced");
-        const char* labels[] = {"Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings", "Advanced"};
+        const char* labels[] = {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"};
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) == labels[a], std::string("area label ") + labels[a]);
         CHECK(std::string(area_label(Area::Count)).empty(), "no label for Count");
-        const Page defaults[] = {Page::PlayerEdit, Page::FacesHair, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
+        const Page defaults[] = {Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
         std::set<int> seen;
         for (int a = 0; a < kAreaCount; ++a) {
             const auto& strip = pages_of(static_cast<Area>(a));
@@ -79,7 +79,7 @@ static void test_shell() {
         // sentence case: no capitalised second word (except proper names and the single acronym CMTracker)
         for (Page p : shell_all_pages()) {
             const std::string l = page_label(p);
-            if (l == "CMTracker") continue;
+            if (l == "CMTracker" || l == "Appearance Editor") continue;  // proper names (Cassio named the Appearance Editor, 2.20)
             const size_t sp = l.find(' ');
             if (sp != std::string::npos && sp + 1 < l.size()) CHECK(!(l[sp + 1] >= 'A' && l[sp + 1] <= 'Z'), "sentence case: " + l);
         }
@@ -111,7 +111,8 @@ static void test_shell() {
         for (Page p : shell_all_pages()) {
             const int t = legacy_tab_of(p);
             // 2.16 step 4: the pages that are new in the re-cut navigation never lived in a legacy tab
-            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::FacesHair || p == Page::BodyGear || p == Page::LooksStudio || p == Page::TeamSheet;
+            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::LooksStudio || p == Page::TeamSheet ||
+                                p == Page::BulkEdit || p == Page::TeamPlayers || p == Page::TeamTransfers;  // 2.20 pages
             CHECK(is_new ? t == -1 : (t >= 0 && t < turbo::TabCount), std::string("every older page has a legacy tab, the new ones none: ") + page_label(p));
         }
         for (int bad : {-1, 8, 99, -100}) CHECK(!area_for(bad).valid(), "out of range -> invalid: " + std::to_string(bad));
@@ -228,7 +229,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
-        CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
+        CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
               "the six area tabs");
         CHECK(ui.find("Advanced", "FC 27 LE Turbo") == nullptr, "no Advanced tab in Simple");
         CHECK(app.place() == area_for(0), "request_tab 0 -> Squad / Player edit");

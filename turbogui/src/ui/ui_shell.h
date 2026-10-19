@@ -19,19 +19,19 @@ class App;
 
 namespace turbo::shell {
 
-// 2.16 step 4 (plan 4.2): Players, Faces & looks, Kits & club, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
-// (Squad = Players, Club = Kits & club) so that no caller changes; only the labels in ui_shell.cpp are new.
+// 2.16 step 4 (plan 4.2): Players, Faces & looks (2.20: Appearance Editor), Team, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
+// (Squad = Players, Club = Team) so that no caller changes; only the labels in ui_shell.cpp are new.
 enum class Area : int { Squad = 0, Looks, Club, Tactics, Career, Settings, Advanced, Count };
 
 // One id per page, unique across areas. Order inside an area = order of the page strip (see pages_of).
 enum class Page : int {
     None = 0,
     // Players
-    PlayerEdit, Squad, CreatePlayer, Staff, CommentaryNames,
-    // Faces & looks
-    FacesHair, BodyGear, LooksStudio,
-    // Kits & club
-    Kits, Identity, StadiumExtras,
+    PlayerEdit, Squad, CreatePlayer, BulkEdit, Staff, CommentaryNames,
+    // Appearance Editor (2.20: the empty Faces & hair and Body, tattoos & gear signpost pages are gone; the Looks studio is the Appearance Editor)
+    LooksStudio,
+    // Team (2.20: was Kits & club; Players and Transfers are the career side of a club)
+    Kits, Identity, TeamPlayers, TeamTransfers, StadiumExtras,
     // Tactics
     TacticPresets, TeamSheet, GameplayPresets,
     // Career
@@ -54,14 +54,18 @@ constexpr int kAreaCount = static_cast<int>(Area::Count);
 constexpr int kPageCount = static_cast<int>(Page::Count);
 
 // ---- labels (sentence case, as drawn on the tab and the page strip)
-const char* area_label(Area a);  // "Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings", "Advanced"
+const char* area_label(Area a);  // "Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"
 const char* page_label(Page p);  // "Edit a player", "Kits", "Tactic presets", ...
 
 // ---- structure
 Area area_of(Page p);                       // Area::Count for Page::None / Count
 const std::vector<Page>& pages_of(Area a);  // the page strip of the area, in order
-Page default_page(Area a);                  // first of the strip: Edit a player, Faces & hair, Kits, Tactic presets, Standings, Settings, Database
+Page default_page(Area a);                  // first of the strip: Edit a player, Appearance Editor, Kits, Tactic presets, Standings, Settings, Database
 Place place_of(Page p);                     // {area_of(p), p}
+
+// Edit a player is one page with tabs: 0 Profile, 1 Positions, attributes & PlayStyles, 2 Appearance, 3 All fields. The page follows this value
+// when code changes it (a link that opens the Appearance tab, a test) and writes the tab the user clicked back into it.
+int& player_edit_tab();
 
 // ---- Simple / Advanced view (A6): Simple hides the whole Advanced area (raw rows, bulk edit, maintenance and the
 // not-proven panels); every other page is visible in both views. The Advanced area only exists with the toggle.
