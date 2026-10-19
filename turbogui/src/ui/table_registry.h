@@ -67,6 +67,8 @@ inline const std::vector<Spec>& all() {
         {"##gsvals", "Game settings > values (ID pushed per group: match, player, user, cpu)", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##tattoos", "Players > Tattoos", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
         {"##galleries", "Players > Appearance galleries", kColumns | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, false},
+        {"##vrows", "Players > Appearance > Pictures and animations (2.20)", kColumns | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit, false},
+        {"##vrow", "Looks Studio > one picture row (2.20)", kColumns | ImGuiTableFlags_SizingFixedFit, false},
         {"##all", "All fields (widgets.cpp)", kData | ImGuiTableFlags_ScrollY, true},
         // Tables of the 1.2.5 line and the filter grid (merged into 2.0/rc after this list was written; 2.4 removed the per-side
         // gameplay slider table of tactics channel A)

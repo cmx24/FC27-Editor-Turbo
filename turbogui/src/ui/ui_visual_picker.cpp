@@ -636,7 +636,7 @@ void visual_pickers_section(App& app, const Table& t, uint64_t rec, bool manager
         if (!any) continue;
         ImGui::SeparatorText(g.first);
         ImGui::PushID(g.first);
-        if (ImGui::BeginTable("##vrows", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+        if (ImGui::BeginTable("##vrows", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
             begin_rows();
             for (const std::string& f : g.second) draw_row(app, t, rec, f, manager);
             ImGui::EndTable();
@@ -653,7 +653,7 @@ void visual_field_row(App& app, const Table& t, uint64_t rec, const char* field,
     if (!t.has(field)) return;
     ImGui::PushID("vispickers");
     ImGui::PushID(field);
-    if (ImGui::BeginTable("##vrow", 4, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##vrow", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit)) {
         begin_rows();
         draw_row(app, t, rec, field, manager);
         ImGui::EndTable();
