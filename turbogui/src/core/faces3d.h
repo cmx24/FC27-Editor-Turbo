@@ -23,6 +23,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -100,7 +101,12 @@ bool is_turbo_beard_code(int64_t facialhairtypecode);
 // The in-memory player_kit.lua of 2.16 (the hook calls exactly this at the boot capture): template v4 over the captured stock with the
 // saved list. nullptr + why when refused (stock md5, an anchor); a saved list the generator refuses falls back to the bands alone
 // (note "saved list refused (...): bands only"), else note = "<N> players on the saved list".
-std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why);
+// 2.20 K2 (crest2d): with a non-empty shirt-crest list the build also carries the crest splices (see CrestList); a list the build
+// refuses never costs the faces: the build is redone without it (note "... shirt-crest list refused (...)"). A non-empty list adds
+// "; <N> clubs on the shirt-crest list" to note.
+using CrestList = std::set<int64_t>;
+std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why,
+                                                       const CrestList& crest = CrestList{});
 const std::vector<int>& band_hair_ids();
 const std::vector<int>& band_beard_ids();
 int64_t hair_band_code(int64_t hair_id);    // 0 when the id is not on the list
@@ -132,12 +138,16 @@ struct Built {
 // The gated player_kit.lua body from stock + table (build_gated_v2.py / build_gated_v3.py build(), chosen by the template's
 // markers: v3 has --@@OKHAIR@@ and --@@OKBEARD@@): refuses on a template error, the stock md5, any anchor line md5, a column out
 // of range, or a bad entry (a follow entry with a v2 template too). Fixed entries with neither hair nor beard are left out.
-Built generate_body(const std::string& tmpl, const std::string& stock, const Table& t);
+// crest (2.20 K2): the clubs whose jersey and shorts crest comes from their 2D crest file (crest/<dark|light>/l<teamid>.dds,
+// the stock generic-kit branch of _loadTeamCrest). Empty = not one byte changes. Non-empty = the Turbo-owned crest splices, anchored
+// on stock 9399e39a line md5s like the template's: a global TURBO_CREST2D table before _loadTeamCrest (no new main-chunk local) and
+// the listed test on its is_generic_kit line (player path: rawget TeamId; crowd path: kitData has no TeamId, its Kit when a number).
+Built generate_body(const std::string& tmpl, const std::string& stock, const Table& t, const CrestList& crest = CrestList{});
 // table field of the header: first 12 hex digits of md5(players.json bytes as written)
 std::string table_hash(const std::string& players_json_bytes);
 // `-- TURBO build <build> stock <md5(stock)> table <table_hash>\r\n` + body (CRLF header line, as the F1b/F2 overrides)
 Built generate_override(const std::string& tmpl, const std::string& stock, const Table& t, const std::string& build_key,
-                        const std::string& players_json_bytes);
+                        const std::string& players_json_bytes, const CrestList& crest = CrestList{});
 
 // ---- files (relative to turbo_output)
 extern const char* const kPlayersRel;   // "faces3d\\players.json"
@@ -148,6 +158,20 @@ extern const char* const kAppliedDirRel;     // "faces3d\applied": players.json 
 extern const char* const kPreviewBackupRel;  // "faces3d\preview_backup.json"
 
 bool load_players(const std::string& turbo_output_utf8, Table& out, std::string* err);  // missing file = empty table, true
+
+// ---- 2.20 K2: the shirt-crest list, turbo_output\kits\crest2d.json = {"teams": [<teamid>, ...]} (global: every career and Kick Off;
+// the game reads it at its next start, when Turbo builds player_kit.lua)
+extern const char* const kCrest2DRel;  // "kits\\crest2d.json"
+constexpr size_t kMaxCrestTeams = 4000;
+bool parse_crest2d_json(const std::string& bytes, CrestList& out, std::string* err);
+std::string crest2d_json(const CrestList& c);  // {"teams": [..]} sorted, one line, "\n"
+bool load_crest2d(const std::string& turbo_output_utf8, CrestList& out, std::string* err);  // missing file = empty list, true
+// atomic; an empty list deletes the file (no file = no crest change, as before 2.20)
+bool save_crest2d(const std::string& turbo_output_utf8, const CrestList& c, std::string* err);
+// The boot read (win/lua_loader_win.cpp, right after players.json, on the loader's own thread, never a game thread): a missing
+// file = an empty list and no log line; an unreadable one = an empty list and ONE log line in log_line. Never touches the saved
+// faces list (players.json is read on its own, before this).
+CrestList load_crest2d_for_boot(const std::string& turbo_output_utf8, std::string& log_line);
 
 // ---- the list the running game compiled (the gate is compiled once per game start; later Applies do not reach it)
 // The entries of a generated override's gate block (fixed or follow, colour flags, fallbacks); false when there is no gate block
