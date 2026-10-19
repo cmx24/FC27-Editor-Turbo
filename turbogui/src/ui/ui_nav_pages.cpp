@@ -1,5 +1,7 @@
 // FC 27 LE Turbo GUI - the pages of the 2.16 navigation (plan TURBO_GUI_REVAMP_PLAN.md 4.3, step 4) whose content still lives where it was:
-// Create a player, Commentary names, Faces & hair, Body tattoos & gear and Team sheet & bench. Each starts as a signpost: one question, one
+// Create a player, Commentary names and Team sheet & bench. (2.20: the Faces & hair and Body, tattoos & gear signposts are gone: the face chooser,
+// the 3D hair and beard, the tattoos, the gear and the miniface stay on Edit a player's Appearance and Miniface tabs, and the Appearance Editor
+// is its own area.) Each starts as a signpost: one question, one
 // line saying where the feature is today, and a button that goes there, so that nothing disappears while the pages move (steps 5, 6 and 8
 // replace each signpost with the real page). No picture, no file, no state: they cost nothing per frame.
 #include "app.h"
@@ -33,15 +35,6 @@ void page_create_player(App& app) {
 void page_commentary_names(App& app) {
     signpost(app, "What does the commentator say?", "Today: pick the player on Edit a player, then open his Callname tab.", Page::PlayerEdit, "Open Edit a player");
 }
-void page_faces_hair(App& app) {
-    signpost(app, "How should he look?",
-             "Today: pick the player on Edit a player, then open the Appearance tab (real face, 3D hair and beard) or the Miniface tab (the small picture in menus).",
-             Page::PlayerEdit, "Open Edit a player");
-}
-void page_body_gear(App& app) {
-    signpost(app, "Body, tattoos and gear", "Today: pick the player on Edit a player, then open the Appearance tab (body type, tattoos, hair, boots, gloves).",
-             Page::PlayerEdit, "Open Edit a player");
-}
 void page_team_sheet(App& app) {
     const bool adv = app.prefs.advanced_mode;
     signpost(app, "Keep my bench? Who takes set pieces?",
@@ -55,8 +48,6 @@ void page_team_sheet(App& app) {
 
 TURBO_REGISTER_PAGE(shell::Page::CreatePlayer, page_create_player);
 TURBO_REGISTER_PAGE(shell::Page::CommentaryNames, page_commentary_names);
-TURBO_REGISTER_PAGE(shell::Page::FacesHair, page_faces_hair);
-TURBO_REGISTER_PAGE(shell::Page::BodyGear, page_body_gear);
 TURBO_REGISTER_PAGE(shell::Page::TeamSheet, page_team_sheet);
 
 }  // namespace turbo

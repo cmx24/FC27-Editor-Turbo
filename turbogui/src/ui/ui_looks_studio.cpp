@@ -1118,7 +1118,7 @@ void draw_looks_studio(App& app) {
     s.st = StudioState();
     s.st.requests = requests;
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
-    ImGui::TextUnformatted("Looks studio");
+    ImGui::TextUnformatted("Appearance Editor");
     ImGui::PopFont();
     ImGui::SameLine();
     theme::muted_text("%s", "Face, hair, body, gear and kit fit for players and managers.");

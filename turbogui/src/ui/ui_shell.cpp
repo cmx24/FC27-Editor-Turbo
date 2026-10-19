@@ -28,9 +28,7 @@ const PageInfo kPages[] = {
     {Page::Staff, Area::Squad, "Managers & staff", 2},
     {Page::CommentaryNames, Area::Squad, "Commentary names", -1},
 
-    {Page::FacesHair, Area::Looks, "Faces & hair", -1},
-    {Page::BodyGear, Area::Looks, "Body, tattoos & gear", -1},
-    {Page::LooksStudio, Area::Looks, "Looks studio", -1},  // 2.17 ui_looks_studio.cpp
+    {Page::LooksStudio, Area::Looks, "Appearance Editor", -1},  // 2.17 ui_looks_studio.cpp (the Looks studio); 2.20: renamed, and the only page of its area
 
     {Page::Kits, Area::Club, "Kits", 1},
     {Page::Identity, Area::Club, "Club name, colours & crest", 1},
@@ -83,7 +81,7 @@ std::map<int, PageFn>& new_registry() {
 const char* area_label(Area a) {
     switch (a) {
         case Area::Squad: return "Players";
-        case Area::Looks: return "Faces & looks";
+        case Area::Looks: return "Appearance Editor";
         case Area::Club: return "Kits & club";
         case Area::Tactics: return "Tactics";
         case Area::Career: return "Career";

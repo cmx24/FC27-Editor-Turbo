@@ -3696,6 +3696,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
+#include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -4028,7 +4029,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Faces & looks") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -9687,6 +9688,7 @@ static void test_ui() {
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
+        nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
@@ -15456,6 +15458,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
     test_shell();  // test_shell.h: shell contract (pure cases)
+    nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
     test_hair_catalog();

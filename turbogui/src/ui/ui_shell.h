@@ -19,7 +19,7 @@ class App;
 
 namespace turbo::shell {
 
-// 2.16 step 4 (plan 4.2): Players, Faces & looks, Kits & club, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
+// 2.16 step 4 (plan 4.2): Players, Faces & looks (2.20: Appearance Editor), Kits & club, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
 // (Squad = Players, Club = Kits & club) so that no caller changes; only the labels in ui_shell.cpp are new.
 enum class Area : int { Squad = 0, Looks, Club, Tactics, Career, Settings, Advanced, Count };
 
@@ -28,8 +28,8 @@ enum class Page : int {
     None = 0,
     // Players
     PlayerEdit, Squad, CreatePlayer, Staff, CommentaryNames,
-    // Faces & looks
-    FacesHair, BodyGear, LooksStudio,
+    // Appearance Editor (2.20: the empty Faces & hair and Body, tattoos & gear signpost pages are gone; the Looks studio is the Appearance Editor)
+    LooksStudio,
     // Kits & club
     Kits, Identity, StadiumExtras,
     // Tactics
@@ -54,13 +54,13 @@ constexpr int kAreaCount = static_cast<int>(Area::Count);
 constexpr int kPageCount = static_cast<int>(Page::Count);
 
 // ---- labels (sentence case, as drawn on the tab and the page strip)
-const char* area_label(Area a);  // "Players", "Faces & looks", "Kits & club", "Tactics", "Career", "Settings", "Advanced"
+const char* area_label(Area a);  // "Players", "Appearance Editor", "Kits & club", "Tactics", "Career", "Settings", "Advanced"
 const char* page_label(Page p);  // "Edit a player", "Kits", "Tactic presets", ...
 
 // ---- structure
 Area area_of(Page p);                       // Area::Count for Page::None / Count
 const std::vector<Page>& pages_of(Area a);  // the page strip of the area, in order
-Page default_page(Area a);                  // first of the strip: Edit a player, Faces & hair, Kits, Tactic presets, Standings, Settings, Database
+Page default_page(Area a);                  // first of the strip: Edit a player, Appearance Editor, Kits, Tactic presets, Standings, Settings, Database
 Place place_of(Page p);                     // {area_of(p), p}
 
 // ---- Simple / Advanced view (A6): Simple hides the whole Advanced area (raw rows, bulk edit, maintenance and the
