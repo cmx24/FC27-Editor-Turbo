@@ -87,14 +87,18 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             return;
         }
         CHECK(st.headline.find("overall") != std::string::npos && st.headline.find("1005") == std::string::npos, "headline names no ID: " + st.headline);
-        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details", "###pf_club", "###pf_undo"})
+        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details", "###pf_undo"})
             CHECK(ui.find(id, W) != nullptr, std::string("on the page: ") + id);
         CHECK(names_tab_state().playerid == 1005, "the names editor was drawn for him");
         CHECK(st.callname_shown, "the commentary name editor was drawn");
+        // the long sections push the club section out of view (a clipped item is not found): close them while it is looked at
+        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);
+        CHECK(ui.find("###pf_club", W) != nullptr, "on the page: ###pf_club");
         // the club summary says the club in words and is not editable here
         CHECK(st.club_line.rfind("Club: ", 0) == 0, "club line: " + st.club_line);
         if (!pr->club_name.empty()) CHECK(st.club_line.find(pr->club_name) != std::string::npos, "his club named: " + st.club_line);
         CHECK(st.team_link_shown && ui.find("Open Team > Players###pf_team", W) != nullptr, "the link to Team > Players");
+        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);  // open them again
         // none of the old panel's furniture
         for (const char* gone : {"Profile", "Names", "Attributes", "PlayStyles", "Appearance", "Miniface", "Contract & Clubs", "Callname", "All fields", "Growth",
                                  "Transfer / Loan...", "Terminate loan", "Repair names"})
@@ -122,13 +126,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Open Team > Players###pf_team", W), "click the link");
         ui.frames(3);
         CHECK(app.place().page == profile_team_players_page(), "went to the Team > Players page");
-        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);  // open them again
         app.go(shell::Page::PlayerEdit);
         ui.frames(2);
-        // the editor alone: the same sections, no list, no search
+        // the editor alone: the same sections (the three long ones are still closed, so the last one is in view), no list, no search
         show(ui, Which::ProfileEditor);
         CHECK(ui.find("##pfsearch", W) == nullptr && ui.find("###pf1001", W) == nullptr, "no list in the editor alone");
         CHECK(ui.find("###pf_names", W) != nullptr && ui.find("###pf_club", W) != nullptr, "sections of the editor alone");
+        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);  // open them again
         CHECK(player_profile_state().playerid == 1002, "for the picked player");
         hide(ui);
     });
@@ -139,7 +143,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const PlayerAbilityState& st = player_ability_state();
         CHECK(st.playerid == 1001 && st.listed > 3, "the list and the editor");
         CHECK(ui.find("##pfsearch", W) != nullptr, "the list");
-        for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs", "###ab_styles", "###ab_undo"})
+        for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs", "###ab_undo"})
             CHECK(ui.find(id, W) != nullptr, std::string("section: ") + id);
         const Table* t = app.db.table("players");
         CHECK(t != nullptr, "players table");
@@ -158,6 +162,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             if (const Field* fl = t->field(f)) bit_boxes += std::min(fl->depth, 62);
         CHECK(st.playstyle_boxes == bit_boxes, "PlayStyle boxes: " + std::to_string(st.playstyle_boxes) + " of " + std::to_string(bit_boxes));
         CHECK(st.stand_in_shown && !st.archetype_bar_external, "no hook: the smaller stand-in");
+        // the attribute sliders push the PlayStyle section out of view: close the attributes while it is looked at
+        toggle(ui, "###ab_attrs", W);
+        CHECK(ui.find("###ab_styles", W) != nullptr, "section: ###ab_styles");
+        toggle(ui, "###ab_attrs", W);
         CHECK(st.headline.find("1001") == std::string::npos, "the headline names no ID");
         for (const char* gone : {"Profile", "Names", "Attributes", "PlayStyles", "Appearance", "Miniface", "Contract & Clubs", "Callname", "All fields", "Growth"})
             CHECK(ui.find(gone, W) == nullptr, std::string("no old tab: ") + gone);
