@@ -238,7 +238,14 @@ struct Located {
     uint64_t svc = 0, node = 0, vec_begin = 0, vec_end = 0, sheet = 0, rec_begin = 0, record = 0, slots = 0;
     int user = 0, sheets = 0, records = 0, record_index = -1, hops = 0;
     ServiceHeader header;
+    // 2.20 probe (cause B, read-only): every record of the club's current sheet as L4 saw it (records_probe below); "" when L4 was not reached
+    std::string records_probe;
 };
+// 2.20 probe (brief 2.20-T-tactics cause B): one line with the n records at rb (at most kMaxRecords), read only:
+//   "5 record(s), 1 with act 1 and src > 0, 1 with act 1; #0 act 1 src 10/10 fmt 27 preset 1 lh 25 b77 3 name '433' raw7C 00000000..."
+// act = +0x80, src = +0xC4 / +0xD0, fmt = +0xC0, preset = +0x84, lh = +0xA4, b77 = +0x77, raw7C = the 12 bytes +0x7C..+0x87. A field that
+// cannot be read prints "?". Appended to the L4 "active tactic records" mismatch and kept in Located::records_probe on a good read.
+std::string records_probe(Memory& mem, uint64_t rb, int n);
 // L1-L4 (report 4.2). Fails closed: "layout mismatch (<check>)"
 std::string locate(Memory& mem, uint64_t svc, int user, const Anchors& a, Located& out);
 

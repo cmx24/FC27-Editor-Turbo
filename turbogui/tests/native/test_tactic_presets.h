@@ -230,7 +230,9 @@ static void run() {
         CHECK(!parse_err("not json at all").empty() && part(parse_err("[1,2]"), "not a JSON object") && !parse_err("").empty(), "not JSON / not an object");
         CHECK(part(parse_err(std::string(300 * 1024, ' ')), "too large"), "too large");
         // a number out of the written range of a slot cannot be hidden in the note or created text either
-        CHECK(!mutate([](json& j) { j["note"] = std::string(400, 'n'); }).empty(), "note too long");
+        // 2.20: the limit is 4000 (the community presets carry notes of 833..1208 characters; 300 refused every one of them)
+        CHECK(!mutate([](json& j) { j["note"] = std::string(tpreset::kMaxNoteLen + 1, 'n'); }).empty(), "note too long");
+        CHECK(mutate([](json& j) { j["note"] = std::string(1208, 'n'); }).empty(), "a community-length note is accepted");
         // unknown extra keys are ignored (a newer writer within the same schema)
         CHECK(mutate([](json& j) { j["extra"] = 1; j["tactic"]["more"] = 2; }).empty(), "unknown keys are ignored");
     });
