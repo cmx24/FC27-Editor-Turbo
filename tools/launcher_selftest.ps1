@@ -170,6 +170,7 @@ if ($Section -in 'L2', 'All') {
   Check ($g.callnames.launcher_language -eq 'eng_us' -and $g.callnames.launcher_stamp -eq $lj.set_at) 'gui_settings.json: callnames.launcher_language = eng_us, launcher_stamp = set_at'
   Check ($g.callnames.override_language -eq '' -and $g.callnames.bank_team -eq '*') 'override_language and bank_team untouched'
   $orig = $origGuiText | ConvertFrom-Json
+  $orig.callnames.PSObject.Properties.Remove('launcher_language'); $orig.callnames.PSObject.Properties.Remove('launcher_stamp')   # the live file may already hold the pick's hint keys
   $g.callnames.PSObject.Properties.Remove('launcher_language'); $g.callnames.PSObject.Properties.Remove('launcher_stamp')
   Check ((($orig | ConvertTo-Json -Depth 32 -Compress) -eq ($g | ConvertTo-Json -Depth 32 -Compress))) 'gui_settings.json deep-equal to the original except the two new keys (depth 32)'
   $newText = Get-Content -LiteralPath $s.gui -Raw
