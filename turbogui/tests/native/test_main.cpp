@@ -3248,6 +3248,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
+#include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -9698,6 +9699,7 @@ static void test_ui() {
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
+        visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -15460,6 +15462,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
+    visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();

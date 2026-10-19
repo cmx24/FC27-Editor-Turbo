@@ -26,6 +26,7 @@
 #include "ui_images.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
+#include "ui_visual_picker.h"
 
 namespace fs = std::filesystem;
 
@@ -987,6 +988,7 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     body_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
     fields_card(app, s, who, *t, rec, Card::KitFit);
+    visual_pickers_section(app, *t, rec, who.manager);  // ui_visual_picker.cpp (2.20 V): looks by picture and animation
 }
 
 }  // namespace

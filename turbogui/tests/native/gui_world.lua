@@ -312,6 +312,8 @@ local function build_world(sim)
             { name = "gender", short = "gndr", depth = 1 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
+            { name = "runstylecode", short = "rsc_", depth = 5 },               -- 2.20 visual pickers: run style (FC 27 enum 0..23)
+            { name = "animfreekickstartposcode", short = "afk_", depth = 5 },   -- free-kick run-up
             { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },   -- FC 27's schema (fc27_db_schema.json): 1 .. 512
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "isretiring", short = "iret", depth = 1 },

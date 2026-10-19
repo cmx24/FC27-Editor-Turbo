@@ -6,6 +6,7 @@
 #include "ui_sections.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -49,6 +50,7 @@ void draw_settings_page(App& app) {
         if (app.prefs.advanced_mode && ImGui::IsItemHovered())
             ImGui::SetTooltip("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
         draw_preferences(app);
+        visual_pictures_setting(app);  // ui_visual_picker.cpp (2.20 V): the RDBM26 folder of the pickers
         ImGui::Spacing();
     }
     draw_status_health(app);  // pictures, health, technical details (collapsed)
