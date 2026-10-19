@@ -12,6 +12,7 @@
 #include <system_error>
 
 #include "app.h"
+#include "core/field_labels.h"
 #include "core/teamnames.h"
 #include "imgui.h"
 #include "ui_asset_browser.h"
@@ -354,19 +355,12 @@ const char* kit_type_name(int64_t type) {
     // fourth_4_0 (19), referee_5_0 (72), training_home_6_0, training_away_7_0, training_home_bibs_8_0,
     // training_away_bibs_9_0; the minikits j<type>_<teamid>_0.dds use the same number (FIFER's FC 26 goalkeeper kit
     // updates are all j2_*, and a club with home, away and goalkeeper kits only has j0, j1, j2)
-    switch (type) {
-        case 0: return "Home";
-        case 1: return "Away";
-        case 2: return "Goalkeeper";
-        case 3: return "Third";
-        case 4: return "Fourth";
-        case 5: return "Referee";
-        case 6: return "Training home";
-        case 7: return "Training away";
-        case 8: return "Training home bibs";
-        case 9: return "Training away bibs";
-        default: return "Kit";
-    }
+    // 2.20: one table for the page's kit headers, the combos and the descriptor test (core/field_labels.h teamkittypetechid)
+    if (const labels::NamedCodes* n = labels::named_codes("teamkittypetechid"))
+        if (const char* s = labels::find_name(*n, type)) return s;
+    if (const labels::NamedCodes* d = labels::described_codes("teamkittypetechid"))
+        if (const char* s = labels::find_name(*d, type)) return s;
+    return "Kit";
 }
 
 // Colour picker for <prefix>r/g/b. While the user drags or the picker popup is open the value is kept here and written
@@ -594,8 +588,7 @@ void team_stadium_editor(App& app, const Table& t, uint64_t rec) {
     ImGui::SeparatorText("Stadium");
     colour_editor(app, t, rec, "goalnetstanchioncolor1", "Goal net stanchion 1");
     colour_editor(app, t, rec, "goalnetstanchioncolor2", "Goal net stanchion 2");
-    field_grid(app, t, rec, {"stadiumgoalnetstyle", "stadiumgoalnetpattern", "pitchcolor", "pitchlinecolor", "cornerflagpolecolor", "jerseytype"},
-               "##stadcol", 3);
+    field_grid(app, t, rec, labels::page_stadium_fields(), "##stadcol", 3);
 }
 
 // 2.13 (Club & Kits > Kits, "Colours & numbers"): the kit colours, fonts and name layout, split out of team_colours_editor unchanged
@@ -628,11 +621,21 @@ void team_kit_colours_editor(App& app, int64_t teamid) {
     for (const auto& k : kits) {
         if (!app.db.table_alive(*kt, k.first)) continue;
         ImGui::PushID(static_cast<int>(k.first & 0x7FFFFFFF));
+        // 2.20: the kit by its name; the game's numbers (type, kit id) on hover only. Two rows of one type read "Home kit", "Home kit 2".
+        int same_before = 0, same_all = 0;
+        for (const auto& o : kits) {
+            same_all += o.second == k.second;
+            if (&o < &k) same_before += o.second == k.second;
+        }
         char hdr[96];
-        std::snprintf(hdr, sizeof(hdr), "%s kit (type %lld, kit id %lld)", kit_type_name(k.second), static_cast<long long>(k.second),
-                      static_cast<long long>(app.db.get_int(*kt, k.first, "teamkitid", 0)));
+        if (same_all > 1) std::snprintf(hdr, sizeof(hdr), "%s kit %d", kit_type_name(k.second), same_before + 1);
+        else std::snprintf(hdr, sizeof(hdr), "%s kit", kit_type_name(k.second));
         ImGui::SetNextItemOpen(k.second == 0, ImGuiCond_Once);
-        if (ImGui::CollapsingHeader(hdr)) {
+        const bool kit_open = ImGui::CollapsingHeader(hdr);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("teamkittypetechid = %lld, teamkitid = %lld", static_cast<long long>(k.second),
+                              static_cast<long long>(app.db.get_int(*kt, k.first, "teamkitid", 0)));
+        if (kit_open) {
             reapply_kit_line(app, *kt, k.first);  // the colours Turbo writes again at every career load, with Forget
             ImGui::TextDisabled("Preview");
             ImGui::SameLine(S(170.0f));
@@ -654,9 +657,9 @@ void team_kit_colours_editor(App& app, int64_t teamid) {
             kit_font_picker(app, *kt, k.first, kitfonts::Kind::ShortsNumberFont);
             kit_font_picker(app, *kt, k.first, kitfonts::Kind::NameLayout);
             kit_outline_width(app, *kt, k.first);
-            field_grid(app, *kt, k.first, {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent", "jerseytemplateindex",
-                                           "shortstemplateindex", "sockstemplateindex"},
-                       "##kitgrid", 3);
+            std::vector<std::string> kit_grid = {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent"};
+            kit_grid.insert(kit_grid.end(), labels::page_kit_template_fields().begin(), labels::page_kit_template_fields().end());
+            field_grid(app, *kt, k.first, kit_grid, "##kitgrid", 3);
         }
         ImGui::PopID();
     }

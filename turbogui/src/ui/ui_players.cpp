@@ -12,6 +12,7 @@
 #include "core/field_labels.h"
 #include "core/overall.h"
 #include "core/range_filter.h"
+#include "core/team_preset.h"
 #include "geo.h"
 #include "imgui.h"
 #include "move_rules.h"
@@ -675,7 +676,7 @@ static bool career_button(App& app, const char* label, const char* key, const ch
 
 static void career_dev_tab(App& app, const PlayerRow& p) {
     static int delta = 1, potential = 0, weekly = 1;
-    static bool no_decline = true;
+    static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);  // OFF; a saved value never turns it on
     ImGui::TextDisabled("Manager Career: these run through Turbo's Lua side on the next career-mode event.");
     ImGui::SeparatorText("Scouting");
     if (career_button(app, "Reveal data", "reveal",
