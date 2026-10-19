@@ -343,7 +343,7 @@ bool tile(App& app, State& s, int idx, ImVec2 box, bool& hovered) {
     const bool sel = code == s.ui.selected, cur = code == s.ui.current;
     if (sel || hovered)
         dl->AddRectFilled(a, ImVec2(a.x + cell.x, a.y + cell.y), ImGui::GetColorU32(sel ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered), 4.0f);
-    if (cur) dl->AddRect(a, ImVec2(a.x + cell.x, a.y + cell.y), IM_COL32(90, 200, 110, 255), 4.0f, 0, 2.0f);
+    if (cur) dl->AddRect(a, ImVec2(a.x + cell.x, a.y + cell.y), IM_COL32(90, 200, 110, 255), 4.0f, 2.0f);
     ++s.ui.tiles_drawn;
     if (draw_picture(app, src, idx, false, a, box)) ++s.ui.pictures_shown;
     const std::string& name = src.names[static_cast<size_t>(idx)];
