@@ -4854,6 +4854,11 @@ static void test_ui() {
             fs::remove(store);
         });
 
+        // 2.20 K3: the Colours tab now also holds the crowd and stadium sections above the kits, so a whole tab must fit the test window
+        // (nothing scrolled out of reach) for this case and the kit font case that follows it; the size is put back right after
+        const ImVec2 colours_display = ImGui::GetIO().DisplaySize;
+        ImGui::GetIO().DisplaySize = ImVec2(colours_display.x, 3400.0f);
+        ui.frames(3);
         run_case("UI: Teams > Colours: team and kit colours, validated writes", [&] {
             CHECK(ui.click("Colours", "##tedit"), "Colours tab");
             ui.frames(2);
@@ -4891,6 +4896,8 @@ static void test_ui() {
         });
 
         kit_fonts_ui_cases(app, ui, le);  // test_kit_fonts.h: the kit font pickers (2.11 K1), the Colours tab is still open
+        ImGui::GetIO().DisplaySize = colours_display;
+        ui.frames(3);
         club_fields_test::ui_cases(app, ui, le);  // test_club_fields.h (2.20 K3): the club, crowd, stadium and kit fields (the database is still connected here)
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {

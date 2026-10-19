@@ -366,10 +366,10 @@ inline ValueLabel value_label(const Def& d, int v) {
 // What a value that is stored but not in the set is called while it is shown
 inline std::string other_label(int64_t v) { return "Other (" + std::to_string(v) + ")"; }
 
-// The hover of a value: the code, and where its name comes from
+// The hover of a value: the stored number (never the word "code" before it), and where its name comes from
 inline std::string value_hover(const Def& d, int v) {
     const ValueLabel l = value_label(d, v);
-    std::string s = "Code " + std::to_string(v) + " (" + d.field + ").\n";
+    std::string s = "Stored in the game's data as " + std::to_string(v) + " (" + d.field + ").\n";
     if (l.text.empty()) return s + "The game's data never uses this value.";
     switch (l.src) {
         case Src::Range: s += "On or off: this setting only takes 0 or 1."; break;

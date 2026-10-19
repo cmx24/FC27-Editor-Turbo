@@ -86,7 +86,7 @@ static void run() {
                 bool digits = !t.empty();
                 for (char c : t) digits = digits && std::isdigit(static_cast<unsigned char>(c));
                 if (digits || t == d.field) { notcode = false; bad = std::string(d.field) + "=" + t; }
-                if (!cf::value_hover(d, v).empty() && cf::value_hover(d, v).find("Code " + std::to_string(v)) == std::string::npos) notcode = false;
+                if (!cf::value_hover(d, v).empty() && cf::value_hover(d, v).find("as " + std::to_string(v) + " (") == std::string::npos) notcode = false;
             }
             for (int v = -3; v <= 1100; ++v) {
                 if (cf::in_domain(d, v)) continue;
