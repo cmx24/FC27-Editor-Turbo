@@ -16,11 +16,19 @@
 #include "ui/ui_team_pages.h"
 #include "ui/ui_shell.h"
 
+#include <cstring>
+
 namespace page_team_test {
 
 using namespace turbo;
 
 static void (*g_page_fn)(App&) = nullptr;
+// 0 = the page shows from its top; 1 = scrolled to its bottom (the test window is the size of the screen, a long page clips what is below it)
+static int g_scroll_mode = 0;
+static void apply_scroll() {
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+        if (w->ParentWindow && std::strcmp(w->ParentWindow->Name, "##teampage_test") == 0) ImGui::SetScrollY(w, g_scroll_mode > 0 ? w->ScrollMax.y : 0.0f);
+}
 static void draw_extra(App& app) {
     if (!g_page_fn) return;
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
@@ -28,7 +36,10 @@ static void draw_extra(App& app) {
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ds);
-    if (ImGui::Begin("##teampage_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) g_page_fn(app);
+    if (ImGui::Begin("##teampage_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        g_page_fn(app);
+        apply_scroll();
+    }
     ImGui::End();
 }
 static void show(Ui& ui, void (*fn)(App&)) {
@@ -36,7 +47,12 @@ static void show(Ui& ui, void (*fn)(App&)) {
     g_ui_extra = draw_extra;
     ui.frames(4);
 }
+static void scroll_bottom(Ui& ui, bool bottom) {
+    g_scroll_mode = bottom ? 1 : 0;
+    ui.frames(4);
+}
 static void hide(Ui& ui) {
+    g_scroll_mode = 0;
     g_page_fn = nullptr;
     g_ui_extra = nullptr;
     ui.frames(2);
@@ -363,7 +379,10 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
             CHECK(app.db.get_int(*pt, ten->rec, "contractvaliduntil", 0) == before, "Undo brought the contract end year back");
             CHECK(team_transfers_state().extend_line.find("contract until") != std::string::npos, "the page names the result: " + team_transfers_state().extend_line);
         }
-        // the whole squad: asks first, the old module
+        CHECK(team_transfers_state().own_club, fmt("still my club: club=%lld own=%d in_cm=%d user=%lld sel=%lld", static_cast<long long>(team_transfers_state().club), team_transfers_state().own_club,
+                                                    app.bridge.state().in_cm, static_cast<long long>(app.bridge.state().user_team), static_cast<long long>(app.sel_team)));
+        // the whole squad: asks first, the old module (the button is below the first screen: scroll down)
+        scroll_bottom(ui, true);
         json j = ask_and_confirm(app, ui, mem, kMb, "Whole squad to 3 years###tpextall", "##tt_extend_", "Extend contracts", why);
         CHECK(why.empty() && j.value("module", "") == "extend_user_contracts" && j["overrides"].value("years", 0) == 3,
               "the whole squad sends extend_user_contracts, 3 years: " + why + j.dump());
@@ -377,6 +396,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         in = TeamMoveInputs{};
         in.role_pick[1005] = 0;  // Crucial
         show(ui, draw_team_transfers);
+        scroll_bottom(ui, true);
         app.mailbox->cancel();
         CHECK(ui.click("Set###tprole1005", "##tt_roles_"), "Set role of 1005");
         ui.frames(3);
@@ -407,6 +427,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         const TeamPageState& s = team_transfers_state();
         CHECK(s.club == 7 && !s.own_club, "the page works on Everton");
         CHECK(s.cards == 6, fmt("the six cards are there: %d", s.cards));
+        scroll_bottom(ui, true);
         CHECK(count_items("##tt_roles_") <= 2, "no role rows for another club");
         CHECK(!has_item(ui, "Set###tprole2001", "##teampage_test") && !has_item(ui, "Transfer list###tplst1", "##teampage_test"), "no roles and no lists for another club");
         CHECK(!has_item(ui, "Whole squad to 1 year###tpextall", "##teampage_test"), "no whole-squad extension for another club");
