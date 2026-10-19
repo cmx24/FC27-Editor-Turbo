@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -182,6 +183,16 @@ inline int64_t club_header(App& app, const char* id) {
     }
     ImGui::Separator();
     return app.model.team(app.sel_team) ? app.sel_team : team;
+}
+
+// One line in the log (turbo_gui.log) when what a page shows changes, so a live check can read the count back: "Team page Players: club 14 (Leicester
+// City), 26 players". Written once per change, not per frame.
+inline void log_page_once(App& app, const char* key, const std::string& text) {
+    static std::map<std::string, std::string> last;
+    std::string& l = last[key];
+    if (l == text) return;
+    l = text;
+    app.log(text);
 }
 
 // The roles the game knows, in its own order (squad_role module: role 1..5)

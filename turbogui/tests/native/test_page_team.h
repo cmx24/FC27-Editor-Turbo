@@ -151,6 +151,12 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         CHECK(!s.waiting && s.club == mine && s.own_club, "the page works on my club");
         CHECK(s.listed == app.model.links_of_team(mine).size() && s.listed >= 5, fmt("the list shows my squad: %zu", s.listed));
         CHECK(s.player == 1005, "the picked player is shown");
+        {   // the live check (tools/team_pages_livecheck.py) reads this line back from turbo_gui.log
+            const std::string want = "Team page Players: club " + std::to_string(mine) + " (" + app.model.team_name(mine) + "), " + std::to_string(app.model.links_of_team(mine).size()) + " players";
+            bool logged = false;
+            for (const std::string& l : app.log_lines) logged = logged || l.find(want) != std::string::npos;
+            CHECK(logged, "the page logs how many players it lists: " + want);
+        }
         CHECK(s.cards == 4, fmt("contract, form, role and growth cards: %d", s.cards));
         CHECK(s.headline.find("overall 80") != std::string::npos && s.headline.find("contract until 20") != std::string::npos, "the headline: " + s.headline);
         CHECK(count_items("##tp_contract_") >= 2, fmt("the contract fields are on the page: %d items", count_items("##tp_contract_")));
@@ -240,6 +246,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         TeamMoveInputs& in = team_move_inputs();
         in = TeamMoveInputs{};
         in.player = 1005;
+        app.sel_player = 1005;
         in.to_team = 7;
         in.fee = 2500000;
         in.wage = 30000;
@@ -250,6 +257,12 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         CHECK(!s.waiting && s.club == mine && s.own_club, "the page works on my club");
         CHECK(s.cards == 6, fmt("six cards: moves, loans, move, sign, extensions, roles: %d", s.cards));
         CHECK(s.player == 1005, "the move card works on the picked player");
+        {
+            const std::string want = "Team page Transfers: club " + std::to_string(mine) + " (" + app.model.team_name(mine) + "), " + std::to_string(app.model.links_of_team(mine).size()) + " players";
+            bool logged = false;
+            for (const std::string& l : app.log_lines) logged = logged || l.find(want) != std::string::npos;
+            CHECK(logged, "the page logs how many players it lists: " + want);
+        }
         for (const char* l : {"Transfer###tpmvtransfer", "Loan###tpmvloan", "Release###tpmvrelease"}) CHECK(has_item(ui, l, "##tt_move_"), std::string("on the page: ") + l);
         for (const char* l : {"Player ID", "playerid", "to_teamid", "Lua", "txt", "teamplayerlinks"}) CHECK(!has_item(ui, l, "##teampage_test"), std::string("no code on the page: ") + l);
         json j = ask_and_confirm(app, ui, mem, kMb, "Transfer###tpmvtransfer", "##tt_move_", "Transfer", why);
@@ -289,6 +302,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         TeamMoveInputs& in = team_move_inputs();
         in = TeamMoveInputs{};
         in.player = 1005;
+        app.sel_player = 1005;
         show(ui, draw_team_transfers);
         if (!list_buttons) {
             const std::pair<const char*, const char*> lists[] = {{"Transfer list###tplst1", "transfer_list"},
@@ -330,6 +344,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         TeamMoveInputs& in = team_move_inputs();
         in = TeamMoveInputs{};
         in.player = 1005;
+        app.sel_player = 1005;
         show(ui, draw_team_transfers);
         const Table* pt = app.db.table("players");
         CHECK(pt != nullptr && pt->has("contractvaliduntil"), "the players table has the contract end year");
@@ -386,6 +401,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         TeamMoveInputs& in = team_move_inputs();
         in = TeamMoveInputs{};
         in.player = 2001;
+        app.sel_player = 2001;
         in.to_team = mine;
         show(ui, draw_team_transfers);
         const TeamPageState& s = team_transfers_state();
