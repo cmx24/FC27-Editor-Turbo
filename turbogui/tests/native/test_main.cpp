@@ -3698,6 +3698,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
 #include "test_archetype_target.h"  // 2.3: archetype with a target overall (archetype_target_test::run_core, ::run_ui)
+#include "test_archetype_gen.h"     // 2.20 R3: archetype x overall x tier fills a whole player (archetype_gen_test::run_core, ::run_ui)
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
@@ -9805,6 +9806,7 @@ static void test_ui() {
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
+        archetype_gen_test::run_ui(app, ui, mem, kMb);  // test_archetype_gen.h (2.20 R3)
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
@@ -15615,6 +15617,8 @@ int main(int argc, char** argv) {
     parity_test::run_core();
     std::printf("native archetype with a target overall (2.3)\n");
     archetype_target_test::run_core();
+    std::printf("native archetype x overall x tier populate (2.20 R3)\n");
+    archetype_gen_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();
     std::printf("native My team preset, growth defaults, descriptors (2.20)\n");
