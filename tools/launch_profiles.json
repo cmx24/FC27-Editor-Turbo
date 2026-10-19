@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "default_country": "England",
+  "order": ["Netherlands", "England", "Italy", "Spain", "Brazil"],
+  "countries": {
+    "Netherlands": { "compdata": "eerste", "language": "dut_nl" },
+    "England":     { "compdata": "stock",  "language": "eng_us" },
+    "Italy":       { "compdata": "stock",  "language": "ita_it" },
+    "Spain":       { "compdata": "stock",  "language": "spa_es" },
+    "Brazil":      { "compdata": "stock",  "language": "por_br" }
+  },
+  "languages": {
+    "dut_nl": "Dutch",
+    "eng_us": "English",
+    "ita_it": "Italian",
+    "spa_es": "Spanish",
+    "por_br": "Brazilian Portuguese"
+  }
+}
