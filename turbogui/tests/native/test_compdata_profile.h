@@ -1,8 +1,8 @@
 // Native tests (2.21 compdata guard, core/compdata_profile.h, and the launcher-hint rank, core/callnames.h): the launcher's
 // record (missing -> UNKNOWN, never MISMATCH; BOM; bad values), the disk state of the 11 files, record vs disk, the seeded career
 // list (shipped block, built-in fallback, bad entries), the decision table and its fixed log heads; the hint rank (hint + live pack,
-// hint + absent pack, hint older / newer than a saved answer, manual override wins, a hint answer is never proven) and the
-// Data\Win32-only pack test. Synthetic folders only. Included by test_main.cpp; compdata_profile_test::run() is called from main
+// hint + absent pack, hint older / newer than a saved answer, manual override wins, a hint answer is never proven), the
+// Data\Win32-only pack test and (CHANGE 8) the registry Locale step: the exe's locale table, a missing pack, override precedence. Synthetic folders only. Included by test_main.cpp; compdata_profile_test::run() is called from main
 // next to crest_serve_test::run().
 #pragma once
 #include <fstream>
@@ -130,10 +130,10 @@ inline void run() {
     });
 
     // ---- the launcher hint (core/callnames.h)
-    using turbo::CommentaryPack;
     using turbo::LauncherHint;
+    using turbo::RegistryLocale;
     using turbo::detect_commentary_language;
-    const std::vector<CommentaryPack> packs = {{"dut_nl", true}, {"eng_us", false}, {"ita_it", true}, {"spa_es", true}};
+    const RegistryLocale packs;  // no registry Locale: the hint cases below fall back to eng_us, never to a pack guess
 
     run_case("launcher hint: rank (hint + live pack, hint + absent pack, manual override wins, runtime wins, never proven)", [&] {
         std::string why;
@@ -143,17 +143,17 @@ inline void run() {
         h.stamp = "2026-10-19 16:20:00";
         h.pack_live = true;
         h.pack_why = "toc + cas";
-        // no runtime answer, no saved answer: the hint decides over the several downloaded packs, NOT proven
+        // no runtime answer, no saved answer: the hint decides, NOT proven
         std::string l = detect_commentary_language("", "", "", "", "", packs, &why, &proven, &h);
         CHECK(l == "eng_us" && has(why, "launcher hint eng_us") && has(why, "NOT PROVEN") && !proven, "hint + live pack: " + why);
-        // without the hint the packs' alphabetical guess (unchanged step c)
+        // without the hint and without a registry Locale: eng_us (CHANGE 8: no alphabetical pack guess)
         l = detect_commentary_language("", "", "", "", "", packs, &why, &proven);
-        CHECK(l == "dut_nl" && has(why, "several downloaded"), "no hint: step c as before: " + why);
+        CHECK(l == "eng_us" && has(why, "registry Locale not read") && !proven, "no hint, no Locale: eng_us: " + why);
         // the pack is not live in Data\Win32: ignored, said so
         h.pack_live = false;
         h.pack_why = "no Data\\Win32\\commentaryfull_eng_us.toc";
         l = detect_commentary_language("", "", "", "", "", packs, &why, &proven, &h);
-        CHECK(l == "dut_nl" && has(why, "launcher hint eng_us ignored: its pack is not live") && !proven, "hint + absent pack: " + why);
+        CHECK(l == "eng_us" && has(why, "launcher hint eng_us ignored: its pack is not live") && !proven, "hint + absent pack: " + why);
         h.pack_live = true;
         // the manual override wins (CHANGE 7)
         l = detect_commentary_language("ita_it", "", "", "", "", packs, &why, &proven, &h);
@@ -165,7 +165,7 @@ inline void run() {
         LauncherHint bad = h;
         bad.lang = "english";
         l = detect_commentary_language("", "", "", "", "", packs, &why, &proven, &bad);
-        CHECK(l == "dut_nl" && has(why, "not a language code"), "malformed hint: " + why);
+        CHECK(l == "eng_us" && has(why, "not a language code"), "malformed hint: " + why);
     });
 
     run_case("launcher hint: against an earlier session's saved answer (newer hint wins, older hint loses, undated loses, agreeing keeps proof)", [&] {
@@ -240,6 +240,125 @@ inline void run() {
         CHECK(cn.lang == "ita_it" && cn.lang_proven, "override in refresh: " + cn.log_line());
         fs::remove_all(g_out / "hint_le_world");
         fs::remove_all(game);
+    });
+    // ---- 2.21 CHANGE 8: the registry Locale step (replaces <game>\commentary + the alphabetical pick)
+    run_case("registry Locale: the exe's locale table (nl_NL dut, it_IT ita, fr_FR fre, de_DE ger, pt_BR por, es_ES spa, en_* eng_us)", [] {
+        using turbo::commentary_lang_for_locale;
+        CHECK(commentary_lang_for_locale("nl_NL") == "dut_nl" && commentary_lang_for_locale("it_IT") == "ita_it" &&
+                  commentary_lang_for_locale("fr_FR") == "fre_fr" && commentary_lang_for_locale("de_DE") == "ger_de" &&
+                  commentary_lang_for_locale("pt_BR") == "por_br" && commentary_lang_for_locale("es_ES") == "spa_es",
+              "the six languages");
+        CHECK(commentary_lang_for_locale("en_US") == "eng_us" && commentary_lang_for_locale("en_GB") == "eng_us", "English: the base");
+        CHECK(commentary_lang_for_locale("FR-fr") == "fre_fr" && commentary_lang_for_locale("pt-BR") == "por_br", "any case, '-' or '_'");
+        CHECK(commentary_lang_for_locale("ja_JP").empty() && commentary_lang_for_locale("es_MX").empty() && commentary_lang_for_locale("").empty() &&
+                  commentary_lang_for_locale("fr_FR ").empty() && commentary_lang_for_locale("french").empty(),
+              "not in the table: no language");
+        // the real registry, read-only (this PC: whatever the EA app set; the value is printed, not judged)
+        std::string rw;
+        const std::string real = turbo::read_registry_locale(&rw);
+        std::printf("    real registry Locale (read-only): '%s' -> '%s' (%s)\n", real.c_str(), commentary_lang_for_locale(real).c_str(), rw.c_str());
+        CHECK(!rw.empty(), "the read always says what it found");
+    });
+
+    run_case("registry Locale: rank (pack present -> its language, NOT proven; missing pack / unknown Locale -> eng_us; override, runtime and hint win; a2 outside English + Locale dropped)", [] {
+        const fs::path game = g_out / "locale_game_world";
+        fs::remove_all(game);
+        make_live_pack(game, "fre_fr");
+        make_live_pack(game, "dut_nl");
+        std::string why;
+        bool proven = true;
+        const RegistryLocale fr = turbo::registry_locale_from("fr_FR", "test", game);
+        CHECK(fr.usable() && fr.lang == "fre_fr", "fr_FR -> fre_fr, pack live: " + fr.pack_why);
+        std::string l = detect_commentary_language("", "", "", "", "", fr, &why, &proven);
+        CHECK(l == "fre_fr" && !proven && why.rfind("registry Locale fr_FR, pack present", 0) == 0 && has(why, "offers English + fre_fr"),
+              "pack present: " + why);
+        CHECK(turbo::commentary_language_log_line(l, why).rfind("callnames: language fre_fr (registry Locale fr_FR, pack present", 0) == 0, "the log line names the source");
+        // missing pack: de_DE -> ger_de, nothing in Data\Win32 -> eng_us, said so
+        const RegistryLocale de = turbo::registry_locale_from("de_DE", "test", game);
+        l = detect_commentary_language("", "", "", "", "", de, &why, &proven);
+        CHECK(l == "eng_us" && !proven && has(why, "registry Locale de_DE -> ger_de, its pack is not live in Data\\Win32"), "missing pack: " + why);
+        // the pack only in the backup store <game>\commentary does not count
+        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+        { std::ofstream(game / "commentary" / "commentaryfull_ita_it.toc") << std::string(20000, 'x'); }
+        { std::ofstream(game / "commentary" / "commentaryfull_ita_it" / "cas_01.cas") << "data"; }
+        const RegistryLocale it = turbo::registry_locale_from("it_IT", "test", game);
+        CHECK(!it.usable() && detect_commentary_language("", "", "", "", "", it, &why) == "eng_us", "backup store only: not live: " + why);
+        // a Locale outside the exe's table
+        l = detect_commentary_language("", "", "", "", "", turbo::registry_locale_from("ja_JP", "test", game), &why, &proven);
+        CHECK(l == "eng_us" && has(why, "not in the game's locale table"), "unknown Locale: " + why);
+        // the manual override wins over the registry and the hint
+        LauncherHint h;
+        h.lang = "dut_nl";
+        h.stamp = "2026-10-19 16:20:00";
+        h.pack_live = true;
+        l = detect_commentary_language("ita_it", "", "", "", "", fr, &why, &proven, &h);
+        CHECK(l == "ita_it" && proven && has(why, "MANUAL OVERRIDE"), "override wins: " + why);
+        // this session's runtime answer wins over the registry
+        l = detect_commentary_language("", "eng_us", "match 0.99", "", "", fr, &why, &proven);
+        CHECK(l == "eng_us" && proven && has(why, "running game"), "runtime wins: " + why);
+        // the launcher hint ranks above the registry; a hint the Locale cannot offer is named
+        l = detect_commentary_language("", "", "", "", "", fr, &why, &proven, &h);
+        CHECK(l == "dut_nl" && !proven && has(why, "launcher hint dut_nl") && has(why, "offers English + fre_fr only"), "hint above the registry: " + why);
+        // an earlier answer outside English + the Locale's language is dropped; English stays (the game offers it)
+        l = detect_commentary_language("", "", "", "dut_nl", "heard", fr, &why, &proven);
+        CHECK(l == "fre_fr" && !proven && has(why, "earlier answer dut_nl not used"), "stale a2 dropped: " + why);
+        l = detect_commentary_language("", "", "", "eng_us", "heard", fr, &why, &proven);
+        CHECK(l == "eng_us" && proven && has(why, "earlier session"), "a2 English kept: " + why);
+        l = detect_commentary_language("", "", "", "fre_fr", "heard", fr, &why, &proven);
+        CHECK(l == "fre_fr" && proven, "a2 = the Locale's language kept: " + why);
+        // no usable Locale: a2 is used as before
+        l = detect_commentary_language("", "", "", "dut_nl", "heard", de, &why, &proven);
+        CHECK(l == "dut_nl" && proven, "no usable Locale: a2 as before: " + why);
+        fs::remove_all(game);
+    });
+
+    run_case("registry Locale: Callnames::refresh end to end (packs from Data\\Win32 only, Locale with and without its pack, override)", [] {
+        const fs::path game = g_out / "locale_refresh_game";
+        const fs::path le = g_out / "locale_refresh_le";
+        fs::remove_all(game);
+        fs::remove_all(le);
+        fs::create_directories(le / "turbo_output");
+        make_live_pack(game, "fre_fr");
+        // the backup store holds dut_nl: never read, never listed
+        fs::create_directories(game / "commentary" / "commentaryfull_dut_nl");
+        { std::ofstream(game / "commentary" / "commentaryfull_dut_nl.toc") << std::string(20000, 'x'); }
+        { std::ofstream(game / "commentary" / "commentaryfull_dut_nl" / "cas_01.cas") << "data"; }
+        std::string loc = "fr_FR";
+        turbo::locale_reader_for_tests() = [&loc](std::string* w) {
+            if (w) *w = "test registry " + loc;
+            return loc;
+        };
+        turbo::Callnames cn;
+        cn.refresh(le, game, "");
+        CHECK(cn.packs.size() == 1 && cn.packs[0].code == "fre_fr", "packs: Data\\Win32 only");
+        CHECK(cn.pack_data == "Data\\Win32 commentaryfull_fre_fr" && has(cn.log_line(), "[pack data: Data\\Win32 commentaryfull_fre_fr]"),
+              "data source: no backup copy -> Data\\Win32: " + cn.log_line());
+        CHECK(cn.lang == "fre_fr" && !cn.lang_proven && cn.log_line().rfind("callnames: language fre_fr (registry Locale fr_FR, pack present", 0) == 0,
+              "Locale fr_FR with its pack: " + cn.log_line());
+        loc = "nl_NL";  // dut_nl only in the backup store
+        cn.refresh(le, game, "");
+        CHECK(cn.lang == "eng_us" && !cn.lang_proven && has(cn.lang_why, "nl_NL -> dut_nl, its pack is not live"), "Locale without its pack: " + cn.log_line());
+        cn.refresh(le, game, "dut_nl");
+        CHECK(cn.lang == "dut_nl" && cn.lang_proven && has(cn.lang_why, "MANUAL OVERRIDE"), "override wins: " + cn.log_line());
+        CHECK(cn.pack_data == "backup store <game>\\commentary\\commentaryfull_dut_nl", "data source: the backup store: " + cn.pack_data);
+        // fre_fr in both places: the decision is the Locale's, the data comes from the backup store first
+        loc = "fr_FR";
+        fs::create_directories(game / "commentary" / "commentaryfull_fre_fr");
+        { std::ofstream(game / "commentary" / "commentaryfull_fre_fr.toc") << std::string(20000, 'x'); }
+        { std::ofstream(game / "commentary" / "commentaryfull_fre_fr" / "cas_01.cas") << "data"; }
+        cn.refresh(le, game, "");
+        CHECK(cn.lang == "fre_fr" && cn.log_line().rfind("callnames: language fre_fr (registry Locale fr_FR, pack present", 0) == 0 &&
+                  has(cn.log_line(), "[pack data: backup store <game>\\commentary\\commentaryfull_fre_fr]"),
+              "decision source + data source both named: " + cn.log_line());
+        // a stub toc or an empty cas in the backup store is not a data source
+        { std::ofstream(game / "commentary" / "commentaryfull_fre_fr" / "cas_01.cas", std::ios::trunc); }
+        CHECK(turbo::pack_data_source(game, "fre_fr") == "Data\\Win32 commentaryfull_fre_fr", "empty backup cas: Data\\Win32");
+        CHECK(turbo::pack_data_source(game, "ger_de").rfind("none", 0) == 0 && turbo::pack_data_source(fs::path(), "fre_fr").rfind("none", 0) == 0 &&
+                  turbo::pack_data_source(game, "../x").rfind("none", 0) == 0,
+              "no pack / no game / bad code: none");
+        turbo::locale_reader_for_tests() = test_locale_it;
+        fs::remove_all(game);
+        fs::remove_all(le);
     });
 }
 

@@ -11,8 +11,7 @@ static void test_lang_detect() {
     fs::create_directories(le / "turbo" / "callnames");
     fs::create_directories(le / "turbo_output");
     const fs::path game = le / "game";
-    fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
-    fs::create_directories(game / "Data" / "Win32");
+    make_live_pack(game, "ita_it");
     { std::ofstream(game / "Data" / "Win32" / "commentaryfull_eng_us.toc") << "x"; }
 
     // two synthetic banks: ita 900001..900100, eng 900051..900250 (50 ids shared)
@@ -27,17 +26,17 @@ static void test_lang_detect() {
     write_list("ita_it", ita);
     write_list("eng_us", eng);
 
-    run_case("Language: detection order override > runtime > packs > eng_us, each with a reason", [&] {
-        std::vector<CommentaryPack> packs = {{"eng_us", false}, {"ita_it", true}};
+    run_case("Language: detection order override > runtime > registry Locale > eng_us, each with a reason", [&] {
+        const RegistryLocale reg = registry_locale_from("it_IT", "test", game);
         std::string why;
-        CHECK(detect_commentary_language("SPA_ES", "eng_us", "x", "", "", packs, &why) == "spa_es" && why.find("MANUAL OVERRIDE") != std::string::npos,
+        CHECK(detect_commentary_language("SPA_ES", "eng_us", "x", "", "", reg, &why) == "spa_es" && why.find("MANUAL OVERRIDE") != std::string::npos,
               "override wins and says so: " + why);
-        CHECK(detect_commentary_language("", "eng_us", "match 0.9", "", "", packs, &why) == "eng_us" && why.find("running game") != std::string::npos,
-              "runtime evidence beats the packs: " + why);
-        CHECK(detect_commentary_language("", "", "", "", "", packs, &why) == "ita_it" && why.find("installed packs") != std::string::npos &&
+        CHECK(detect_commentary_language("", "eng_us", "match 0.9", "", "", reg, &why) == "eng_us" && why.find("running game") != std::string::npos,
+              "runtime evidence beats the registry: " + why);
+        CHECK(detect_commentary_language("", "", "", "", "", reg, &why) == "ita_it" && why.find("registry Locale it_IT, pack present") == 0 &&
                   why.find("settings file: not read") != std::string::npos,
-              "no runtime evidence: the downloaded pack: " + why);
-        CHECK(detect_commentary_language("", "", "", "", "", {}, &why) == "eng_us" && why.find("base game") != std::string::npos, "nothing: eng_us: " + why);
+              "no runtime evidence: the registry Locale with its pack: " + why);
+        CHECK(detect_commentary_language("", "", "", "", "", RegistryLocale{}, &why) == "eng_us" && why.find("base game") != std::string::npos, "nothing: eng_us: " + why);
     });
 
     run_case("Language: runtime match picks the clear winner, else unknown", [&] {
@@ -181,12 +180,12 @@ static void test_lang_detect() {
         c.game_build = "B2";
         c.refresh(le, game, "");
         CHECK(c.lang == "ita_it" && !c.lang_proven && c.lang_why.find("build B1") != std::string::npos, "other build: not used: " + c.lang_why);
-        fs::create_directories(game / "commentary" / "commentaryfull_spa_es");
+        make_live_pack(game, "spa_es");
         Callnames d;  // other packs
         d.game_build = "B1";
         d.refresh(le, game, "");
         CHECK(!d.lang_proven && d.lang_why.find("other commentary packs") != std::string::npos, "other packs: not used: " + d.lang_why);
-        fs::remove_all(game / "commentary" / "commentaryfull_spa_es");
+        remove_live_pack(game, "spa_es");
         Callnames o;
         o.refresh(le, game, "spa_es");
         CHECK(o.lang_proven, "a manual override counts as proven (the user's choice)");

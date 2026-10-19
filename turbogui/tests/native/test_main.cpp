@@ -261,6 +261,25 @@ static json read_json(const fs::path& p) { return json::parse(read_file(p)); }
 static fs::path g_out;
 static std::string g_lua;
 
+// 2.21 CHANGE 8: a commentary pack the game plays from, as the pack test sees it: <game>\Data\Win32\commentaryfull_<lang>.toc above
+// stub size + a non-empty superbundlelayout\commentaryfull_<lang>\cas_01.cas (<game>\commentary is never read)
+static void make_live_pack(const fs::path& game, const std::string& lang) {
+    const fs::path w32 = game / "Data" / "Win32";
+    fs::create_directories(w32 / "superbundlelayout" / ("commentaryfull_" + lang));
+    { std::ofstream((w32 / ("commentaryfull_" + lang + ".toc")).string(), std::ios::binary | std::ios::trunc) << std::string(20000, 'x'); }
+    { std::ofstream((w32 / "superbundlelayout" / ("commentaryfull_" + lang) / "cas_01.cas").string(), std::ios::binary | std::ios::trunc) << "data"; }
+}
+static void remove_live_pack(const fs::path& game, const std::string& lang) {
+    std::error_code ec;
+    fs::remove(game / "Data" / "Win32" / ("commentaryfull_" + lang + ".toc"), ec);
+    fs::remove_all(game / "Data" / "Win32" / "superbundlelayout" / ("commentaryfull_" + lang), ec);
+}
+// The suite's registry Locale (never the real registry): it_IT, the fake game's language
+static std::string test_locale_it(std::string* why) {
+    if (why) *why = "test registry it_IT";
+    return "it_IT";
+}
+
 // A scratch folder for one case, inside this run's output folder: never the shared %TEMP%, where two runs at once (two
 // worktrees, or one worktree with two output folders) would clear and fill each other's files
 static fs::path test_tmp_dir(const char* name) { return g_out / "tmp" / name; }
@@ -594,24 +613,19 @@ static void test_core() {
     // ---- callnames (core/callnames.h): language packs on disk, the spoken-id list, the game rule, the pickers' index
     run_case("callnames: language packs, spoken list, resolution rule, index", [&] {
         fs::path game = g_out / "fakegame";
-        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
-        fs::create_directories(game / "commentary" / "commentarylaunch_ita_it");
-        std::ofstream((game / "commentary" / "commentaryfull_ita_it.toc").string()) << "x";
-        std::ofstream((game / "commentary" / "commentarylaunch_ita_it.toc").string()) << "x";
-        fs::create_directories(game / "Data" / "Win32");
-        std::ofstream((game / "Data" / "Win32" / "commentaryfull_eng_us.toc").string()) << "x";
+        // the backup store (<game>\commentary) holds a full spa_es pack: never read (2.21 CHANGE 8)
+        fs::create_directories(game / "commentary" / "commentaryfull_spa_es");
+        std::ofstream((game / "commentary" / "commentaryfull_spa_es.toc").string()) << std::string(20000, 'x');
+        std::ofstream((game / "commentary" / "commentaryfull_spa_es" / "cas_01.cas").string()) << "data";
+        make_live_pack(game, "ita_it");
+        std::ofstream((game / "Data" / "Win32" / "commentaryfull_eng_us.toc").string()) << "x";  // a 1 B toc: a stub, not live
         std::ofstream((game / "Data" / "Win32" / "commentarywc_por_br.toc").string()) << "x";   // World Cup banks: not a language pack
         std::ofstream((game / "Data" / "Win32" / "commentarylicensed_eng_us.toc").string()) << "x";
         auto packs = installed_commentary_packs(game);
-        CHECK(packs.size() == 2 && packs[0].code == "eng_us" && !packs[0].downloaded && packs[1].code == "ita_it" && packs[1].downloaded,
-              fmt("packs found: %zu", packs.size()));
+        CHECK(packs.size() == 1 && packs[0].code == "ita_it", fmt("live packs in Data\\Win32 only: %zu", packs.size()));
         CHECK(installed_commentary_packs(g_out / "nowhere").empty() && installed_commentary_packs("").empty(), "no packs without a game folder");
-        std::string why;
-        CHECK(pick_commentary_language(packs, "", &why) == "ita_it" && why.find("downloaded") != std::string::npos, "auto: the downloaded language: " + why);
-        CHECK(pick_commentary_language(packs, "ENG_US", &why) == "eng_us" && why.find("chosen") != std::string::npos, "chosen language (any case): " + why);
-        CHECK(pick_commentary_language(packs, "por_br", &why) == "ita_it" && why.find("not installed") != std::string::npos, "unknown choice falls back: " + why);
-        CHECK(pick_commentary_language({{"eng_us", false}}, "", &why) == "eng_us", "base game only -> eng_us");
-        CHECK(pick_commentary_language({}, "", &why).empty() && why.find("no commentary language pack") != std::string::npos, "no packs");
+        CHECK(packs_fingerprint({{"ita_it"}, {"eng_us"}}) == "eng_us,ita_it", "fingerprint: codes, sorted");
+        fs::remove_all(game / "commentary");
         CHECK(commentary_language_log_line("ita_it", "the one commentary language downloaded") ==
                   "callnames: language ita_it (the one commentary language downloaded)" &&
                   commentary_language_log_line("", "no commentary language pack found") == "callnames: language none (no commentary language pack found)",
@@ -1484,7 +1498,7 @@ static void test_core() {
         // (b) an unbound result is never cached: to_capture keeps ok = false, apply_capture refuses it, no file appears
         fs::path game = g_out / "fakegame";
         fs::path lroot = g_out / "LE_probe";
-        fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
+        make_live_pack(game, "ita_it");
         fs::path cpath = spoken_cache_path(lroot, "ita_it");
         fs::remove(cpath);
         Callnames cn;
@@ -7230,8 +7244,7 @@ static void test_ui() {
         });
         run_case("UI: Players > Callname: language, current callname, pickers, name and player assignment", [&] {
             fs::path game = g_out / "fakegame";
-            fs::create_directories(game / "commentary" / "commentaryfull_ita_it");
-            fs::create_directories(game / "Data" / "Win32");
+            make_live_pack(game, "ita_it");
             std::ofstream((game / "Data" / "Win32" / "commentaryfull_eng_us.toc").string()) << "x";
             fs::create_directories(le / "turbo" / "callnames");
             std::ofstream((le / "turbo" / "callnames" / "spoken_ita_it.txt").string())
@@ -7536,7 +7549,7 @@ static void test_ui() {
             app.gui_settings["callnames"]["language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
             CHECK(ui.click("Refresh##cn"), "refresh");
-            CHECK(app.callnames.lang == "ita_it" && app.callnames.lang_why.find("installed packs") != std::string::npos, "old key ignored: " + app.callnames.lang_why);
+            CHECK(app.callnames.lang == "ita_it" && app.callnames.lang_why.find("registry Locale it_IT, pack present") != std::string::npos, "old key ignored: " + app.callnames.lang_why);
             app.gui_settings["callnames"].erase("language");
             app.gui_settings["callnames"]["override_language"] = "eng_us";
             CHECK(app.save_gui_settings(), "save");
@@ -15506,6 +15519,7 @@ int main(int argc, char** argv) {
     }
     g_out = argv[1];
     g_lua = argv[2];
+    turbo::locale_reader_for_tests() = test_locale_it;  // 2.21 CHANGE 8: the native suite never reads the real registry
     std::printf("native core\n");
     test_core();
     test_field_labels();

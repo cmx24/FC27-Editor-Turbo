@@ -47,68 +47,20 @@ static std::string pack_code(const std::string& file_name, bool toc) {
 std::vector<CommentaryPack> installed_commentary_packs(const fs::path& game_root) {
     std::vector<CommentaryPack> out;
     if (game_root.empty()) return out;
-    auto add = [&](const std::string& code, bool downloaded) {
-        for (auto& p : out)
-            if (p.code == code) {
-                p.downloaded = p.downloaded || downloaded;
-                return;
-            }
-        out.push_back({code, downloaded});
-    };
+    // 2.21 CHANGE 8: only the packs the game plays from, <game>\Data\Win32 (toc above stub size + a non-empty full cas);
+    // <game>\commentary is Cassio's backup store and is never read
     std::error_code ec;
-    // languages the user added: <game>\commentary\commentaryfull_<lang>\ (folder with cas files) + .toc beside it
-    for (const auto& e : fs::directory_iterator(game_root / "commentary", ec)) {
-        std::string code = pack_code(e.path().filename().string(), !e.is_directory(ec));
-        if (!code.empty()) add(code, true);
-    }
-    // the base game data: <game>\Data\Win32\commentaryfull_<lang>.toc
     for (const auto& e : fs::directory_iterator(game_root / "Data" / "Win32", ec)) {
-        std::string code = pack_code(e.path().filename().string(), !e.is_directory(ec));
-        if (!code.empty()) add(code, false);
+        std::error_code fec;
+        if (e.is_directory(fec)) continue;
+        const std::string code = pack_code(e.path().filename().string(), true);
+        if (code.empty() || !launcher_pack_live(game_root, code, nullptr)) continue;
+        bool dup = false;
+        for (const auto& p : out) dup = dup || p.code == code;
+        if (!dup) out.push_back({code});
     }
     std::sort(out.begin(), out.end(), [](const CommentaryPack& a, const CommentaryPack& b) { return a.code < b.code; });
     return out;
-}
-
-std::string pick_commentary_language(const std::vector<CommentaryPack>& packs, const std::string& chosen, std::string* why) {
-    std::string note;
-    auto set_why = [&](const std::string& s) { if (why) *why = note + s; };
-    std::string want = lower(chosen);
-    if (packs.empty()) {
-        if (!want.empty()) {
-            set_why("chosen in Turbo's settings");
-            return want;
-        }
-        set_why("no commentary language pack found in the game folder");
-        return "";
-    }
-    if (!want.empty()) {
-        for (const auto& p : packs)
-            if (p.code == want) {
-                set_why("chosen in Turbo's settings");
-                return p.code;
-            }
-        note = "'" + chosen + "' is not installed; detected instead: ";
-    }
-    std::vector<const CommentaryPack*> downloaded;
-    for (const auto& p : packs)
-        if (p.downloaded) downloaded.push_back(&p);
-    if (downloaded.size() == 1) {
-        set_why("the one commentary language downloaded into <game>\\commentary (the game downloads the language picked "
-                "in its audio settings)");
-        return downloaded[0]->code;
-    }
-    if (downloaded.size() > 1) {
-        set_why("several downloaded languages: pick the one the game uses");
-        return downloaded[0]->code;
-    }
-    for (const auto& p : packs)
-        if (p.code == "eng_us") {
-            set_why("no downloaded language: the base game's English commentary");
-            return p.code;
-        }
-    set_why("the only language pack found");
-    return packs[0].code;
 }
 
 std::string commentary_language_log_line(const std::string& lang, const std::string& why) {
@@ -165,7 +117,7 @@ LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spok
 }
 
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
-                                       const std::string& saved_lang, const std::string& saved_why, const std::vector<CommentaryPack>& packs,
+                                       const std::string& saved_lang_in, const std::string& saved_why, const RegistryLocale& reg,
                                        std::string* why, bool* proven, const LauncherHint* hint) {
     auto set = [&](const std::string& s) { if (why) *why = s; };
     if (proven) *proven = true;
@@ -184,6 +136,15 @@ std::string detect_commentary_language(const std::string& override_lang, const s
         return lower(runtime_lang);
     }
     std::string pre = runtime_why.empty() ? std::string("no runtime evidence yet") : "runtime: " + runtime_why;
+    // 2.21 CHANGE 8: with a usable registry Locale the game offers English + that Locale's language only (PLAN H.1 (b));
+    // an earlier answer outside those two was heard under another Locale and is not used
+    auto offered = [&](const std::string& l) { return !reg.usable() || l == "eng_us" || l == reg.lang; };
+    const std::string offer_note = reg.usable() ? "the registry Locale " + reg.locale + " offers English + " + reg.lang + " only" : std::string();
+    std::string saved_lang = lower(saved_lang_in);
+    if (!saved_lang.empty() && !offered(saved_lang)) {
+        pre += "; earlier answer " + saved_lang + " not used: " + offer_note;
+        saved_lang.clear();
+    }
     // 2.21 launcher hint: after this session's runtime answer, before an earlier session's saved answer heard before it
     std::string hint_note;  // why the hint was not used ("" = no hint / used)
     if (!hl.empty()) {
@@ -203,28 +164,124 @@ std::string detect_commentary_language(const std::string& override_lang, const s
             if (proven) *proven = false;
             set("launcher hint " + hl + " (picked in the launcher" + (hs.empty() ? std::string() : " " + hs) +
                 "; its pack is live in Data\\Win32); NOT PROVEN (automatic callname writes wait for the running game's answer); " + pre +
-                (saved_lang.empty() ? std::string() : "; earlier answer " + lower(saved_lang) + " heard " + (sw.empty() ? "undated" : sw) + " not used"));
+                (saved_lang.empty() ? std::string() : "; earlier answer " + saved_lang + " heard " + (sw.empty() ? "undated" : sw) + " not used") +
+                (offered(hl) ? std::string() : " [" + offer_note + "]"));
             return hl;
         }
     }
     if (!hint_note.empty()) pre += "; " + hint_note;
     if (!saved_lang.empty()) {
         set("heard in an earlier session (" + saved_why + "); " + pre);
-        return lower(saved_lang);
+        return saved_lang;
     }
     if (proven) *proven = false;
     pre += "; " + (saved_why.empty() ? std::string("no saved answer") : "saved answer not used: " + saved_why);
-    pre += "; game settings file: not read (field not proven); NOT PROVEN (automatic callname writes wait); ";
-    if (!packs.empty()) {
-        std::string w;
-        std::string l = pick_commentary_language(packs, "", &w);
-        if (!l.empty()) {
-            set(pre + "installed packs: " + w);
-            return l;
+    pre += "; game settings file: not read (field not proven); NOT PROVEN (automatic callname writes wait)";
+    // step c: the registry Locale, its pack live in Data\Win32
+    if (reg.usable()) {
+        set("registry Locale " + reg.locale + ", pack present (" + reg.pack_why + "; " + reg.read_why + "); the game offers English + " + reg.lang +
+            ", the in-game Audio setting picks one; " + pre);
+        return reg.lang;
+    }
+    std::string rn;
+    if (reg.locale.empty())
+        rn = "registry Locale not read: " + (reg.read_why.empty() ? std::string("not found") : reg.read_why);
+    else if (reg.lang.empty())
+        rn = "registry Locale " + reg.locale + " is not in the game's locale table";
+    else
+        rn = "registry Locale " + reg.locale + " -> " + reg.lang + ", its pack is not live in Data\\Win32 (" + reg.pack_why + ")";
+    set("eng_us, the base game's language (" + rn + "); " + pre);
+    return "eng_us";
+}
+
+std::string commentary_lang_for_locale(const std::string& locale) {
+    std::string l = lower(locale);
+    for (auto& c : l)
+        if (c == '-') c = '_';
+    // FC27.exe locale table @0xa8ba164 (PLAN H.1 item 4): one commentary code per locale; eng,us is the base
+    static const std::pair<const char*, const char*> kTable[] = {{"nl_nl", "dut_nl"}, {"it_it", "ita_it"}, {"fr_fr", "fre_fr"}, {"de_de", "ger_de"},
+                                                                 {"pt_br", "por_br"}, {"es_es", "spa_es"}, {"en_us", "eng_us"}, {"en_gb", "eng_us"}};
+    for (const auto& kv : kTable)
+        if (l == kv.first) return kv.second;
+    return "";
+}
+
+std::string read_registry_locale(std::string* why) {
+#ifdef _WIN32
+    // read-only: KEY_QUERY_VALUE, nothing is ever written
+    auto read_view = [](REGSAM view, std::string& out) -> LONG {
+        HKEY h = nullptr;
+        LONG rc = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\EA Sports\\EA SPORTS FC 27", 0, KEY_QUERY_VALUE | view, &h);
+        if (rc != ERROR_SUCCESS) return rc;
+        wchar_t buf[64] = {};
+        DWORD type = 0, size = sizeof(buf) - sizeof(wchar_t);
+        rc = RegQueryValueExW(h, L"Locale", nullptr, &type, reinterpret_cast<BYTE*>(buf), &size);
+        RegCloseKey(h);
+        if (rc != ERROR_SUCCESS) return rc;
+        if (type != REG_SZ && type != REG_EXPAND_SZ) return ERROR_INVALID_DATA;
+        out.clear();
+        for (size_t i = 0; i < size / sizeof(wchar_t) && buf[i]; ++i) {
+            if (buf[i] > 127) return ERROR_INVALID_DATA;
+            out += static_cast<char>(buf[i]);
+        }
+        return out.empty() ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    };
+    std::string v64, v32;
+    const LONG r64 = read_view(KEY_WOW64_64KEY, v64), r32 = read_view(KEY_WOW64_32KEY, v32);
+    const std::string key = "HKLM\\SOFTWARE\\EA Sports\\EA SPORTS FC 27 Locale";
+    if (r64 == ERROR_SUCCESS) {
+        if (why)
+            *why = key + " " + v64 +
+                   (r32 != ERROR_SUCCESS ? std::string(" (64-bit view; 32-bit view: none)")
+                                         : v32 == v64 ? std::string(" (both views)") : " (64-bit view; the 32-bit view says " + v32 + ")");
+        return v64;
+    }
+    if (r32 == ERROR_SUCCESS) {
+        if (why) *why = key + " " + v32 + " (32-bit view only)";
+        return v32;
+    }
+    if (why) *why = key + ": not found (codes " + std::to_string(r64) + "/" + std::to_string(r32) + ")";
+    return "";
+#else
+    if (why) *why = "no registry on this platform";
+    return "";
+#endif
+}
+
+std::string pack_data_source(const fs::path& game_root, const std::string& lang) {
+    const std::string l = lower(lang);
+    if (game_root.empty()) return "none (game folder unknown)";
+    if (!language_code_ok(l)) return "none (not a language code)";
+    std::error_code ec;
+    const std::string name = std::string(kPackPrefix) + l;
+    // 1. Cassio's backup store: toc above stub size + a non-empty cas in the folder named like the toc
+    const fs::path btoc = game_root / "commentary" / (name + ".toc");
+    if (fs::is_regular_file(btoc, ec) && fs::file_size(btoc, ec) >= kLiveTocMin && !ec) {
+        for (const auto& e : fs::directory_iterator(game_root / "commentary" / name, ec)) {
+            std::error_code fec;
+            const std::string n = lower(e.path().filename().string());
+            if (n.rfind("cas_", 0) == 0 && n.size() >= 8 && n.compare(n.size() - 4, 4, ".cas") == 0 && e.is_regular_file(fec) && e.file_size(fec) > 0 && !fec)
+                return "backup store <game>\\commentary\\" + name;
         }
     }
-    set(pre + "no commentary pack found: eng_us, the base game's language");
-    return "eng_us";
+    // 2. the live pack the game plays from
+    std::string why;
+    if (launcher_pack_live(game_root, l, &why)) return "Data\\Win32 " + name;
+    return "none (no full pack for " + l + " in <game>\\commentary or Data\\Win32)";
+}
+
+LocaleReader& locale_reader_for_tests() {
+    static LocaleReader r;
+    return r;
+}
+
+RegistryLocale registry_locale_from(const std::string& locale, const std::string& read_why, const fs::path& game_root) {
+    RegistryLocale r;
+    r.locale = locale;
+    r.read_why = read_why;
+    r.lang = commentary_lang_for_locale(locale);
+    if (!r.lang.empty()) r.pack_live = launcher_pack_live(game_root, r.lang, &r.pack_why);
+    return r;
 }
 
 fs::path lang_detect_off_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames_lang_detect_off.txt"; }
@@ -284,7 +341,7 @@ fs::path loaded_language_path(const fs::path& le_root) { return le_root / "turbo
 
 std::string packs_fingerprint(const std::vector<CommentaryPack>& packs) {
     std::vector<std::string> v;
-    for (const auto& p : packs) v.push_back(lower(p.code) + (p.downloaded ? "*" : ""));
+    for (const auto& p : packs) v.push_back(lower(p.code));
     std::sort(v.begin(), v.end());
     std::string out;
     for (const auto& x : v) out += (out.empty() ? "" : ",") + x;
@@ -680,20 +737,30 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     launcher_hint.pack_live = false;
     launcher_hint.pack_why.clear();
     if (!launcher_hint.lang.empty()) launcher_hint.pack_live = launcher_pack_live(game_root, launcher_hint.lang, &launcher_hint.pack_why);
+    // 2.21 CHANGE 8: step c, the registry Locale (read-only), its pack checked in Data\Win32 only
+    {
+        std::string rw;
+        const LocaleReader& tr = locale_reader_for_tests();
+        const std::string loc = tr ? tr(&rw) : read_registry_locale(&rw);
+        reg_locale = registry_locale_from(loc, rw, game_root);
+    }
     lang_proven = false;
     if (no_game_root && override_lang.empty() && runtime_lang.empty()) {
         lang.clear();  // no game: nothing to detect (tests, a host without the game folder)
         lang_why = "game folder unknown: no commentary language detected";
     } else {
-        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, packs, &lang_why, &lang_proven,
+        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, reg_locale, &lang_why, &lang_proven,
                                           launcher_hint.lang.empty() ? nullptr : &launcher_hint);
-        // with the kill switch the packs decide as before the runtime check (the user turned it off)
+        // with the kill switch the registry Locale / eng_us answer is taken as before the runtime check (the user turned it off)
         // (never a launcher-hint answer: the hint is intent, not evidence; 2.21 CHANGE 7)
         if (!lang_proven && runtime_off && lang_why.rfind("launcher hint ", 0) != 0) {
             lang_proven = true;
-            lang_why += " [runtime detection off: the packs' answer is used as before]";
+            lang_why += " [runtime detection off: this answer is used as before]";
         }
     }
+    // the data source of the active language's pack (backup store first, then Data\Win32): named, never the decision
+    pack_data = lang.empty() ? std::string() : pack_data_source(game_root, lang);
+    if (!pack_data.empty()) lang_why += " [pack data: " + pack_data + "]";
     spoken = SpokenSet{};
     list_error.clear();
     list_path.clear();
