@@ -131,16 +131,110 @@ def main():
             os.makedirs(os.path.dirname(p), exist_ok=True)
             open(p, "wb").close()
             return p
-        patch_full = touch("Patch", "Win32", "commentaryfull_eng_us.toc")
-        touch("Data", "Win32", "commentaryfull_eng_us.toc")
-        data_lic = touch("Data", "Win32", "commentarylicensed_eng_us.toc")
-        dl_launch = touch("commentary", "commentarylaunch_eng_us.toc")
-        touch("commentary", "commentaryfull_ita_it.toc")
-        data_it = touch("Data", "Win32", "commentaryfull_ita_it.toc")
-        check("find_tocs: one toc per kind, Patch over Data over the downloaded folder",
-              fc.find_tocs(g, "eng_us") == [patch_full, dl_launch, data_lic])
-        check("find_tocs: the downloaded copy of a Win32 pack is not read twice", fc.find_tocs(g, "ita_it") == [data_it])
-        check("find_tocs: a language without packs gives nothing", fc.find_tocs(g, "fre_fr") == [])
+        def put(*parts, size=1):
+            p = os.path.join(g, *parts)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.write(b"x" * size)
+            return p
+
+        def live_pack(lang, root="Data", full=5000, launch=900, cas=1, kinds=("full", "launch")):
+            """A live pack in <root>\\Win32: tocs, superbundlelayout\\commentaryfull_<lang>\\cas_NN.cas."""
+            out = {}
+            if "full" in kinds:
+                out["full"] = put(root, "Win32", "commentaryfull_%s.toc" % lang, size=full)
+                for i in range(1, cas + 1):
+                    put(root, "Win32", "superbundlelayout", "commentaryfull_%s" % lang, "cas_%02d.cas" % i, size=64)
+            if "launch" in kinds:
+                out["launch"] = put(root, "Win32", "commentarylaunch_%s.toc" % lang, size=launch)
+            return out
+
+        def backup_pack(lang, size=5000, kinds=("full", "launch"), cas=True):
+            out = {}
+            for k in kinds:
+                out[k] = put("commentary", "commentary%s_%s.toc" % (k, lang), size=size)
+                if cas:
+                    put("commentary", "commentary%s_%s" % (k, lang), "cas_01.cas", size=64)
+            return out
+
+        # live only: installed, bytes from the live copy
+        live_pack("eng_us")
+        put("Patch", "Win32", "commentarylicensed_eng_us.toc", size=300)
+        eng = fc.pack_data_source(g, "eng_us")
+        check("pack_data_source: live only -> installed, source live, tocs Data full + launch + Patch licensed",
+              eng["installed"] and eng["source"] == "live" and not eng["backup_only"] and eng["tocs"] == [
+                  os.path.join(g, "Data", "Win32", "commentaryfull_eng_us.toc"),
+                  os.path.join(g, "Data", "Win32", "commentarylaunch_eng_us.toc"),
+                  os.path.join(g, "Patch", "Win32", "commentarylicensed_eng_us.toc")])
+        patch_launch = put("Patch", "Win32", "commentarylaunch_eng_us.toc", size=3)
+        check("find_tocs: Patch over Data for the live copy", fc.find_tocs(g, "eng_us")[1] == patch_launch)
+        os.remove(patch_launch)
+        # backup only: NOT installed, bytes unused, never listed
+        backup_pack("fre_fr")
+        fre = fc.pack_data_source(g, "fre_fr")
+        check("pack_data_source: backup only -> NOT installed, no tocs, backup_only",
+              not fre["installed"] and fre["backup_only"] and fre["tocs"] == [] and fre["source"] is None)
+        check("find_tocs: backup only gives nothing", fc.find_tocs(g, "fre_fr") == [])
+        check("installed_languages: a backup-only language is not listed", fc.installed_languages(g) == ["eng_us"])
+        # both: installed, bytes from the backup
+        live_pack("ita_it")
+        bk = backup_pack("ita_it")
+        ita = fc.pack_data_source(g, "ita_it")
+        check("pack_data_source: both -> installed, source backup, tocs the backup's",
+              ita["installed"] and ita["source"] == "backup" and ita["kinds"] == {"commentaryfull": "backup",
+                                                                                  "commentarylaunch": "backup"}
+              and ita["tocs"] == [bk["full"], bk["launch"]])
+        check("find_tocs: both -> the backup tocs; their cas = the folder named like the toc (resolver)",
+              fc.find_tocs(g, "ita_it") == [bk["full"], bk["launch"]] and fc.make_resolver(None)(
+                  bk["full"], "0000000000010001") == os.path.join(g, "commentary", "commentaryfull_ita_it", "cas_01.cas"))
+        # both, but the backup has no cas folder for one kind -> that kind falls back to live (mixed source, named)
+        live_pack("spa_es")
+        backup_pack("spa_es", kinds=("full",))
+        put("commentary", "commentarylaunch_spa_es.toc", size=900)        # toc but no cas folder: unreadable
+        spa = fc.pack_data_source(g, "spa_es")
+        check("pack_data_source: a backup toc without its cas folder is skipped (live for that kind), source backup+live",
+              spa["source"] == "backup+live" and spa["kinds"]["commentarylaunch"] == "live"
+              and spa["kinds"]["commentaryfull"] == "backup")
+        # neither
+        check("pack_data_source: neither -> not installed, not backup_only, no tocs",
+              fc.pack_data_source(g, "ger_de") == {"lang": "ger_de", "installed": False, "backup_only": False,
+                                                   "source": None, "kinds": {}, "tocs": [], "notes": []})
+        check("find_tocs: neither gives nothing; a bad language code gives nothing", fc.find_tocs(g, "ger_de") == []
+              and fc.find_tocs(g, "../x") == [] and not fc.is_installed(g, ""))
+        # the installed test is the apply script's step (a)
+        live_pack("dut_nl", full=262391, launch=923, cas=2)
+        put("Data", "Win32", "superbundlelayout", "commentarylaunch_dut_nl", "cas_01.cas", size=4096)
+        check("installed: Dutch (launch toc 923 B) is installed, no size floor on the launch side", fc.is_installed(g, "dut_nl"))
+        live_pack("por_br", full=4096)
+        check("installed: a full toc of exactly 4096 B (EA-app stub) is NOT installed", not fc.is_installed(g, "por_br"))
+        live_pack("pol_pl", cas=0)
+        check("installed: no cas under superbundlelayout\\commentaryfull_<lang> -> NOT installed",
+              not fc.is_installed(g, "pol_pl"))
+        put("Data", "Win32", "superbundlelayout", "commentaryfull_pol_pl", "cas_01.cas", size=0)
+        check("installed: only an empty cas -> NOT installed", not fc.is_installed(g, "pol_pl"))
+        live_pack("swe_se", kinds=("full",))
+        check("installed: no launch toc -> NOT installed", not fc.is_installed(g, "swe_se"))
+        live_pack("tur_tr", root="Patch")
+        check("installed: a pack live in Patch\\Win32 counts", fc.is_installed(g, "tur_tr"))
+        check("installed_languages: only the live ones, sorted; no stub, no backup-only",
+              fc.installed_languages(g) == ["dut_nl", "eng_us", "ita_it", "spa_es", "tur_tr"])
+        # Bank refuses a language that is not installed (before reading anything), naming the backup when it holds it
+        try:
+            fc.Bank(g, "fre_fr")
+            check("Bank: a backup-only language is refused", False)
+        except fc.FormatError as ex:
+            check("Bank: a backup-only language is refused, the error says a backup never makes it installed",
+                  "not installed" in str(ex) and "backup never makes" in str(ex))
+        # the language list does not change with the source; without the backup the live tocs are read
+        pre = fc.installed_languages(g)
+        os.remove(bk["full"])
+        os.remove(bk["launch"])
+        check("installed_languages: the same with or without the backup copy", fc.installed_languages(g) == pre)
+        check("find_tocs: backup gone -> the live tocs", [os.path.basename(p) for p in fc.find_tocs(g, "ita_it")]
+              == ["commentaryfull_ita_it.toc", "commentarylaunch_ita_it.toc"])
+        data_lic = os.path.join(g, "Patch", "Win32", "commentarylicensed_eng_us.toc")
+        data_it = os.path.join(g, "Data", "Win32", "commentaryfull_ita_it.toc")
+        dl_launch = os.path.join(g, "commentary", "commentarylaunch_eng_us.toc")
         lay = fc.Layout(g, datas={"Data": layout_bytes([("superbundlelayout/installpackage_licensed", 7)])})
         res = fc.make_resolver(lay)
         lic_cas = touch("Data", "Win32", "superbundlelayout", "installpackage_licensed", "cas_01.cas")

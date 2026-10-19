@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Extract the FC 27 commentary speech bank of one language from disk (track: commentary bank, docs/re/fc27-commentary-bank.md).
 
-What it gives, for every installed commentary pack of a language: the base-game packs (<game>\\Patch\\Win32 or
-<game>\\Data\\Win32\\commentary{full,launch,licensed}_<lang>.toc, cas files found through <game>\\{Data,Patch}\\layout.toc,
-e.g. Data\\Win32\\superbundlelayout\\commentaryfull_eng_us\\cas_01.cas) and the downloaded ones
-(<game>\\commentary\\commentaryfull_<lang>.toc + the folder named like the toc):
+What it gives, for every INSTALLED commentary pack of a language. Installed = the pack is live in <game>\\Data\\Win32 or
+<game>\\Patch\\Win32 (full toc > 4096 bytes, a non-empty superbundlelayout\\commentaryfull_<lang>\\cas_*.cas, the launch toc
+present: the launcher's apply-script test). Only that decides, lists and counts a language. The data source is separate:
+the bytes (toc parse, cas reads) come from the backup store <game>\\commentary (commentary{full,launch}_<lang>.toc + the
+folder named like the toc) FIRST when it holds the kind, else from the live copy
+(<game>\\{Patch,Data}\\Win32\\commentary{full,launch,licensed}_<lang>.toc, cas files found through
+<game>\\{Data,Patch}\\layout.toc, e.g. Data\\Win32\\superbundlelayout\\commentaryfull_eng_us\\cas_01.cas). A backup copy
+alone never makes a language installed. The source used is printed (data source: ...) and written to the bank json.
+
   * every row of the pSIMPLE_SURNAME selection data set: SegmentID, VariationId, surname_ID (= commentary id);
   * every row of pPLAYER_NAMES_SIMPLE (SegmentID, VariationId, player_db_pID = player id) and of pPLAYER_NAMES_LINK;
   * every row of pPLAYER_NAMES_HIGH, split by the selector each row is keyed by: player_db_pID -> real_high (player id),
@@ -29,6 +34,7 @@ so rows of different sets are never mixed. Every set is also read for its ids:
 
 usage: python fc27_commentary.py --lang ita_it [--game DIR] [--out FILE.json] [--wav DIR] [--ffmpeg EXE] [--list]
                                  [--team dr]
+       python fc27_commentary.py --languages [--game DIR]
        python fc27_commentary.py --self-test [--game DIR]
 
 The layers, all read from the game's files (nothing is guessed):
@@ -49,6 +55,7 @@ import argparse
 import concurrent.futures
 import ctypes
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -339,21 +346,110 @@ def make_resolver(layout):
 
 
 TOC_KINDS = ("commentaryfull", "commentarylaunch", "commentarylicensed")
+LANG_RE = re.compile(r"^[a-z]{3}_[a-z]{2}$")
+PACK_TOC_RE = re.compile(r"^commentary(?:full|launch)_([a-z]{3}_[a-z]{2})\.toc$", re.I)
+LIVE_ROOTS = ("Patch", "Data")          # <game>\<root>\Win32: the folders the game loads packs from
+BACKUP_DIR = "commentary"               # <game>\commentary: Cassio's backup store (flat: tocs at the root, cas in a folder
+                                        # named like the toc); a data source only, it never decides what is installed
+FULL_TOC_FLOOR = 4096                   # a full toc of 4096 bytes or less is an EA-app stub, not a pack
+
+
+def _nonempty(p):
+    try:
+        return os.path.getsize(p) > 0
+    except OSError:
+        return False
+
+
+def _has_cas(folder):
+    """True when the folder holds at least one non-empty cas_*.cas."""
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return False
+    return any(n.lower().startswith("cas_") and n.lower().endswith(".cas") and _nonempty(os.path.join(folder, n))
+               for n in names)
+
+
+def pack_live(game, lang, root):
+    """The language's pack is live in <game>\\<root>\\Win32: the launcher's apply-script test, step (a): the full toc is
+    bigger than 4096 bytes AND superbundlelayout\\commentaryfull_<lang> holds a non-empty cas_*.cas AND the launch toc is
+    present (no size floor on that side: Dutch's 923-byte toc and 4096-byte cas stub ARE its real launch pack)."""
+    w = os.path.join(game, root, "Win32")
+    try:
+        big = os.path.getsize(os.path.join(w, "commentaryfull_%s.toc" % lang)) > FULL_TOC_FLOOR
+    except OSError:
+        return False
+    return (big and _has_cas(os.path.join(w, "superbundlelayout", "commentaryfull_%s" % lang))
+            and os.path.isfile(os.path.join(w, "commentarylaunch_%s.toc" % lang)))
+
+
+def installed_languages(game):
+    """The commentary languages that are INSTALLED: the pack is live in Data\\Win32 or Patch\\Win32 (pack_live). Only those
+    two folders are looked at: the backup store <game>\\commentary never adds a language to this list."""
+    cands = set()
+    for root in LIVE_ROOTS:
+        try:
+            names = os.listdir(os.path.join(game, root, "Win32"))
+        except OSError:
+            continue
+        for n in names:
+            m = PACK_TOC_RE.match(n)
+            if m:
+                cands.add(m.group(1).lower())
+    return sorted(l for l in cands if any(pack_live(game, l, r) for r in LIVE_ROOTS))
+
+
+def is_installed(game, lang):
+    return bool(LANG_RE.match(lang or "")) and any(pack_live(game, lang, r) for r in LIVE_ROOTS)
+
+
+def backup_holds(game, lang, kind):
+    """The backup store's toc of that kind for the language when it can be read (toc not empty AND its cas folder, named
+    like the toc, holds a cas file), else None."""
+    toc = os.path.join(game, BACKUP_DIR, "%s_%s.toc" % (kind, lang))
+    if _nonempty(toc) and _has_cas(os.path.splitext(toc)[0]):
+        return toc
+    return None
+
+
+def pack_data_source(game, lang, use_backup=True):
+    """Where the BYTES of an installed language are read from, one toc per kind (full, launch, licensed):
+    the backup store <game>\\commentary first when it holds that kind (safe from EA-app cleanup), else the live copy
+    (<game>\\Patch\\Win32, then <game>\\Data\\Win32). use_backup=False reads the live copy only (to compare the two sources). A language that is not installed (installed_languages) has no
+    data source at all: a backup copy alone gives nothing ("tocs" empty, "backup_only" True). Result:
+      {"lang", "installed", "backup_only", "source": "backup" | "live" | "backup+live" | None,
+       "kinds": {kind: "backup" | "live"}, "tocs": [paths], "notes": [str]}"""
+    out = {"lang": lang, "installed": is_installed(game, lang), "backup_only": False, "source": None, "kinds": {},
+           "tocs": [], "notes": []}
+    if not out["installed"]:
+        out["backup_only"] = any(backup_holds(game, lang, k) for k in TOC_KINDS) if LANG_RE.match(lang or "") else False
+        return out
+    for kind in TOC_KINDS:
+        live = None
+        for root in LIVE_ROOTS:
+            p = os.path.join(game, root, "Win32", "%s_%s.toc" % (kind, lang))
+            if os.path.isfile(p):
+                live = p
+                break
+        bak = backup_holds(game, lang, kind) if use_backup else None
+        if bak:
+            out["tocs"].append(bak)
+            out["kinds"][kind] = "backup"
+            if live and os.path.getsize(live) != os.path.getsize(bak):
+                out["notes"].append("%s: backup toc is %d bytes, the live one %d (backup read first, as asked)" % (
+                    kind, os.path.getsize(bak), os.path.getsize(live)))
+        elif live:
+            out["tocs"].append(live)
+            out["kinds"][kind] = "live"
+    used = set(out["kinds"].values())
+    out["source"] = "+".join(s for s in ("backup", "live") if s in used) or None
+    return out
 
 
 def find_tocs(game, lang):
-    """The language's commentary tocs, one per kind (full, launch, licensed): <game>\\Patch\\Win32 first, then
-    <game>\\Data\\Win32, then the downloaded pack folder <game>\\commentary (the game keeps a second copy of a downloaded
-    pack there; it is read only when no Win32 toc of that kind exists, so nothing is counted twice)."""
-    out = []
-    for kind in TOC_KINDS:
-        for folder in (os.path.join(game, "Patch", "Win32"), os.path.join(game, "Data", "Win32"),
-                       os.path.join(game, "commentary")):
-            p = os.path.join(folder, "%s_%s.toc" % (kind, lang))
-            if os.path.isfile(p):
-                out.append(p)
-                break
-    return out
+    """The language's commentary tocs to read, one per kind: [] unless the language is installed, then pack_data_source's."""
+    return pack_data_source(game, lang)["tocs"]
 
 
 SET_RE = re.compile(r"^sound/speech/(?:loc)?commentary/([a-z]+_[a-z]+)/soundwaves/"
@@ -578,15 +674,24 @@ DEFAULT_TEAM = "dr"     # eng_us: Derek Rae, the team proved in game on 2026-10-
 
 
 class Bank:
+    data_source = None      # pack_data_source's answer when the tocs were found here (None: tocs passed in)
+
     def __init__(self, game, lang, team=None, tocs=None):
         self.game, self.lang = game, lang
+        if tocs is None:
+            self.data_source = pack_data_source(game, lang)
+            if not self.data_source["installed"]:
+                why = ("; the backup store %s\\commentary holds it, but a backup never makes a language installed" % game
+                       if self.data_source["backup_only"] else "")
+                raise FormatError("no commentary pack for %s: not installed (its pack is not live in %s\\Data\\Win32 or "
+                                  "%s\\Patch\\Win32)%s" % (lang, game, game, why))
+            tocs = self.data_source["tocs"]
         self.oodle = Oodle(game)
         self.layout = Layout(game)
         self.cas = CasReader(self.oodle, make_resolver(self.layout))
-        self.tocs = [Toc(p) for p in (tocs if tocs is not None else find_tocs(game, lang))]
+        self.tocs = [Toc(p) for p in tocs]
         if not self.tocs:
-            raise FormatError("no commentary pack for %s: no commentary{full,launch,licensed}_%s.toc in %s\\Patch\\Win32, "
-                              "%s\\Data\\Win32 or %s\\commentary" % (lang, lang, game, game, game))
+            raise FormatError("no commentary pack for %s: no commentary{full,launch,licensed}_%s.toc to read" % (lang, lang))
         self.assets = {}                  # name -> {"ebx": (toc path, loc), "res": (toc path, loc, meta)}
         for toc in self.tocs:
             for entries in toc.bundles:
@@ -1062,10 +1167,18 @@ def run(a, log=print):
     bank = Bank(a.game, a.lang, team=getattr(a, "team", None))
     try:
         if a.list:
+            if bank.data_source:                # stderr, so the family list on stdout is unchanged
+                print("data source: %s" % bank.data_source["source"], file=sys.stderr)
             for f in bank.families():
                 log(f)
             return 0
         result = {"turbo_bank": 1, "lang": a.lang, "game_build": game_build(a.game), "source_files": source_files(bank)}
+        ds = bank.data_source
+        if ds:
+            result["data_source"] = {"source": ds["source"], "kinds": ds["kinds"]}
+            log("data source: %s (%s)" % (ds["source"], ", ".join("%s %s" % (k, v) for k, v in ds["kinds"].items())))
+            for n in ds["notes"]:
+                log("note: " + n)
         log("sets: %s; primary: %s" % (", ".join(sorted(bank.sets)), bank.primary))
         notes, raw = [], {}
         for key, (family, selector, _prefix) in FAMILIES.items():
@@ -1232,10 +1345,22 @@ def self_test(game, log=print):
     check("ogg: pre-skip 312, total 1608, two header pages + one data page",
           total == 1608 and ogg.count(b"OggS") == 3 and struct.unpack_from("<H", ogg, 28 + 10)[0] == 312)
 
-    if game and any(os.path.basename(p).startswith("commentaryfull_") for p in find_tocs(game, "ita_it")):
+    if game and is_installed(game, "ita_it"):
         log("on disk (ita_it, %s):" % game)
         bank = Bank(game, "ita_it")
         try:
+            log("  data source: %s" % bank.data_source["source"])
+            if bank.data_source["source"] != "live":        # both copies on disk: the source must not change a list
+                live = Bank(game, "ita_it", tocs=pack_data_source(game, "ita_it", use_backup=False)["tocs"])
+                try:
+                    def lists(b):
+                        gen = merge_rows(selection_rows(b.load_family("psimple_surname"), "surname_ID"), "commentaryid")
+                        text = "\n".join(b.families()) + "\n" + json.dumps(gen, sort_keys=True)
+                        return hashlib.md5(text.encode()).hexdigest()
+                    check("backup copy and live copy give the same family list and generic rows (md5)",
+                          lists(bank) == lists(live))
+                finally:
+                    live.close()
             gen = merge_rows(selection_rows(bank.load_family("psimple_surname"), "surname_ID"), "commentaryid")
             by = {}
             for r in gen:
@@ -1292,12 +1417,20 @@ def main(argv=None):
                                          "(and generic_high when a HIGH row is keyed by surname_ID)")
     ap.add_argument("--ffmpeg", help="ffmpeg.exe to decode the Opus audio (default: the one on PATH)")
     ap.add_argument("--list", action="store_true", help="list the language's soundwave families and stop")
+    ap.add_argument("--languages", action="store_true",
+                    help="list the INSTALLED languages (pack live in Data/Win32 or Patch/Win32) with the data source "
+                         "the bytes would be read from (backup store first), and stop")
     ap.add_argument("--team", help="the commentary team of the primary set when the language has teams "
                                    "(eng_us: dr = Derek Rae, gm = Guy Mowbray; default %s)" % DEFAULT_TEAM)
     ap.add_argument("--self-test", action="store_true", help="run the built-in checks (and the ita_it ones on disk)")
     a = ap.parse_args(argv)
     if a.self_test:
         return self_test(a.game)
+    if a.languages:
+        for lang in installed_languages(a.game):
+            ds = pack_data_source(a.game, lang)
+            print("%s  %s" % (lang, ds["source"]))
+        return 0
     if not a.lang:
         ap.error("--lang is required")
     try:
