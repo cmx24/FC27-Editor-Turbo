@@ -25,6 +25,9 @@ namespace turbo {
 // last, with the 2.16 card page as its opt-in ("Card view (beta)", gui.player_card_view). Nothing is deleted; Settings > Use the old pages
 // still draws the old panel.
 static void draw_player_edit(App& app) {
+    // the Profile's "Open Team > Players" button goes to the new page. Set where the page is drawn (not at start-up) so that the Profile's own test, which draws
+    // it without the shell, still sees its default (the squad page)
+    profile_team_players_page() = shell::Page::TeamPlayers;
     if (!ImGui::BeginTabBar("##pe_tabs")) return;
     static int s_shown = -1;  // the tab the bar showed last frame; a different shell::player_edit_tab() (set by code) is selected once
     int& want = shell::player_edit_tab();
@@ -65,10 +68,9 @@ TURBO_REGISTER_NEW_PAGE(shell::Page::CreatePlayer, draw_player_creation);
 // Players > Bulk edit (2.20 ia-bulk): any field of many players at once. Advanced > Bulk edit (the old panel) stays registered as before.
 TURBO_REGISTER_NEW_PAGE(shell::Page::BulkEdit, draw_bulk_edit);
 
-// Team > Players and Team > Transfers (2.20 ia-team): the career side of a club. The Profile's "Open Team > Players" button goes to the first.
+// Team > Players and Team > Transfers (2.20 ia-team): the career side of a club. The Profile's "Open Team > Players" button is pointed at the first in draw_player_edit.
 TURBO_REGISTER_NEW_PAGE(shell::Page::TeamPlayers, draw_team_players);
 TURBO_REGISTER_NEW_PAGE(shell::Page::TeamTransfers, draw_team_transfers);
-[[maybe_unused]] static const bool s_profile_team_page = (profile_team_players_page() = shell::Page::TeamPlayers, true);
 
 // Tactics
 TURBO_REGISTER_NEW_PAGE(shell::Page::TacticPresets, draw_tactics_presets_page);

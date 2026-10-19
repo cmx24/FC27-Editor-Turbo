@@ -67,7 +67,7 @@ static void run() {
         CHECK(area_of(Page::AdvBulkEdit) == Area::Advanced, "Advanced > Bulk edit stays until the capability check passes");
         for (Page p : {Page::PlayerEdit, Page::CreatePlayer, Page::BulkEdit, Page::TeamPlayers, Page::TeamTransfers, Page::LooksStudio})
             CHECK(registered_new_page(p) != nullptr && page_visible(p, false), std::string("new page registered and in the Simple view: ") + page_label(p));
-        CHECK(turbo::profile_team_players_page() == Page::TeamPlayers, "the Profile's Open Team > Players button goes to Team > Players");
+        // (profile_team_players_page() is pointed at Team > Players where Edit a player is drawn: checked in the UI case below)
         CHECK(player_edit_tab() >= 0 && player_edit_tab() <= 3, "Edit a player has four tabs");
     });
 
@@ -113,6 +113,7 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         const bool was_legacy = app.legacy_pages;
         app.legacy_pages = false;  // the new pages (the cases of the other tracks run with the old ones)
         const int was_tab = player_edit_tab();
+        const Page was_link = turbo::profile_team_players_page();
         player_edit_tab() = 0;
         app.go(Page::PlayerEdit);
         ui.frames(4);
@@ -120,6 +121,7 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         CHECK(ui.find("###pe_ability") != nullptr, "Positions, attributes & PlayStyles tab");
         CHECK(ui.find("###pe_appearance") != nullptr, "Appearance tab");
         CHECK(ui.find("###pe_allfields") != nullptr, "All fields tab (last)");
+        CHECK(turbo::profile_team_players_page() == Page::TeamPlayers, "the Profile's Open Team > Players button is pointed at Team > Players");
         CHECK(ui.click("###pe_allfields"), "click All fields");
         ui.frames(4);
         CHECK(player_edit_tab() == 3 && ui.find("Card view (beta)###pcardview") != nullptr, "All fields shows the full editor and remembers its tab");
@@ -131,6 +133,7 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         CHECK(ui.open_page("Players", "Player creation") && app.place() == place_of(Page::CreatePlayer), "Players > Player creation opens");
         CHECK(ui.open_page("Players", "Bulk edit") && app.place() == place_of(Page::BulkEdit), "Players > Bulk edit opens");
         player_edit_tab() = was_tab;
+        turbo::profile_team_players_page() = was_link;  // the Profile's own test expects its default
         app.legacy_pages = was_legacy;
         app.go(Page::PlayerEdit);
         ui.frames(3);
