@@ -14,7 +14,8 @@
 #   (no switch)        picker -> profile -> start the game
 #   -NoGui [-Country X] no dialog: X, else the last pick, else the default country
 #   -NoStart           do everything except the final task start (profile + state files really run)
-#   -NoLocale          skip STEP 4b (the registry Locale step); the rest runs as usual
+#   -WithLocale        run STEP 4b (the registry Locale step); OFF by default since 2.21.0: the EA app passes its own per-game locale at launch (disproven 10-19)
+#   -NoLocale          skip STEP 4b (kept for old command lines; the default already skips it)
 #   -WhatIf            print every step, change and run NOTHING (the profile step runs with -WhatIf), exit 0
 #   -Status            read-only report: compdata profile, last pick, pack states, both registry Locale views + the profile state, launcher .lnk, backups, task states
 #   -Install           chunk I ONLY (needs Cassio's OK): back up the .lnk (byte copy + md5 manifest) and re-point it at this script;
@@ -41,6 +42,7 @@ param(
   [switch]$SelfTestPicker,
   [switch]$Locale,
   [switch]$NoLocale,
+  [switch]$WithLocale,
   [string]$ProfileTaskName = 'FC27_Profile',
   [int]$ProfileTimeoutSec = 90,
   [int]$ProfileCopyTimeoutSec = 300,
@@ -456,7 +458,7 @@ try {
 }
 
 # STEP 4b (phase 2): the registry Locale through the elevated task; its own try, so a failure here leaves the pick as made and the game still starts
-if ($NoLocale) { Say 'STEP 4b: skipped (-NoLocale): the registry Locale is left as it is' }
+if ($NoLocale -or -not $WithLocale) { Say 'STEP 4b: skipped (off by default since 2.21.0; -WithLocale turns it on): the registry Locale is left as it is' }
 elseif ($handled -eq 0) {
   try {
     $lr = Do-LocaleStep $profiles $e ((-not $pk.full) -and [string]$e.language -ne 'eng_us')

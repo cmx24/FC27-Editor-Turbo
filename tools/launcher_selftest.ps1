@@ -501,7 +501,7 @@ if ($Section -in 'L3', 'All') {
     }
   }
   function P4Args($s, $l2, [string[]]$more) {
-    @('-NoGui', '-NoStart', '-TaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '60', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none') + $more
+    @('-NoGui', '-NoStart', '-WithLocale', '-TaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '60', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none') + $more
   }
   $s = New-P2 'p2_launch' @('ita_it', 'dut_nl') @()
   $l2 = New-L2 'p2_launch_l2'
@@ -524,17 +524,20 @@ if ($Section -in 'L3', 'All') {
   # -WhatIf: prints the request, runs nothing
   $h0 = (Both $s)
   if (Test-Path -LiteralPath $s.req) { Remove-Item -LiteralPath $s.req }
-  $r = Run $Launch (@('-NoGui', '-NoStart', '-WhatIf', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-WhatIf', '-WithLocale', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
   Check ($r.code -eq 0 -and $r.out -match 'STEP 4b: WHATIF would write' -and $r.out -match '"locale":"it_IT"' -and $r.out -match ('WHATIF would run schtasks /run /tn ' + $NoTask) -and -not (Test-Path -LiteralPath $s.req) -and (Both $s) -eq $h0) '-WhatIf: STEP 4b prints the request and the task run it would make; no request file written, registry unchanged'
   $r = Run $Launch @('-Undo', '-Locale', '-WhatIf', '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out)
   Check ($r.code -eq 0 -and $r.out -match 'WHATIF: would write' -and $r.out -match '"action":"undo"' -and -not (Test-Path -LiteralPath $s.req)) '-Undo -Locale -WhatIf: prints the undo request, runs nothing'
   # forced timeout: no task answers
-  $r = Run $Launch (@('-NoGui', '-NoStart', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '2', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-WithLocale', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '2', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
   Check ($r.code -eq 30 -and $r.out -match 'no result from' -and $r.out -match ('would run schtasks /run /tn ' + $NoTask) -and (Both $s) -eq 'nl_NL/nl_NL') 'forced timeout: message, exit 30, "would run schtasks /run /tn <TaskName>" still printed, Locale as it was'
   Check ((Get-Json $l2.lj).locale_result -eq 'failed' -and (Get-Json $l2.lj).country -eq 'Italy') 'timeout: launch_profile.json still holds the pick, locale_result "failed"'
   # task not registered (a task name that does not exist, no -ProfileNoRun): fast failure, game still starts
-  $r = Run $Launch (@('-NoGui', '-NoStart', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-WithLocale', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
   Check ($r.code -eq 30 -and $r.out -match 'is not registered' -and $r.out -match ('would run schtasks /run /tn ' + $NoTask) -and (Both $s) -eq 'nl_NL/nl_NL') 'task not registered: message, Locale untouched, exit 30, the game start still announced'
+  # 2.21.0 default: STEP 4b is OFF without -WithLocale (no request, no task run, Locale untouched, exit 0)
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  Check ($r.code -eq 0 -and $r.out -match 'STEP 4b: skipped \(off by default' -and $r.out -notmatch 'is not registered' -and $r.out -match ('would run schtasks /run /tn ' + $NoTask) -and (Both $s) -eq 'nl_NL/nl_NL') 'default (no -WithLocale): STEP 4b skipped, Locale untouched, exit 0, the game start still announced'
   # pack absent through the launcher (Brazil, por_br in neither place)
   $job = Start-FakeTask $s
   $r = Run $Launch (P4Args $s $l2 @('-Country', 'Brazil'))
