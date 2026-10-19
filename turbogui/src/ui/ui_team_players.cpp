@@ -153,7 +153,44 @@ void growth_fallback(App& app, const Table& t, const PlayerRow& p) {
             run_cmd("development", {{"scope", {{"playerid", p.playerid}}}, {"mode", "add"}, {"delta", points}}), "Growth " + p.name,
             "Asked: " + std::to_string(points) + " points for " + p.name + ".");
     }
+    if (p.club > 0) {
+        ImGui::SameLine();
+        if (gated_button("Reveal his club###tprevclub", false, gr, "Every player of his club fully scouted."))
+            app.send(run_cmd("reveal", {{"scope", {{"teamid", p.club}}}}), "Reveal " + p.club_name);
+    }
+    form_label("New potential", "Sets his potential through the game's growth plan (1 to 99).");
+    static int potential = 0;
+    ImGui::SetNextItemWidth(S(100.0f));
+    ImGui::InputInt("##tppotential", &potential, 1);
+    potential = std::max(0, std::min(potential, 99));
+    ImGui::SameLine();
+    if (gated_button("Set potential###tpsetpot", false, gd, "players.potential: the game's growth aims at it.") && potential > 0)
+        app.send(run_cmd("development", {{"scope", {{"playerid", p.playerid}}}, {"mode", "none"}, {"potential", potential}}), "Potential " + p.name);
     field_grid(app, t, p.rec, {"potential", "growthprofile"}, "##tpgrowth", 2);
+    // weekly forced growth of this one player (the old panel's list in gui_settings: auto.development.players)
+    json& dev = app.gui_settings["auto"]["development"];
+    if (!dev.is_object()) dev = json::object();
+    const json players = dev.contains("players") && dev["players"].is_array() ? dev["players"] : json::array();
+    bool listed = std::find(players.begin(), players.end(), json(p.playerid)) != players.end();
+    static int weekly = 1;
+    static bool no_decline = false;
+    form_label("Points per week", "Added every week while he is below his potential (1 to 5).");
+    ImGui::SetNextItemWidth(S(120.0f));
+    ImGui::SliderInt("##tpweekly", &weekly, 1, 5);
+    ImGui::SameLine();
+    ImGui::Checkbox("Does not decline###tpnodecline", &no_decline);
+    if (ImGui::Checkbox("Grow him every week###tpweeklyon", &listed)) {
+        json out = json::array();
+        for (const auto& x : players)
+            if (x != json(p.playerid)) out.push_back(x);
+        if (listed) out.push_back(p.playerid);
+        dev["players"] = out;
+        dev["weekly"] = weekly;
+        dev["no_decline"] = no_decline;
+        dev["enabled"] = !out.empty() || dev.value("user_team", false);
+        if (app.save_gui_settings()) app.send({{"op", "boot"}}, "Weekly growth");
+        else app.notify("Turbo could not save the setting.", true);
+    }
 }
 
 void card_growth(App& app, const Table& t, const PlayerRow& p) {
@@ -233,6 +270,8 @@ void draw_team_players(App& app) {
     if (ImGui::BeginTabBar("##team_pl_tabs")) {
         if (ImGui::BeginTabItem("Player###tptabplayer")) {
             const std::vector<const PlayerRow*> squad = squad_of(app, club);
+            log_page_once(app, "players", "Team page Players: club " + std::to_string(club) + " (" + app.model.team_name(club) + "), " +
+                                              std::to_string(squad.size()) + " players");
             ImGui::BeginChild("##team_pl_list", ImVec2(S(320.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
             player_list(app, squad);
             ImGui::EndChild();

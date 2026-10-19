@@ -88,11 +88,10 @@ std::string own_note(App& app, const move_rules::Facts& f, int64_t other_club) {
 
 // A combo over the players of the club; the pick is kept in `sel` (and in App::sel_player, shared with Team > Players)
 const PlayerRow* squad_combo(App& app, const std::vector<const PlayerRow*>& squad, int64_t& sel, const char* id) {
-    const bool in_squad = std::any_of(squad.begin(), squad.end(), [&](const PlayerRow* p) { return p->playerid == sel; });
-    if (!in_squad) {
-        const bool shared = std::any_of(squad.begin(), squad.end(), [&](const PlayerRow* p) { return p->playerid == app.sel_player; });
-        sel = shared ? app.sel_player : (squad.empty() ? 0 : squad.front()->playerid);
-    }
+    // the player of Team > Players follows into this combo (both pages share App::sel_player); a pick here is shared back
+    const auto in = [&](int64_t pid) { return std::any_of(squad.begin(), squad.end(), [&](const PlayerRow* p) { return p->playerid == pid; }); };
+    if (in(app.sel_player)) sel = app.sel_player;
+    else if (!in(sel)) sel = squad.empty() ? 0 : squad.front()->playerid;
     const PlayerRow* cur = sel > 0 ? app.model.player(sel) : nullptr;
     ImGui::SetNextItemWidth(S(280.0f));
     if (ImGui::BeginCombo(id, cur ? cur->name.c_str() : "no players")) {
@@ -294,15 +293,30 @@ void card_sign(App& app, int64_t club) {
     ImGui::InputTextWithHint("##tpsignq", "player name", search, sizeof(search));
     const std::string q = lower_copy(search);
     if (q.size() >= 3) {
-        int shown = 0;
-        for (const PlayerRow& p : app.model.players()) {
-            if (p.club == club || lower_copy(p.name).find(q) == std::string::npos) continue;
-            const std::string row = p.name + "  (" + (p.club > 0 ? app.model.team_name(p.club) : std::string("no club")) + ")  " + position_name(p.position) +
-                                    " " + std::to_string(p.overall) + "##tpsign" + std::to_string(p.playerid);
-            if (ImGui::Selectable(row.c_str(), pick == p.playerid)) pick = p.playerid;
-            if (++shown >= 8) break;
+        // the search walks every player of the database: it runs when the text, the club or the lists change, not every frame
+        static std::string last_q;
+        static uint64_t last_version = ~0ull;
+        static int64_t last_club = -1;
+        static std::vector<int64_t> hits;
+        if (q != last_q || last_version != app.model.version() || last_club != club) {
+            last_q = q;
+            last_version = app.model.version();
+            last_club = club;
+            hits.clear();
+            for (const PlayerRow& p : app.model.players()) {
+                if (p.club == club || lower_copy(p.name).find(q) == std::string::npos) continue;
+                hits.push_back(p.playerid);
+                if (hits.size() >= 8) break;
+            }
         }
-        if (shown == 0) theme::muted_text("No player matches.");
+        for (int64_t id : hits) {
+            const PlayerRow* p = app.model.player(id);
+            if (!p) continue;
+            const std::string row = p->name + "  (" + (p->club > 0 ? app.model.team_name(p->club) : std::string("no club")) + ")  " + position_name(p->position) +
+                                    " " + std::to_string(p->overall) + "##tpsign" + std::to_string(p->playerid);
+            if (ImGui::Selectable(row.c_str(), pick == p->playerid)) pick = p->playerid;
+        }
+        if (hits.empty()) theme::muted_text("No player matches.");
     } else {
         hint("Type at least three letters.");
     }
@@ -471,6 +485,8 @@ void draw_team_transfers(App& app) {
     }
     g_state.own_club = is_own_club(app, club);
     const std::vector<const PlayerRow*> squad = squad_of(app, club);
+    log_page_once(app, "transfers", "Team page Transfers: club " + std::to_string(club) + " (" + app.model.team_name(club) + "), " +
+                                        std::to_string(squad.size()) + " players");
     card_moves(app, club);
     card_loans(app, club);
     card_move(app, club, squad);
