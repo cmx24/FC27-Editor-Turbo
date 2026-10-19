@@ -128,9 +128,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.place().page == profile_team_players_page(), "went to the Team > Players page");
         app.go(shell::Page::PlayerEdit);
         ui.frames(2);
-        // the editor alone: the same sections (the three long ones are still closed, so the last one is in view), no list, no search
+        // the editor alone: the same sections, no list, no search (it is its own scroll area with its own open/closed sections:
+        // close the three long ones so the last one is in view)
         show(ui, Which::ProfileEditor);
         CHECK(ui.find("##pfsearch", W) == nullptr && ui.find("###pf1001", W) == nullptr, "no list in the editor alone");
+        for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);
         CHECK(ui.find("###pf_names", W) != nullptr && ui.find("###pf_club", W) != nullptr, "sections of the editor alone");
         for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);  // open them again
         CHECK(player_profile_state().playerid == 1002, "for the picked player");
