@@ -3727,6 +3727,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_club_fields.h"  // 2.20 K3: club, crowd, stadium and kit fields (club_fields_test::run / ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
@@ -4908,6 +4909,8 @@ static void test_ui() {
             ui.frames(2);
             // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
             CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
+            // 2.20 K3: the crowd and stadium sections sit above the kits now: scroll the tab to the kit like a person
+            parity_test::scroll_into_view(ui, "Home kit");
             CHECK(ui.find("Home kit", "##tcolours") != nullptr, "Everton's home kit listed");
             const Table* t = app.db.table("teams");
             uint64_t rec = app.db.find(*t, "teamid", 7);
@@ -4940,6 +4943,7 @@ static void test_ui() {
         });
 
         kit_fonts_ui_cases(app, ui, le);  // test_kit_fonts.h: the kit font pickers (2.11 K1), the Colours tab is still open
+        club_fields_test::ui_cases(app, ui, le);  // test_club_fields.h (2.20 K3): the club, crowd, stadium and kit fields (the database is still connected here)
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
             // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
@@ -8231,6 +8235,7 @@ static void test_ui() {
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Colours", "##tedit"), "Colours tab");
             ui.frames(2);
+            parity_test::scroll_into_view(ui, "Home kit");  // 2.20 K3: the kit sits below the crowd and stadium sections now
             CHECK(ui.click("Forget##kitkeep", "##tcolours"), "Forget Everton's home kit");
             CHECK(!app.reapply.kit(7, 0, 70) && app.reapply.kit(1, 1, 11), "Everton's kit forgotten, Arsenal's kept");
             app.request_tab = 0;
@@ -15519,6 +15524,7 @@ int main(int argc, char** argv) {
     test_kit_import();
     minikit_test::unit();  // test_minikits.h (2.20 K4)
     test_kit_fonts();
+    club_fields_test::run();  // test_club_fields.h (2.20 K3)
     kit_share_test::run();  // test_kit_share.h (2.13)
     kit_plan_test::run();   // test_kit_plan.h (2.20 K1)
     std::printf("native dev service\n");

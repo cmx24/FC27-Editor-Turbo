@@ -16,6 +16,7 @@
 #include "core/teamnames.h"
 #include "imgui.h"
 #include "ui_asset_browser.h"
+#include "ui_club_fields.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -589,6 +590,8 @@ void team_stadium_editor(App& app, const Table& t, uint64_t rec) {
     colour_editor(app, t, rec, "goalnetstanchioncolor1", "Goal net stanchion 1");
     colour_editor(app, t, rec, "goalnetstanchioncolor2", "Goal net stanchion 2");
     field_grid(app, t, rec, labels::page_stadium_fields(), "##stadcol", 3);
+    draw_club_crowd_section(app, t, rec);  // 2.20 K3 (ui_club_fields.cpp)
+    draw_home_ground_section(app, app.db.get_int(t, rec, "teamid", 0));
 }
 
 // 2.13 (Club & Kits > Kits, "Colours & numbers"): the kit colours, fonts and name layout, split out of team_colours_editor unchanged
@@ -660,6 +663,7 @@ void team_kit_colours_editor(App& app, int64_t teamid) {
             std::vector<std::string> kit_grid = {"teamcolorprimpercent", "teamcolorsecpercent", "teamcolortertpercent"};
             kit_grid.insert(kit_grid.end(), labels::page_kit_template_fields().begin(), labels::page_kit_template_fields().end());
             field_grid(app, *kt, k.first, kit_grid, "##kitgrid", 3);
+            draw_kit_extras_section(app, *kt, k.first);  // 2.20 K3
         }
         ImGui::PopID();
     }

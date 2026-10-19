@@ -50,6 +50,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_crest_shirt.cpp src/ui/ui_team_players.cpp src/ui/ui_team_transfers.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
+         src/ui/ui_club_fields.cpp \
          src/core/bodytype_thumbs.cpp src/ui/ui_bodytype_thumbs.cpp \
          src/core/rdbm_resources.cpp src/ui/ui_visual_picker.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
