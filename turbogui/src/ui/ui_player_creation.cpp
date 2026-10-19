@@ -272,9 +272,12 @@ void editor_panel(App& app, void*) {
     explain("Create player: a new player built from him. Every box starts as his own data (names, birth date, ratings, positions, attributes); "
             "only what you change is different.");
     explain("Clone: an exact copy in the club you choose.");
-    explain("Import: a saved player file, onto him or as a new player. Importing onto him replaces the parts you tick, so back up your save first.");
+    explain("Import: a saved player file, onto him or as a new player. Importing onto him replaces the parts you tick. Can't be undone: Turbo's Undo "
+            "button does not cover it, so back up your save first.");
     explain("Export: saves him to a file you can share or import later.");
     explain("From CMTracker: a ready-made player from the CMTracker library (the second tab above has the same list).");
+    explain("Repair names: gives back their own names to players whose names an old Import turned into one common name. Can't be undone from Turbo.");
+    explain("A new player (Create, Clone, Import as new) is not an Undo step either: to remove one, delete him below.");
     ImGui::Spacing();
     player_preset_buttons(app, *p);  // Export... / Import... / Clone... / Create player... / From CMTracker... / Repair names... and their dialogs
 
