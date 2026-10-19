@@ -66,6 +66,10 @@ static void draw_player_edit(App& app) {
         ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
+    if (now != s_shown) {  // one line in turbo_gui.log per change of tab (the live check of the wiring reads which tabs were really shown)
+        static const char* const names[] = {"Profile", "Positions, attributes & PlayStyles", "Appearance", "All fields"};
+        if (now >= 0 && now < 4) app.log(std::string("Edit a player tab: ") + names[now]);
+    }
     s_shown = want = now;
 }
 TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_edit);
