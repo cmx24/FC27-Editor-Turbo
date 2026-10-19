@@ -622,7 +622,11 @@ constexpr long long kCrestGenericCol = 47;                                      
 // rawget: the player's initData raises on an absent key (stock _disable_read_from_undefined_key). The crowd's kitData has no TeamId,
 // so it stays stock here.
 constexpr const char* kCrestPlayerIns =
-    " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1)";
+    " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1 and "
+    "rawget(initData, \"KitColorJerseyPri\") ~= nil)";
+// (commit C) KitColorJerseyPri is checked too: _loadTeamCrest is also reached from loadMannequinJersey, loadStaticJersey,
+// loadStaticShorts and loadHighResFan, whose strict initData may lack it; the generic branch reads it (stock 2624), so without it
+// the club keeps its stock crest there instead of raising "invalid read, no key in the table".
 // crowd path (commit B): loadLowResCrowd's kitData (stock 5714) is a plain table (no metatable) without TeamId or KitColorJerseyPri;
 // its Kit is the club id (data.kitId). A listed club gets a small stand-in table for the generic branch: TeamId = Kit only when Kit
 // is a number, the folder from TeamColorPri when present, else dark. kitData itself is never written. The player's initData has a

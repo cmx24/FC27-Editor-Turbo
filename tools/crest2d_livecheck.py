@@ -10,8 +10,9 @@ turbo_output. One PASS / FAIL / INFO line per point and one RESULT line. ASCII o
 The Tester's steps (LEICESTER, never saved, about 2 minutes; the runner launches and kills the game):
   0. Before launch: Leicester 95's crest in mods\\legacy visibly altered (backup first, restore at teardown) and
      turbo_output\\kits\\crest2d.json = {"teams": [95]} (Turbo's Kits page, club Leicester, More, "Use my crest on the shirt").
-  1. Kick Off, Leicester at home, until the players walk out / the first close-up. Screenshot of a Leicester shirt: --shot.
-  2. Commit B only (crowd): a wide shot of the stands with low-res crowd shirts as a second screenshot (a second run with --shot).
+  1. Open one kit preview of Leicester (Kick Off team/kit select): the mannequin / static-jersey paths commit C guards.
+  2. Kick Off, Leicester at home, until the players walk out / the first close-up. Screenshot of a Leicester shirt: --shot.
+     Crowd (commit B): a wide shot of the stands with low-res crowd shirts as a second screenshot (a second run with --shot).
   3. Kill the game (runner). Run this script. Judge the picture by eye: --look pass when the shirt crest is the altered Turbo crest,
      --look fail for the stock stitched crest or the plain crest_fallback decal (this script never judges a picture).
 
@@ -22,7 +23,8 @@ What it reads:
   subst     every 'SUBSTITUTED row=player_kit override bytes N md5 M ... rc=0' line has the served md5 (K printed: the hair/beard
             served count, 18/18 in every earlier boot; --expect-k checks it)
   nofall    no 'fallback to' / 'stale override' / 'served captured stock' line for player_kit
-  luaerr    the Live Editor log of the boot (lines at or after the --since time of day) has no Lua error line: 'invalid read, no key
+  luaerr    (decisive) the Live Editor log of the boot (lines at or after --since converted to the LE log's UTC clock;
+            --le-offset-hours overrides the machine's offset) has no Lua error line: 'invalid read, no key
             in the table', 'attempt to index', 'attempt to compare', 'attempt to call', 'bad argument', 'player_kit.lua:<n>:'
   shot      --shot exists, is a PNG or JPEG, and was written at or after --since
 Exit code 0 = RESULT PASS, 1 = FAIL, 2 = bad arguments.
@@ -56,21 +58,37 @@ def say(kind, text):
 
 
 def scope(lines, since):
-    """Turbo log lines from --since (else from the last 'lua_loader: on (2.16' line)"""
+    """Turbo log lines (local clock) of ONE boot: from --since up to the next boot's 'lua_loader: on (2.16' line (else the last boot)"""
     rows = []
     for line in lines:
         m = STAMP.match(line)
         if m:
             rows.append((m.group(1), m.group(3)))
     if since:
-        return [r for r in rows if r[0] >= since]
+        rows = [r for r in rows if r[0] >= since]
+        starts = [i for i, r in enumerate(rows) if START.search(r[1])]
+        return rows[:starts[1]] if len(starts) > 1 else rows
     last = max([i for i, r in enumerate(rows) if START.search(r[1])] or [0])
     return rows[last:]
 
 
-def le_scope(lines, since):
-    """Live Editor log lines at or after the --since time of day (the LE log is one file per day; times are its own clock)"""
-    tod = since[11:19] if since else ""
+def le_tod(since, le_offset_h=None):
+    """--since (local time) on the Live Editor log's clock, which is UTC (2026-10-19: file written 13:24:50 EDT, last line 17:24:50).
+    le_offset_h = hours to add to local time (EDT: 4); None = this machine's own local-to-UTC offset at that moment."""
+    if not since:
+        return ""
+    dt = datetime.datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
+    if le_offset_h is None:
+        utc = dt.astimezone(datetime.timezone.utc)
+    else:
+        utc = dt + datetime.timedelta(hours=le_offset_h)
+    return utc.strftime("%H:%M:%S")
+
+
+def le_scope(lines, since, le_offset_h=None):
+    """Live Editor log lines at or after --since converted to the LE clock (UTC). The LE file is one per day and has no date on its
+    lines: a boot after 20:00 EDT (00:00 UTC) is not scoped right; the INFO line prints both times"""
+    tod = le_tod(since, le_offset_h)
     out = []
     for line in lines:
         m = LE_STAMP.match(line)
@@ -79,7 +97,7 @@ def le_scope(lines, since):
     return out
 
 
-def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None, team=95):
+def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None, team=95, le_offset_h=None):
     del results[:]
     rows = scope(turbo_text.splitlines(), since)
     print("INFO scope: %d Turbo log lines%s" % (len(rows), (" from " + since) if since else " from the last 'lua_loader: on (2.16' line"))
@@ -119,7 +137,8 @@ def check(turbo_text, le_text, since, clubs, shot, expect_k=None, look=None, tea
     if le_text is None:
         say("FAIL", "no Live Editor log given (--lelog): the Lua error grep cannot run")
     else:
-        le = le_scope(le_text.splitlines(), since)
+        le = le_scope(le_text.splitlines(), since, le_offset_h)
+        print("INFO Live Editor log scope: lines at or after %s on its UTC clock (--since %s local)" % (le_tod(since, le_offset_h) or "the start", since or "-"))
         errs = [l for l in le if LUA_ERR.search(l)]
         say("PASS" if not errs else "FAIL", "Live Editor log: %d lines in scope, %d Lua error line(s)%s" % (len(le), len(errs), (": " + errs[0][:200]) if errs else ""))
         # informative only: with LE's legacy-file log flags on, the 2D crest the shirt asks for shows as a full-size crest path
@@ -170,8 +189,11 @@ def self_test():
     notpng = os.path.join(d, "pitch.txt")
     with open(notpng, "wb") as f:
         f.write(b"hello")
-    le_ok = "15:01:00.000000\tINFO\told line attempt to index a nil value (before the boot)\n15:02:30.000000\tINFO\tsomething fine\n"
-    le_bad = le_ok + "15:03:10.000000\tERROR\t[string \"data/fifarna/lua/assets/player_kit.lua\"]:2618: bad argument #2 to 'format' (number expected, got nil)\n"
+    # the LE log runs on UTC: the boot at 15:02 EDT logs at 19:02 (le_offset_h=4 below; the CLI default is the machine's offset)
+    le_ok = "19:01:00.000000\tINFO\told line attempt to index a nil value (before the boot)\n19:02:30.000000\tINFO\tsomething fine\n"
+    le_bad = le_ok + "19:03:10.000000\tERROR\t[string \"data/fifarna/lua/assets/player_kit.lua\"]:2618: bad argument #2 to 'format' (number expected, got nil)\n"
+    # an error of an EARLIER boot (11:03 EDT = 15:03 UTC): after --since 15:02 read as local time, before it on the LE clock
+    le_early = "15:03:10.000000\tERROR\t[string \"data/fifarna/lua/assets/player_kit.lua\"]:2624: error: invalid read, no key in the table: KitColorJerseyPri\n" + le_ok
     since = "2026-10-19 15:02:00"
     old = sys.stdout
     cases = [
@@ -191,8 +213,12 @@ def self_test():
         ("no shot", dict(turbo_text=_lines("; 1 club on the shirt-crest list"), le_text=le_ok, since=since, clubs=1, shot=os.path.join(d, "none.png")), "FAIL"),
         ("shot not a picture", dict(turbo_text=_lines("; 1 club on the shirt-crest list"), le_text=le_ok, since=since, clubs=1, shot=notpng), "FAIL"),
         ("shot older than the boot", dict(turbo_text=_lines("; 1 club on the shirt-crest list"), le_text=le_ok, since="2099-01-01 00:00:00", clubs=1, shot=shot), "FAIL"),
+        ("a later boot in the same log is out of scope", dict(turbo_text=_lines("; 1 club on the shirt-crest list") + _lines("", md5="e" * 32).replace("15:02:", "16:10:"), le_text=le_ok, since=since, clubs=1, shot=shot, expect_k=18), "PASS"),
+        ("an earlier boot's Lua error is out of scope (UTC clock)", dict(turbo_text=_lines("; 1 club on the shirt-crest list"), le_text=le_early, since=since, clubs=1, shot=shot), "PASS"),
+        ("the same error read on the local clock would be in scope", dict(turbo_text=_lines("; 1 club on the shirt-crest list"), le_text=le_early, since=since, clubs=1, shot=shot, le_offset_h=0), "FAIL"),
     ]
     for name, kw, want in cases:
+        kw.setdefault("le_offset_h", 4)
         sys.stdout = open(os.devnull, "w")
         try:
             got = check(**kw)
@@ -218,6 +244,7 @@ def main():
     ap.add_argument("--lelog", help="the Live Editor log of that day (logs\\live_editor_DD-MM-YYYY.log)")
     ap.add_argument("--since", help="'YYYY-MM-DD HH:MM:SS' local time of the launch")
     ap.add_argument("--clubs", type=int, default=1, help="clubs on the shirt-crest list (default 1: Leicester 95)")
+    ap.add_argument("--le-offset-hours", dest="le_offset", type=float, help="hours from local time to the LE log clock (default: this machine's local-to-UTC offset; EDT = 4)")
     ap.add_argument("--team", type=int, default=95, help="the listed club whose crest path is counted in the LE log (INFO only)")
     ap.add_argument("--shot", help="the Tester's pitch screenshot")
     ap.add_argument("--expect-k", dest="expect_k", type=int)
@@ -236,7 +263,7 @@ def main():
         with open(a.lelog, encoding="utf-8", errors="replace") as f:
             le_text = f.read()
     print("crest2d_livecheck on %s" % a.log)
-    return 0 if check(turbo_text, le_text, a.since or "", a.clubs, a.shot, a.expect_k, a.look, a.team) == "PASS" else 1
+    return 0 if check(turbo_text, le_text, a.since or "", a.clubs, a.shot, a.expect_k, a.look, a.team, a.le_offset) == "PASS" else 1
 
 
 if __name__ == "__main__":

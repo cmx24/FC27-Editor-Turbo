@@ -128,6 +128,9 @@ ok(okc and c == "D:data/ui/imgAssets/crest/custom/l7.dds;data/ui/imgAssets/crest
 -- a strict initData without TeamId never raises (rawget)
 okc, c = run(strict({ Kit = 95, KitType = 0, KitYear = 0, IsGeneric = 0, CrestAssetId = -1, laneId = 1 }))
 ok(okc and c == "A:crest_95_0_0_color;crest_95_0_0_color;crest_0_0_0_color", "strict initData without TeamId: no error, stock")
+-- a strict initData of a listed club WITHOUT KitColorJerseyPri (mannequin / static / high-res fan paths) never raises: stock crest
+okc, c = run(strict({ TeamId = 95, Kit = 95, KitType = 0, KitYear = 0, IsGeneric = 0, CrestAssetId = -1, laneId = 1 }))
+ok(okc and c == "A:crest_95_0_0_color;crest_95_0_0_color;crest_0_0_0_color", "listed 95, strict, no KitColorJerseyPri: no error, stock (" .. tostring(c) .. ")")
 -- (iv) the crowd's kitData (player_kit.lua loadLowResCrowd): no TeamId, no KitColorJerseyPri, no IsGeneric
 local kd = { laneId = 1, CrestAssetId = -1, Kit = 95, KitType = 0, KitYear = 0, isCustomKit = 0 }
 okc, c = run(kd)
@@ -293,7 +296,10 @@ inline void run() {
             bool same = block_ok;
             for (size_t i = 0; same && i + 1 < ea - p; ++i) same = B[p + block + i] == A[p + i];
             CHECK(same, "_loadTeamCrest's lines down to is_generic_kit are untouched");
-            const std::string frag = " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1)";
+            const std::string frag = " or (TURBO_CREST2D ~= nil and TURBO_CREST2D[rawget(initData, \"TeamId\")] == true and initData.CrestAssetId < 1 and "
+                                     "rawget(initData, \"KitColorJerseyPri\") ~= nil)";
+            std::printf("  crest2d (ii) %s list: [95] adds %llu bytes\n", tab.empty() ? "no saved" : "launch-set saved",
+                        static_cast<unsigned long long>(b.bytes.size() - a.bytes.size()));
             CHECK(eb >= 2 && B[eb - 2] == A[ea - 1] + frag, "is_generic_kit gets the one fragment: " + (eb >= 2 ? B[eb - 2] : std::string()));
             CHECK(eb >= 1 && B[eb - 1] == kCrowdLine, "the crowd line follows is_generic_kit: " + (eb >= 1 ? B[eb - 1] : std::string()));
             CHECK(A.size() + 7 == B.size(), "nothing else differs (" + std::to_string(B.size() - A.size()) + " lines added)");
