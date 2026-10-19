@@ -9,16 +9,17 @@ prints PASS / FAIL / INCONCLUSIVE per point and one RESULT line. Read-only: it n
 
 The operator's steps (LEICESTER career, never saved, about 2 minutes; the Tester's runner launches and kills the game):
   1. Career hub, Turbo window: Club & Kits > Stadium & extras. Open "Crowd & presentation".
-  2. "Tifo display": pick Style 1 (it was Off). Screenshot S1.
-  3. "Goal flame jets": pick Style 2 (it was Off). Screenshot S2.
+  2. "Tifo display": pick Style 1 (a stock Leicester has Style 2). Screenshot S1.
+  3. "Goal flame jets": pick Style 2 (a stock Leicester has Off). Screenshot S2.
   4. Optional: "Undo last change" once, then pick Style 2 again. Optional visual: play to kick-off and look for the tifo.
   5. Kill the game (the runner). Never save.
 
 What it reads (ui/ui_club_fields.cpp write_club_field, one line per write, in turbo_gui.log and the in-app Log):
   Club field: teams.hastifo team <id> = 1 (was 0), read back 1
   session   the last "Turbo GUI loading in process" session at or after --since
-  hastifo   a line with value 1, was 0, read back 1 (the live database row equals what was written)
-  flame     a line with teams.stanchionflamethrower value 2, was 0, read back 2
+  hastifo   a line with value 1, a different value before it, read back 1 (the live database row equals what was written; the stock
+            file has Leicester (team 95) at tifo 2, the brief's "0" was a guess: the check only needs a change to 1)
+  flame     a line with teams.stanchionflamethrower value 2, changed from another value, read back 2
   sameteam  both lines name the same club (and it is --team when given)
   keys      no other "Club field:" write than those two (an Undo and a rewrite of the same value are allowed, they end on the same value)
   reapply   reapply_edits.json is byte-identical to --reapply-before (the club columns are kept by the career save itself, not by a
@@ -121,10 +122,7 @@ def check(text, since="", team="", reapply_path="", reapply_before="", want_keys
         if w[6] is not None and w[6] == value:
             out.append((point, "FAIL", "the row already held %d before the write: not a change (was %d)" % (value, w[6])))
             return None
-        if w[6] != 0:
-            out.append((point, "INCONCLUSIVE", "written %d, read back %d, but it was %s before, the brief expects 0" % (value, value, w[6])))
-            return w
-        out.append((point, "PASS", "teams.%s team %s: 0 -> %d, live row reads %d" % (field, w[4], value, value)))
+        out.append((point, "PASS", "teams.%s team %s: %s -> %d, live row reads %d" % (field, w[4], "?" if w[6] is None else w[6], value, value)))
         return w
 
     a = judge("hastifo", "hastifo", 1, "tifo display")
@@ -188,7 +186,7 @@ def self_test():
         ("fail: two clubs", _log(TIFO, FLAME.replace("team 241", "team 7")), dict(reapply_path=p, reapply_before=m0), "FAIL"),
         ("fail: wrong club", _log(TIFO, FLAME), dict(team="7", reapply_path=p, reapply_before=m0), "FAIL"),
         ("fail: value was already set", _log(TIFO.replace("was 0", "was 1"), FLAME), dict(reapply_path=p, reapply_before=m0), "FAIL"),
-        ("inconclusive: the tifo was not Off before", _log(TIFO.replace("was 0", "was 2"), FLAME), dict(reapply_path=p, reapply_before=m0), "INCONCLUSIVE"),
+        ("pass: the tifo was Style 2 before (Leicester in the stock file)", _log(TIFO.replace("was 0", "was 2"), FLAME), dict(reapply_path=p, reapply_before=m0), "PASS"),
         ("fail: a refused write", _log(TIFO, FLAME, "ERROR: Crowd skin tones: the game's data never uses 50. Choose one of Style 20 ... Club field"), dict(reapply_path=p, reapply_before=m0), "FAIL"),
         ("fail: frame error", _log(TIFO, FLAME, "frame error: boom"), dict(reapply_path=p, reapply_before=m0), "FAIL"),
         ("fail: no session", "2026-10-19 15:00:01 nothing\n", dict(), "FAIL"),
