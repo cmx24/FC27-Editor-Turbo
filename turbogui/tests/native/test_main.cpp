@@ -3695,6 +3695,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
+#include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
@@ -9686,6 +9687,7 @@ static void test_ui() {
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
+        page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
