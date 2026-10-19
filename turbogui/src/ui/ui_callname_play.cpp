@@ -3,6 +3,7 @@
 #include "ui_callname_play.h"
 
 #include <cstdio>
+#include <string>
 
 #include "app.h"
 #include "imgui.h"
@@ -36,6 +37,19 @@ void callname_play_button(App& app, CallnameAudioKind kind, int64_t id) {
     if (!b.enabled) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", b.tip.c_str());
     if (pressed && b.enabled) pl.click(audio, kind, id, app.now);
+}
+
+bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id) {
+    CallnamePlayer& pl = app.callname_player;
+    const MasterAudio& audio = app.callnames.masters.audio;
+    const CallnamePlayer::Button b = pl.button(audio, kind, id, app.now);
+    if (!b.enabled) ImGui::BeginDisabled();
+    const std::string label = std::string(b.playing ? "Stop" : "Preview") + "###cnpreview";  // one id: the button keeps its place while it plays
+    const bool pressed = ImGui::Button(label.c_str());
+    if (!b.enabled) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", b.enabled ? "Hear this callname" : b.tip.c_str());
+    if (pressed && b.enabled) pl.click(audio, kind, id, app.now);
+    return b.enabled;
 }
 
 }  // namespace turbo

@@ -3677,6 +3677,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
 #include "test_attrib_two_copies.h"  // 2.10 A0: second copy (databases/simulation) of an attrib asset, per-location write log (attrib_two_copies_test::run)
 #include "test_club_search.h"  // Players list Gender filter, the club box by name or ID (ui_cases_club_search)
+#include "test_callname_pick.h"  // 2.20: the one-list Callname page (callname_pick_test::run, ::ui_cases)
 #include "test_file_picker.h"   // in-overlay file picker and the Export / Import dialogs (test_file_picker_ui)
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
@@ -6857,6 +6858,7 @@ static void test_ui() {
             ui.frames(2);
         });
         ui_cases_club_search(app, ui, mem, kMb);  // test_club_search.h
+        callname_use_legacy_page(true);  // 2.20: the Callname cases below drive the older tabbed editor (callname_editor_legacy); the new page is tested after them
         run_case("UI: Players > Callname: capture of the loaded bank on a background thread, Real recordings", [&] {
             fs::path game = g_out / "fakegame";
             fs::path cache = spoken_cache_path(le, "ita_it");
@@ -8263,6 +8265,8 @@ static void test_ui() {
             app.log_hook = nullptr;
             ui.frames(2);
         });
+        callname_use_legacy_page(false);
+        callname_pick_test::ui_cases(app, ui, mem, kMb);  // test_callname_pick.h (2.20: the one-list Callname page)
         run_case("UI: 2.15 kept edits by scope: not assigned and global rows in every career, a career's rows only in it (identity: the manager row)", [&] {
             const auto npos = std::string::npos;
             std::vector<std::string> hooked;  // turbo_gui.log

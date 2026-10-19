@@ -29,6 +29,7 @@
 #include "core/callnames_catalog.h"
 #include "imgui.h"
 #include "ui_asset_browser.h"
+#include "ui_callname_pick.h"
 #include "ui_callname_play.h"
 #include "ui_names.h"
 
@@ -1376,7 +1377,10 @@ static void own_confirm_popup(App& app, const Table& t, const PlayerRow& p) {
     ImGui::EndPopup();
 }
 
-void callname_editor(App& app, const Table& t, const PlayerRow& p) {
+// The tabbed editor of 1.x-2.19 (By name, By player, All callnames, Players without own recording, Voice swaps). Not drawn
+// by the product since 2.20 (callname_editor below); the native tests switch it on (callname_use_legacy_page). The wiring
+// owner deletes it, with its tests, once the new page is proven.
+void callname_editor_legacy(App& app, const Table& t, const PlayerRow& p) {
     ensure_ready(app);
     Callnames& cn = app.callnames;
     g_state = CallnameTabState{};
@@ -1519,6 +1523,186 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     // outside the tab items: both pickers park their request here (an ID pushed by a tab item would hide the popup)
     own_confirm_popup(app, t, p);
     voice_confirm_popup(app, t, p);
+}
+
+// ---------------------------------------------------------------- the Callname page (2.20, ui_callname_pick.h)
+// ONE list of every callname of the loaded language (generic callnames and real players' own recordings), a search box,
+// one click selects a row, ONE Preview button, ONE Apply button, an Undo. Apply is a voice swap: the player has that
+// callname in matches; nothing is written to the database and his written names stay as they are.
+
+static bool g_legacy_page = false;
+void callname_use_legacy_page(bool on) { g_legacy_page = on; }
+static CallnamePageState g_page;
+const CallnamePageState& callname_page_state() { return g_page; }
+
+static char g_pick_search[64] = "";
+static std::string g_pick_sel;  // callpick::row_key of the picked row ("" = none); kept while another player is opened
+static callpick::UndoSlot g_undo;
+
+// "his own recording" / "'Kane'" / "last name" / "no callname": what the game says for him when nothing is applied
+static std::string game_says(App& app, const PlayerRow& p) {
+    const CallnameInfo info = app.callnames.resolve(p, app.db);
+    if (info.own) return "his own recording";
+    if (info.source == CallnameSource::None) return "no callname";
+    if (info.nameid > 0) {
+        auto it = app.model.names_by_id().find(info.nameid);
+        if (it != app.model.names_by_id().end() && !it->second.empty()) return "'" + it->second + "'";
+    }
+    return callname_source_name(info.source);
+}
+
+static void pick_apply(App& app, const PlayerRow& p, const AllCallnameRow& r) {
+    callpick::UndoSlot slot;
+    slot.playerid = p.playerid;
+    if (const voice::Entry* old = app.voice_store.find(p.playerid)) slot.before = *old;
+    slot.armed = true;
+    const voice::Entry e = callpick::make_entry(p.playerid, p.name, r, app.callnames.own_recording(p.playerid) != 0);
+    const bool saved = app.voice_upsert(e);
+    g_undo = slot;  // the entry is kept and published even when the save failed (voice_upsert says so in a toast)
+    g_page.notice = "Applied: " + callpick::entry_name(e);
+    if (saved) app.notify(p.name + ": " + g_page.notice);
+}
+
+static void pick_undo(App& app, const PlayerRow& p) {
+    const bool mine = g_undo.armed && g_undo.playerid == p.playerid;
+    if (mine && g_undo.before) {
+        app.voice_upsert(*g_undo.before);  // the callname he had before this Apply
+        g_page.notice = "Undone: back to " + callpick::entry_name(*g_undo.before);
+    } else {
+        app.voice_forget(p.playerid);
+        g_page.notice = "Undone: the game's own callname again";
+    }
+    if (mine) g_undo = callpick::UndoSlot{};
+    app.notify(p.name + ": " + g_page.notice);
+}
+
+void callname_editor(App& app, const Table& t, const PlayerRow& p) {
+    if (g_legacy_page) {
+        callname_editor_legacy(app, t, p);
+        return;
+    }
+    ensure_ready(app);
+    Callnames& cn = app.callnames;
+    const CatalogBank& bank = cn.bank;
+    g_page = CallnamePageState{};
+    g_page.playerid = p.playerid;
+    g_page.language = cn.lang;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Commentary language: %s", cn.lang.empty() ? "none found" : cn.lang.c_str());
+    if (cn.lang.empty() || (!bank.loaded() && !cn.masters.loaded())) {
+        ImGui::TextWrapped("There are no callnames to pick for %s yet.", cn.lang.empty() ? "this game" : cn.lang.c_str());
+        return;
+    }
+
+    // the whole list, rebuilt when the recordings, the master list or the database change
+    static std::vector<AllCallnameRow> rows;
+    static std::vector<AllCallnameRow> unsayable;  // the names the game's files do not record: not listed, only explained
+    static std::string rows_key;
+    std::string key = cn.lang + "|" + cn.masters.file + "|" + cn.masters.built + "|" + std::to_string(cn.masters.generic_ids.size()) + "|" +
+                      std::to_string(cn.masters.real_players.size()) + "|" + std::to_string(cn.index.model_version);
+    if (bank.loaded())
+        key += "|bank " + bank.build_key + " " + bank.where() + " " + std::to_string(bank.generic.size()) + " " + std::to_string(bank.own.size()) +
+               (bank.current ? " current" : " stale") + (bank.hidden_off ? " hoff" : "");
+    if (key != rows_key) {
+        CallnameDbUse use;
+        use.player_in_db = [&](int64_t pid) { return app.model.player(pid) != nullptr; };
+        use.player_name = [&](int64_t pid) {
+            const PlayerRow* r = app.model.player(pid);
+            return r ? r->name : std::string();
+        };
+        use.commentary_ids = app.commentary_ids();
+        for (const auto& kv : cn.index.playernamemap) use.commentary_ids.insert(kv.second);
+        unsayable.clear();
+        rows = callpick::list_rows(bank, cn.masters, cn.index, use, &unsayable);
+        rows_key = key;
+    }
+    g_page.rows_listed = static_cast<int>(rows.size());
+    g_page.rows_unsayable = static_cast<int>(unsayable.size());
+
+    // what he is called in matches now, with the Undo
+    const voice::Entry* ve = app.voice_store.find(p.playerid);
+    const bool has_swap = ve != nullptr;
+    ImGui::AlignTextToFramePadding();
+    if (has_swap) {
+        g_page.state_line = "Applied: " + callpick::entry_name(*ve);
+        ImGui::TextColored(kGreen, "%s", g_page.state_line.c_str());
+        if (ve->voice_of || ve->kickoff) {
+            if (ve->voice_of && *ve->voice_of > 0) callname_play_button(app, CallnameAudioKind::Own, *ve->voice_of);
+            else if (ve->kickoff && *ve->kickoff > 0) callname_play_button(app, CallnameAudioKind::Generic, *ve->kickoff);
+        }
+        ImGui::SameLine();
+        g_page.undo_shown = true;
+        if (ImGui::Button("Undo###cnundo")) pick_undo(app, p);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to what he had before, or to the game's own callname");
+    } else {
+        g_page.state_line = "Not changed: the game says " + game_says(app, p);
+        ImGui::TextUnformatted(g_page.state_line.c_str());
+    }
+
+    ImGui::SetNextItemWidth(S(260.0f));
+    ImGui::InputTextWithHint("##cnpsearch", "Search callnames", g_pick_search, sizeof(g_pick_search));
+    const float below = ImGui::GetTextLineHeightWithSpacing() * 3.0f + ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y;
+    ImGui::BeginChild("##cnplist", ImVec2(0, list_height(below)), ImGuiChildFlags_Borders);
+    int shown = 0, total = 0;
+    const AllCallnameRow* sel = nullptr;
+    if (ImGui::BeginTable("##cnptable", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Callname");
+        ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, S(110.0f));
+        ImGui::TableHeadersRow();
+        for (const AllCallnameRow& r : rows) {
+            const std::string rk = callpick::row_key(r);
+            if (rk == g_pick_sel) sel = &r;
+            if (!callpick::matches(g_pick_search, r)) continue;
+            ++total;
+            if (shown >= kMaxRows) continue;
+            ++shown;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (ImGui::Selectable((callpick::row_name(r) + "###" + rk).c_str(), rk == g_pick_sel, ImGuiSelectableFlags_SpanAllColumns)) {
+                g_pick_sel = rk;
+                sel = &r;
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(callpick::kind_label(r));
+        }
+        ImGui::EndTable();
+    }
+    g_page.rows_shown = total;
+    if (total > shown) ImGui::TextDisabled("%d more: type more of the callname", total - shown);
+    ImGui::EndChild();
+    // a name he typed that the game's files do not record in this language: say so (it is not in the list)
+    g_page.missing_line = callpick::missing_line(g_pick_search, unsayable, cn.lang);
+    if (!g_page.missing_line.empty()) ImGui::TextColored(kOrange, "%s", g_page.missing_line.c_str());
+
+    // under the list: the pick, then Preview + Apply, then why Apply is greyed out
+    if (sel) {
+        g_page.selected = callpick::row_name(*sel);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Picked: %s (%s)", g_page.selected.c_str(), callpick::kind_label(*sel));
+    } else {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Pick a callname above.");
+    }
+    if (sel) {
+        g_page.preview_enabled =
+            callname_preview_button(app, sel->own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, sel->own() ? sel->playerid : sel->commentaryid);
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::Button("Preview###cnpreview");
+        ImGui::EndDisabled();
+    }
+    ImGui::SameLine();
+    callpick::Verdict v;
+    if (sel) v = callpick::can_apply(app.voice_available(), app.voice_why_off(), bank, *sel, p.playerid);
+    else v.ok = false;
+    g_page.apply_enabled = v.ok;
+    g_page.why_line = sel ? v.why : std::string();
+    if (!app.voice_available()) g_page.off_line = g_page.why_line;
+    if (!v.ok) ImGui::BeginDisabled();
+    const bool apply = ImGui::Button("Apply###cnapply");
+    if (!v.ok) ImGui::EndDisabled();
+    if (!g_page.why_line.empty()) ImGui::TextColored(kOrange, "%s", g_page.why_line.c_str());
+    if (apply && sel && v.ok) pick_apply(app, p, *sel);
 }
 
 // ---------------------------------------------------------------- App: the voice-swap store (core/callname_voice.h)
