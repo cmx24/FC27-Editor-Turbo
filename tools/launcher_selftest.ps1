@@ -1,10 +1,12 @@
-# launcher_selftest.ps1 [-Section L1|L2|All] [-Scratch <dir>]   (Windows PowerShell 5.1, ASCII only)
-# Offline self-test of compdata_profile.ps1 (L1) and turbo_launch.ps1 (L2) on SCRATCH copies. It never moves a live file, never starts
+# launcher_selftest.ps1 [-Section L1|L2|L3|All] [-Scratch <dir>]   (Windows PowerShell 5.1, ASCII only)
+# Offline self-test of compdata_profile.ps1 (L1), turbo_launch.ps1 (L2) and, phase 2 (L3), launch_profile_apply.ps1 + register_fc27_profile_task.ps1 +
+# the launcher's STEP 4b on a scratch game tree and a scratch registry key HKCU:\Software\TurboTest\... (the real HKLM is only READ, before and after).
+# Scratch copies for L1/L2. It never moves a live file, never starts
 # the game, never runs a scheduled task: the scripts under test are only given scratch paths, an unknown task name and -NoStart / -WhatIf.
 # Guard: the live mods\legacy compdata md5s are read (not written) before and after and must be identical.
 # Prints one line per case and "SELF-TEST PASSED|FAILED (n cases, m failed)". Exit 0 = pass.
 param(
-  [ValidateSet('L1', 'L2', 'All')][string]$Section = 'All',
+  [ValidateSet('L1', 'L2', 'L3', 'All')][string]$Section = 'All',
   [string]$Scratch = (Join-Path ([IO.Path]::GetTempPath()) ('launcher_selftest_' + (Get-Date -Format 'yyyyMMdd_HHmmss')))
 )
 $ErrorActionPreference = 'Stop'
@@ -149,7 +151,7 @@ if ($Section -in 'L2', 'All') {
     $s
   }
   function LArgs($s, [string[]]$more) {
-    @('-NoGui', '-NoStart', '-TaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-ProcessNames', 'none', '-TaskNames', 'none') + $more
+    @('-NoGui', '-NoStart', '-NoLocale', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-ProcessNames', 'none', '-TaskNames', 'none') + $more
   }
   function Get-Json([string]$p) { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json }
   $n = $rec.compdata.files.Count
@@ -202,7 +204,7 @@ if ($Section -in 'L2', 'All') {
   Check ($r.code -eq 30 -and $r.out -match ('would run schtasks /run /tn ' + $NoTask)) 'forced error under -WhatIf: still prints the would-run step'
   $r = Run $Launch (LArgs $s @('-Country', 'Atlantis'))
   Check ($r.code -eq 30 -and $r.out -match 'unknown country' -and ((Md5 $s.gui) + (Md5 $s.lj)) -eq $h0) 'unknown country: refused, exit 30, nothing written'
-  $a2 = @('-NoGui', '-NoStart', '-TaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-ProcessNames', 'powershell', '-TaskNames', 'none', '-Country', 'Italy')
+  $a2 = @('-NoGui', '-NoStart', '-NoLocale', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-ProcessNames', 'powershell', '-TaskNames', 'none', '-Country', 'Italy')
   $r = Run $Launch $a2
   Check ($r.code -eq 30 -and $r.out -match 'running' -and (CountDir $s.live) -eq $n) 'a running guarded process: profile step refuses, exit 30, nothing moved'
 
@@ -231,7 +233,7 @@ if ($Section -in 'L2', 'All') {
   }
 
   # --- -Status is read only
-  $r = Run $Launch @('-Status', '-TaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-LnkPath', (Join-Path $Scratch 'nolnk.lnk'))
+  $r = Run $Launch @('-Status', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $s.out, '-BackupRoot', $s.bk, '-LiveDir', $s.live, '-AsideDir', $s.aside, '-LnkPath', (Join-Path $Scratch 'nolnk.lnk'))
   Check ($r.code -eq 0 -and $r.out -match '== compdata profile' -and $r.out -match 'PROFILE: eerste' -and $r.out -match '== commentary' -and $r.out -match 'dut_nl full present' -and $r.out -match 'backup') '-Status: compdata profile, last pick, commentary (Data\Win32 + backup store), hint keys, shortcut, tasks'
 
   # --- .lnk -Install / -Undo round trip on a scratch shortcut
@@ -268,6 +270,291 @@ if ($Section -in 'L2', 'All') {
   Check ($(if (Test-Path -LiteralPath $realLnk) { Md5 $realLnk } else { 'ABSENT' }) -eq $lnkMd5) 'Cassio''s real desktop shortcut md5 unchanged'
   $taskInfo2 = Get-ScheduledTaskInfo -TaskName 'LaunchFC27' -ErrorAction SilentlyContinue
   Check (($(if ($taskInfo2) { $taskInfo2.LastRunTime.ToString('o') } else { 'none' })) -eq $lastRun) 'the real launcher task was never run (LastRunTime unchanged)'
+}
+
+if ($Section -in 'L3', 'All') {
+  Write-Host '== L3 phase 2: launch_profile_apply.ps1, register_fc27_profile_task.ps1, turbo_launch.ps1 STEP 4b / -Undo -Locale (scratch tree + scratch HKCU key only)'
+  $Apply = Join-Path $Tools 'launch_profile_apply.ps1'
+  $Reg = Join-Path $Tools 'register_fc27_profile_task.ps1'
+  $realGame = 'C:\Program Files\EA Games\EA SPORTS FC 27'
+  $realOut = 'C:\FC 27 Live Editor\turbo_output'
+  $regSub = 'SOFTWARE\EA Sports\EA SPORTS FC 27'
+  function HklmLocale([string]$view) {
+    $rv = $(if ($view -eq 'view64') { [Microsoft.Win32.RegistryView]::Registry64 } else { [Microsoft.Win32.RegistryView]::Registry32 })
+    $b = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $rv)
+    $k = $b.OpenSubKey($regSub, $false); $v = '(absent)'
+    if ($k) { $x = $k.GetValue('Locale', $null); $v = $(if ($null -eq $x) { '(none)' } else { [string]$x }); $k.Dispose() }
+    $b.Dispose(); $v
+  }
+  function RealSnap {
+    $w = Join-Path $realGame 'Data\Win32'; $c = Join-Path $realGame 'commentary'
+    $l1 = (Get-ChildItem -LiteralPath $w -Recurse -File -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($w.Length) + ':' + $_.Length }) -join '|'
+    $l2 = (Get-ChildItem -LiteralPath $c -Recurse -File -ErrorAction SilentlyContinue | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($c.Length) + ':' + $_.Length }) -join '|'
+    $f = @('launch_profile_request.json', 'launch_profile_result.json', 'launch_profile_state.json', 'launch_profile_apply.log') | ForEach-Object { $p = Join-Path $realOut $_; if (Test-Path -LiteralPath $p) { Md5 $p } else { '-' } }
+    $t = $(if (Get-ScheduledTask -TaskName 'FC27_Profile' -ErrorAction SilentlyContinue) { 'task' } else { 'notask' })
+    (HklmLocale 'view64') + ';' + (HklmLocale 'view32') + ';' + (Md5Str $l1) + ';' + (Md5Str $l2) + ';' + ($f -join ',') + ';' + $t
+  }
+  function Md5Str([string]$s) { $m = [Security.Cryptography.MD5]::Create(); ([BitConverter]::ToString($m.ComputeHash([Text.Encoding]::UTF8.GetBytes($s)))).Replace('-', '').ToLower() }
+  $realBefore = RealSnap
+  $realGui = 'C:\FC 27 Live Editor\turbo_output\gui_settings.json'
+  function Get-Json([string]$p) { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json }
+  function New-L2([string]$name) {
+    $s = New-Scratch $name
+    $out = Join-Path $s.dir 'turbo_output'; New-Item -ItemType Directory -Force -Path $out | Out-Null
+    Copy-Item -LiteralPath $realGui -Destination (Join-Path $out 'gui_settings.json')
+    $s.out = $out; $s.gui = (Join-Path $out 'gui_settings.json'); $s.lj = (Join-Path $out 'launch_profile.json'); $s.bk = (Join-Path $s.dir 'backups')
+    $s
+  }
+  $guiMd5L3 = Md5 $realGui
+  Write-Host ('real HKLM Locale (read-only look): ' + (HklmLocale 'view64') + ' / ' + (HklmLocale 'view32'))
+
+  $regRootName = 'selftest_' + (Get-Date -Format 'yyyyMMdd_HHmmss')
+  $regRootAll = 'HKCU:\Software\TurboTest\' + $regRootName
+  $rnd = New-Object Random 27
+  function Rand-File([string]$p, [int]$n) { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $p) | Out-Null; $b = New-Object byte[] $n; $rnd.NextBytes($b); [IO.File]::WriteAllBytes($p, $b) }
+  # a scratch game: Data\Win32 with the live packs named in $live, commentary\ with the backup packs named in $bak
+  function Add-Pack([string]$toc, [string]$casRoot, [string]$lang, [int]$tocSize = 6000) {
+    Rand-File (Join-Path $toc ('commentaryfull_' + $lang + '.toc')) $tocSize
+    Rand-File (Join-Path $toc ('commentarylaunch_' + $lang + '.toc')) 900
+    Rand-File (Join-Path $casRoot ('commentaryfull_' + $lang + '\cas_01.cas')) 3000
+    Rand-File (Join-Path $casRoot ('commentaryfull_' + $lang + '\cas_02.cas')) 2000
+    Rand-File (Join-Path $casRoot ('commentarylaunch_' + $lang + '\cas_01.cas')) 700
+  }
+  function New-P2([string]$name, [string[]]$live, [string[]]$bak, [bool]$with32 = $true) {
+    $d = Join-Path $Scratch $name
+    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force }
+    $g = Join-Path $d 'game'; $w = Join-Path $g 'Data\Win32'; $b = Join-Path $g 'commentary'; $out = Join-Path $d 'turbo_output'
+    New-Item -ItemType Directory -Force -Path $w, $b, $out | Out-Null
+    foreach ($l in $live) { Add-Pack $w (Join-Path $w 'superbundlelayout') $l }
+    foreach ($l in $bak) { Add-Pack $b $b $l }
+    $root = $regRootAll + '\' + $name
+    New-Item -Path ($root + '\view64') -Force | Out-Null; Set-ItemProperty -Path ($root + '\view64') -Name Locale -Value 'nl_NL'
+    if ($with32) { New-Item -Path ($root + '\view32') -Force | Out-Null; Set-ItemProperty -Path ($root + '\view32') -Name Locale -Value 'nl_NL' }
+    @{ dir = $d; game = $g; win32 = $w; bak = $b; out = $out; reg = $root; req = (Join-Path $out 'launch_profile_request.json'); res = (Join-Path $out 'launch_profile_result.json'); st = (Join-Path $out 'launch_profile_state.json') }
+  }
+  function RegGet($s, [string]$view) { $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($s.reg.Substring('HKCU:\'.Length) + '\' + $view); if (-not $k) { return '(absent)' }; $v = [string]$k.GetValue('Locale'); $k.Dispose(); $v }
+  function RegSet($s, [string]$view, [string]$v) { Set-ItemProperty -Path ($s.reg + '\' + $view) -Name Locale -Value $v }
+  function Both($s) { (RegGet $s 'view64') + '/' + (RegGet $s 'view32') }
+  function Manifest([string]$dir) { (Get-ChildItem -LiteralPath $dir -Recurse -File | Sort-Object FullName | ForEach-Object { $_.FullName.Substring($dir.Length) + '=' + (Md5 $_.FullName) }) -join ';' }
+  $script:rid = 0
+  function Write-Req($s, [string]$action, [string]$lang, [string]$loc, [string]$id = '', [int]$ageSec = 0, [string]$raw = '') {
+    $script:rid++
+    if (-not $id) { $id = 'st' + (Get-Date -Format 'HHmmss') + '-' + $script:rid }
+    if ($raw) { [IO.File]::WriteAllText($s.req, $raw); return $id }
+    $o = [ordered]@{ version = 1; action = $action; language = $lang; locale = $loc; request_id = $id; requested_at = (Get-Date).AddSeconds(-$ageSec).ToString('yyyy-MM-ddTHH:mm:ss') }
+    [IO.File]::WriteAllText($s.req, (($o | ConvertTo-Json) + "`n"), (New-Object Text.UTF8Encoding $false))
+    $id
+  }
+  function Do-Apply($s, [string[]]$more = @()) {
+    $r = Run $Apply (@('-OutputDir', $s.out, '-GameDir', $s.game, '-RegRoot', $s.reg, '-ProcessNames', 'none') + $more)
+    $r.res = $(if (Test-Path -LiteralPath $s.res) { Get-Json $s.res } else { $null })
+    $r.state = $(if (Test-Path -LiteralPath $s.st) { Get-Json $s.st } else { $null })
+    $r
+  }
+  function Get-Json([string]$p) { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json }
+
+  # --- set / undo round trip, both views
+  $s = New-P2 'p2_round' @('ita_it', 'spa_es') @()
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT')
+  $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (Both $s) -eq 'it_IT/it_IT') 'set ita_it/it_IT: exit 0, both views it_IT (read back)'
+  Check ($r.res.ok -eq $true -and $r.res.pack_state -eq 'present' -and @($r.res.copies).Count -eq 0 -and $r.res.locale_before.view64 -eq 'nl_NL' -and $r.res.locale_after.view32 -eq 'it_IT') 'result json: ok, pack present, no copies, locale_before nl_NL, locale_after it_IT'
+  Check ($r.state.set.locale -eq 'it_IT' -and $r.state.set.language -eq 'ita_it' -and $r.state.prior.view64 -eq 'nl_NL' -and $r.state.prior.view32 -eq 'nl_NL' -and $r.state.set_at_epoch -gt 1700000000 -and $r.state.request_id) 'state json: set {it_IT, ita_it}, prior nl_NL/nl_NL, set_at_epoch, request_id'
+  Check ((Get-Content -LiteralPath (Join-Path $s.out 'launch_profile_apply.log') -Raw) -match 'action=set step=set ok=True') 'apply log: one line per run'
+  # a second set (es_ES) without an undo: the prior stays the real original
+  [void](Write-Req $s 'set' 'spa_es' 'es_ES')
+  $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (Both $s) -eq 'es_ES/es_ES' -and $r.state.prior.view64 -eq 'nl_NL' -and $r.state.set.locale -eq 'es_ES') 'set es_ES after it_IT: prior is still nl_NL (not it_IT)'
+  [void](Write-Req $s 'undo' '' '')
+  $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (Both $s) -eq 'nl_NL/nl_NL' -and $null -eq $r.state.set -and $r.state.prior.view64 -eq 'nl_NL' -and $r.res.step -eq 'undo') 'undo: nl_NL/nl_NL restored (read back equal), state set cleared, prior kept'
+  [void](Write-Req $s 'undo' '' '')
+  $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.res.message -match 'nothing to undo' -and (Both $s) -eq 'nl_NL/nl_NL') 'undo with no active set: refused (exit 1), registry unchanged'
+  # the registry changed behind our back while a set is active: that value becomes the new prior
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT'); $r = Do-Apply $s
+  RegSet $s 'view64' 'fr_FR'; RegSet $s 'view32' 'fr_FR'
+  [void](Write-Req $s 'set' 'spa_es' 'es_ES'); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and $r.state.prior.view64 -eq 'fr_FR' -and $r.state.prior.view32 -eq 'fr_FR') 'a changed Locale under an active set (EA app rewrote it) becomes the new prior'
+  [void](Write-Req $s 'undo' '' ''); $r = Do-Apply $s
+  Check ((Both $s) -eq 'fr_FR/fr_FR') 'undo then restores that prior (fr_FR/fr_FR)'
+
+  # --- the 32-bit view only when its key exists
+  $s = New-P2 'p2_no32' @('ita_it') @() $false
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT'); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (RegGet $s 'view64') -eq 'it_IT' -and (RegGet $s 'view32') -eq '(absent)' -and $null -eq $r.state.prior.view32) 'no 32-bit key: only the 64-bit view is written, the 32-bit key is not created, prior.view32 null'
+  [void](Write-Req $s 'undo' '' ''); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (RegGet $s 'view64') -eq 'nl_NL' -and (RegGet $s 'view32') -eq '(absent)') 'undo without a 32-bit key: 64-bit restored, still no 32-bit key'
+  $s = New-P2 'p2_eng' @() @()
+  [void](Write-Req $s 'set' 'eng_us' 'en_US'); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (Both $s) -eq 'en_US/en_US' -and $r.res.pack_state -eq 'base') 'eng_us / en_US: base game, no pack test, no copy'
+
+  # --- refusals: registry and trees untouched
+  $s = New-P2 'p2_refuse' @('ita_it') @('fre_fr')
+  $m0 = Manifest $s.dir
+  [void](Write-Req $s 'set' 'xyz_zz' 'it_IT'); $r = Do-Apply $s
+  Check ($r.code -eq 2 -and $r.res.message -match 'unknown language' -and (Both $s) -eq 'nl_NL/nl_NL') 'unknown language: bad request (exit 2), registry unchanged'
+  [void](Write-Req $s 'set' 'ita_it' 'nl_NL'); $r = Do-Apply $s
+  Check ($r.code -eq 2 -and $r.res.message -match 'not the table locale' -and (Both $s) -eq 'nl_NL/nl_NL') 'locale that is not the table locale of the language: exit 2'
+  [void](Write-Req $s 'set' 'ita_it' 'xx_XX'); $r = Do-Apply $s
+  Check ($r.code -eq 2 -and (Both $s) -eq 'nl_NL/nl_NL') 'locale not in the table at all: exit 2'
+  [void](Write-Req $s 'set' 'ita_it' 'it_it'); $r = Do-Apply $s
+  Check ($r.code -eq 2) 'locale compared case-sensitively (it_it refused): exit 2'
+  [void](Write-Req $s 'set' '' '' '' 0 'not json {'); $r = Do-Apply $s
+  Check ($r.code -eq 2 -and $r.res.message -match 'not valid JSON') 'a request that is not JSON: exit 2'
+  [void](Write-Req $s 'wipe' 'ita_it' 'it_IT'); $r = Do-Apply $s
+  Check ($r.code -eq 2 -and $r.res.message -match 'action must be') 'an action other than set/undo: exit 2'
+  $id = Write-Req $s 'set' 'ita_it' 'it_IT'; $r = Do-Apply $s @('-ExpectRequestId', 'someone-else')
+  Check ($r.code -eq 1 -and $r.res.message -match 'request_id mismatch' -and (Both $s) -eq 'nl_NL/nl_NL') 'request_id mismatch: refused (exit 1)'
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT' '' 3600); $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.res.message -match 'stale request' -and (Both $s) -eq 'nl_NL/nl_NL') 'stale request (an hour old): refused (exit 1)'
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT' '' -3600); $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.res.message -match 'future') 'a request dated an hour ahead: refused (exit 1)'
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT'); $r = Run $Apply @('-OutputDir', $s.out, '-GameDir', $s.game, '-RegRoot', $s.reg, '-ProcessNames', 'powershell')
+  Check ($r.code -eq 1 -and (Get-Json $s.res).message -match 'refused while running' -and (Both $s) -eq 'nl_NL/nl_NL') 'FC27 / launcher running (mocked process list): refused (exit 1), registry unchanged'
+  $id = Write-Req $s 'set' 'ita_it' 'it_IT' 'replay-1'; $r = Do-Apply $s
+  Check ($r.code -eq 0 -and (Both $s) -eq 'it_IT/it_IT') 'a fresh request is applied'
+  RegSet $s 'view64' 'nl_NL'; RegSet $s 'view32' 'nl_NL'
+  $id = Write-Req $s 'set' 'ita_it' 'it_IT' 'replay-1'; $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.out -match 'already processed' -and (Both $s) -eq 'nl_NL/nl_NL') 'the same request_id again (replay): refused, registry unchanged'
+  $r = Run $Apply @('-OutputDir', $s.out, '-GameDir', $s.game, '-RegRoot', 'HKCU:\Software\NotTheScratchKey', '-ProcessNames', 'none')
+  Check ($r.code -eq 2 -and $r.out -match 'must be HKCU:\\Software\\TurboTest') '-RegRoot outside HKCU:\Software\TurboTest is refused (exit 2)'
+  $r = Run $Apply @('-OutputDir', $s.out, '-GameDir', $s.game, '-RegRoot', 'HKLM:\SOFTWARE\EA Sports\EA SPORTS FC 27', '-ProcessNames', 'none')
+  Check ($r.code -eq 2) '-RegRoot pointing at HKLM is refused (exit 2)'
+  $gameMan = Manifest $s.game
+  [void](Write-Req $s 'set' 'ita_it' 'it_IT'); $r = Do-Apply $s
+  Check ((Manifest $s.game) -eq $gameMan) 'a set with the pack present changes nothing in the game tree (md5 manifest)'
+
+  # --- pack cases
+  $s = New-P2 'p2_copy' @('ita_it') @('fre_fr')
+  $manW = Manifest $s.win32; $manB = Manifest $s.bak
+  [void](Write-Req $s 'set' 'fre_fr' 'fr_FR'); $r = Do-Apply $s
+  $after = Manifest $s.win32
+  Check ($r.code -eq 0 -and $r.res.pack_state -eq 'copied' -and (Both $s) -eq 'fr_FR/fr_FR' -and @($r.res.copies).Count -eq 5) 'absent + backup present: copied (5 files: 2 tocs + 3 cas), Locale set'
+  $bad = 0
+  foreach ($c in @($r.res.copies)) { $dst = Join-Path $s.win32 $c.rel; $src = $(if ($c.rel -like 'superbundlelayout\*') { Join-Path $s.bak ($c.rel -replace '^superbundlelayout\\', '') } else { Join-Path $s.bak $c.rel }); if (-not (Test-Path -LiteralPath $dst) -or (Md5 $dst) -ne $c.md5 -or (Md5 $src) -ne $c.md5) { $bad++ } }
+  Check ($bad -eq 0) 'every copied file md5 equals its source and the md5 recorded in the result'
+  Check (@(Get-ChildItem -LiteralPath $s.win32 -Recurse -Filter '*.turbo_tmp').Count -eq 0) 'no .turbo_tmp left behind (tmp renamed)'
+  $added = @(($after -split ';') | Where-Object { ($manW -split ';') -notcontains $_ })
+  $removed = @(($manW -split ';') | Where-Object { ($after -split ';') -notcontains $_ })
+  Check ($added.Count -eq 5 -and $removed.Count -eq 0 -and (Manifest $s.bak) -eq $manB) 'tree manifest before/after: exactly 5 files added, none changed or removed in Data\Win32, backup store unchanged'
+  Check (@($r.state.copies).Count -eq 5) 'state json records the copies {rel, bytes, md5}'
+  # pack absent on both sides
+  $s = New-P2 'p2_absent' @('ita_it') @()
+  $m0 = Manifest $s.game
+  [void](Write-Req $s 'set' 'ger_de' 'de_DE'); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and $r.res.pack_state -eq 'pack_absent' -and $r.res.ok -eq $false -and (Both $s) -eq 'nl_NL/nl_NL' -and $null -eq $r.state) 'absent + backup absent: pack_absent, exit 0, Locale unchanged, no state written'
+  Check ((Manifest $s.game) -eq $m0) 'pack_absent: game tree unchanged'
+  # an existing non-empty target (a stub toc) is never overwritten
+  $s = New-P2 'p2_stub' @('ita_it') @('por_br')
+  Rand-File (Join-Path $s.win32 'commentaryfull_por_br.toc') 1000
+  $m0 = Manifest $s.game
+  [void](Write-Req $s 'set' 'por_br' 'pt_BR'); $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.res.pack_state -eq 'copy_refused' -and $r.res.message -match 'never overwriting' -and (Both $s) -eq 'nl_NL/nl_NL') 'existing non-empty (stub) target: copy refused (exit 1), Locale unchanged'
+  Check ((Manifest $s.game) -eq $m0) 'copy refused: nothing in the game tree changed (pre-flight, nothing half-copied)'
+  # a leftover tmp from an earlier half copy is reported and never touched
+  $s = New-P2 'p2_tmp' @() @('fre_fr')
+  Rand-File (Join-Path $s.win32 'commentaryfull_fre_fr.toc.turbo_tmp') 50
+  $m0 = Manifest $s.game
+  [void](Write-Req $s 'set' 'fre_fr' 'fr_FR'); $r = Do-Apply $s
+  Check ($r.code -eq 1 -and $r.res.message -match 'leftover' -and (Manifest $s.game) -eq $m0 -and (Both $s) -eq 'nl_NL/nl_NL') 'a leftover .turbo_tmp: refused, left in place, nothing else copied'
+  # resume: one file already identical in Data\Win32 is skipped, the rest copied
+  $s = New-P2 'p2_resume' @() @('spa_es')
+  Copy-Item -LiteralPath (Join-Path $s.bak 'commentarylaunch_spa_es.toc') -Destination (Join-Path $s.win32 'commentarylaunch_spa_es.toc')
+  [void](Write-Req $s 'set' 'spa_es' 'es_ES'); $r = Do-Apply $s
+  Check ($r.code -eq 0 -and $r.res.pack_state -eq 'copied' -and @($r.res.copies).Count -eq 4 -and (Both $s) -eq 'es_ES/es_ES') 'resume: an identical file already in place is skipped, the other 4 are copied'
+  # disk space guard
+  $s = New-P2 'p2_space' @() @('fre_fr')
+  $m0 = Manifest $s.game
+  [void](Write-Req $s 'set' 'fre_fr' 'fr_FR'); $r = Do-Apply $s @('-FreeMarginBytes', '999999999999999')
+  Check ($r.code -eq 1 -and $r.res.message -match 'margin' -and (Manifest $s.game) -eq $m0) 'not enough free space: refused before the first copy'
+  # table equals the json map (the guard's need: hint language and registry Locale come from one source)
+  $txt = Get-Content -LiteralPath $Apply -Raw
+  $tm = [regex]::Match($txt, '\$Table = \[ordered\]@\{([^}]*)\}').Groups[1].Value
+  $tbl = @{}; foreach ($m in [regex]::Matches($tm, '(\w+)\s*=\s*''([A-Za-z_]+)''')) { $tbl[$m.Groups[1].Value] = $m.Groups[2].Value }
+  $pj = Get-Content -LiteralPath (Join-Path $Tools 'launch_profiles.json') -Raw | ConvertFrom-Json
+  $same = ($tbl.Count -eq 7)
+  foreach ($k in $tbl.Keys) { if ([string]$pj.locales.$k -ne $tbl[$k]) { $same = $false } }
+  Check ($same -and @($pj.locales.PSObject.Properties).Count -eq 7) 'launch_profiles.json "locales" equals the apply script''s fixed 7-row table'
+  Check ($tbl['ita_it'] -eq 'it_IT' -and $tbl['dut_nl'] -eq 'nl_NL' -and $tbl['eng_us'] -eq 'en_US' -and $tbl['spa_es'] -eq 'es_ES' -and $tbl['fre_fr'] -eq 'fr_FR' -and $tbl['ger_de'] -eq 'de_DE' -and $tbl['por_br'] -eq 'pt_BR') 'the table rows are the exe''s (eng_us en_US, dut_nl nl_NL, ita_it it_IT, spa_es es_ES, fre_fr fr_FR, ger_de de_DE, por_br pt_BR)'
+
+  # --- register_fc27_profile_task.ps1 -WhatIf prints the XML it would register
+  $r = Run $Reg @('-WhatIf')
+  Check ($r.code -eq 0 -and $r.out -match '<URI>\\FC27_Profile</URI>' -and $r.out -match 'IgnoreNew' -and $r.out -match 'PT10M' -and $r.out -match '<Triggers />' -and $r.out -match 'HighestAvailable' -and $r.out -match 'InteractiveToken' -and $r.out -match 'launch_profile_apply\.ps1&quot;' -and $r.out -match 'powershell\.exe') 'register script -WhatIf: prints the task XML (FC27_Profile, IgnoreNew, PT10M, no trigger, Highest, Interactive, the apply script) and registers nothing'
+  Check (-not (Get-ScheduledTask -TaskName 'FC27_Profile' -ErrorAction SilentlyContinue) -or $realBefore -match ';task$') 'the task FC27_Profile exists only if it did before this self-test (never registered by it)'
+  $r = Run $Reg @()
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) { Check ($r.code -eq 1 -and $r.out -match 'elevated') 'register script without elevation: refused (exit 1), never self-elevates' }
+  else { Write-Host '  skip  register-without-elevation case (this shell is elevated; the script would register the real task)' }
+
+  # --- the launcher: STEP 4b through a fake task (a job that runs the REAL apply script on the scratch tree the moment the request file appears)
+  function Start-FakeTask($s) {
+    if (Test-Path -LiteralPath $s.req) { Remove-Item -LiteralPath $s.req -Force }
+    Start-Job -ArgumentList $Apply, $s.out, $s.game, $s.reg, $s.req -ScriptBlock {
+      param($apply, $out, $game, $reg, $req)
+      $end = (Get-Date).AddSeconds(90)
+      while ((Get-Date) -lt $end) {
+        if (Test-Path -LiteralPath $req) { Start-Sleep -Milliseconds 300; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $apply -OutputDir $out -GameDir $game -RegRoot $reg -ProcessNames none | Out-Null; return }
+        Start-Sleep -Milliseconds 200
+      }
+    }
+  }
+  function P4Args($s, $l2, [string[]]$more) {
+    @('-NoGui', '-NoStart', '-TaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '60', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none') + $more
+  }
+  $s = New-P2 'p2_launch' @('ita_it', 'dut_nl') @()
+  $l2 = New-L2 'p2_launch_l2'
+  $s.out = $l2.out; $s.req = (Join-Path $l2.out 'launch_profile_request.json'); $s.res = (Join-Path $l2.out 'launch_profile_result.json'); $s.st = (Join-Path $l2.out 'launch_profile_state.json')
+  $job = Start-FakeTask $s
+  $r = Run $Launch (P4Args $s $l2 @('-Country', 'Italy'))
+  Wait-Job $job -Timeout 30 | Out-Null; Remove-Job $job -Force
+  Check ($r.code -eq 0 -and $r.out -match 'STEP 4b: Locale it_IT \(ita_it\)' -and $r.out -match 'result: ok=True pack=present' -and (Both $s) -eq 'it_IT/it_IT') 'launcher Italy: STEP 4b writes the request, the task applies it (scratch registry it_IT/it_IT), result printed, exit 0'
+  $lj = Get-Json $l2.lj
+  Check ($lj.locale_requested -eq 'it_IT' -and $lj.locale_result -eq 'ok present' -and $lj.language -eq 'ita_it' -and $lj.country -eq 'Italy') 'launch_profile.json gains locale_requested it_IT and locale_result "ok present" (other keys kept)'
+  Check ((Get-Json $l2.gui).callnames.launcher_language -eq 'ita_it') 'the hint language (ita_it) is the language the Locale maps to'
+  Check ($r.out -match ('would run schtasks /run /tn ' + $NoTask + ' \(-NoStart\)')) 'STEP 5 is still announced after STEP 4b'
+  $stj = Get-Json $s.st
+  Check ($stj.set.locale -eq 'it_IT' -and $stj.prior.view64 -eq 'nl_NL') 'state json written by the task: prior nl_NL, set it_IT'
+  # -Undo -Locale
+  $job = Start-FakeTask $s
+  $r = Run $Launch (P4Args $s $l2 @('-Undo', '-Locale'))
+  Wait-Job $job -Timeout 30 | Out-Null; Remove-Job $job -Force
+  Check ($r.code -eq 0 -and $r.out -match 'LOCALE UNDO PASS' -and (Both $s) -eq 'nl_NL/nl_NL' -and $null -eq (Get-Json $s.st).set) '-Undo -Locale: the task restores nl_NL/nl_NL, state set cleared, exit 0'
+  # -WhatIf: prints the request, runs nothing
+  $h0 = (Both $s)
+  if (Test-Path -LiteralPath $s.req) { Remove-Item -LiteralPath $s.req }
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-WhatIf', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  Check ($r.code -eq 0 -and $r.out -match 'STEP 4b: WHATIF would write' -and $r.out -match '"locale":"it_IT"' -and $r.out -match ('WHATIF would run schtasks /run /tn ' + $NoTask) -and -not (Test-Path -LiteralPath $s.req) -and (Both $s) -eq $h0) '-WhatIf: STEP 4b prints the request and the task run it would make; no request file written, registry unchanged'
+  $r = Run $Launch @('-Undo', '-Locale', '-WhatIf', '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out)
+  Check ($r.code -eq 0 -and $r.out -match 'WHATIF: would write' -and $r.out -match '"action":"undo"' -and -not (Test-Path -LiteralPath $s.req)) '-Undo -Locale -WhatIf: prints the undo request, runs nothing'
+  # forced timeout: no task answers
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-ProfileNoRun', '-ProfileTimeoutSec', '2', '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  Check ($r.code -eq 30 -and $r.out -match 'no result from' -and $r.out -match ('would run schtasks /run /tn ' + $NoTask) -and (Both $s) -eq 'nl_NL/nl_NL') 'forced timeout: message, exit 30, "would run schtasks /run /tn <TaskName>" still printed, Locale as it was'
+  Check ((Get-Json $l2.lj).locale_result -eq 'failed' -and (Get-Json $l2.lj).country -eq 'Italy') 'timeout: launch_profile.json still holds the pick, locale_result "failed"'
+  # task not registered (a task name that does not exist, no -ProfileNoRun): fast failure, game still starts
+  $r = Run $Launch (@('-NoGui', '-NoStart', '-Country', 'Italy', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-GameDir', $s.game, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-ProcessNames', 'none', '-TaskNames', 'none'))
+  Check ($r.code -eq 30 -and $r.out -match 'is not registered' -and $r.out -match ('would run schtasks /run /tn ' + $NoTask) -and (Both $s) -eq 'nl_NL/nl_NL') 'task not registered: message, Locale untouched, exit 30, the game start still announced'
+  # pack absent through the launcher (Brazil, por_br in neither place)
+  $job = Start-FakeTask $s
+  $r = Run $Launch (P4Args $s $l2 @('-Country', 'Brazil'))
+  Wait-Job $job -Timeout 30 | Out-Null; Remove-Job $job -Force
+  Check ($r.code -eq 30 -and $r.out -match 'pack_absent' -and (Both $s) -eq 'nl_NL/nl_NL' -and (Get-Json $l2.lj).locale_result -eq 'pack_absent') 'pack_absent through the launcher: message names it, Locale unchanged, locale_result pack_absent, STEP 5 still reached'
+  # -Status shows both views
+  $r = Run $Launch @('-Status', '-TaskName', $NoTask, '-ProfileTaskName', $NoTask, '-OutputDir', $l2.out, '-BackupRoot', $l2.bk, '-LiveDir', $l2.live, '-AsideDir', $l2.aside, '-LnkPath', (Join-Path $Scratch 'nolnk.lnk'))
+  Check ($r.code -eq 0 -and $r.out -match 'HKLM 64-bit view: ' -and $r.out -match 'HKLM 32-bit view: ' -and $r.out -match 'launch_profile_state.json') '-Status prints both HKLM Locale views (read only) and the profile state'
+  # the launcher refuses a profiles file without a locales entry
+  $nj = Get-Content -LiteralPath (Join-Path $Tools 'launch_profiles.json') -Raw | ConvertFrom-Json
+  $nj.locales.PSObject.Properties.Remove('ita_it')
+  $badProf = Join-Path $Scratch 'profiles_no_ita_locale.json'
+  [IO.File]::WriteAllText($badProf, ($nj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
+  $r = Run $Launch (P4Args $s $l2 @('-Country', 'England', '-ProfilesPath', $badProf))
+  Check ($r.code -eq 30 -and $r.out -match 'locales map') 'a profiles file without a locales entry for a country''s language is rejected (exit 30, names the locales map)'
+
+  # --- scratch registry gone, real state untouched
+  Remove-Item -Path $regRootAll -Recurse -Force
+  Check (-not (Test-Path -LiteralPath $regRootAll)) 'the scratch HKCU key is removed'
+  Check ((Md5 $realGui) -eq $guiMd5L3) 'live turbo_output\gui_settings.json md5 unchanged'
+  Check ((RealSnap) -eq $realBefore) 'real HKLM Locale (both views), Data\Win32 + backup listings, real turbo_output request/result/state/log and the FC27_Profile task state are unchanged by the whole L3 section'
 }
 
 $snapAfter = LiveSnapshot

@@ -15,5 +15,14 @@
     "ita_it": "Italian",
     "spa_es": "Spanish",
     "por_br": "Brazilian Portuguese"
+  },
+  "locales": {
+    "eng_us": "en_US",
+    "dut_nl": "nl_NL",
+    "ita_it": "it_IT",
+    "spa_es": "es_ES",
+    "fre_fr": "fr_FR",
+    "ger_de": "de_DE",
+    "por_br": "pt_BR"
   }
 }
