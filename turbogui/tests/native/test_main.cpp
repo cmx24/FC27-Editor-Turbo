@@ -3686,6 +3686,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
+#include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
@@ -4981,6 +4982,7 @@ static void test_ui() {
             CHECK(!apply_crest(app, 241, src, Framing(), false, 40, &msg) && msg.find("not loaded yet") != std::string::npos, "unknown formats: refused (" + msg + ")");
         });
         kit_import_ui_cases(app, ui, le);  // test_kit_import.h: Teams > Kits (2.3)
+        minikit_test::ui_cases(app, ui, le);  // test_minikits.h: the minikits an import makes (2.20 K4)
 
         run_case("UI: Managers, edit text within the field's byte limit", [&] {
             CHECK(ui.click("Managers"), "Managers tab");
@@ -15408,6 +15410,7 @@ int main(int argc, char** argv) {
     test_images();
     std::printf("native kit import\n");
     test_kit_import();
+    minikit_test::unit();  // test_minikits.h (2.20 K4)
     test_kit_fonts();
     kit_share_test::run();  // test_kit_share.h (2.13)
     std::printf("native dev service\n");

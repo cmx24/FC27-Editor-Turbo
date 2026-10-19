@@ -54,6 +54,11 @@ uint64_t kit_row(App& app, int64_t teamid, kits::Slot s, int64_t* teamkitid = nu
 // The state of the game's own minikit for the slot (Waiting: asked from the game, not exported yet)
 LegacyImages::State minikit_state(App& app, int64_t teamid, kits::Slot s);
 
+// 2.20 K4: the per-club switch for the minikit an import writes (on by default). The checkbox that flips it belongs on the Kits page
+// (ui_kits_page.cpp: K1's file); the import reads it. Stored in turbo_output\kits\<teamid>\minikit_off.txt.
+bool minikit_enabled(App& app, int64_t teamid);
+bool set_minikit_enabled(App& app, int64_t teamid, bool on);
+
 struct KitApply {
     bool ok = false;          // database part and minikit done (written, or nothing the game has to write)
     std::string line;         // one line for the toast / panel

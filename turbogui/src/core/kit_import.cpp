@@ -340,6 +340,237 @@ static Rgba half_level(const Rgba& s) {
     return o;
 }
 
+// ================================================================ minikits (2.20 K4)
+std::vector<uint8_t> minikit_header() {
+    std::vector<uint8_t> h(128, 0);
+    std::memcpy(h.data(), "DDS ", 4);
+    wr32(h, 4, 124);
+    wr32(h, 8, 0x81007);          // the game's own flags (CAPS | HEIGHT | WIDTH | PIXELFORMAT | MIPMAPCOUNT | the LINEARSIZE bit)
+    wr32(h, 12, kMinikitSize);
+    wr32(h, 16, kMinikitSize);
+    wr32(h, 20, kMinikitSize * kMinikitSize * 4);  // the top level's byte size (the LINEARSIZE bit is set), as in the 66 live files
+    wr32(h, 28, 4);                 // mip levels
+    wr32(h, 76, 32);
+    wr32(h, 80, 0x41);              // RGB | ALPHAPIXELS
+    wr32(h, 88, 32);
+    wr32(h, 92, 0x00FF0000u);
+    wr32(h, 96, 0x0000FF00u);
+    wr32(h, 100, 0x000000FFu);
+    wr32(h, 104, 0xFF000000u);
+    wr32(h, 108, 0x401008);         // COMPLEX | MIPMAP | TEXTURE
+    return h;
+}
+
+std::vector<uint8_t> encode_minikit_dds(const Rgba& img0, std::string* err) {
+    std::vector<uint8_t> out;
+    if (img0.empty()) {
+        zfail(err, "no picture to write");
+        return out;
+    }
+    if (img0.w != img0.h) {
+        zfail(err, "only square pictures are written (" + std::to_string(img0.w) + " x " + std::to_string(img0.h) + ")");
+        return out;
+    }
+    Rgba level = img0.w == kMinikitSize ? img0 : frame_image(img0, kMinikitSize, Framing());
+    if (level.empty() || level.w != kMinikitSize) {
+        zfail(err, "the picture could not be scaled");
+        return out;
+    }
+    out = minikit_header();
+    for (int m = 0; m < 4; ++m) {
+        if (m) level = half_level(level);
+        const size_t at = out.size();
+        out.resize(at + size_t(level.w) * size_t(level.h) * 4);
+        for (size_t i = 0; i < size_t(level.w) * size_t(level.h); ++i) {  // BGRA
+            const uint8_t* p = &level.px[i * 4];
+            uint8_t* d = &out[at + i * 4];
+            d[0] = p[2];
+            d[1] = p[1];
+            d[2] = p[0];
+            d[3] = p[3];
+        }
+    }
+    return out;
+}
+
+bool check_minikit_dds(const std::vector<uint8_t>& dds, std::string* err) {
+    if (dds.size() != kMinikitBytes) return zfail(err, "the minikit file is " + std::to_string(dds.size()) + " bytes, not " + std::to_string(kMinikitBytes));
+    const std::vector<uint8_t> h = minikit_header();
+    if (std::memcmp(dds.data(), h.data(), h.size()) != 0) return zfail(err, "the minikit file's header is not the proven one");
+    return true;
+}
+
+bool is_minikit_form(const DdsFormat& f) {
+    return f.pixel == DdsFormat::Pixel::BGRA8 && f.w == kMinikitSize && f.h == kMinikitSize && f.mips == 4 && !f.dx10;
+}
+
+MinikitHints minikit_hints(const KitSettings& s) {
+    MinikitHints h;
+    int prim[3] = {-1, -1, -1}, sec[3] = {-1, -1, -1};
+    static const char ch[3] = {'r', 'g', 'b'};
+    for (const auto& f : s.fields)
+        for (int c = 0; c < 3; ++c) {
+            if (f.first == std::string("teamcolorprim") + ch[c]) prim[c] = int(f.second);
+            if (f.first == std::string("teamcolorsec") + ch[c]) sec[c] = int(f.second);
+        }
+    h.have_prim = prim[0] >= 0 && prim[1] >= 0 && prim[2] >= 0;
+    h.have_sec = sec[0] >= 0 && sec[1] >= 0 && sec[2] >= 0;
+    for (int c = 0; c < 3; ++c) {
+        h.prim[c] = uint8_t(std::clamp(prim[c], 0, 255));
+        h.sec[c] = uint8_t(std::clamp(sec[c], 0, 255));
+    }
+    return h;
+}
+
+namespace {
+struct Cluster {
+    int n = 0;
+    long sum[3] = {0, 0, 0};
+    float mean[3] = {0, 0, 0};
+};
+float colour_dist(const float a[3], const float b[3]) {
+    return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
+}
+// The colour of the jersey picture's biggest colour groups (4 bits per channel), biggest first, those under 1 % of the picture dropped
+std::vector<Cluster> jersey_clusters(const Rgba& img) {
+    std::vector<Cluster> all(4096);
+    int total = 0;
+    for (size_t i = 0; i + 3 < img.px.size(); i += 4) {
+        const uint8_t* p = &img.px[i];
+        if (p[3] < 128) continue;
+        Cluster& c = all[size_t(p[0] >> 4) << 8 | size_t(p[1] >> 4) << 4 | size_t(p[2] >> 4)];
+        ++c.n;
+        for (int k = 0; k < 3; ++k) c.sum[k] += p[k];
+        ++total;
+    }
+    std::vector<Cluster> out;
+    for (Cluster& c : all)
+        if (c.n > 0 && c.n * 100 >= total) {
+            for (int k = 0; k < 3; ++k) c.mean[k] = float(c.sum[k]) / float(c.n);
+            out.push_back(c);
+        }
+    std::sort(out.begin(), out.end(), [](const Cluster& a, const Cluster& b) { return a.n > b.n; });
+    return out;
+}
+
+// The shirt: a T-shirt in a 256 x 256 frame (mirrored about x = 128), a round neck, short sleeves
+struct Shirt {
+    static bool inside(float x, float y) {
+        static const float px[12] = {92, 164, 206, 238, 208, 188, 188, 68, 68, 48, 18, 50};
+        static const float py[12] = {30, 30, 44, 86, 118, 102, 226, 226, 102, 118, 86, 44};
+        bool in = false;
+        for (int i = 0, j = 11; i < 12; j = i++)  // even-odd
+            if ((py[i] > y) != (py[j] > y) && x < (px[j] - px[i]) * (y - py[i]) / (py[j] - py[i]) + px[i]) in = !in;
+        if (!in) return false;
+        const float nx = (x - 128.0f) / 30.0f, ny = (y - 28.0f) / 25.0f;  // the neck opening
+        return nx * nx + ny * ny >= 1.0f;
+    }
+    static bool collar(float x, float y) {
+        const float nx = (x - 128.0f) / 37.0f, ny = (y - 28.0f) / 32.0f;
+        return nx * nx + ny * ny < 1.0f;
+    }
+    static bool cuff(float x, float y) {
+        const float u = x >= 128.0f ? x : 256.0f - x;
+        if (u < 188.0f) return false;
+        const float t = (u - 238.0f) * -0.729f + (y - 86.0f) * -0.683f;  // distance in from the sleeve's end edge
+        return t < 14.0f;
+    }
+};
+}  // namespace
+
+Rgba render_minikit(const Rgba& jersey, const Rgba* crest, const MinikitHints& hints, std::string* err) {
+    Rgba out;
+    if (jersey.empty()) {
+        zfail(err, "no jersey picture to draw the minikit from");
+        return out;
+    }
+    const std::vector<Cluster> cl = jersey_clusters(jersey);
+    float prim[3] = {128, 128, 128}, sec[3] = {40, 40, 40};
+    auto near_cluster = [&](const float want[3], float limit, float res[3]) {
+        const Cluster* best = nullptr;
+        float bd = limit;
+        for (const Cluster& c : cl) {
+            const float d = colour_dist(c.mean, want);
+            if (d <= bd) {
+                bd = d;
+                best = &c;
+            }
+        }
+        if (best)
+            for (int k = 0; k < 3; ++k) res[k] = best->mean[k];
+        return best != nullptr;
+    };
+    if (hints.have_prim) {
+        const float want[3] = {float(hints.prim[0]), float(hints.prim[1]), float(hints.prim[2])};
+        if (!near_cluster(want, 90.0f, prim))
+            for (int k = 0; k < 3; ++k) prim[k] = want[k];
+    } else if (!cl.empty()) {
+        for (int k = 0; k < 3; ++k) prim[k] = cl[0].mean[k];
+    }
+    bool sec_set = false;
+    if (hints.have_sec) {
+        const float want[3] = {float(hints.sec[0]), float(hints.sec[1]), float(hints.sec[2])};
+        if (!near_cluster(want, 90.0f, sec))
+            for (int k = 0; k < 3; ++k) sec[k] = want[k];
+        sec_set = true;
+    } else {
+        for (const Cluster& c : cl)
+            if (colour_dist(c.mean, prim) > 70.0f) {
+                for (int k = 0; k < 3; ++k) sec[k] = c.mean[k];
+                sec_set = true;
+                break;
+            }
+    }
+    if (!sec_set) {  // a one-colour shirt: the trim is the same colour made darker (or lighter on a dark shirt)
+        const float lum = 0.3f * prim[0] + 0.59f * prim[1] + 0.11f * prim[2];
+        for (int k = 0; k < 3; ++k) sec[k] = lum > 110.0f ? prim[k] * 0.55f : std::min(255.0f, prim[k] * 1.6f + 40.0f);
+    }
+    out.w = out.h = kMinikitSize;
+    out.px.assign(size_t(kMinikitSize) * kMinikitSize * 4, 0);
+    for (int y = 0; y < kMinikitSize; ++y)
+        for (int x = 0; x < kMinikitSize; ++x) {
+            uint8_t* p = out.at(x, y);
+            int cover = 0;  // 3 x 3 samples
+            for (int sy = 0; sy < 3; ++sy)
+                for (int sx = 0; sx < 3; ++sx) cover += Shirt::inside(float(x) + (float(sx) + 0.5f) / 3.0f, float(y) + (float(sy) + 0.5f) / 3.0f) ? 1 : 0;
+            const float fx = float(x) + 0.5f, fy = float(y) + 0.5f;
+            const float* base = (Shirt::collar(fx, fy) || Shirt::cuff(fx, fy)) ? sec : prim;
+            const float d = std::min(1.0f, std::fabs(fx - 128.0f) / 110.0f);
+            float shade = (0.86f + 0.14f * (1.0f - d * d)) * (1.0f - 0.10f * std::clamp((fy - 30.0f) / 196.0f, 0.0f, 1.0f));
+            if (cover > 0 && cover < 9) shade *= 0.7f;  // the outline
+            else if (cover == 9 && (!Shirt::inside(fx - 2.0f, fy) || !Shirt::inside(fx + 2.0f, fy) || !Shirt::inside(fx, fy - 2.0f) || !Shirt::inside(fx, fy + 2.0f))) shade *= 0.7f;
+            for (int k = 0; k < 3; ++k) p[k] = uint8_t(std::clamp(base[k] * shade, 0.0f, 255.0f) + 0.5f);
+            p[3] = uint8_t(cover * 255 / 9);
+            if (cover == 0)
+                for (int k = 0; k < 3; ++k) p[k] = uint8_t(prim[k] + 0.5f);  // under a clear pixel: the shirt colour, no dark halo when the mips blend
+        }
+    if (crest && !crest->empty()) {  // the club crest on the wearer's left chest
+        constexpr int kCrest = 46, kX = 140, kY = 58;
+        const int side = std::max(crest->w, crest->h);
+        Rgba sq;
+        if (crest->w == crest->h) {
+            sq = *crest;
+        } else {  // centred on a clear square
+            sq.w = sq.h = side;
+            sq.px.assign(size_t(side) * size_t(side) * 4, 0);
+            const int ox = (side - crest->w) / 2, oy = (side - crest->h) / 2;
+            for (int y = 0; y < crest->h; ++y)
+                for (int x = 0; x < crest->w; ++x) std::memcpy(sq.at(ox + x, oy + y), crest->at(x, y), 4);
+        }
+        const Rgba small = sq.w == kCrest ? sq : frame_image(sq, kCrest, Framing());
+        if (!small.empty())
+            for (int y = 0; y < kCrest; ++y)
+                for (int x = 0; x < kCrest; ++x) {
+                    const uint8_t* s = small.at(x, y);
+                    uint8_t* d = out.at(kX + x, kY + y);
+                    const float a = float(s[3]) / 255.0f;
+                    if (a <= 0.0f || d[3] == 0) continue;
+                    for (int k = 0; k < 3; ++k) d[k] = uint8_t(float(s[k]) * a + float(d[k]) * (1.0f - a) + 0.5f);
+                }
+    }
+    return out;
+}
+
 // ================================================================ BC7 mode 6
 static const int kW4[16] = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
 
@@ -780,7 +1011,7 @@ KitPackage load_kit_zip(const fs::path& zip, const std::vector<TexSpec>& spec) {
             else if (!decode_image(bytes, pk.minikit, &err)) pk.problems.push_back("minikit.png: " + err);
             else if (pk.minikit.w < 16 || pk.minikit.h < 16) pk.problems.push_back("minikit.png is smaller than 16 x 16");
         } else {
-            pk.problems.push_back("minikit.png is missing");
+            pk.notes.push_back("no minikit.png in the zip: Turbo draws the minikit from the jersey");  // 2.20 K4: not a refusal
         }
         // textures
         std::vector<std::string> decals_missing;
