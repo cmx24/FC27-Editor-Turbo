@@ -389,8 +389,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
             const int up = visual_picker_ui().uploads_last_frame;
             if (cpu > 16.0 || wall > 16.0) {
                 if (spikes.size() < 1500)
-                    spikes += fmt("    PERF %s frame %d: picker work %.2f ms, wall %.2f ms, %d new animations, %d tiles drawn, %d shown%s
-",
+                    spikes += fmt("    PERF %s frame %d: picker work %.2f ms, wall %.2f ms, %d new animations, %d tiles drawn, %d shown%s\n",
                                   label, frames, cpu, wall, up, visual_picker_ui().tiles_drawn, visual_picker_ui().pictures_shown,
                                   frames == 0 ? " (the opening frame: every row and the picker list built)" : "");
             }
@@ -419,8 +418,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::printf("  PERF %s: run-style picker open, %d frames: picker work max %.2f ms, mean %.2f ms, %d frames over 16 ms; "
                     "wall time (information: includes other programs on this PC) max %.2f ms, %d frames over 16 ms; whole test frame max %.1f ms; "
-                    "%d of %d tiles animated after %.1f s; at most %d new animations per frame
-",
+                    "%d of %d tiles animated after %.1f s; at most %d new animations per frame\n",
                     label, frames, worst, frames ? total / frames : 0.0, over, worst_wall, over_wall, worst_frame, shown,
                     visual_picker_ui().tiles_drawn, secs, max_uploads);
         std::printf("%s", spikes.c_str());
