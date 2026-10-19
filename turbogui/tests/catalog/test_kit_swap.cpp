@@ -482,13 +482,13 @@ static void test_hotspots(const fs::path& base) {
         std::string log((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
         check(log.find("hotspots_95_0_0") != std::string::npos && log.find("hotspot rectangle(s) patched") != std::string::npos && log.find("jersey/numberback (0.5890,") != std::string::npos,
               "the log lists the patched rectangles with old and new values");
-        {  // 2.19: the patched asset lives only in memory: the table cache stores it inline, a second session serves it from there
+        {  // 2.20: the patched asset lives only in memory: the kit's swap plan stores it inline, a second session serves it from there
             Runtime r2(w.le, w.root, stand_in_oodle());
             r2.start();
             r2.wait_idle();
             std::vector<uint8_t> o2(orig.begin(), orig.end());
-            check(r2.status().table_cached && r2.on_decompressed(&stream[size_t(bl[0].payload)], bl[0].csize, o2.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 && o2 == e,
-                  "table cache: the patched hotspot asset (inline) is served by the next session: " + r2.status().cache_note);
+            check(r2.status().table_origin == "from plans" && r2.on_decompressed(&stream[size_t(bl[0].payload)], bl[0].csize, o2.data(), bl[0].dsize, int64_t(bl[0].dsize), 0, 3) == 2 && o2 == e,
+                  "plans: the patched hotspot asset (inline in the plan) is served by the next session: " + r2.status().cache_note);
         }
         Options o = rt.get_options();
         o.apply_hotspots = false;
@@ -966,7 +966,8 @@ static void test_guards_and_cache(const fs::path& base) {
         rt.wait_idle();
         bool d = false, k = false, sc = true, so = true;
         check(rt.slot_options(120, 1, &d, &k, &sc, &so) && d && k && !sc && !so, "a version 1 state file loads with the default options");
-        check(rt.status().state == "ready", "... and builds: " + rt.status().state);
+        check(rt.status().state == "ready" && rt.status().plans.size() == 1 && rt.status().plans[0].state == "none" && rt.status().blocks == 0,
+              "... and starts, the kit off until it is planned (2.20: nothing planned at start): " + rt.status().state);
         rt.deactivate(120, 1);
         rt.wait_idle();
         fs::remove(rt.index_cache_path());
@@ -988,7 +989,7 @@ static void test_guards_and_cache(const fs::path& base) {
         check(hook_calls == 0, "no opt-in file: the hook was never asked for");
     }
     std::ofstream(opt_in) << "on";
-    {   // the kill switch before start: no scan; released: the skipped build runs
+    {   // the kill switch before start: no scan; released: the skipped start runs (2.20: from the plans, nothing scanned)
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
         rt.ensure_hook = [&](std::string*) { return true; };
@@ -1000,15 +1001,18 @@ static void test_guards_and_cache(const fs::path& base) {
               "kill switch at start: no scan, no cache: " + rt.status().message);
         rt.set_killed(false);
         rt.wait_idle();
-        check(rt.status().state == "ready" && fs::exists(rt.index_cache_path()), "kill switch released: the skipped build runs: " + rt.status().state);
-        check(!rt.status().index_cached, "... as a scan (no cache yet)");
+        check(rt.status().state == "ready" && rt.status().table_origin == "from plans", "kill switch released: the skipped start runs: " + rt.status().state);
+        check(!rt.status().index_cached && !fs::exists(rt.index_cache_path()), "... and scans nothing (2.20: the index is read only when a kit is planned)");
+        rt.request_plan(120, 1);  // stage time: the plan scans the game once and saves the index
+        rt.wait_idle();
+        check(rt.status().plans.size() == 1 && rt.status().plans[0].state == "ready" && fs::exists(rt.index_cache_path()), "a kit planned: the index scanned once and saved");
     }
     {   // a second session: the saved index is used; a changed toc invalidates it
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "ready" && rt.status().index_cached, "second session: kit index from the saved copy");
+        check(rt.status().state == "ready" && rt.status().index_cached && !rt.status().plans.empty() && rt.status().plans[0].state == "ready", "second session: kit index from the saved copy, the kit from its plan");
     }
     {
         std::ofstream t(w.root / "Data" / "Win32" / "contentsb.toc", std::ios::binary | std::ios::app);
@@ -1019,7 +1023,8 @@ static void test_guards_and_cache(const fs::path& base) {
         rt.require_opt_in = true;
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "ready" && !rt.status().index_cached, "a changed toc (a game update): the index is scanned again");
+        check(rt.status().state == "ready" && !rt.status().index_cached && !rt.status().plans.empty() && rt.status().plans[0].reason == kPlanStaleReason && rt.status().blocks == 0,
+              "a changed toc (a game update): the saved index is not used, nothing is scanned at start, the kit is off until planned again");
     }
     {   // a damaged cache is a miss, never a failure
         std::ofstream bad(w.le / "turbo_output" / "kits" / "kit_index.cache", std::ios::binary | std::ios::trunc);
@@ -1029,7 +1034,7 @@ static void test_guards_and_cache(const fs::path& base) {
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "ready" && !rt.status().index_cached, "a damaged cache: scanned again");
+        check(rt.status().state == "ready" && !rt.status().index_cached, "a damaged cache: not used (and nothing scanned at start)");
         GameFiles gf(w.root);
         gf.init(nullptr);
         KitIndex a, b;
@@ -1048,7 +1053,7 @@ static void test_guards_and_cache(const fs::path& base) {
         }
         check(!any_loaded, "truncated cache files are refused");
     }
-    // ---- the kill switch stops a build that is running (the plan reads the game's texture headers through the slow decompressor)
+    // ---- the kill switch stops a plan that is running (2.20: stage time; the plan reads the game's texture headers through the slow decompressor)
     {
         fs::remove(w.le / "turbo_output" / "kits" / "kit_index.cache");
         fs::remove(w.le / "turbo_output" / "kits" / "kit_table.cache");  // 2.19: a cached table would be published without a build
@@ -1060,14 +1065,14 @@ static void test_guards_and_cache(const fs::path& base) {
         };
         Runtime rt(w.le, w.root, slow);
         rt.require_opt_in = true;
-        rt.start();
+        rt.request_plan(120, 1, true);
         for (int i = 0; i < 200 && calls.load() == 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        check(calls.load() > 0, "the build is running (slow decompressor)");
+        check(calls.load() > 0, "the plan is running (slow decompressor)");
         rt.set_killed(true);
         rt.wait_idle();
         const int at_stop = calls.load();
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
-        check(calls.load() == at_stop && rt.status().state == "off", "the kill switch stops a running build: " + std::to_string(at_stop) + " decompressions, state " + rt.status().state);
+        check(calls.load() == at_stop && rt.status().state == "off", "the kill switch stops a running plan: " + std::to_string(at_stop) + " decompressions, state " + rt.status().state);
         check(rt.table() == nullptr, "... and publishes no table");
     }
     fs::remove(opt_in);
@@ -1123,182 +1128,226 @@ static bool same_status(const Status& a, const Status& b, std::string* why) {
     return true;
 }
 
+// 2.20 K1: the table at start comes from the kits' swap plans (swap_plan.bin, made once when the kit was staged / switched on / its options
+// changed). kit_table.cache (2.19) is legacy: never read or written by the runtime any more; its reader still refuses damaged files.
 static void test_table_cache(const fs::path& base) {
     World w = make_world(base / "tc");
     stage_home(w);
     const fs::path kits = w.le / "turbo_output" / "kits";
     const fs::path cache = kits / "kit_table.cache";
+    const fs::path plan = kits / "95" / "home" / "swap_plan.bin";
     std::vector<std::string> lines;
-    auto setup = [&](Runtime& rt, bool use) {
+    auto setup = [&](Runtime& rt) {
         rt.turbo_version = "T1";
         rt.game_build = "6AC07E31-2145C000";
-        rt.use_table_cache = use;
         rt.log_line = [&](const std::string& l) { lines.push_back(l); };
     };
-    {  // the first session builds the table and saves it (the crest / crest_shorts clash is part of what is saved)
-        Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+    auto row_of = [](const Status& s) -> Status::PlanRow {
+        for (const auto& p : s.plans)
+            if (p.team == 95 && p.slot == 0) return p;
+        return Status::PlanRow();
+    };
+    Runtime ref(w.le, w.root, stand_in_oodle());  // the session that planned the kit (switch-on): the reference
+    setup(ref);
+    {
         std::string err;
-        check(rt.activate(95, 0, Mode::Swap, &err), "table cache: activate swap: " + err);
-        rt.wait_idle();
-        const Status s = rt.status();
-        check(s.state == "ready" && !s.table_cached && fs::exists(cache) && s.cache_note.find("saved to kit_table.cache") != std::string::npos,
-              "table cache: the first build is built and saved: " + s.cache_note);
-        check(lines.size() >= 2 && lines[lines.size() - 2].find("kit swap: table built (") != std::string::npos && lines.back().find("kit swap: table ready (built, ") != std::string::npos,
-              "table cache: the host log lines say built, then table ready: " + (lines.empty() ? "" : lines.back()));
+        check(ref.activate(95, 0, Mode::Swap, &err), "plans: activate swap: " + err);
+        ref.wait_idle();
+        const Status s = ref.status();
+        check(s.state == "ready" && s.table_origin == "from plans" && fs::exists(plan) && !fs::exists(cache) && row_of(s).state == "ready",
+              "plans: switching a kit on plans it once (swap_plan.bin), the table is published from it, no kit_table.cache: " + s.cache_note);
+        bool planned = false;
+        for (const auto& l : lines) planned = planned || l.find("kit swap: planned team 95 home in ") != std::string::npos;
+        check(planned && lines.size() >= 2 && lines[lines.size() - 2].find("kit swap: table from plans (") != std::string::npos &&
+                  lines.back().find("kit swap: table ready (from plans, ") != std::string::npos,
+              "plans: the host log lines say planned, then table from plans, then ready: " + (lines.empty() ? "" : lines.back()));
     }
-    const std::vector<uint8_t> good = read_all(cache);
-    Runtime ref(w.le, w.root, stand_in_oodle());  // the same build without the cache: the reference
-    setup(ref, false);
-    ref.start();
-    ref.wait_idle();
-    check(ref.status().state == "ready" && !ref.status().table_cached && read_all(cache) == good, "table cache: a runtime with the cache off builds and leaves the file alone");
-    {  // round trip: the next session publishes the table from the cache, and it answers every block exactly as the built one
+    const std::vector<uint8_t> good = read_all(plan);
+    {  // the next session publishes the table from the plan (nothing planned, scanned or built), and it answers every block as the session that planned it
         lines.clear();
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         rt.start();
         rt.wait_idle();
         const Status s = rt.status();
-        check(s.state == "ready" && s.table_cached && s.cache_note == "from cache" && s.ready_after_ms >= 0 && s.ready_at_ms > 0, "table cache: second session from the cache: " + s.cache_note);
-        check(lines.size() == 2 && lines[0].find("kit swap: table from cache (") != std::string::npos && lines[0].find(" blocks, ") != std::string::npos &&
-                  lines[1].find("kit swap: table ready (from cache, ") != std::string::npos,
-              "table cache: the host log line says from cache: " + (lines.empty() ? "" : lines[0]));
+        check(s.state == "ready" && s.table_origin == "from plans" && s.ready_after_ms >= 0 && s.ready_at_ms > 0 && row_of(s).state == "ready" && read_all(plan) == good,
+              "plans: second session from the plan: " + s.cache_note);
+        check(lines.size() == 2 && lines[0].find("kit swap: table from plans (") != std::string::npos && lines[0].find(" blocks, ") != std::string::npos &&
+                  lines[1].find("kit swap: table ready (from plans, ") != std::string::npos,
+              "plans: the host log line says from plans (no plan made): " + (lines.empty() ? "" : lines[0]));
         std::string why;
-        check(same_status(ref.status(), s, &why), "table cache: items, verdicts, message and totals equal the built table's (" + why + ")");
+        Status a = ref.status(), b = s;
+        a.message = b.message = "";  // the planning session's message names the plan it made
+        check(same_status(a, b, &why), "plans: items, verdicts and totals equal the planning session's (" + why + ")");
         int served = 0;
-        check(same_answers(w, ref, rt, &served) && served > 0, "table cache: every block of the game gets the same answer and the same bytes (" + std::to_string(served) + " served)");
-        check(rt.kinds_of(95).count("home_0_0") == 1, "table cache: the kit index is read after the cached table (kit folders for the UI)");
+        check(same_answers(w, ref, rt, &served) && served > 0, "plans: every block of the game gets the same answer and the same bytes (" + std::to_string(served) + " served)");
+        check(rt.kinds_of(95).count("home_0_0") == 1, "plans: the kit folders for the UI (from the plan or the saved index)");
         rt.flush_log(true);
         const std::vector<uint8_t> lg = read_all(rt.log_path());
         const std::string log(lg.begin(), lg.end());
-        check(log.find("table: from cache, ") != std::string::npos && log.find(" after start)") != std::string::npos, "table cache: kit_swap_log.txt names the origin and the ready time");
+        check(log.find("table: from plans, ") != std::string::npos && log.find(" after start)") != std::string::npos && log.find("plan team 95 home: ready") != std::string::npos,
+              "plans: kit_swap_log.txt names the origin, the ready time and the kit's plan");
+        check(!fs::exists(cache), "plans: no kit_table.cache written");
     }
-    // every field of the key: a difference builds the table again and says which field
-    auto expect_miss = [&](const std::function<void(Runtime&)>& tweak, const std::string& field, const std::string& what) {
-        write_all(cache, good);
+    // every field of the key: a difference leaves the kit off at start with the Kits page's words, never a silent rebuild
+    auto expect_off = [&](const std::function<void(Runtime&)>& tweak, const std::string& reason, const std::string& why, const std::string& what) {
+        write_all(plan, good);
+        lines.clear();
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         tweak(rt);
         rt.start();
         rt.wait_idle();
         const Status s = rt.status();
-        check(s.state == "ready" && !s.table_cached && s.cache_note.find(field) != std::string::npos, "table cache: " + what + ": built again (" + s.cache_note + ")");
+        const Status::PlanRow r = row_of(s);
+        bool planned = false;
+        for (const auto& l : lines) planned = planned || l.find("kit swap: planned") != std::string::npos;
+        check(s.state == "ready" && s.blocks == 0 && r.state != "ready" && r.reason == reason && !planned && read_all(plan) == good,
+              "plans: " + what + ": the kit is off (" + r.state + ": " + r.reason + "), nothing planned at start");
+        bool said = false;
+        for (const auto& l : lines) said = said || (l.find("is off: " + reason) != std::string::npos && l.find("[" + why) != std::string::npos);
+        check(said, "plans: " + what + ": a log line names it [" + why + "]");
     };
-    expect_miss([](Runtime& r) { r.game_build = "6AC07E31-0000000"; }, "key changed: game build", "another game build");
-    expect_miss([](Runtime& r) { r.turbo_version = "T2"; }, "key changed: turbo version", "another Turbo version");
-    expect_miss([](Runtime& r) { r.options.min_csize = 2048; }, "key changed: options", "other options");
+    auto expect_on = [&](const std::function<void(Runtime&)>& tweak, const std::string& what) {
+        write_all(plan, good);
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt);
+        tweak(rt);
+        rt.start();
+        rt.wait_idle();
+        check(rt.status().blocks == ref.status().blocks && row_of(rt.status()).state == "ready", "plans: " + what + ": the plan is used");
+    };
+    expect_off([](Runtime& r) { r.game_build = "6AC07E31-0000000"; }, kPlanStaleReason, "stale: game build", "another game build");
+    expect_on([](Runtime& r) { r.turbo_version = "T2"; }, "another Turbo version (the plan format number decides)");
+    expect_off([](Runtime& r) { r.options.min_csize = 2048; }, kPlanOptionsReason, "stale: global options", "other global options");
     const std::vector<uint8_t> state = read_all(kits / "swap_state.json");
     {
         json j = json::parse(std::string(state.begin(), state.end()));
         j["kits"][0]["share_within_club"] = true;
         std::ofstream(kits / "swap_state.json", std::ios::trunc) << j.dump(2);
     }
-    expect_miss([](Runtime&) {}, "key changed: kits (swap_state)", "swap_state.json changed (a per-kit option)");
+    expect_off([](Runtime&) {}, kPlanOptionsReason, "stale: kit options", "swap_state.json changed (a per-kit option)");
     {
         json j = json::parse(std::string(state.begin(), state.end()));
         j["kits"][0]["mode"] = "observe";
         std::ofstream(kits / "swap_state.json", std::ios::trunc) << j.dump(2);
     }
-    expect_miss([](Runtime&) {}, "key changed: kits (swap_state)", "swap_state.json changed (swap -> observe)");
+    expect_off([](Runtime&) {}, kPlanOptionsReason, "stale: mode", "swap_state.json changed (swap -> observe)");
     write_all(kits / "swap_state.json", state);
     const fs::path dds = kits / "95" / "home" / "jersey_color.dds";
     const auto t0 = fs::last_write_time(dds);
     fs::last_write_time(dds, t0 + std::chrono::seconds(5));
-    expect_miss([](Runtime&) {}, "key changed: staged team 95 slot 0", "a staged file's write time changed");
+    expect_on([](Runtime&) {}, "a staged file's write time alone (its bytes are checked, not its time)");
     fs::last_write_time(dds, t0);
     {
         const std::vector<uint8_t> m = read_all(kits / "95" / "home" / "manifest.json");
-        const auto mt = fs::last_write_time(kits / "95" / "home" / "manifest.json");
         std::vector<uint8_t> m2 = m;
         m2.push_back('\n');
         write_all(kits / "95" / "home" / "manifest.json", m2);
-        expect_miss([](Runtime&) {}, "key changed: staged team 95 slot 0", "manifest.json changed");
+        expect_off([](Runtime&) {}, kPlanStagedReason, "stale: manifest", "manifest.json changed (a re-stage)");
         write_all(kits / "95" / "home" / "manifest.json", m);
-        fs::last_write_time(kits / "95" / "home" / "manifest.json", mt);
     }
     {  // the format number in the file
         std::vector<uint8_t> f = good;
         f[4] ^= 0x7F;
         const uint64_t sum = fnv1a64(f.data(), f.size() - 8);
         std::memcpy(&f[f.size() - 8], &sum, 8);
-        write_all(cache, f);
-        CachedBuild cb;
-        std::string why;
-        check(!load_table_cache(cache, TableCacheKey(), cb, &why) && why.find("key changed: format") != std::string::npos, "table cache: another format number is refused: " + why);
+        write_all(plan, f);
+        SwapPlan sp;
+        std::string why, words;
+        check(!load_swap_plan(plan, PlanKey(), sp, &why, &words) && why.find("stale: plan format") != std::string::npos && words.find("older Turbo") != std::string::npos,
+              "plans: another format number is refused: " + why + " / " + words);
     }
-    // damaged files: truncated at many places, garbage, a flipped byte: never loaded, the build runs
+    // damaged files: truncated at many places, garbage, a flipped byte: never loaded, never repaired at start
     {
         bool any = false;
-        CachedBuild cb;
+        SwapPlan sp;
         for (size_t cut : {good.size() - 1, good.size() - 9, good.size() / 2, size_t(40), size_t(8), size_t(0)}) {
             std::vector<uint8_t> f(good.begin(), good.begin() + std::ptrdiff_t(cut));
-            write_all(cache, f);
-            std::string why;
-            TableCacheKey k;
-            any = any || load_table_cache(cache, k, cb, &why);
+            write_all(plan, f);
+            any = any || load_swap_plan(plan, PlanKey(), sp, nullptr, nullptr);
         }
         std::mt19937 rng(5);
         std::vector<uint8_t> junk(good.size());
         for (auto& b : junk) b = uint8_t(rng());
-        write_all(cache, junk);
-        any = any || load_table_cache(cache, TableCacheKey(), cb, nullptr);
-        check(!any, "table cache: truncated and garbage files are never loaded");
+        write_all(plan, junk);
+        any = any || load_swap_plan(plan, PlanKey(), sp, nullptr, nullptr);
+        check(!any, "plans: truncated and garbage plan files are never loaded");
         std::vector<uint8_t> flip = good;
         flip[flip.size() / 2] ^= 1;
-        write_all(cache, flip);
+        write_all(plan, flip);
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "ready" && !rt.status().table_cached && rt.status().cache_note.find("damaged") != std::string::npos,
-              "table cache: one flipped byte: damaged, built again: " + rt.status().cache_note);
-        check(read_all(cache) != flip, "table cache: ... and a good file replaces the damaged one");
+        check(rt.status().state == "ready" && rt.status().blocks == 0 && row_of(rt.status()).state == "failed" && row_of(rt.status()).reason == kPlanDamagedReason && read_all(plan) == flip,
+              "plans: one flipped byte: damaged, the kit off, the file left as it is at start: " + row_of(rt.status()).reason);
+        rt.request_plan(95, 0, true);  // the Kits page's "Plan it now"
+        rt.wait_idle();
+        check(row_of(rt.status()).state == "ready" && rt.status().blocks == ref.status().blocks && read_all(plan) != flip, "plans: Plan it now replaces the damaged plan and serves the kit");
     }
-    write_all(cache, good);
+    write_all(plan, good);
     {  // the kill switch: nothing is read, nothing is published
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         rt.set_killed(true);
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "off" && rt.table() == nullptr && !rt.status().table_cached, "table cache: the kill switch at start: no table, not even the cached one");
+        check(rt.status().state == "off" && rt.table() == nullptr, "plans: the kill switch at start: no table, not even from the plans");
     }
     {  // the opt-in file missing (the host requires it): nothing is read either
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         rt.require_opt_in = true;
         rt.start();
         rt.wait_idle();
-        check(rt.status().state == "off" && rt.table() == nullptr, "table cache: without kits3d_on.txt no table, not even the cached one");
+        check(rt.status().state == "off" && rt.table() == nullptr, "plans: without kits3d_on.txt no table, not even from the plans");
     }
-    {  // a staged picture with other bytes, same size, write time put back: the key matches, the bytes do not: built again, the new picture served
+    {  // a staged picture with other bytes, same size, write time put back: the key matches, the bytes do not: off; planned again: the new picture served
         std::vector<uint8_t> d = read_all(dds);
         for (size_t i = kDdsHeader; i < d.size(); i += 7) d[i] ^= 0x5A;
         write_all(dds, d);
         fs::last_write_time(dds, t0);
-        write_all(cache, good);
+        write_all(plan, good);
         Runtime rt(w.le, w.root, stand_in_oodle());
-        setup(rt, true);
+        setup(rt);
         rt.start();
         rt.wait_idle();
         const Status s = rt.status();
-        check(s.state == "ready" && !s.table_cached && s.cache_note.find("staged data changed") != std::string::npos, "table cache: same size and time, other bytes: built again: " + s.cache_note);
+        check(s.state == "ready" && s.blocks == 0 && row_of(s).reason == kPlanStagedReason, "plans: same size and time, other bytes: the kit is off: " + row_of(s).reason);
         const auto& c = w.g.chunk_locs[0];
         std::vector<uint8_t> chunk(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
         std::vector<Block> bl;
         block_headers(chunk, bl);
         std::vector<uint8_t> out(bl[0].dsize, 0xEE);
-        check(rt.on_block(&chunk[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize) == 2 &&
-                  std::memcmp(out.data(), d.data() + kDdsHeader, out.size()) == 0,
-              "table cache: ... and the new picture is served, never the old one");
+        check(rt.on_block(&chunk[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize) == 0 && out[0] == 0xEE, "plans: ... and the old picture is never served");
+        rt.request_plan(95, 0, true);
+        rt.wait_idle();
+        check(rt.on_block(&chunk[size_t(bl[0].payload)], bl[0].csize, out.data(), bl[0].dsize) == 2 && std::memcmp(out.data(), d.data() + kDdsHeader, out.size()) == 0,
+              "plans: planned again: the new picture is served");
     }
     {  // a changed toc (a game update): the kit index signature differs
-        write_all(cache, read_all(cache));
         std::ofstream t(w.root / "Data" / "Win32" / "contentsb.toc", std::ios::binary | std::ios::app);
         t.put('\0');
     }
-    expect_miss([](Runtime&) {}, "key changed: kit index", "a changed toc (game update)");
+    expect_off([](Runtime&) {}, kPlanStaleReason, "stale: kit index", "a changed toc (game update)");
+    {  // kit_table.cache (2.19) is legacy: its reader still refuses damaged files; the runtime never reads or writes it
+        std::mt19937 rng(9);
+        std::vector<uint8_t> junk(4096);
+        for (auto& b : junk) b = uint8_t(rng());
+        write_all(cache, junk);
+        CachedBuild cb;
+        std::string why;
+        check(!load_table_cache(cache, TableCacheKey(), cb, &why) && !why.empty(), "legacy kit_table.cache: garbage refused: " + why);
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        setup(rt);
+        rt.start();
+        rt.wait_idle();
+        check(read_all(cache) == junk, "legacy kit_table.cache: the runtime leaves it alone");
+        fs::remove(cache);
+    }
+    ref.deactivate(95, 0);
+    ref.wait_idle();
 }
 
 // ---------------------------------------------------------------- optional: the real install (read only)
