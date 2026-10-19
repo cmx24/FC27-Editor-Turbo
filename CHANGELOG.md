@@ -15,7 +15,13 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 ## 2.21.0 (built 2026-10-19)
 
-Release candidate; in-game status is filled in at G4 (`turbo_dev\PITWALL\briefs\2.21-G4.md`). Includes everything in 2.18.0, the 2.19/2.20 work merged up to c770dfb (full player editor wiring, create-player prefill, team pages and presets, faces safety, kit plan, crest Lua) and the 2.21 items listed under Unreleased above (country launcher with compdata pick, compdata guard, registry Locale through the FC27_Profile task, commentary language from the registry Locale). Not included: 2.20 B5 (be3d8a5).
+Release candidate; in-game status is filled in at G4 (`turbo_dev\PITWALL\briefs\2.21-G4.md`). Includes everything in 2.18.0, the 2.19/2.20 work merged up to c770dfb (full player editor wiring, create-player prefill, team pages and presets, faces safety, kit plan, crest Lua), the 2.20 B5 work (be3d8a5, below) and the 2.21 items listed under Unreleased above (country launcher with compdata pick, compdata guard, commentary language from the registry Locale).
+
+- Pictures in the pickers: hair, facial hair and other looks are chosen from pictures, read from your RDBM26 folder at run time (set the folder in Settings).
+- Club, crowd, stadium and kit fields are plain-English pickers: you choose from names and see what the choice does, instead of typing codes.
+- Player types: a new Populate panel builds players from a player type (archetype), a wanted overall and a tier. The type list is `turbo\data\archetypes.json`.
+- Edit a player: the Players > Positions, attributes & PlayStyles page opens with the player-type and "Wanted overall" boxes, and the growth setting has a shorter label, "weekly growth".
+- The country launcher no longer touches the registry Locale by default. The EA app passes its own language for the game at launch, so that route does not work. The step is still in the script as `-WithLocale`, opt-in, and is not part of this release's proof.
 
 ## 2.18.0 (built 2026-10-18)
 
