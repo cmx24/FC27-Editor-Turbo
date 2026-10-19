@@ -22,6 +22,7 @@
 #include "app.h"
 #include "imgui.h"
 #include "move_rules.h"
+#include "table_registry.h"
 #include "ui_parity.h"
 #include "ui_team_common.h"
 #include "ui_team_pages.h"
@@ -370,7 +371,7 @@ void card_extensions(App& app, int64_t club, const std::vector<const PlayerRow*>
     g_state.listed = squad.size();
     g_state.extend_line.clear();
     ImGui::BeginChild("##tt_extend_rows", ImVec2(0, S(260.0f)), ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##tpexttbl", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV)) {
+    if (ImGui::BeginTable("##tpexttbl", 4, tbl::kData | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Player");
         ImGui::TableSetupColumn("Contract ends", ImGuiTableColumnFlags_WidthFixed, S(110.0f));
@@ -430,7 +431,7 @@ void card_roles(App& app, int64_t club, const std::vector<const PlayerRow*>& squ
     }
     const Gate g = lua_gate(app, true, "squad_role");
     ImGui::BeginChild("##tt_roles_rows", ImVec2(0, S(260.0f)), ImGuiChildFlags_Borders);
-    if (ImGui::BeginTable("##tproletbl", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV)) {
+    if (ImGui::BeginTable("##tproletbl", 4, tbl::kData | ImGuiTableFlags_ScrollY)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Player");
         ImGui::TableSetupColumn("Position", ImGuiTableColumnFlags_WidthFixed, S(70.0f));
