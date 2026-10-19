@@ -342,7 +342,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         // ---- dut_nl (2026-10-19): the master list (FC 26) has El Ghazi, the game's files do not: he is not offered, a search says why;
         // a recorded player is one click, Preview, Apply
         const fs::path mp3 = master_list_path(le, "dut_nl");
-        std::ofstream(mp3.string()) << R"({"language": "dut_nl", "game": "fc26", "real_players": [216433, 198190, 299001], "generic_ids": [900010],
+        std::ofstream(mp3.string()) << R"({"language": "dut_nl", "game": "fc26", "real_players": [216433, 198190, 299001, 1002], "generic_ids": [900010],
                                           "names": {"216433": "Anwar El Ghazi", "198190": "Greg Cunningham", "299001": "Davy Klaassen"}})";
         app.gui_settings["callnames"]["override_language"] = "dut_nl";
         fs::create_directories(game / "commentary" / "commentaryfull_dut_nl");
@@ -350,7 +350,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         ui.frames(3);
         app.callnames.use_bank(make_bank("dut_nl", "", {900010}, {{299001, kBankSimple}}));
         ui.frames(3);
-        CHECK(pg.language == "dut_nl" && pg.rows_listed == 2 && pg.rows_unsayable == 2, fmt("dut_nl: two rows, two left out (%s, %d, %d)", pg.language.c_str(), pg.rows_listed, pg.rows_unsayable));
+        CHECK(pg.language == "dut_nl" && pg.rows_listed == 2 && pg.rows_unsayable == 3, fmt("dut_nl: two rows, three left out (%s, %d, %d)", pg.language.c_str(), pg.rows_listed, pg.rows_unsayable));
         CHECK(ui.find("###p299001", "cnplist") && !ui.find("###p216433", "cnplist") && !ui.find("###p198190", "cnplist"),
               "Klaassen is offered, El Ghazi and Cunningham are not");
         CHECK(ui.type_into(ui.find("##cnpsearch"), "ghazi"), "type ghazi");
@@ -370,7 +370,17 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(ui.click("Undo###cnundo"), "Undo");
         ui.frames(2);
         CHECK(app.voice_store.entries.empty(), "undone");
+        // the FC 26 list claims the open player (1002) has an own recording; the game's files do not: no "own recording" words, and a
+        // generic callname does not turn a recording off (no voice_of 0)
+        CHECK(pg.state_line.find("his own recording") == std::string::npos, "state line does not claim an own recording: " + pg.state_line);
         CHECK(ui.type_into(ui.find("##cnpsearch"), ""), "search cleared");
+        CHECK(ui.click("###g900010", "cnplist") && ui.click("Apply###cnapply"), "pick the generic callname, Apply");
+        ui.frames(2);
+        e = app.voice_store.find(1002);
+        CHECK(app.voice_store.entries.size() == 1 && e && !e->voice_of && e->kickoff && *e->kickoff == 900010, "one row, no voice_of 0 for a player the files do not record");
+        CHECK(ui.click("Undo###cnundo"), "Undo");
+        ui.frames(2);
+        CHECK(app.voice_store.entries.empty(), "undone");
         if (app.gui_settings.contains("callnames")) app.gui_settings["callnames"].erase("override_language");
         fs::remove(mp3);
         fs::remove_all(game / "commentary" / "commentaryfull_dut_nl");

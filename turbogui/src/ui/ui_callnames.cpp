@@ -1542,7 +1542,8 @@ static callpick::UndoSlot g_undo;
 // "his own recording" / "'Kane'" / "last name" / "no callname": what the game says for him when nothing is applied
 static std::string game_says(App& app, const PlayerRow& p) {
     const CallnameInfo info = app.callnames.resolve(p, app.db);
-    if (info.own) return "his own recording";
+    const CatalogBank& bank = app.callnames.bank;
+    if (info.own && (!bank.loaded() || bank.has_spoken_own(p.playerid))) return "his own recording";
     if (info.source == CallnameSource::None) return "no callname";
     if (info.nameid > 0) {
         auto it = app.model.names_by_id().find(info.nameid);
@@ -1556,7 +1557,11 @@ static void pick_apply(App& app, const PlayerRow& p, const AllCallnameRow& r) {
     slot.playerid = p.playerid;
     if (const voice::Entry* old = app.voice_store.find(p.playerid)) slot.before = *old;
     slot.armed = true;
-    const voice::Entry e = callpick::make_entry(p.playerid, p.name, r, app.callnames.own_recording(p.playerid) != 0);
+    // does HE have an own recording the game can say? The game's files decide when the catalog is loaded (an FC 26 master
+    // list can claim players the FC 27 files lack: their "own recording" is not one)
+    const CatalogBank& bank = app.callnames.bank;
+    const bool has_own = bank.loaded() ? bank.has_spoken_own(p.playerid) : app.callnames.own_recording(p.playerid) != 0;
+    const voice::Entry e = callpick::make_entry(p.playerid, p.name, r, has_own);
     const bool saved = app.voice_upsert(e);
     g_undo = slot;  // the entry is kept and published even when the save failed (voice_upsert says so in a toast)
     g_page.notice = "Applied: " + callpick::entry_name(e);
