@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/rdbm_resources.h"
@@ -345,12 +346,15 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         visual_picker_request("runstylecode");
         int shown = 0;
         const auto start = std::chrono::steady_clock::now();
-        for (int k = 0; k < 600; ++k) {
+        // frames paced at about 120 per second (a real window draws at 60), for at most 10 s: the decoding thread gets real time
+        for (int k = 0; k < 1200; ++k) {
             const auto f0 = std::chrono::steady_clock::now();
             ui.frame();
-            worst_frame = std::max(worst_frame, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f0).count());
+            const double fms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - f0).count();
+            worst_frame = std::max(worst_frame, fms);
             shown = visual_picker_ui().pictures_shown;
             if (k > 5 && shown > 0 && shown == visual_picker_ui().tiles_drawn) break;
+            if (fms < 8.0) std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int>((8.0 - fms) * 1000.0)));
         }
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::printf("  PERF %s: run-style picker open, %d frames: picker draw max %.2f ms, mean %.2f ms; whole test frame max %.1f ms; "
