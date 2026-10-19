@@ -6,17 +6,24 @@
 #   hint      : turbo_output\launch_profile.json + gui_settings.json callnames.launcher_language / launcher_stamp for Turbo's language
 #               detection (NEVER override_language, which switches detection off)
 #   commentary: report only (pack_state of Data\Win32, backup store separately); phase 1 writes nothing in Program Files.
+# Phase 2 (brief 2.21p2-registry-locale.md, STEP 4b): the pick also asks the elevated scheduled task FC27_Profile (registered once by Cassio,
+#   register_fc27_profile_task.ps1) to set the game's registry Locale to the pick's language: this script only writes
+#   turbo_output\launch_profile_request.json, starts the task (schtasks /run, no elevation here) and polls turbo_output\launch_profile_result.json
+#   by request_id (90 s, 300 s when a pack copy is due). Any failure or timeout -> message, Locale left as it was, the game STILL starts.
 # Modes:
 #   (no switch)        picker -> profile -> start the game
 #   -NoGui [-Country X] no dialog: X, else the last pick, else the default country
 #   -NoStart           do everything except the final task start (profile + state files really run)
+#   -NoLocale          skip STEP 4b (the registry Locale step); the rest runs as usual
 #   -WhatIf            print every step, change and run NOTHING (the profile step runs with -WhatIf), exit 0
-#   -Status            read-only report: compdata profile, last pick, pack states, launcher .lnk, backups, task states
+#   -Status            read-only report: compdata profile, last pick, pack states, both registry Locale views + the profile state, launcher .lnk, backups, task states
 #   -Install           chunk I ONLY (needs Cassio's OK): back up the .lnk (byte copy + md5 manifest) and re-point it at this script;
 #                      needs an explicit -LnkPath; for the real desktop .lnk it also needs -CassioOk
 #   -Undo              copy the backed-up .lnk back, verify the md5 (explicit -LnkPath required)
+#   -Undo -Locale      ask the task FC27_Profile to restore the recorded prior Locale (request action "undo"); -WhatIf prints the request only
 #   -SelfTestPicker    build the picker form without showing it, print what it holds, exit 0
-# Safety: the script never elevates, never edits the task or the game's .bat, never touches the registry, fcsetup.ini or Program Files.
+# Safety: the script never elevates, never edits the task or the game's .bat, never WRITES the registry (it reads Locale in -Status; the write is
+# the task's), never touches fcsetup.ini or Program Files.
 # Any error in the profile/picker steps -> message (box in GUI mode, text with -NoGui), the profile is left as it was, and the game
 # STILL starts (the unconditional final task start) unless -NoStart / -WhatIf.
 # Exit codes: 0 ok | 20 cancelled in the picker (nothing changed, nothing started) | 30 an error was handled (see the message; the game was
@@ -32,6 +39,12 @@ param(
   [switch]$Undo,
   [switch]$CassioOk,
   [switch]$SelfTestPicker,
+  [switch]$Locale,
+  [switch]$NoLocale,
+  [string]$ProfileTaskName = 'FC27_Profile',
+  [int]$ProfileTimeoutSec = 90,
+  [int]$ProfileCopyTimeoutSec = 300,
+  [switch]$ProfileNoRun,
   [string]$TaskName = 'LaunchFC27',
   [string]$LnkPath = '',
   [string]$ProfilesPath = '',
@@ -53,6 +66,9 @@ $ThisScript = $MyInvocation.MyCommand.Path
 $DefaultLnk = Join-Path $env:USERPROFILE 'OneDrive\Desktop\LaunchFC27.lnk'
 $LaunchJson = Join-Path $OutputDir 'launch_profile.json'
 $GuiSettings = Join-Path $OutputDir 'gui_settings.json'
+$ReqJson = Join-Path $OutputDir 'launch_profile_request.json'
+$ResJson = Join-Path $OutputDir 'launch_profile_result.json'
+$StateJson = Join-Path $OutputDir 'launch_profile_state.json'
 $Utf8 = New-Object Text.UTF8Encoding $false
 $script:Messages = @()
 
@@ -69,6 +85,7 @@ function Get-Profiles {
     if (-not $e) { throw ('country in "order" without an entry: ' + $c) }
     if (@('stock', 'eerste') -notcontains [string]$e.compdata) { throw ('country ' + $c + ': unknown compdata profile ' + $e.compdata) }
     if (-not $p.languages.([string]$e.language)) { throw ('country ' + $c + ': language ' + $e.language + ' is not in the languages map') }
+    if (-not $p.locales.([string]$e.language)) { throw ('country ' + $c + ': language ' + $e.language + ' is not in the locales map') }
   }
   $p
 }
@@ -163,6 +180,107 @@ function Write-Hint([string]$lang, [string]$iso) {
   [IO.File]::WriteAllBytes($tmp, $nb)
   Move-Item -LiteralPath $tmp -Destination $GuiSettings -Force
   'hint written: callnames.launcher_language=' + $lang + ' launcher_stamp=' + $iso
+}
+
+# ------------------------------------------------------------------ phase 2: the registry Locale through the elevated task FC27_Profile
+# read-only look at the game's Locale in both views (HKLM, KEY_QUERY_VALUE only)
+function Read-LocaleView([string]$view) {
+  try {
+    $rv = $(if ($view -eq 'view64') { [Microsoft.Win32.RegistryView]::Registry64 } else { [Microsoft.Win32.RegistryView]::Registry32 })
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $rv)
+    $k = $base.OpenSubKey('SOFTWARE\EA Sports\EA SPORTS FC 27', $false)
+    if (-not $k) { return '(key absent)' }
+    $v = $k.GetValue('Locale', $null); $k.Dispose(); $base.Dispose()
+    if ($null -eq $v) { return '(no Locale value)' }
+    [string]$v
+  } catch { '(unreadable: ' + $_.Exception.Message + ')' }
+}
+function New-RequestId { 'tl' + [string]([DateTimeOffset](Get-Date)).ToUnixTimeSeconds() + '-' + (Get-Random -Minimum 1000 -Maximum 9999) }
+function New-ProfileRequest([string]$action, [string]$lang, [string]$loc) {
+  [ordered]@{ version = 1; action = $action; language = $lang; locale = $loc; request_id = (New-RequestId); requested_at = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss') }
+}
+# Writes the request, starts the task, polls the result by request_id. Never throws; returns @{ ran; ok; message; result }
+function Invoke-ProfileTask($req, [int]$timeout) {
+  $out = @{ ran = $false; ok = $false; message = ''; result = $null }
+  if (-not $ProfileNoRun) {
+    $ex = Get-ScheduledTask -TaskName $ProfileTaskName -ErrorAction SilentlyContinue
+    if (-not $ex) { $out.message = ('the task ' + $ProfileTaskName + ' is not registered (Cassio registers it once with register_fc27_profile_task.ps1 from an elevated PowerShell); Locale left as it was'); return $out }
+    if ([string]$ex.State -ne 'Ready') { $out.message = ('the task ' + $ProfileTaskName + ' is ' + $ex.State + ' (IgnoreNew: a second start would be dropped); Locale left as it was'); return $out }
+  }
+  try {
+    if (-not (Test-Path -LiteralPath $OutputDir)) { New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null }
+    $tmp = $ReqJson + '.tmp'
+    [IO.File]::WriteAllText($tmp, (($req | ConvertTo-Json -Depth 4) + "`n"), $Utf8)
+    Move-Item -LiteralPath $tmp -Destination $ReqJson -Force
+  } catch { $out.message = 'could not write the request file: ' + $_.Exception.Message; return $out }
+  if (-not $ProfileNoRun) {
+    $ea = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    $o = & schtasks.exe /run /tn $ProfileTaskName 2>&1 | Out-String
+    $c = $LASTEXITCODE; $ErrorActionPreference = $ea
+    if ($c -ne 0) { $out.message = ('schtasks /run /tn ' + $ProfileTaskName + ' failed (exit ' + $c + ' ' + $o.Trim() + '); Locale left as it was'); return $out }
+    $out.ran = $true
+  }
+  $end = (Get-Date).AddSeconds($timeout)
+  while ((Get-Date) -lt $end) {
+    if (Test-Path -LiteralPath $ResJson) {
+      try {
+        $r = Get-Content -LiteralPath $ResJson -Raw | ConvertFrom-Json
+        if ([string]$r.request_id -eq [string]$req.request_id) { $out.result = $r; $out.ok = [bool]$r.ok; $out.message = [string]$r.message; return $out }
+      } catch { }
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  $out.message = ('no result from ' + $ProfileTaskName + ' after ' + $timeout + ' s (request ' + $req.request_id + '); Locale left as it was unless the task is still running')
+  $out
+}
+function Fmt-Result($r) {
+  if ($r.result) { 'result: ok={0} pack={1} Locale {2}/{3} -> {4}/{5}; {6}' -f $r.result.ok, $r.result.pack_state, $r.result.locale_before.view64, $r.result.locale_before.view32, $r.result.locale_after.view64, $r.result.locale_after.view32, $r.message }
+  else { 'no result: ' + $r.message }
+}
+# STEP 4b for a pick; $copyDue = the pack is not live in Data\Win32 (copy-in expected, longer timeout)
+function Do-LocaleStep($profiles, $e, [bool]$copyDue) {
+  $lang = [string]$e.language; $loc = [string]$profiles.locales.$lang
+  $req = New-ProfileRequest 'set' $lang $loc
+  if ($WhatIf) {
+    Say ('STEP 4b: WHATIF would write ' + $ReqJson + ':')
+    Say ('         ' + ($req | ConvertTo-Json -Compress))
+    Say ('STEP 4b: WHATIF would run schtasks /run /tn ' + $ProfileTaskName + ' and wait for ' + $ResJson)
+    return @{ requested = $loc; result = 'whatif'; failed = '' }
+  }
+  $t = $(if ($copyDue) { $ProfileCopyTimeoutSec } else { $ProfileTimeoutSec })
+  Say ('STEP 4b: Locale ' + $loc + ' (' + $lang + ') through the task ' + $ProfileTaskName + ' (request ' + $req.request_id + ', wait up to ' + $t + ' s)')
+  $r = Invoke-ProfileTask $req $t
+  Say ('         ' + (Fmt-Result $r))
+  if (-not $r.ok) {
+    $msg = 'Locale step: ' + $r.message
+    return @{ requested = $loc; result = $(if ($r.result) { [string]$r.result.pack_state } else { 'failed' }); failed = $msg }
+  }
+  @{ requested = $loc; result = ('ok ' + [string]$r.result.pack_state); failed = '' }
+}
+# add locale_requested / locale_result to launch_profile.json (FORMAT only; the other keys stay as written by STEP 4)
+function Add-LocaleFields([string]$requested, [string]$result) {
+  if (-not (Test-Path -LiteralPath $LaunchJson)) { return }
+  $j = Get-Content -LiteralPath $LaunchJson -Raw | ConvertFrom-Json
+  $o = [ordered]@{}
+  foreach ($p in $j.PSObject.Properties) { if (@('locale_requested', 'locale_result') -notcontains $p.Name) { $o[$p.Name] = $p.Value } }
+  $o['locale_requested'] = $requested; $o['locale_result'] = $result
+  $tmp = $LaunchJson + '.tmp'
+  [IO.File]::WriteAllText($tmp, (($o | ConvertTo-Json -Depth 6) + "`r`n"), $Utf8)
+  Move-Item -LiteralPath $tmp -Destination $LaunchJson -Force
+}
+function Do-LocaleUndo {
+  $req = New-ProfileRequest 'undo' '' ''
+  if ($WhatIf) {
+    Say ('WHATIF: would write ' + $ReqJson + ':'); Say ('  ' + ($req | ConvertTo-Json -Compress))
+    Say ('WHATIF: would run schtasks /run /tn ' + $ProfileTaskName + ' and wait for ' + $ResJson)
+    return 0
+  }
+  Say ('LOCALE UNDO: asking ' + $ProfileTaskName + ' to restore the recorded prior Locale (request ' + $req.request_id + ')')
+  $r = Invoke-ProfileTask $req $ProfileTimeoutSec
+  Say ('  ' + (Fmt-Result $r))
+  if ($r.ok) { Say ('LOCALE UNDO PASS: ' + $r.message) 'Green'; return 0 }
+  Say ('LOCALE UNDO FAILED: ' + $r.message) 'Red'
+  30
 }
 
 # ------------------------------------------------------------------ picker
@@ -271,6 +389,9 @@ function Do-Status {
   if (Test-Path -LiteralPath $LaunchJson) { Say (Get-Content -LiteralPath $LaunchJson -Raw) } else { Say '(none yet)' }
   Say '== commentary (Data\Win32 = what the game plays; backup store reported separately)'
   foreach ($l in ($profiles.languages.PSObject.Properties.Name)) { $pk = Get-PackInfo $l; Say ('  {0}; {1}' -f $pk.pack_state, $pk.backup_state) }
+  Say '== registry Locale (read only; the write is the task''s)'
+  Say ('  HKLM 64-bit view: ' + (Read-LocaleView 'view64')); Say ('  HKLM 32-bit view: ' + (Read-LocaleView 'view32'))
+  if (Test-Path -LiteralPath $StateJson) { Say '  launch_profile_state.json:'; Say (Get-Content -LiteralPath $StateJson -Raw) } else { Say '  launch_profile_state.json: (none)' }
   Say '== gui_settings.json hint keys'
   try { $g = Get-Content -LiteralPath $GuiSettings -Raw | ConvertFrom-Json; Say ('  launcher_language=' + $g.callnames.launcher_language + ' launcher_stamp=' + $g.callnames.launcher_stamp + ' override_language="' + $g.callnames.override_language + '"') } catch { Say '  (unreadable or absent)' }
   Say '== launcher shortcut'
@@ -279,7 +400,7 @@ function Do-Status {
   $b = Find-Backup $l
   if ($b) { Say ('  backup: ' + $b.dir + ' (md5 ' + $b.manifest.md5 + ')') } else { Say '  backup: none (the shortcut is not re-pointed yet)' }
   Say '== tasks (read only)'
-  foreach ($t in @('LE_NoUAC', 'FC_NoUAC', $TaskName)) { $x = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue; Say ('  {0,-12} {1}' -f $t, $(if ($x) { [string]$x.State } else { 'MISSING' })) }
+  foreach ($t in @('LE_NoUAC', 'FC_NoUAC', $TaskName, $ProfileTaskName)) { $x = Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue; Say ('  {0,-12} {1}' -f $t, $(if ($x) { [string]$x.State } else { 'MISSING' })) }
   0
 }
 
@@ -292,6 +413,7 @@ if ($SelfTestPicker) {
   $p.form.Dispose(); exit 0
 }
 if ($Install) { exit (Do-Install) }
+if ($Undo -and $Locale) { exit (Do-LocaleUndo) }
 if ($Undo) { exit (Do-Undo) }
 if ($Status) { try { exit (Do-Status) } catch { Say ('STATUS ERROR: ' + $_.Exception.Message) 'Red'; exit 30 } }
 
@@ -331,6 +453,27 @@ try {
   $script:Messages += $msg
   Say ('ERROR: ' + $msg) 'Red'
   Show-ErrorBox $msg
+}
+
+# STEP 4b (phase 2): the registry Locale through the elevated task; its own try, so a failure here leaves the pick as made and the game still starts
+if ($NoLocale) { Say 'STEP 4b: skipped (-NoLocale): the registry Locale is left as it is' }
+elseif ($handled -eq 0) {
+  try {
+    $lr = Do-LocaleStep $profiles $e ((-not $pk.full) -and [string]$e.language -ne 'eng_us')
+    if (-not $WhatIf) { Add-LocaleFields $lr.requested $lr.result }
+    if ($lr.failed) {
+      $handled = 30
+      $script:Messages += $lr.failed
+      Say ('NOTE: ' + $lr.failed + ' (the game still starts)') 'Yellow'
+      Show-ErrorBox $lr.failed
+    }
+  } catch {
+    $handled = 30
+    $msg = 'Locale step failed: ' + $_.Exception.Message
+    $script:Messages += $msg
+    Say ('ERROR: ' + $msg) 'Red'
+    Show-ErrorBox $msg
+  }
 }
 
 # the unconditional last step: the game starts exactly as today
