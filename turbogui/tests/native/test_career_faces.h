@@ -165,6 +165,101 @@ inline void run() {
               "the record: career, path, hash: " + rec);
         cf::sync(p, "");
     });
+
+    // ---- 2.20 faces safety (Cassio 2026-10-19: a head edit never overwrites or deletes the original in-game asset)
+    run_case("2.20 faces safety (a): only Turbo's own hash-recorded global picture may be replaced or deleted; any other file is left alone", [&] {
+        const fs::path root = g_out / "faces_safety_core";
+        fs::remove_all(root);
+        const cf::Paths p{root / "turbo_output", root / "mods" / "legacy"};
+        const fs::path m1 = cf::mods_file(p, P1), m2 = cf::mods_file(p, P2);
+        std::string why, err;
+        CHECK(cf::owner_of(p, P1).owner == cf::Owner::None && cf::may_replace_global(p, P1, &why), "absent: Turbo may write it");
+        // a file Turbo did not make (the 2,747-file donor set, another tool, the user, Turbo before 2.20)
+        put_file(m1, "DONOR-OR-USER-211381");
+        CHECK(cf::owner_of(p, P1).owner == cf::Owner::Foreign, "a file with no record of Turbo's: someone else's");
+        CHECK(!cf::may_replace_global(p, P1, &why) && why.find("not made by Turbo") != std::string::npos, "never replaced or deleted: " + why);
+        // Turbo's own global copy: recorded (hash) before the write
+        CHECK(cf::record_global(p, P2, "TURBO-P2", &err), "recorded: " + err);
+        put_file(m2, "TURBO-P2");
+        const cf::OwnerInfo o2 = cf::owner_of(p, P2);
+        CHECK(o2.owner == cf::Owner::TurboGlobal && o2.hash == cf::bytes_hash("TURBO-P2") && cf::may_replace_global(p, P2, &why),
+              "Turbo's own copy (same hash): Turbo may replace it");
+        CHECK(bytes_of(cf::global_own_file(p)).find("p999001.dds") != std::string::npos, "the record names the path");
+        // someone wrote over Turbo's copy: theirs now
+        put_file(m2, "USER-OVER-TURBO");
+        CHECK(cf::owner_of(p, P2).owner == cf::Owner::Foreign && !cf::may_replace_global(p, P2, &why), "changed by someone else: left alone");
+        CHECK(cf::forget_global(p, P2, &err) && bytes_of(cf::global_own_file(p)).find("p999001") == std::string::npos, "forgotten: " + err);
+        // an unreadable record: every present file counts as someone else's, and no new record is written over it
+        put_file(m2, "TURBO-P2");
+        put_file(cf::global_own_file(p), "{not json");
+        CHECK(cf::owner_of(p, P2).owner == cf::Owner::Foreign && !cf::may_replace_global(p, P2, &why), "unreadable record: hands off");
+        CHECK(!cf::record_global(p, P2, "X", &err) && bytes_of(cf::global_own_file(p)) == "{not json", "never overwritten: " + err);
+        fs::remove(cf::global_own_file(p));
+        fs::remove(m2);
+        // a career copy over a real file: real underneath (kept in careers\_base, back byte for byte on leave)
+        fs::path u;
+        CHECK(cf::save_overlay(p, A, P1, vec("A-CHOSEN"), &err, &u) && cf::sync(p, A).ok() && bytes_of(m1) == "A-CHOSEN", "A's copy in");
+        const cf::OwnerInfo oc = cf::owner_of(p, P1);
+        CHECK(oc.owner == cf::Owner::TurboCareer && oc.base_under, "a career copy with a real file under it");
+        CHECK(cf::save_overlay(p, A, P2, vec("A-NEW"), &err, nullptr) && cf::sync(p, A).ok(), "A's copy of p999001 in");
+        const cf::OwnerInfo on = cf::owner_of(p, P2);
+        CHECK(on.owner == cf::Owner::TurboCareer && !on.base_under, "a career copy with nothing under it");
+        CHECK(cf::sync(p, "").ok() && bytes_of(m1) == "DONOR-OR-USER-211381" && !fs::exists(m2), "left the career: the real file is back byte for byte");
+    });
+
+    run_case("2.20 faces safety (b): which miniface is real (kept) and which may be made", [&] {
+        auto k = [](cf::Owner o, bool base, cf::Ships g) {
+            cf::MinifaceFacts f;
+            f.file.owner = o;
+            f.file.base_under = base;
+            f.game = g;
+            return cf::classify_miniface(f);
+        };
+        using O = cf::Owner;
+        using S = cf::Ships;
+        using K = cf::MinifaceKind;
+        CHECK(k(O::Foreign, false, S::No) == K::Real && k(O::Foreign, false, S::Unknown) == K::Real, "a file Turbo did not make: real");
+        CHECK(k(O::TurboCareer, true, S::No) == K::Real, "a career copy over a real file: real");
+        CHECK(k(O::None, false, S::Yes) == K::Real && k(O::TurboGlobal, false, S::Yes) == K::Real && k(O::TurboCareer, false, S::Yes) == K::Real,
+              "the game ships one: real (whatever Turbo has in mods\\legacy)");
+        CHECK(k(O::None, false, S::Unknown) == K::Unknown && k(O::TurboCareer, false, S::Unknown) == K::Unknown, "the game has not said: unknown");
+        CHECK(k(O::None, false, S::No) == K::None, "nothing anywhere: none");
+        CHECK(k(O::TurboGlobal, false, S::No) == K::TurboOwn && k(O::TurboCareer, false, S::No) == K::TurboOwn, "only Turbo's own: Turbo's own");
+        CHECK(cf::keep_miniface(K::Real) && cf::keep_miniface(K::Unknown) && !cf::keep_miniface(K::None) && !cf::keep_miniface(K::TurboOwn),
+              "real and unknown are kept (fail safe); none and Turbo's own may be made");
+    });
+
+    run_case("2.20 faces safety: heads_own.json keeps his own head once (the first original wins), per career and outside a career", [&] {
+        const fs::path root = g_out / "faces_safety_own";
+        fs::remove_all(root);
+        const cf::Paths p{root / "turbo_output", root / "mods" / "legacy"};
+        std::string err;
+        bool created = false;
+        CHECK(cf::heads_own_file(p, A) == p.turbo_output / "careers" / A / "heads_own.json", "careers\\<id>\\heads_own.json");
+        CHECK(cf::heads_own_file(p, cf::squad_scope()) == p.turbo_output / "careers" / "_squad" / "heads_own.json", "outside a career: _squad");
+        CHECK(cf::is_head_scope(A) && cf::is_head_scope(cf::squad_scope()) && !cf::is_head_scope("") && !cf::is_head_scope("../x"), "scopes");
+        CHECK(!cf::record_own_head(p, "", false, 211381, "Boufal", {{"headassetid", 211381}}, &err), "no scope: refused");
+        CHECK(!cf::record_own_head(p, A, false, 211381, "Boufal", {}, &err), "no fields: refused");
+        CHECK(cf::record_own_head(p, A, false, 211381, "Boufal", {{"headassetid", 211381}, {"headclasscode", 0}}, &err, &created) && created,
+              "first original stored: " + err);
+        CHECK(cf::record_own_head(p, A, false, 211381, "Boufal", {{"headassetid", 1004}, {"headclasscode", 1}}, &err, &created) && !created,
+              "a second give: nothing stored over it");
+        cf::OwnHead h;
+        CHECK(cf::find_own_head(p, A, false, 211381, h) && h.fields["headassetid"] == 211381 && h.fields["headclasscode"] == 0 && h.name == "Boufal" &&
+                  !h.at.empty() && !h.picture,
+              "the first original wins");
+        CHECK(!cf::find_own_head(p, A, true, 211381, h), "managers are kept apart");
+        CHECK(!cf::find_own_head(p, B, false, 211381, h) && !cf::find_own_head(p, cf::squad_scope(), false, 211381, h), "per career");
+        CHECK(cf::record_own_head(p, cf::squad_scope(), false, 211381, "Boufal", {{"headassetid", 7}}, &err, &created) && created, "squad: " + err);
+        CHECK(cf::set_own_picture(p, A, false, 211381, true, &err) && cf::find_own_head(p, A, false, 211381, h) && h.picture, "picture noted");
+        const std::string on_disk = bytes_of(cf::heads_own_file(p, A));
+        CHECK(on_disk.find("\"211381\"") != std::string::npos && on_disk.find("\"headassetid\": 211381") != std::string::npos, "on disk: " + on_disk);
+        CHECK(cf::drop_own_head(p, A, false, 211381, &err) && !cf::find_own_head(p, A, false, 211381, h), "dropped: " + err);
+        // an unreadable file: never overwritten, every record refused (the head write is then refused too)
+        put_file(cf::heads_own_file(p, B), "{broken");
+        CHECK(!cf::record_own_head(p, B, false, 3001, "X", {{"headassetid", 1}}, &err) && bytes_of(cf::heads_own_file(p, B)) == "{broken",
+              "unreadable: refused, left as it is: " + err);
+    });
 }
 
 // A clean start for a UI case: every career's copy put back out of mods\legacy (as at a Turbo start), no career copies kept,
@@ -173,7 +268,367 @@ inline void reset(App& app, Ui& ui) {
     app.career_faces_sync("", "test reset");
     std::error_code ec;
     fs::remove_all(app.turbo_output() / "careers", ec);
+    turbo::faces_safety_reset();  // 2.20: no miniface queued by an earlier case
     ui.frames(1);
+}
+
+// ---- 2.20 faces safety, the App side
+// A game picture made "the game has none" for a case (its exported copy moved away, listed in missing.txt); put back at the end
+struct NoGamePicture {
+    App& app;
+    fs::path missing_txt;
+    std::string keep_missing;
+    std::vector<std::pair<fs::path, std::string>> moved;
+    // true: the paths stay listed in missing.txt afterwards (a picture the world's game truly lacks: Live Editor would list it
+    // too, and no page waits every frame for an export that never comes)
+    bool stays_missing = false;
+    NoGamePicture(App& a, const std::vector<std::string>& rels) : app(a) {
+        const fs::path cache = app.legacy.cache_dir();
+        missing_txt = cache / "missing.txt";
+        keep_missing = bytes_of(missing_txt);
+        for (const std::string& rel : rels) {
+            const fs::path f = cache / fs::u8path(rel);
+            const std::string b = bytes_of(f);
+            if (b != "<absent>") moved.emplace_back(f, b), fs::remove(f);
+        }
+        fs::create_directories(cache);
+        std::ofstream m(missing_txt, std::ios::binary | std::ios::app);
+        for (const std::string& rel : rels) m << "\n" << rel << "\n";
+        m.close();
+        app.legacy.refresh_missing();
+    }
+    ~NoGamePicture() {
+        for (const auto& [f, b] : moved) put_file(f, b);
+        if (stays_missing) {
+            // kept as it is now
+        } else if (keep_missing != "<absent>") {
+            put_file(missing_txt, keep_missing);
+        } else {
+            fs::remove(missing_txt);
+        }
+        app.legacy.refresh_missing();
+    }
+};
+
+// The career in effect for a case (put back at the end)
+struct InCareer {
+    App& app;
+    Ui& ui;
+    std::string was;
+    InCareer(App& a, Ui& u, const std::string& career) : app(a), ui(u), was(a.reapply.career) {
+        app.reapply.career = career;
+        ui.frames(2);
+    }
+    ~InCareer() {
+        app.reapply.career = was;
+        ui.frames(2);
+    }
+};
+
+inline std::vector<std::string> head_fields_of(App& app, int64_t pid) {
+    std::vector<std::string> v;
+    const Table* t = app.db.table("players");
+    const PlayerRow* pr = app.model.player(pid);
+    if (!t || !pr) return v;
+    for (const char* f : {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "hairtypecode",
+                          "haircolorcode", "facialhairtypecode", "eyecolorcode", "skintonecode"})
+        if (t->has(f)) v.push_back(std::string(f) + "=" + std::to_string(app.db.get_int(*t, pr->rec, f, -1)));
+    return v;
+}
+
+inline void ui_cases_safety(App& app, Ui& ui, const fs::path& le) {
+    const std::string A = "aaaaaaaaaaaaaaa1";
+    const std::string rel = legacy_path::player_miniface(3001);
+    const fs::path mods = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+    const fs::path writes_log = app.bridge.dir() / "asset_writes.log";
+
+    run_case("UI 2.20 faces safety: a head given to a player whose miniface Turbo did not make leaves it byte for byte; his own head is kept "
+             "first (first original wins); every field in asset_writes.log; His own head puts it back",
+             [&] {
+                 reset(app, ui);
+                 InCareer in(app, ui, A);
+                 auto keep_capture = app.capture;
+                 app.capture.reset();
+                 const Table* pt = app.db.table("players");
+                 const PlayerRow* pr = app.model.player(3001);
+                 const PlayerRow* owner = app.model.player(1004);
+                 CHECK(pt && pr && owner, "players 3001 and 1004");
+                 if (!pt || !pr || !owner) return;
+                 const std::vector<std::string> own = head_fields_of(app, 3001);
+                 const int64_t own_head = app.db.get_int(*pt, pr->rec, "headassetid", -1);
+                 // his real miniface: a custom file in mods\legacy with no record of Turbo's (as the 2,747-file donor set, or Boufal's)
+                 const std::string real = [] {
+                     const std::vector<uint8_t> b = encode_dds_dxt5(solid(256, 256, 0x20, 0x40, 0xA0));
+                     return std::string(b.begin(), b.end());
+                 }();
+                 put_file(mods, real);
+                 const std::string log_before = bytes_of(writes_log);
+                 const size_t undo0 = app.undo_count(3001);
+                 std::string msg;
+                 bool in_step = false;
+                 CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, &in_step), "head of 1004 given: " + msg);
+                 CHECK(app.db.get_int(*pt, pr->rec, "headassetid", -1) == app.db.get_int(*pt, owner->rec, "headassetid", -2), "the head is 1004's");
+                 CHECK(bytes_of(mods) == real, "his real miniface p3001.dds is byte for byte the same");
+                 const cf::Paths p = app.career_faces_paths();
+                 CHECK(!cf::has_overlay(p, A, rel) && !fs::exists(cf::careers_dir(p) / A / "heads"), "no career copy made over it");
+                 CHECK(in_step && msg.find("real miniface p3001.dds is kept") != std::string::npos, "said so: " + msg);
+                 CHECK(log_has(app, "faces safety: player 3001", "real miniface p3001.dds kept"), "logged (the Tester's live check reads this line)");
+                 CHECK(app.head_miniface_kept.count(3001) == 1, "no 'use the matching miniface' offer for it");
+                 CHECK(faces_safety_pending() == 0, "nothing queued");
+                 // his own head, kept before the first write
+                 cf::OwnHead oh;
+                 CHECK(cf::find_own_head(p, A, false, 3001, oh) && oh.fields["headassetid"] == own_head, "heads_own.json of career A has his own head");
+                 CHECK(log_has(app, "heads own: player 3001", "own head kept in " + A), "logged");
+                 // every field written: asset_writes.log
+                 const std::string log_after = bytes_of(writes_log);
+                 const std::string added = log_before == "<absent>" ? log_after : log_after.size() > log_before.size() ? log_after.substr(log_before.size()) : std::string();
+                 CHECK(added.find("player 3001") != std::string::npos && added.find("headassetid") != std::string::npos &&
+                           added.find("real-face chooser: head of") != std::string::npos,
+                       "asset_writes.log: " + added.substr(0, 300));
+                 CHECK(app.undo_count(3001) == undo0 + 1, "one undo step");
+                 // a second give: the first original still wins
+                 CHECK(apply_real_face(app, 3001, 1003, RealFaceOptions{}, &msg, &in_step), "head of 1003 given: " + msg);
+                 CHECK(cf::find_own_head(p, A, false, 3001, oh) && oh.fields["headassetid"] == own_head, "the first original still wins");
+                 CHECK(bytes_of(mods) == real, "his real miniface still byte for byte the same");
+                 // His own head
+                 CHECK(has_own_head(app, false, 3001), "His own head is offered");
+                 const bool back = restore_own_head(app, false, 3001, &msg);
+                 CHECK(back && msg.find("his own head is back") != std::string::npos, "His own head: " + msg);
+                 CHECK(head_fields_of(app, 3001) == own, "every head field is his own again");
+                 CHECK(bytes_of(mods) == real, "and his real miniface was never touched");
+                 CHECK(bytes_of(writes_log).find("His own head") != std::string::npos, "the revert's writes are in asset_writes.log too");
+                 CHECK(log_has(app, "heads own: player 3001", "his own head back in " + A), "logged");
+                 CHECK(has_own_head(app, false, 3001) && restore_own_head(app, false, 3001, &msg) && msg == "he already has his own head",
+                       "the record stays (an Undo of the revert can be put back again): " + msg);
+                 // the UI: the chooser shows "His own head"
+                 app.request_tab = 0;
+                 ui.frames(2);
+                 CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
+                 ui.frames(3);
+                 CHECK(ui.find("His own head##faces") != nullptr, "the chooser has the His own head button");
+                 ui.click("Close##faces");
+                 ui.frames(2);
+                 while (app.undo_count(3001) > undo0) app.undo(3001);
+                 fs::remove(mods);
+                 app.head_miniface_kept.erase(3001);
+                 app.capture = keep_capture;
+                 faces_safety_reset();
+             });
+
+    run_case("UI 2.20 faces safety: a career Turbo has not identified, or an unreadable heads_own.json: the head give is refused, nothing written",
+             [&] {
+                 reset(app, ui);
+                 const std::vector<std::string> own = head_fields_of(app, 3001);
+                 std::string msg;
+                 {
+                     InCareer in(app, ui, "");
+                     CHECK(app.bridge.state().in_cm && app.career_faces_wanted().empty(), "in a career Turbo has not identified");
+                     CHECK(!apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg) && msg.find("not identified") != std::string::npos,
+                           "refused even when no picture would be written: " + msg);
+                     CHECK(head_fields_of(app, 3001) == own && !fs::exists(app.turbo_output() / "careers"), "nothing written anywhere");
+                 }
+                 InCareer in(app, ui, A);
+                 const cf::Paths p = app.career_faces_paths();
+                 put_file(cf::heads_own_file(p, A), "{broken");
+                 CHECK(!apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg) && msg.find("could not be kept") != std::string::npos,
+                       "an unreadable heads_own.json: refused: " + msg);
+                 CHECK(head_fields_of(app, 3001) == own && bytes_of(cf::heads_own_file(p, A)) == "{broken", "nothing written, the file left as it is");
+                 CHECK(!has_own_head(app, false, 3001), "nothing to put back");
+                 fs::remove(cf::heads_own_file(p, A));
+             });
+
+    run_case("UI 2.20 faces safety: no miniface in a career -> a render of his new 3D head is queued, written as the career's copy only, "
+             "and joins the give's ONE undo step; a failed render copies the head owner's picture",
+             [&] {
+                 reset(app, ui);
+                 faces3d_stop();
+                 faces_safety_reset();
+                 InCareer in(app, ui, A);
+                 NoGamePicture none(app, {rel});
+                 fs::remove(mods);
+                 auto keep_capture = app.capture;
+                 auto fake = std::make_shared<FakeCapture>();
+                 fake->st.installed = true;
+                 fake->st.available = true;
+                 fake->st.reason = "ready";
+                 fake->st.max_batch = 6;
+                 app.capture = fake;
+                 const cf::Paths p = app.career_faces_paths();
+                 const std::vector<std::string> own = head_fields_of(app, 3001);
+                 const size_t undo0 = app.undo_count(3001);
+                 std::string msg;
+                 bool in_step = false;
+                 CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, &in_step), "head of 1004 given: " + msg);
+                 CHECK(msg.find("one is being made from his new 3D head") != std::string::npos && faces_safety_pending() == 1, "queued: " + msg);
+                 CHECK(log_has(app, "faces safety: player 3001", "a render of his new 3D head is queued for career " + A), "logged");
+                 CHECK(!fs::exists(mods) && !cf::has_overlay(p, A, rel), "nothing written before the render");
+                 for (int k = 0; k < 150 && fake->requests.empty(); ++k) ui.frames(1);
+                 CHECK(fake->requests.size() == 1, fmt("one render asked (%zu)", fake->requests.size()));
+                 if (fake->requests.empty()) {
+                     app.capture = keep_capture;
+                     return;
+                 }
+                 const capture::Request& r = fake->requests.back();
+                 CHECK(r.id == 3001 && !r.manager && r.camera == 0 && !r.use_template, "his own descriptor, portrait camera (the chooser's route)");
+                 fake->next = capture::Result();
+                 fake->next.ok = true;
+                 fake->next.image = solid(300, 300, 0x11, 0x22, 0x33);
+                 fake->deliver = true;
+                 ui.frames(3);
+                 CHECK(faces_safety_pending() == 0, "done");
+                 CHECK(cf::has_overlay(p, A, rel) && fs::exists(mods) && bytes_of(mods) == bytes_of(cf::overlay_file(p, A, rel)),
+                       "written as career A's own copy (in mods\\legacy only while A is loaded)");
+                 CHECK(log_has(app, "faces safety: player 3001", "miniface rendered from his new 3D head for career " + A + " only"), "logged");
+                 CHECK(log_has(app, "career faces: data/ui/imgAssets/heads/p3001.dds written for career " + A + " only"), "the career faces line too");
+                 cf::OwnHead oh;
+                 CHECK(cf::find_own_head(p, A, false, 3001, oh) && oh.picture, "heads_own.json notes the picture made for him");
+                 CHECK(app.undo_count(3001) == undo0 + 1, "still ONE undo step (the picture joined the give)");
+                 CHECK(app.undo(3001) && head_fields_of(app, 3001) == own, "one Undo: his head back");
+                 CHECK(!cf::has_overlay(p, A, rel) && !fs::exists(mods), "and the rendered picture gone");
+
+                 // the game cannot render (two failures): the head owner's picture is copied, for the career only
+                 CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, &in_step), "again: " + msg);
+                 for (int attempt = 0; attempt < 2; ++attempt) {
+                     const size_t asked = fake->requests.size();
+                     for (int k = 0; k < 150 && fake->requests.size() == asked; ++k) ui.frames(1);
+                     CHECK(fake->requests.size() == asked + 1, fmt("render %d asked", attempt + 1));
+                     fake->next = capture::Result();
+                     fake->next.ok = false;
+                     fake->next.error = "fake: no player in the scene";
+                     fake->deliver = true;
+                     ui.frames(2);
+                 }
+                 for (int k = 0; k < 60 && faces_safety_pending() > 0; ++k) ui.frames(1);
+                 CHECK(faces_safety_pending() == 0 && cf::has_overlay(p, A, rel), "the owner's picture copied as career A's copy");
+                 CHECK(log_has(app, "faces safety: player 3001", "miniface copied from p1004.dds"), "logged");
+                 CHECK(app.undo(3001) && !cf::has_overlay(p, A, rel) && head_fields_of(app, 3001) == own, "one Undo puts both back");
+                 // a head changed again before the render: the job is dropped (never a picture of the wrong head)
+                 CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, &in_step) && faces_safety_pending() == 1, "queued again");
+                 CHECK(app.undo(3001), "undone before the render");
+                 for (int k = 0; k < 150 && faces_safety_pending() > 0; ++k) ui.frames(1);
+                 CHECK(faces_safety_pending() == 0 && !cf::has_overlay(p, A, rel), "dropped, nothing written");
+                 CHECK(log_has(app, "faces safety: player 3001", "his head changed since the give"), "said why");
+                 app.capture = keep_capture;
+                 faces_safety_reset();
+                 ui.frames(2);
+             });
+
+    run_case("UI 2.20 linked fields: the head of player X given to player Y writes every field that goes with it (class, quality, type, "
+             "variation, skin tone); His own head puts every one of them back",
+             [&] {
+                 reset(app, ui);
+                 InCareer in(app, ui, A);
+                 auto keep_capture = app.capture;
+                 app.capture.reset();
+                 const Table* pt = app.db.table("players");
+                 const PlayerRow* y = app.model.player(3001);
+                 const PlayerRow* x = app.model.player(1004);
+                 CHECK(pt && y && x, "players 3001 (Y) and 1004 (X)");
+                 if (!pt || !y || !x) return;
+                 static const char* kLinked[] = {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode"};
+                 auto get = [&](const PlayerRow* r, const char* f) { return app.db.get_int(*pt, r->rec, f, -1); };
+                 auto set = [&](const PlayerRow* r, const char* f, int64_t v) {
+                     const Field* fd = pt->field(f);
+                     return fd && app.edit_field(*pt, r->rec, *fd, Value::of_int(v));
+                 };
+                 const size_t undo_y = app.undo_count(3001), undo_x = app.undo_count(1004);
+                 // X and Y differ on every linked field (else a read-back proves nothing)
+                 CHECK(set(y, "headclasscode", 1), "Y: a generic head (class 1)");
+                 if (get(x, "hashighqualityhead") == get(y, "hashighqualityhead")) CHECK(set(x, "hashighqualityhead", 1 - get(y, "hashighqualityhead")), "X quality");
+                 if (get(x, "headtypecode") == get(y, "headtypecode")) CHECK(set(x, "headtypecode", get(y, "headtypecode") == 0 ? 1 : 0), "X head type");
+                 if (get(x, "headvariation") == get(y, "headvariation")) CHECK(set(x, "headvariation", get(y, "headvariation") == 0 ? 1 : 0), "X variation");
+                 if (get(x, "skintonecode") == get(y, "skintonecode"))
+                     CHECK(set(x, "skintonecode", get(y, "skintonecode") <= 90 ? get(y, "skintonecode") + 10 : 10), "X skin tone");
+                 std::map<std::string, int64_t> xs, ys;
+                 for (const char* f : kLinked) {
+                     CHECK(pt->has(f), std::string("players has ") + f);
+                     xs[f] = get(x, f);
+                     ys[f] = get(y, f);
+                     CHECK(xs[f] != ys[f], std::string("X and Y differ on ") + f + ": " + std::to_string(xs[f]) + " / " + std::to_string(ys[f]));
+                 }
+                 std::string msg;
+                 CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, nullptr), "head of X given to Y (no option ticked): " + msg);
+                 for (const char* f : kLinked)
+                     CHECK(get(y, f) == xs[f], std::string("read back ") + f + " = X's " + std::to_string(xs[f]) + " (is " + std::to_string(get(y, f)) + ")");
+                 CHECK(head_link_offer(app, 3001) == 0, "nothing left to link");
+                 CHECK(restore_own_head(app, false, 3001, &msg), "His own head: " + msg);
+                 for (const char* f : kLinked)
+                     CHECK(get(y, f) == ys[f], std::string("His own head: ") + f + " = his own " + std::to_string(ys[f]) + " (is " + std::to_string(get(y, f)) + ")");
+                 while (app.undo_count(3001) > undo_y) app.undo(3001);
+                 while (app.undo_count(1004) > undo_x) app.undo(1004);
+                 app.head_miniface_kept.erase(3001);
+                 app.capture = keep_capture;
+                 faces_safety_reset();
+             });
+
+    run_case("UI 2.20 linked fields: a head id typed alone shows one line and 'Apply the linked fields' (same safe give: his real miniface "
+             "kept, his own head from before the typed id); a head given through a game head writes its gate set",
+             [&] {
+                 reset(app, ui);
+                 InCareer in(app, ui, A);
+                 auto keep_capture = app.capture;
+                 app.capture.reset();
+                 const Table* pt = app.db.table("players");
+                 const PlayerRow* y = app.model.player(3001);
+                 const PlayerRow* x = app.model.player(1004);
+                 if (!pt || !y || !x) return;
+                 auto get = [&](const PlayerRow* r, const char* f) { return app.db.get_int(*pt, r->rec, f, -1); };
+                 auto set = [&](const PlayerRow* r, const char* f, int64_t v) {
+                     const Field* fd = pt->field(f);
+                     return fd && app.edit_field(*pt, r->rec, *fd, Value::of_int(v));
+                 };
+                 // his edit history starts here (the cases before left steps of their own; his own head comes from this one's)
+                 const auto history_was = app.undo_[3001];
+                 app.undo_[3001].clear();
+                 const size_t undo_y = app.undo_count(3001), undo_x = app.undo_count(1004);
+                 const int64_t h0 = get(y, "headassetid"), c0 = get(y, "headclasscode");
+                 if (get(x, "skintonecode") == get(y, "skintonecode"))
+                     CHECK(set(x, "skintonecode", get(y, "skintonecode") <= 90 ? get(y, "skintonecode") + 10 : 10), "X skin tone differs");
+                 const std::string real = [] {
+                     const std::vector<uint8_t> b = encode_dds_dxt5(solid(256, 256, 0x60, 0x20, 0x20));
+                     return std::string(b.begin(), b.end());
+                 }();
+                 put_file(mods, real);  // his real miniface (a file Turbo did not make)
+                 CHECK(set(y, "headclasscode", 0) && set(y, "headassetid", 1004), "typed: class 0, head 1004 alone");
+                 CHECK(head_link_offer(app, 3001) == 1004, "the linked fields of 1004's head are offered");
+                 app.request_tab = 0;
+                 ui.frames(2);
+                 CHECK(ui.click("3001", "##plist"), "player 3001");
+                 ui.frames(2);
+                 CHECK(ui.find("Apply the linked fields##hl") != nullptr && ui.find("Keep as it is##hl") != nullptr, "the line with its buttons");
+                 CHECK(ui.click("Apply the linked fields##hl"), "apply");
+                 ui.frames(2);
+                 for (const char* f : {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode"})
+                     CHECK(get(y, f) == get(x, f), std::string("linked: ") + f);
+                 CHECK(head_link_offer(app, 3001) == 0 && ui.find("Apply the linked fields##hl") == nullptr, "the line is gone");
+                 CHECK(bytes_of(mods) == real, "his real miniface p3001.dds byte for byte the same (never the donor's picture)");
+                 CHECK(!cf::has_overlay(app.career_faces_paths(), A, rel), "no career copy over it");
+                 CHECK(log_has(app, "linked fields: player 3001", "head 1004"), "logged");
+                 cf::OwnHead oh;
+                 const bool found = cf::find_own_head(app.career_faces_paths(), A, false, 3001, oh);
+                 const bool before_typed = found && oh.fields["headassetid"] == h0 && oh.fields["headclasscode"] == c0;
+                 CHECK(before_typed, "his own head kept is the one BEFORE the typed id (found " + std::to_string(found) + ", head " +
+                                         std::to_string(oh.fields["headassetid"]) + " class " + std::to_string(oh.fields["headclasscode"]) +
+                                         "; before the typing: head " + std::to_string(h0) + " class " + std::to_string(c0) + ")");
+                 std::string msg;
+                 const bool back = restore_own_head(app, false, 3001, &msg);
+                 CHECK(back && get(y, "headassetid") == h0 && get(y, "headclasscode") == c0,
+                       "His own head brings back his head, not the typed one: " + msg + " (head " + std::to_string(get(y, "headassetid")) + ")");
+                 // "Keep as it is" hides the line for that head
+                 CHECK(set(y, "headclasscode", 0) && set(y, "headassetid", 1004) && head_link_offer(app, 3001) == 1004, "typed again");
+                 ui.frames(2);
+                 CHECK(ui.click("Keep as it is##hl"), "keep");
+                 ui.frames(1);
+                 CHECK(head_link_offer(app, 3001) == 0, "kept as it is: no line");
+                 app.head_miniface_kept.erase(3001);
+                 while (app.undo_count(3001) > undo_y) app.undo(3001);
+                 while (app.undo_count(1004) > undo_x) app.undo(1004);
+                 CHECK(get(y, "headassetid") == h0 && get(y, "headclasscode") == c0, "all undone");
+                 app.undo_[3001] = history_was;
+                 fs::remove(mods);
+                 app.capture = keep_capture;
+                 faces_safety_reset();
+             });
 }
 
 // The App side, in the UI world (in_cm, a career connected): `le` = the world's Live Editor folder
@@ -216,10 +671,23 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(log_has(app, "career faces: a face picture written in this career: career " + A, "; in " + rel), "log line");
 
         // another career, then none: the original (no file) shows
+        app.log_lines.clear();  // the lines of the switch only
         app.reapply.career = B;
         ui.frames(2);
         CHECK(!fs::exists(mods), "career B: A's picture is out of mods\\legacy");
-        CHECK(log_has(app, "career faces: career identified: career " + B, "; back " + rel), "log line for B");
+        {
+            // the switch may pass through a frame with no identified career (the new identity is read first): A's picture is put
+            // back in whichever career faces line came first, and career B is identified (paths matched in any letter case)
+            bool back = false, b_line = false;
+            const std::string want = lower_ascii("; back " + rel);
+            for (const auto& l : app.log_lines) {
+                back = back || (l.rfind("career faces: ", 0) == 0 && lower_ascii(l).find(want) != std::string::npos);
+                b_line = b_line || l.find("career faces: career identified: career " + B) != std::string::npos;
+            }
+            std::string lines;
+            for (const auto& l : app.log_lines) lines += l + " | ";
+            CHECK(back && b_line, "log lines for B: " + lines.substr(0, 600));
+        }
         app.reapply.career = A;
         ui.frames(2);
         CHECK(bytes_of(mods) == "A-PIC", "A again: in again");
@@ -241,6 +709,9 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
         std::string msg;
         bool in_step = false;
         const size_t undo0 = app.undo_count(3001);
+        NoGamePicture none(app, {rel});  // 2.20: he has no miniface (one he had would be kept: ui_cases_safety)
+        auto keep_capture = app.capture;
+        app.capture.reset();  // no capture service: the owner's picture is copied (the render route: ui_cases_safety)
         CHECK(apply_real_face(app, 3001, 1004, RealFaceOptions{}, &msg, &in_step), "head of 1004 given in career A: " + msg);
         if (in_step) {
             CHECK(cf::has_overlay(p, A, rel), "the chooser wrote A's copy p3001 (not the global file directly)");
@@ -256,8 +727,10 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
         }
         CHECK(app.undo_count(3001) == undo0 + 1 && app.undo(3001), "one Undo");
         CHECK(!cf::has_overlay(p, A, rel) && !fs::exists(mods), "Undo: A's copy and the mods\\legacy file gone");
+        app.capture = keep_capture;
         ui.frames(2);
     });
+    ui_cases_safety(app, ui, le);  // 2.20
 }
 
 }  // namespace career_faces_test

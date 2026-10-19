@@ -160,7 +160,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
-    // 2.19 career faces: at every Turbo start no career is loaded yet, so a career's face pictures left in modsegacy (the game
+    // 2.19 career faces: at every Turbo start no career is loaded yet, so a career's face pictures left in mods/legacy (the game
     // or Turbo ended inside that career) are put back the way they were (core/career_faces.h)
     career_faces_sync("", "Turbo start");
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
@@ -924,7 +924,7 @@ void App::tick(double t) {
     }
     legacy.tick(t);
     legacy.next_frame();  // 2.16 gui/perf-3: folder looks and found game pictures are kept within a frame / a second
-    // 2.19 career faces: modsegacy holds the face pictures of the identified career only while it is loaded
+    // 2.19 career faces: mods/legacy holds the face pictures of the identified career only while it is loaded
     if (!career_faces_ticked_) {
         career_faces_ticked_ = true;
         if (log_hook && !career_faces_start_line_.empty()) log_hook(career_faces_start_line_);
@@ -1260,45 +1260,17 @@ int64_t App::head_miniface_mismatch(int64_t playerid) {
     return head;
 }
 
-bool App::give_matching_miniface(int64_t playerid, std::string* msg) {
-    auto say = [&](const std::string& m) {
-        if (msg) *msg = m;
-    };
-    const int64_t head = head_miniface_mismatch(playerid);
-    if (!head) {
-        say("nothing to do: his head and miniface already go together");
-        return false;
-    }
-    const std::string src = legacy_path::player_miniface(head), dst = legacy_path::player_miniface(playerid);
-    fs::path file;
-    const LegacyImages::State st = legacy.locate(src, &file);
-    if (st == LegacyImages::State::Waiting) {
-        say("the picture of head " + std::to_string(head) + " is still loading: click again in a moment (nothing was written)");
-        return false;
-    }
-    if (st != LegacyImages::State::Custom && st != LegacyImages::State::Game) {
-        head_miniface_kept[playerid] = head;
-        say("the game has no picture for head " + std::to_string(head) + ": his old miniface stays");
-        return false;
-    }
-    std::ifstream in(file, std::ios::binary);
-    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    std::string err;
-    UndoStep::Picture rec;
-    // 2.19: in a career, his picture is that career's own (write_face_picture); outside a career the global file as before
-    if (bytes.empty() || !write_face_picture(dst, bytes, &err, &rec)) {
-        say("his miniface could not be written: " + (bytes.empty() ? std::string("empty picture") : err));
-        return false;
-    }
-    // the picture joins the head change's undo step: one Undo puts both back
-    auto u = undo_.find(playerid);
-    if (u != undo_.end() && !u->second.empty()) u->second.back().pictures.push_back(rec);
-    log("miniface " + dst + " now shows " + src + " (matches his head " + std::to_string(head) + ")");
-    say("his miniface now shows " + fs::path(src).filename().string() + ", the picture of his new head (Undo puts both back)");
-    return true;
-}
+// 2.20: App::give_matching_miniface is gone: it copied the head owner's picture over his own (even a real one). A head id
+// written alone is now offered "Apply the linked fields" (ui_faces.h head_link_banner): the chooser's give, real
+// miniface kept.
 
 // ---- 2.19 career faces (core/career_faces.h)
+// App::log's last line to turbo_gui.log too (the Tester's live checks read the face lines there); the text itself stays inside
+// log(...), where the GUI word gate knows it for a log line
+static void faces_to_gui_log(App& app) {
+    if (app.log_hook && !app.log_lines.empty()) app.log_hook(app.log_lines.back());
+}
+
 career_faces::Paths App::career_faces_paths() const { return {turbo_output(), legacy.mods_dir()}; }
 
 std::string App::career_faces_wanted() const {
@@ -1322,16 +1294,42 @@ bool App::write_face_picture(const std::string& rel, const std::vector<uint8_t>&
     const bool face = career_faces::is_face_path(rel);
     if (face && career_faces_refused(err)) return false;
     const std::string career = face ? career_faces_wanted() : std::string();
-    if (career.empty()) {  // outside a career (or not a face picture): the global mods\legacy file, as before 2.19
+    if (career.empty()) {  // outside a career (or not a face picture): the global mods\legacy file
+        // 2.20 faces safety (a): a face picture there is replaced ONLY when it is absent or Turbo's own (careers\global_own.json,
+        // same hash); the record is written before the file, so Turbo's own copy is always known
+        const career_faces::Paths cp = career_faces_paths();
+        bool was_ours = false;
+        if (face) {
+            std::string why;
+            if (!career_faces::may_replace_global(cp, rel, &why)) {
+                log("faces safety: " + why); faces_to_gui_log(*this);
+                if (err) *err = why;
+                return false;
+            }
+            was_ours = career_faces::owner_of(cp, rel).owner == career_faces::Owner::TurboGlobal;
+            if (!career_faces::record_global(cp, rel, std::string(bytes.begin(), bytes.end()), err)) return false;
+        }
         fs::path backup;
-        if (!legacy.save_custom(rel, bytes, err, &backup)) return false;
+        if (!legacy.save_custom(rel, bytes, err, &backup)) {
+            if (face) {  // the record goes back to what is on disk
+                std::ifstream in(career_faces::mods_file(cp, rel), std::ios::binary);
+                const std::string now((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                if (was_ours && !now.empty()) career_faces::record_global(cp, rel, now, nullptr);
+                else career_faces::forget_global(cp, rel, nullptr);
+            }
+            return false;
+        }
         textures.forget(legacy.custom_file(rel));
+        if (face) {
+            log("faces safety: " + rel + " written outside a career (Turbo's own copy, recorded in turbo_output\\careers\\global_own.json)");
+            faces_to_gui_log(*this);
+        }
         if (rec) rec->backup = backup;
         return true;
     }
     fs::path undo_copy;
     if (!career_faces::save_overlay(career_faces_paths(), career, rel, bytes, err, &undo_copy)) return false;
-    log("career faces: " + rel + " written for career " + career + " only (turbo_output\\careers\\" + career + ")");
+    log("career faces: " + rel + " written for career " + career + " only (turbo_output\\careers\\" + career + ")"); faces_to_gui_log(*this);
     career_faces_sync(career, "a face picture written in this career");
     if (rec) {
         rec->backup = undo_copy;
@@ -1343,14 +1341,26 @@ bool App::write_face_picture(const std::string& rel, const std::vector<uint8_t>&
 bool App::undo_face_picture(const UndoStep::Picture& p, std::string* err) {
     if (p.career.empty()) {  // the global file (outside a career, or a pre-2.19 write)
         bool ok = false;
+        // 2.20 faces safety (a): only Turbo's own global copy is removed or replaced by an Undo
+        const career_faces::Paths cp = career_faces_paths();
+        const bool face = career_faces::is_face_path(p.path);
+        std::string why;
+        if (face && !legacy.custom_file(p.path).empty() && !career_faces::may_replace_global(cp, p.path, &why)) {
+            log("faces safety: undo of " + p.path + " not done: " + why); faces_to_gui_log(*this);
+            if (err) *err = why;
+            return false;
+        }
         if (p.backup.empty()) {
             ok = legacy.custom_file(p.path).empty() || legacy.remove_custom(p.path, err);
+            if (ok && face) career_faces::forget_global(cp, p.path, nullptr);
         } else {
             std::ifstream in(p.backup, std::ios::binary);
             std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             if (bytes.empty()) {
                 if (err) *err = "the backup " + p.backup.string() + " is missing or empty";
             } else {
+                // the backup was Turbo's own earlier copy (a write is refused over any other file): recorded again first
+                if (face && !career_faces::record_global(cp, p.path, std::string(bytes.begin(), bytes.end()), err)) return false;
                 ok = legacy.save_custom(p.path, bytes, err);
             }
         }

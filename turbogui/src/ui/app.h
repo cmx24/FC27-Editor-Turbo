@@ -122,7 +122,6 @@ public:
     // Returns that head id, or 0 when head and miniface go together (or the user chose to keep his picture).
     int64_t head_miniface_mismatch(int64_t playerid);
     std::map<int64_t, int64_t> head_miniface_kept;  // playerid -> head id for which "Keep his old picture" was chosen
-    bool give_matching_miniface(int64_t playerid, std::string* msg);
     static constexpr size_t kUndoSteps = 20;
     std::map<int64_t, std::deque<UndoStep>> undo_;
     size_t undo_count(int64_t playerid) const;

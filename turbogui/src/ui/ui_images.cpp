@@ -719,7 +719,13 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
                 } else {
                     app.notify("miniface: " + err, true);
                 }
+            } else if (face && !career_faces::may_replace_global(app.career_faces_paths(), t.path, &err)) {
+                // 2.20 faces safety (a): only Turbo's own global picture (careers\global_own.json, same hash) is ever removed
+                app.log("faces safety: " + err);
+                if (app.log_hook) app.log_hook("faces safety: " + err);
+                app.notify("miniface: " + err, true);
             } else if (app.legacy.remove_custom(t.path, &err)) {
+                if (face) career_faces::forget_global(app.career_faces_paths(), t.path, nullptr);
                 app.textures.forget(old);
                 // the cached "game's own" may be the custom file itself (Live Editor exports what the game loads): the
                 // game's picture is exported again

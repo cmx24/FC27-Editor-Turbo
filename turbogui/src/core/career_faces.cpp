@@ -2,6 +2,8 @@
 #include "career_faces.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -440,8 +442,257 @@ SyncResult sync(const Paths& p, const std::string& career_in) {
     }
     if (m.entries.empty()) m.career.clear();
     save_manifest(p, m, nullptr);
-    r.career = m.career;
+    // the career in effect (also when it has no pictures: the log line names it, "career none" only outside a career)
+    r.career = m.career.empty() ? career : m.career;
     return r;
+}
+
+// ---------------------------------------------------------------- 2.20 faces safety
+
+std::string bytes_hash(const std::string& bytes) { return hash_of(bytes); }
+
+std::string file_hash(const fs::path& f) {
+    if (!regular(f)) return {};
+    std::string b;
+    if (!read_bytes(f, b)) return {};
+    return hash_of(b);
+}
+
+namespace {
+std::string norm_rel(std::string r) {
+    for (char& c : r)
+        if (c == '\\') c = '/';
+    return lower(r);
+}
+
+// careers\global_own.json: {"version":1,"entries":{"<rel lower>":"<fnv>"}}; false = unreadable
+bool load_global(const Paths& p, std::map<std::string, std::string>& out, std::string* err) {
+    out.clear();
+    const fs::path f = global_own_file(p);
+    if (!regular(f)) return true;
+    std::string text;
+    if (!read_bytes(f, text)) {
+        if (err) *err = "cannot read " + f.string();
+        return false;
+    }
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object() || !j.contains("entries") || !j["entries"].is_object()) {
+        if (err) *err = f.string() + " is not a readable record";
+        return false;
+    }
+    for (auto it = j["entries"].begin(); it != j["entries"].end(); ++it)
+        if (it.value().is_string()) out[it.key()] = it.value().get<std::string>();
+    return true;
+}
+
+bool save_global(const Paths& p, const std::map<std::string, std::string>& m, std::string* err) {
+    json j = json::object();
+    j["version"] = 1;
+    j["note"] = "Turbo's own face pictures written outside a career (FNV-1a 64 of the bytes): only these may be replaced or removed by Turbo";
+    j["entries"] = json::object();
+    for (const auto& [k, v] : m) j["entries"][k] = v;
+    return write_atomic(global_own_file(p), j.dump(1), err);
+}
+}  // namespace
+
+OwnerInfo owner_of(const Paths& p, const std::string& rel) {
+    OwnerInfo o;
+    o.hash = file_hash(mods_file(p, rel));
+    if (o.hash.empty()) return o;  // Owner::None
+    o.owner = Owner::Foreign;
+    const std::string key = norm_rel(rel);
+    Manifest m;
+    if (load_manifest(p, m, nullptr)) {
+        for (const Entry& e : m.entries)
+            if (norm_rel(e.rel) == key && e.fnv == o.hash) {
+                o.owner = Owner::TurboCareer;
+                o.base_under = !e.base.empty();
+                return o;
+            }
+    }
+    std::map<std::string, std::string> g;
+    if (load_global(p, g, nullptr)) {
+        auto it = g.find(key);
+        if (it != g.end() && it->second == o.hash) o.owner = Owner::TurboGlobal;
+    }
+    return o;
+}
+
+fs::path global_own_file(const Paths& p) { return careers_dir(p) / "global_own.json"; }
+
+bool may_replace_global(const Paths& p, const std::string& rel, std::string* why) {
+    if (!is_face_path(rel)) return true;  // not a face picture: not this rule's business
+    const OwnerInfo o = owner_of(p, rel);
+    if (o.owner == Owner::None || o.owner == Owner::TurboGlobal) return true;
+    if (why)
+        *why = o.owner == Owner::TurboCareer
+                   ? rel + " is a career's picture in mods\\legacy right now (put back when the career is left): not changed outside it"
+                   : rel + " was not made by Turbo (the game's donor set, another tool, you, or Turbo before 2.20: no record of it), so Turbo "
+                           "leaves it as it is";
+    return false;
+}
+
+bool record_global(const Paths& p, const std::string& rel, const std::string& bytes, std::string* err) {
+    std::map<std::string, std::string> g;
+    if (!load_global(p, g, err)) return false;
+    g[norm_rel(rel)] = hash_of(bytes);
+    return save_global(p, g, err);
+}
+
+bool forget_global(const Paths& p, const std::string& rel, std::string* err) {
+    std::map<std::string, std::string> g;
+    if (!load_global(p, g, err)) return false;
+    if (!g.erase(norm_rel(rel))) return true;
+    return save_global(p, g, err);
+}
+
+MinifaceKind classify_miniface(const MinifaceFacts& f) {
+    if (f.file.owner == Owner::Foreign) return MinifaceKind::Real;
+    if (f.file.owner == Owner::TurboCareer && f.file.base_under) return MinifaceKind::Real;
+    if (f.game == Ships::Yes) return MinifaceKind::Real;
+    if (f.game == Ships::Unknown) return MinifaceKind::Unknown;
+    return f.file.owner == Owner::None ? MinifaceKind::None : MinifaceKind::TurboOwn;
+}
+
+const char* miniface_kind_name(MinifaceKind k) {
+    switch (k) {
+        case MinifaceKind::None: return "none";
+        case MinifaceKind::TurboOwn: return "Turbo's own";
+        case MinifaceKind::Real: return "real";
+        default: return "unknown";
+    }
+}
+
+// ---- heads_own.json
+std::string squad_scope() { return "_squad"; }
+bool is_head_scope(const std::string& scope) { return is_career_id(scope) || scope == squad_scope(); }
+fs::path heads_own_file(const Paths& p, const std::string& scope) { return careers_dir(p) / scope / "heads_own.json"; }
+
+namespace {
+json own_to_json(const OwnHead& h) {
+    json f = json::object();
+    for (const auto& [k, v] : h.fields) f[k] = v;
+    return {{"name", h.name}, {"at", h.at}, {"fields", f}, {"picture", h.picture}};
+}
+
+bool save_heads_own(const Paths& p, const std::string& scope, const HeadsOwn& h, std::string* err) {
+    json j = json::object();
+    j["version"] = 1;
+    j["scope"] = scope;
+    j["note"] = "Turbo: each player's / manager's OWN head fields, stored once before Turbo's first head change (the first original "
+                "wins); \"His own head\" writes them back";
+    j["players"] = json::object();
+    j["managers"] = json::object();
+    for (const auto& [id, o] : h.players) j["players"][std::to_string(id)] = own_to_json(o);
+    for (const auto& [id, o] : h.managers) j["managers"][std::to_string(id)] = own_to_json(o);
+    return write_atomic(heads_own_file(p, scope), j.dump(1), err);
+}
+
+std::string local_now() {
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char b[32];
+    std::strftime(b, sizeof(b), "%Y-%m-%dT%H:%M:%S", &tm);
+    return b;
+}
+}  // namespace
+
+bool load_heads_own(const Paths& p, const std::string& scope, HeadsOwn& out, std::string* err) {
+    out = HeadsOwn{};
+    if (!is_head_scope(scope)) {
+        if (err) *err = "no career or squad scope for his own head";
+        return false;
+    }
+    const fs::path f = heads_own_file(p, scope);
+    if (!regular(f)) return true;
+    std::string text;
+    if (!read_bytes(f, text)) {
+        if (err) *err = "cannot read " + f.string();
+        return false;
+    }
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        if (err) *err = f.string() + " is not readable (left as it is: no head is changed until it is looked at)";
+        return false;
+    }
+    for (const char* part : {"players", "managers"}) {
+        if (!j.contains(part)) continue;
+        if (!j[part].is_object()) {
+            if (err) *err = f.string() + ": \"" + part + "\" is not readable";
+            return false;
+        }
+        for (auto it = j[part].begin(); it != j[part].end(); ++it) {
+            char* end = nullptr;
+            const long long id = std::strtoll(it.key().c_str(), &end, 10);
+            const json& v = it.value();
+            if (!end || *end || id <= 0 || !v.is_object() || !v.contains("fields") || !v["fields"].is_object()) {
+                if (err) *err = f.string() + ": the entry \"" + it.key() + "\" is not readable";
+                return false;
+            }
+            OwnHead h;
+            h.name = v.value("name", std::string());
+            h.at = v.value("at", std::string());
+            h.picture = v.value("picture", false);
+            for (auto fi = v["fields"].begin(); fi != v["fields"].end(); ++fi)
+                if (fi.value().is_number_integer()) h.fields[fi.key()] = fi.value().get<int64_t>();
+            (std::string(part) == "players" ? out.players : out.managers)[id] = h;
+        }
+    }
+    return true;
+}
+
+bool record_own_head(const Paths& p, const std::string& scope, bool manager, int64_t id, const std::string& name,
+                     const std::map<std::string, int64_t>& fields, std::string* err, bool* created) {
+    if (created) *created = false;
+    if (id <= 0 || fields.empty()) {
+        if (err) *err = "nothing to store for his own head";
+        return false;
+    }
+    HeadsOwn h;
+    if (!load_heads_own(p, scope, h, err)) return false;
+    auto& m = manager ? h.managers : h.players;
+    if (m.count(id)) return true;  // the first original wins
+    OwnHead o;
+    o.name = name;
+    o.at = local_now();
+    o.fields = fields;
+    m[id] = o;
+    if (!save_heads_own(p, scope, h, err)) return false;
+    if (created) *created = true;
+    return true;
+}
+
+bool find_own_head(const Paths& p, const std::string& scope, bool manager, int64_t id, OwnHead& out) {
+    HeadsOwn h;
+    if (!load_heads_own(p, scope, h, nullptr)) return false;
+    const auto& m = manager ? h.managers : h.players;
+    auto it = m.find(id);
+    if (it == m.end()) return false;
+    out = it->second;
+    return true;
+}
+
+bool set_own_picture(const Paths& p, const std::string& scope, bool manager, int64_t id, bool picture, std::string* err) {
+    HeadsOwn h;
+    if (!load_heads_own(p, scope, h, err)) return false;
+    auto& m = manager ? h.managers : h.players;
+    auto it = m.find(id);
+    if (it == m.end() || it->second.picture == picture) return true;
+    it->second.picture = picture;
+    return save_heads_own(p, scope, h, err);
+}
+
+bool drop_own_head(const Paths& p, const std::string& scope, bool manager, int64_t id, std::string* err) {
+    HeadsOwn h;
+    if (!load_heads_own(p, scope, h, err)) return false;
+    auto& m = manager ? h.managers : h.players;
+    if (!m.erase(id)) return true;
+    return save_heads_own(p, scope, h, err);
 }
 
 }  // namespace career_faces

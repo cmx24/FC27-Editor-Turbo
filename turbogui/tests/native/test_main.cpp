@@ -6081,15 +6081,24 @@ static void test_ui() {
             fs::path cached = le / "turbo_output" / "cache" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1003.dds";
             CHECK(fs::exists(cached), "p1003 in the cache");
             CHECK(app.textures.size() >= 6, fmt("pictures shown: %zu", app.textures.size()));
-            CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
             const Table* t = app.db.table("players");
             uint64_t rec = app.db.find(*t, "playerid", 3001);
-            CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
-            CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
-            CHECK(app.db.get_int(*t, rec, "skintonecode") == 9, "skin not copied unless asked");
-            fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
-            CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head");
-            CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
+            const uint64_t rec1003 = app.db.find(*t, "playerid", 1003);
+            const int64_t skintype0 = app.db.get_int(*t, rec, "skintypecode");
+            const int64_t skin0 = app.db.get_int(*t, rec, "skintonecode");
+            {
+                // 2.20: he has no miniface (the game says so), so the head's comes with it; one he had would be kept
+                career_faces_test::NoGamePicture none(app, {legacy_path::player_miniface(3001)});
+                CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
+                CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
+                CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
+                CHECK(app.db.get_int(*t, rec, "skintonecode") == app.db.get_int(*t, rec1003, "skintonecode"),
+                      "2.20: the skin tone goes with the head (a linked field)");
+                CHECK(app.db.get_int(*t, rec, "skintypecode") == skintype0, "the rest of the skin not copied unless asked");
+                fs::path copied = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
+                CHECK(fs::exists(copied) && file_bytes(copied) == file_bytes(cached), "his miniface comes with the head (he had none)");
+                CHECK(ui.toast_contains("his miniface p3001.dds now shows p1003.dds"), "toast names both pictures");
+            }
             // tattoos: the first Choose... is the head (FC 27 area order); a real face now has the Hair & beard (3D) card above the
             // tattoos, so the view is scrolled down to them first
             ui.frames(2);
@@ -6163,6 +6172,7 @@ static void test_ui() {
             }
             app.legacy.refresh_missing();
             for (int i = 0; i < 5; ++i) CHECK(app.db.set_int(*t, rec, kHeadFields[i], before[i]), std::string("restored ") + kHeadFields[i]);
+            CHECK(app.db.set_int(*t, rec, "skintonecode", skin0), "restored skintonecode (2.20: it goes with a head)");
             app.model.refresh_player(3001, app.today());
             ui.frames(2);
         });
@@ -6455,10 +6465,21 @@ static void test_ui() {
             const uint64_t mrec = app.db.find(*mt, "managerid", 503);
             fs::path staff = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_503.dds";
             fs::remove(staff);
+            // 2.20: he has no picture (the game says so), so the head's comes with it; one he had would be kept
+            career_faces_test::NoGamePicture no_staff(app, {legacy_path::staff_miniface_for(503, 0)});
+            // the world's game has no picture of Chivu (generic head): it stays listed missing after the case, as Live Editor
+            // lists it (else the Managers page waits for an export of it that never comes: gui perf)
+            no_staff.stays_missing = no_staff.moved.empty();
+            const int64_t mskin0 = app.db.get_int(*mt, mrec, "skintonecode");
             CHECK(ui.click("face1004", "Choose a real face##mgr"), "pick 1004's head");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 1004 && app.db.get_int(*mt, mrec, "headclasscode") == 0 &&
                       app.db.get_int(*mt, mrec, "headtypecode") == 104, "manager head fields written");
-            CHECK(app.db.get_int(*mt, mrec, "skintonecode") == 20, "skin not copied unless asked");
+            {
+                const Table* ptab = app.db.table("players");
+                const uint64_t r1004 = app.db.find(*ptab, "playerid", 1004);
+                CHECK(app.db.get_int(*mt, mrec, "skintonecode") == app.db.get_int(*ptab, r1004, "skintonecode"),
+                      "2.20: the skin tone goes with the head (a linked field)");
+            }
             Rgba img;
             CHECK(load_image_file(staff, img) && img.w == 512 && img.h == 512, "the player's miniface as his own heads_staff_503.dds, 512 x 512");
             CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows p1004.dds"), "toast");
@@ -6489,12 +6510,13 @@ static void test_ui() {
             CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows heads_staff_501.dds"),
                   "toast: Arteta's own picture comes with his head");
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
-                      app.db.set_int(*mt, mrec, "headtypecode", 7), "Chivu restored");
+                      app.db.set_int(*mt, mrec, "headtypecode", 7) && app.db.set_int(*mt, mrec, "skintonecode", mskin0),
+                  "Chivu restored");
             app.request_tab = 0;
             ui.frames(2);
         });
 
-        run_case("UI: a head given through the chooser comes with its miniface, and ONE Undo puts both back (never a mixed result)", [&] {
+        run_case("UI: a head given through the chooser to a player with NO miniface comes with its miniface (career copy), and ONE Undo puts both back", [&] {
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             CHECK(pt && pr, "player 3001");
@@ -6507,6 +6529,9 @@ static void test_ui() {
             career_faces_test::reset(app, ui);  // 2.19: no career copy of p3001 left from the case before
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
+            // 2.20: he has NO miniface (the game has none, no file): the head's picture may come with it (with no capture service:
+            // the owner's picture, copied as the career's own copy). A player WITH a real one keeps it (test_career_faces.h)
+            career_faces_test::NoGamePicture none(app, {mpath});
             const size_t undo0 = app.undo_count(3001);
             app.request_tab = 0;
             ui.frames(2);
@@ -6531,8 +6556,8 @@ static void test_ui() {
             ui.frames(2);
         });
 
-        run_case("UI: Undo of a head given over a CUSTOM miniface puts that custom picture back byte for byte", [&] {
-            career_faces_test::reset(app, ui);  // 2.19 (the custom picture below is a global one: a career's copy goes over it and back)
+        run_case("UI: a head given to a player whose miniface is a CUSTOM picture Turbo did not make leaves it byte for byte, Undo too (2.20)", [&] {
+            career_faces_test::reset(app, ui);  // 2.20: the custom picture below has no record of Turbo's (a real one): never replaced
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             if (!pt || !pr) return;
@@ -6558,12 +6583,13 @@ static void test_ui() {
             std::ifstream a(custom, std::ios::binary);
             std::vector<uint8_t> mid((std::istreambuf_iterator<char>(a)), std::istreambuf_iterator<char>());
             a.close();
-            CHECK(!mid.empty() && mid != own_bytes, "1004's picture replaced his custom one");
+            CHECK(mid == own_bytes, "his custom picture is byte for byte the same (2.20: before, 1004's picture replaced it)");
+            CHECK(!career_faces::has_overlay(app.career_faces_paths(), app.career_faces_wanted(), legacy_path::player_miniface(3001)), "no career copy over it");
             CHECK(app.undo(3001), "Undo");
             std::ifstream b(custom, std::ios::binary);
             std::vector<uint8_t> back((std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
             b.close();
-            CHECK(back == own_bytes, "his own custom picture is back byte for byte (from turbo_output\\miniface_backups)");
+            CHECK(back == own_bytes, "and still the same after the Undo");
             fs::remove(custom);
             ui.click("Close##faces");
             ui.frames(2);
@@ -6571,7 +6597,9 @@ static void test_ui() {
 
         career_faces_test::ui_cases(app, ui, le);  // test_career_faces.h (2.19)
 
-        run_case("UI: a TYPED head change offers the matching miniface; using it joins the head's undo step; a generic head offers nothing", [&] {
+        run_case("UI: a TYPED head id offers 'Apply the linked fields' (2.20: the old 'Use the matching miniface' copied the donor's picture "
+                 "over his own); a generic head offers nothing",
+                 [&] {
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             const PlayerRow* owner = app.model.player(1004);
@@ -6585,28 +6613,42 @@ static void test_ui() {
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
             app.head_miniface_kept.clear();
+            const size_t u0 = app.undo_count(3001), uo = app.undo_count(1004);
+            // the donor's skin tone differs from his (a linked field to bring)
+            const int64_t s0 = app.db.get_int(*pt, pr->rec, "skintonecode", -1);
+            if (app.db.get_int(*pt, owner->rec, "skintonecode", -1) == s0)
+                CHECK(app.edit_field(*pt, owner->rec, *pt->field("skintonecode"), Value::of_int(s0 <= 90 ? s0 + 10 : 10)), "donor skin tone");
             const int64_t owner_head = app.db.get_int(*pt, owner->rec, "headassetid", -1);
             CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(0)) && app.edit_field(*pt, pr->rec, *fh, Value::of_int(owner_head)),
                   "typed: head class 0, head " + std::to_string(owner_head));
-            CHECK(owner_head == 1004 && app.head_miniface_mismatch(3001) == 1004, "the editor sees 1004's head next to his old picture");
+            CHECK(owner_head == 1004 && head_link_offer(app, 3001) == 1004, "the editor sees 1004's head without its linked fields");
             app.request_tab = 0;
             ui.frames(2);
             CHECK(ui.click("3001", "##plist"), "player 3001");
             ui.frames(2);
-            CHECK(ui.find("Use the matching miniface##hmf") != nullptr, "the banner with its button");
-            CHECK(ui.click("Use the matching miniface##hmf"), "use it");
+            CHECK(ui.find("Use the matching miniface##hmf") == nullptr, "the old picture copy is gone");
+            CHECK(ui.find("Apply the linked fields##hl") != nullptr, "the line with its button");
+            CHECK(ui.click("Apply the linked fields##hl"), "apply");
             ui.frames(2);
-            CHECK(fs::exists(custom) && app.head_miniface_mismatch(3001) == 0, "p3001.dds written, nothing mixed any more");
-            CHECK(app.undo(3001), "Undo (the head id step, with the picture attached)");
-            CHECK(!fs::exists(custom), "the picture went back with the head id");
-            CHECK(app.undo(3001), "Undo the class step");
+            CHECK(app.db.get_int(*pt, pr->rec, "skintonecode", -1) == app.db.get_int(*pt, owner->rec, "skintonecode", -2), "skin tone linked");
+            CHECK(head_link_offer(app, 3001) == 0, "nothing left to link");
+            {
+                // he had none: a picture may come, but only as this career's own copy (never a global file, never over a real one)
+                const career_faces::OwnerInfo fo = career_faces::owner_of(app.career_faces_paths(), legacy_path::player_miniface(3001));
+                CHECK(!fs::exists(custom) || fo.owner == career_faces::Owner::TurboCareer,
+                      "no picture written outside this career's own copy (owner " + std::to_string(static_cast<int>(fo.owner)) + ")");
+            }
+            CHECK(app.undo(3001), "Undo the linked fields (one step)");
+            CHECK(app.undo(3001) && app.undo(3001), "Undo the typed head id and the class");
             CHECK(app.db.get_int(*pt, pr->rec, "headassetid", -1) == h0 && app.db.get_int(*pt, pr->rec, "headclasscode", -1) == c0,
                   "head as before");
             // a generic head (class 1): the game draws it, no offer
             CHECK(app.edit_field(*pt, pr->rec, *fc, Value::of_int(1)), "class 1");
-            CHECK(app.head_miniface_mismatch(3001) == 0, "a generic head is never mixed (the game draws it)");
-            app.undo(3001);
+            CHECK(head_link_offer(app, 3001) == 0, "a generic head is never offered");
+            while (app.undo_count(3001) > u0) app.undo(3001);
+            while (app.undo_count(1004) > uo) app.undo(1004);
             app.head_miniface_kept.clear();
+            career_faces_test::reset(app, ui);
         });
 
         run_case("UI: real-face chooser with 3D looks: 3D facets, 'not classified yet', unsure values, Only heads with a 3D look", [&] {

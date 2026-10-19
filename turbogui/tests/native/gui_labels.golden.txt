@@ -383,6 +383,8 @@ ui_faces.cpp	-	##facetpop	1
 ui_faces.cpp	-	##mappgrid	1
 ui_faces.cpp	-	%s (%d)##v%lld	1
 ui_faces.cpp	-	Any (%d)##vany	1
+ui_faces.cpp	-	His own head##faces	1
+ui_faces.cpp	-	His own head##mfaces	1
 ui_faces.cpp	-	Render all filtered heads (%zu)##r3dall	1
 ui_faces.cpp	BeginChild	##facegrid	1
 ui_faces.cpp	BeginChild	##fvals	1
@@ -703,6 +705,7 @@ ui_names.cpp	Button	Restore database names##nm	1
 ui_names.cpp	Button	Save names##nm	1
 ui_names.cpp	InputTextWithHint	##nmidsearch	1
 ui_nav_pages.cpp	-	###navgo	1
+ui_pages_216.cpp	Checkbox	###pcardview	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1
@@ -751,6 +754,7 @@ ui_player_page.cpp	-	###pp_undo	1
 ui_player_page.cpp	-	###pp_unlist	1
 ui_player_page.cpp	-	##pos	1
 ui_player_page.cpp	-	##pp_contract	1
+ui_player_page.cpp	-	##pp_hl	1
 ui_player_page.cpp	-	##pp_looks	1
 ui_player_page.cpp	-	##pp_name	1
 ui_player_page.cpp	-	##pp_position	1
@@ -765,8 +769,6 @@ ui_player_page.cpp	BeginTable	##bits	1
 ui_player_page.cpp	BeginTable	##players	1
 ui_player_page.cpp	BeginTable	##sl	1
 ui_player_page.cpp	Button	###pp_confirm_no	1
-ui_player_page.cpp	Button	###pp_hmf	1
-ui_player_page.cpp	Button	###pp_hmfk	1
 ui_player_page.cpp	Button	###pp_move	1
 ui_player_page.cpp	Button	###pp_movecancel	1
 ui_player_page.cpp	Button	###pp_setrole	1
@@ -789,6 +791,7 @@ ui_players.cpp	-	##fcont	1
 ui_players.cpp	-	##fnat	1
 ui_players.cpp	-	##fpos	1
 ui_players.cpp	-	##fteam	1
+ui_players.cpp	-	##hl	1
 ui_players.cpp	-	##ovrgrid	1
 ui_players.cpp	-	##pall	1
 ui_players.cpp	-	##pos	1
@@ -843,13 +846,11 @@ ui_players.cpp	Button	Cancel##arch	1
 ui_players.cpp	Button	Cancel##delplayer	1
 ui_players.cpp	Button	Choose a real face...	1
 ui_players.cpp	Button	Delete player	1
-ui_players.cpp	Button	Keep his old picture##hmfk	1
 ui_players.cpp	Button	List bans	1
 ui_players.cpp	Button	Read squad role	1
 ui_players.cpp	Button	Remove ban	1
 ui_players.cpp	Button	Set squad role	1
 ui_players.cpp	Button	Transfer / Loan...	1
-ui_players.cpp	Button	Use the matching miniface##hmf	1
 ui_players.cpp	Checkbox	Grow him every week while below his potential##dvw	1
 ui_players.cpp	Checkbox	No decline##dvw	1
 ui_players.cpp	Combo	##role	1

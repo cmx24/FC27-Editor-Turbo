@@ -7,11 +7,13 @@
 #include <deque>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "app.h"
+#include "core/career_faces.h"
 #include "core/field_labels.h"
 #include "core/game_heads.h"
 #include "core/image.h"
@@ -360,11 +362,11 @@ static game_heads::PictureState find_source(App& app, const MinifaceMove& mv, st
                                       waiting ? app.legacy.waiting_for(p) : 0.0, LegacyImages::kStallSeconds);
 }
 
-// The picture written as his miniface: a player's miniface onto a player byte for byte, anything else framed to the
-// target's size and encoded as DXT5 (save_custom keeps a backup of what it replaces)
-static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& src, const fs::path& file, std::string* err,
-                           App::UndoStep::Picture* rec) {
-    std::vector<uint8_t> bytes;
+// The bytes written as his miniface: a player's miniface onto a player byte for byte, anything else framed to the target's
+// size and encoded as DXT5
+static bool miniface_bytes(const MinifaceMove& mv, const std::string& src, const fs::path& file, std::vector<uint8_t>& bytes,
+                           std::string* err) {
+    bytes.clear();
     if (mv.size == kPlayerMinifaceSize && src.find("/heads/p") != std::string::npos) {
         std::ifstream in(file, std::ios::binary);
         bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
@@ -377,7 +379,14 @@ static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& 
         if (err) *err = "empty picture";
         return false;
     }
-    // 2.19: in a career the career's own copy (App::write_face_picture), outside a career the global file as before
+    return true;
+}
+
+// The picture written as his miniface (2.19: in a career the career's own copy, App::write_face_picture)
+static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& src, const fs::path& file, std::string* err,
+                           App::UndoStep::Picture* rec) {
+    std::vector<uint8_t> bytes;
+    if (!miniface_bytes(mv, src, file, bytes, err)) return false;
     return app.write_face_picture(mv.target, bytes, err, rec);
 }
 
@@ -406,6 +415,434 @@ static void finish_miniface(App& app, const MinifaceMove& mv, const game_heads::
     }
 }
 
+// ---------------------------------------------------------------- 2.20 faces safety
+// Cassio 2026-10-19 10:56: editing a head never overwrites or deletes the original in-game asset; a head given to a player
+// with a real miniface leaves that picture as it is; a player with none gets a miniface rendered from his new 3D head (for
+// the career only). Pit wall 11:52: his own head fields are stored once (the first original wins) before Turbo's first head
+// change, in turbo_output\careers\<career>\heads_own.json (outside a career careers\_squad\heads_own.json), "His own head" puts
+// them back, every head write goes to asset_writes.log, and a head give writes no picture outside a career.
+namespace cf = career_faces;
+
+// App::log and turbo_gui.log (the Tester's live checks read these lines there)
+static void to_gui_log(App& app) {
+    if (app.log_hook && !app.log_lines.empty()) app.log_hook(app.log_lines.back());
+}
+
+// Every field a head give can change (the chooser's head, hair, beard, eyes and skin parts; a game head's fields and the
+// Turbo hair / beard band codes are among them): his own values of all of them are stored before the first change
+static const std::vector<const char*>& own_head_fields() {
+    static const std::vector<const char*> v = {"headassetid",        "headclasscode",       "hashighqualityhead", "headtypecode",
+                                               "headvariation",      "hairtypecode",        "haircolorcode",      "hairstylecode",
+                                               "facialhairtypecode", "facialhaircolorcode", "eyecolorcode",       "eyebrowcode",
+                                               "eyedetail",          "skintonecode",        "skintypecode",       "skincomplexion",
+                                               "skinsurfacepack",    "skinmakeup"};
+    return v;
+}
+
+// The scope a head give belongs to: the identified career, or the squad file outside a career; "" and why when refused (a
+// career Turbo has not identified: nothing may be written, his own head could not be kept for the right career)
+static std::string head_scope(App& app, std::string* why) {
+    const std::string career = app.career_faces_wanted();
+    if (!career.empty()) return career;
+    if (app.career_faces_refused(why)) return {};
+    return cf::squad_scope();
+}
+
+static std::string target_label(bool manager, int64_t id) { return (manager ? "manager " : "player ") + std::to_string(id); }
+
+// One asset_writes.log line per head field written (best effort: the edit itself is done)
+static void log_head_write(App& app, bool manager, int64_t id, const std::string& field, int64_t old_v, int64_t new_v,
+                           const std::string& why) {
+    assets::WriteLogEntry e;
+    e.target = target_label(manager, id);
+    e.field = field;
+    e.old_value = std::to_string(old_v);
+    e.new_value = std::to_string(new_v);
+    e.catalog_key = why;
+    assets::append_write_log(app.bridge.dir(), e);
+}
+
+static uint64_t g_own_gen = 1;  // +1 at every heads_own change ("His own head" looks at the file again)
+// "Apply the linked fields" after a head id typed alone: his own values from before the typed id (the edit history), used
+// instead of the row's when his own head is kept first (the row already has the new head id)
+static const std::map<std::string, int64_t>* g_own_seed = nullptr;
+static int64_t g_own_seed_id = 0;
+
+// His own head, stored once (the first original wins) before Turbo's first head change in this scope. false = refused (the
+// head must not be changed then: its original could not be kept)
+static bool store_own_head(App& app, const Table& t, uint64_t rec, bool manager, int64_t id, const std::string& name,
+                           const std::string& scope, std::string* msg) {
+    std::map<std::string, int64_t> fields;
+    for (const char* f : own_head_fields())
+        if (t.has(f)) fields[f] = app.db.get_int(t, rec, f, 0);
+    if (!manager && g_own_seed && id == g_own_seed_id)
+        for (const auto& [f, v] : *g_own_seed)
+            if (fields.count(f)) fields[f] = v;
+    std::string err;
+    bool created = false;
+    if (!cf::record_own_head(app.career_faces_paths(), scope, manager, id, name, fields, &err, &created)) {
+        if (msg) *msg = "nothing was changed: his own head could not be kept first (" + err + ")";
+        app.log("heads own: " + target_label(manager, id) + " (" + name + ") not changed: his own head could not be kept (" + err + ")");
+        to_gui_log(app);
+        return false;
+    }
+    if (created) {
+        ++g_own_gen;
+        std::string line = "heads own: " + target_label(manager, id) + " (" + name + ") own head kept in " + scope + ":";
+        for (const auto& [f, v] : fields) line += " " + f + "=" + std::to_string(v);
+        app.log(line);
+        to_gui_log(app);
+    }
+    return true;
+}
+
+// The target's own picture (p<playerid> / heads_staff_<managerid>) before a head give. The game's answer comes from the asset
+// catalog when one is loaded, else from Live Editor (asked now); no answer yet counts as a real picture (never overwritten).
+struct TargetFace {
+    cf::MinifaceKind kind = cf::MinifaceKind::Unknown;
+    std::string detail;  // for the messages
+};
+static TargetFace target_miniface(App& app, const std::string& rel, bool manager, int64_t id) {
+    TargetFace r;
+    cf::MinifaceFacts f;
+    f.file = cf::owner_of(app.career_faces_paths(), rel);
+    if (f.file.owner != cf::Owner::Foreign) {
+        const auto cat = app.asset_catalog();
+        if (cat && cat->loaded()) {
+            f.game = cat->has(manager ? assets::Family::Staffface : assets::Family::Miniface, id) ? cf::Ships::Yes : cf::Ships::No;
+        } else {
+            switch (app.legacy.locate(rel, nullptr, false)) {
+                case LegacyImages::State::Game: f.game = cf::Ships::Yes; break;
+                case LegacyImages::State::Missing: f.game = cf::Ships::No; break;
+                default: f.game = cf::Ships::Unknown; break;
+            }
+        }
+    }
+    r.kind = cf::classify_miniface(f);
+    if (f.file.owner == cf::Owner::Foreign) r.detail = "a picture in the game's mods folder that Turbo did not make";
+    else if (f.file.owner == cf::Owner::TurboCareer && f.file.base_under) r.detail = "a career copy over a picture Turbo did not make";
+    else if (f.game == cf::Ships::Yes) r.detail = "the game's own picture";
+    else if (f.game == cf::Ships::Unknown) r.detail = "the game has not said yet whether it has one, so it counts as real";
+    else if (r.kind == cf::MinifaceKind::TurboOwn) r.detail = "Turbo's own picture";
+    else r.detail = "none";
+    return r;
+}
+
+static const ManagerRow* find_manager(App& app, int64_t managerid);
+
+// His head id now (-1 = row gone)
+static int64_t current_head(App& app, bool manager, int64_t id) {
+    const Table* t = app.db.table(manager ? "manager" : "players");
+    if (!t) return -1;
+    if (manager) {
+        const ManagerRow* m = find_manager(app, id);
+        return m ? app.db.get_int(*t, m->rec, "headassetid", -1) : -1;
+    }
+    const PlayerRow* p = app.model.player(id);
+    return p ? app.db.get_int(*t, p->rec, "headassetid", -1) : -1;
+}
+
+// ---- the miniface that follows a head given in a career to a player with none: rendered by the game from his new 3D head
+// (the chooser's capture route), or the head owner's picture copied when the game cannot render (no capture service, or two
+// failed renders). Written only as the career's own copy; joined to the give's undo step when nothing came after it.
+namespace {
+enum class MiniStage { Render, Copy };
+struct MiniJob {
+    MiniStage stage = MiniStage::Render;
+    bool manager = false;
+    int64_t id = 0;        // playerid / managerid
+    int32_t teamid = -1;   // the capture's second id (his club)
+    std::string name, career, rel, giver;
+    int64_t head = 0;      // his head after the give (a later head change drops the job)
+    size_t undo_mark = 0;  // his undo steps right after the give
+    MinifaceMove fallback; // the head owner's picture
+    double since = -1.0;   // the stage started (ImGui time; -1 = not yet)
+    bool inflight = false;
+    int tries = 0;
+    double copy_since = -1.0;  // the copy stage started (its picture may still be loading)
+    double next_look = 0.0;    // the copy stage looks at the files at most once a second (never every frame)
+};
+std::deque<MiniJob> g_mini;
+constexpr double kMiniDelay = 1.0;     // seconds after the give before the render is asked (the game has his new head by then)
+constexpr double kMiniWaitMax = 90.0;  // a render the game could not start in this long: the owner's picture is copied instead
+constexpr int kMiniTries = 2;
+constexpr double kMiniTimeout = 20.0;  // seconds without an answer before a render is given up (as the chooser's)
+constexpr double kMiniLook = 1.0;      // the copy stage: one look at the files a second
+constexpr double kMiniCopyMax = 60.0;  // a picture to copy that has not loaded in this long: given up (said in the log)
+}  // namespace
+
+static bool capture_usable(App& app);
+
+static void mini_say(App& app, const MiniJob& j, const std::string& what) {
+    app.log("faces safety: " + target_label(j.manager, j.id) + " (" + j.name + ") " + what);
+    to_gui_log(app);
+}
+
+// Still the career and the head of the give, and still no real picture? (else the job is dropped, said why)
+static bool mini_still_wanted(App& app, const MiniJob& j) {
+    if (app.career_faces_wanted() != j.career) {
+        mini_say(app, j, "miniface not written: career " + j.career + " is not loaded any more");
+        return false;
+    }
+    if (current_head(app, j.manager, j.id) != j.head) {
+        mini_say(app, j, "miniface not written: his head changed since the give");
+        return false;
+    }
+    const TargetFace tf = target_miniface(app, j.rel, j.manager, j.id);
+    if (cf::keep_miniface(tf.kind)) {
+        mini_say(app, j, "miniface not written: he has a real one now (" + tf.detail + ")");
+        return false;
+    }
+    return true;
+}
+
+static bool mini_write(App& app, const MiniJob& j, const std::vector<uint8_t>& bytes, const std::string& how) {
+    std::string err;
+    App::UndoStep::Picture rec;
+    if (!app.write_face_picture(j.rel, bytes, &err, &rec)) {
+        mini_say(app, j, "miniface could not be written: " + err);
+        return false;
+    }
+    if (!j.manager && j.undo_mark > 0 && app.undo_count(j.id) == j.undo_mark) app.group_undo(j.id, 1, {rec});
+    if (!cf::set_own_picture(app.career_faces_paths(), j.career, j.manager, j.id, true, &err))
+        mini_say(app, j, "note: the record of his own head could not say that a picture was made (" + err + ")");
+    ++g_own_gen;
+    mini_say(app, j, "miniface " + how + " for career " + j.career + " only (" + file_part(j.rel) + ")");
+    return true;
+}
+
+// The owner's picture copied (no render possible). true = the job is over
+static bool mini_copy(App& app, MiniJob& j) {
+    std::string src;
+    fs::path file;
+    const game_heads::PictureState ps = find_source(app, j.fallback, &src, &file);
+    if (ps == game_heads::PictureState::Loading) return false;
+    if (!mini_still_wanted(app, j)) return true;
+    if (ps != game_heads::PictureState::Ready) {
+        mini_say(app, j, "no miniface: the game could not render his new head and has no picture of " + j.giver);
+        return true;
+    }
+    std::vector<uint8_t> bytes;
+    std::string err;
+    if (!miniface_bytes(j.fallback, src, file, bytes, &err)) {
+        mini_say(app, j, "no miniface: " + err);
+        return true;
+    }
+    mini_write(app, j, bytes, "copied from " + file_part(src) + " (the picture of " + j.giver + ")");
+    return true;
+}
+
+static void mini_failed(MiniJob& j, double now) {
+    ++j.tries;
+    j.since = now;
+    if (j.tries >= kMiniTries) j.stage = MiniStage::Copy;
+}
+
+// Every frame (from tick_faces3d): true while a miniface render owns the capture service (nothing else may poll it then)
+static bool tick_minifaces(App& app, capture::CaptureService* svc, bool svc_free, double now) {
+    if (g_mini.empty()) return false;
+    // a render in flight: its answer, or the timeout
+    for (auto it = g_mini.begin(); it != g_mini.end(); ++it) {
+        if (!it->inflight) continue;
+        MiniJob& j = *it;
+        capture::Result r;
+        if (svc && svc->poll(r)) {
+            j.inflight = false;
+            if (r.id != j.id) {
+                mini_say(app, j, "render answer for id " + std::to_string(r.id) + ", which was not asked: asked again");
+                mini_failed(j, now);
+            } else if (!r.ok || r.image.empty()) {
+                mini_say(app, j, "render failed (" + (r.error.empty() ? std::string("empty picture") : r.error) + ")" +
+                                     (j.tries + 1 >= kMiniTries ? ": the picture of " + j.giver + " is copied instead" : ": asked again"));
+                mini_failed(j, now);
+            } else {
+                if (mini_still_wanted(app, j)) {
+                    const std::vector<uint8_t> dds = encode_dds_dxt5(frame_image(r.image, kPlayerMinifaceSize, Framing{}));
+                    mini_write(app, j, dds, "rendered from his new 3D head");
+                }
+                g_mini.erase(it);
+            }
+        } else if (now - j.since > kMiniTimeout) {
+            if (svc) svc->cancel();
+            j.inflight = false;
+            mini_say(app, j, std::string("render: no answer from the game") +
+                                 (j.tries + 1 >= kMiniTries ? ": the picture of " + j.giver + " is copied instead" : ": asked again"));
+            mini_failed(j, now);
+        }
+        return true;
+    }
+    // the copies (no service needed) and the next render
+    for (auto it = g_mini.begin(); it != g_mini.end();) {
+        MiniJob& j = *it;
+        if (j.since < 0.0) j.since = now;
+        if (j.stage == MiniStage::Render && now - j.since > kMiniWaitMax) {
+            mini_say(app, j, "the game could not render his new head for " + std::to_string(int(kMiniWaitMax)) + " s: the picture of " +
+                                 j.giver + " is copied instead");
+            j.stage = MiniStage::Copy;
+        }
+        if (j.stage == MiniStage::Copy) {
+            if (j.copy_since < 0.0) j.copy_since = now;
+            if (now < j.next_look) {  // file work at most once a second, not in every frame
+                ++it;
+                continue;
+            }
+            j.next_look = now + kMiniLook;
+            if (mini_copy(app, j)) {
+                it = g_mini.erase(it);
+                continue;
+            }
+            if (now - j.copy_since > kMiniCopyMax) {
+                mini_say(app, j, "no miniface: the picture of " + j.giver + " did not load in " + std::to_string(int(kMiniCopyMax)) + " s");
+                it = g_mini.erase(it);
+                continue;
+            }
+            ++it;
+            continue;
+        }
+        if (now - j.since < kMiniDelay || !svc || !svc_free || !capture_usable(app)) {
+            if (!capture_usable(app)) j.stage = MiniStage::Copy;  // the service went away: no render will come
+            ++it;
+            continue;
+        }
+        const capture::Status st = svc->status();
+        if (!st.available || st.busy) {
+            ++it;
+            continue;
+        }
+        if (!mini_still_wanted(app, j)) {
+            it = g_mini.erase(it);
+            continue;
+        }
+        capture::Request req;
+        req.id = static_cast<int32_t>(j.id);
+        req.second_id = j.teamid;
+        req.manager = false;
+        req.camera = 0;            // portrait, as the chooser's 3D heads
+        req.use_template = false;  // the player descriptor (the chooser's verified route)
+        req.label = "miniface of " + j.name;
+        std::string err;
+        if (svc->request(req, &err)) {
+            j.inflight = true;
+            j.since = now;
+            return true;
+        }
+        mini_say(app, j, "render not started (" + err + ")");
+        mini_failed(j, now);
+        return false;
+    }
+    return false;
+}
+
+void faces_safety_reset() {
+    g_mini.clear();
+    ++g_own_gen;  // heads_own.json files may have gone (tests remove the careers folder): has_own_head reads them again
+}
+size_t faces_safety_pending() { return g_mini.size(); }
+
+// The plan for his picture, made before any head field is written (2.20)
+namespace {
+enum class PicRoute { Keep, NoneOutside, Render, Copy };
+struct PicPlan {
+    std::string scope;  // career id or the squad scope
+    TargetFace face;    // his own picture before the give
+    PicRoute route = PicRoute::Keep;
+    game_heads::MinifacePlan copy;  // PicRoute::Copy: the owner's picture now
+    std::string src;
+    fs::path src_file;
+};
+}  // namespace
+
+// Before any write: the scope (refused in a career Turbo has not identified), his own head kept first, the route of his
+// picture. false = nothing may be written (msg says why)
+static bool plan_give(App& app, const Table& t, uint64_t rec, bool manager, int64_t id, const std::string& name, const MinifaceMove& mv,
+                      PicPlan& pp, std::string* msg) {
+    std::string why;
+    pp.scope = head_scope(app, &why);
+    if (pp.scope.empty()) {
+        if (msg) *msg = why;
+        return false;
+    }
+    pp.face = target_miniface(app, mv.target, manager, id);
+    if (cf::keep_miniface(pp.face.kind)) {
+        pp.route = PicRoute::Keep;
+    } else if (!cf::is_career_id(pp.scope)) {
+        pp.route = PicRoute::NoneOutside;
+    } else if (!manager && capture_usable(app)) {
+        pp.route = PicRoute::Render;
+    } else {
+        pp.route = PicRoute::Copy;
+        pp.copy = game_heads::miniface_plan(find_source(app, mv, &pp.src, &pp.src_file), mv.label);
+        if (!pp.copy.write_head) {  // the owner's picture is loading: nothing is written yet (never a mixed result)
+            if (msg) *msg = pp.copy.note;
+            return false;
+        }
+    }
+    return store_own_head(app, t, rec, manager, id, name, pp.scope, msg);
+}
+
+// After the head fields are written: his picture by the plan, said in `note` (and the log)
+static void give_picture(App& app, const PicPlan& pp, const MinifaceMove& mv, bool manager, int64_t id, int32_t teamid,
+                         const std::string& name, const std::string& giver, std::string& note, bool* in_step,
+                         std::vector<App::UndoStep::Picture>* written) {
+    if (in_step) *in_step = true;
+    const int64_t head = current_head(app, manager, id);
+    const std::string who = "faces safety: " + target_label(manager, id) + " (" + name + ") head of " + giver + " given; ";
+    if (!manager && head > 0) app.head_miniface_kept[id] = head;  // no "use the matching miniface" offer: decided here
+    switch (pp.route) {
+        case PicRoute::Keep:
+            note += "; his real miniface " + file_part(mv.target) + " is kept (" + pp.face.detail + ")";
+            app.log(who + "his real miniface " + file_part(mv.target) + " kept (" + pp.face.detail + ")");
+            to_gui_log(app);
+            return;
+        case PicRoute::NoneOutside:
+            note += "; no miniface is written outside a career (pictures are kept per career)";
+            app.log(who + "no miniface written outside a career (" + pp.face.detail + ")");
+            to_gui_log(app);
+            return;
+        case PicRoute::Render: {
+            MiniJob j;
+            j.stage = MiniStage::Render;
+            j.manager = manager;
+            j.id = id;
+            j.teamid = teamid;
+            j.name = name;
+            j.career = pp.scope;
+            j.rel = mv.target;
+            j.giver = giver;
+            j.head = head;
+            j.fallback = mv;
+            for (auto it = g_mini.begin(); it != g_mini.end();)  // an older job for him is out of date
+                it = (it->id == id && it->manager == manager && !it->inflight) ? g_mini.erase(it) : it + 1;
+            g_mini.push_back(j);
+            note += "; he had no miniface, so one is being made from his new 3D head (this career only)";
+            app.log(who + "he had no miniface (" + pp.face.detail + "): a render of his new 3D head is queued for career " + pp.scope);
+            to_gui_log(app);
+            return;
+        }
+        case PicRoute::Copy: {
+            const size_t before = written ? written->size() : 0;
+            finish_miniface(app, mv, pp.copy, pp.src, pp.src_file, note, in_step, written);
+            const bool wrote = written && written->size() > before;
+            if (wrote) {
+                std::string err;
+                if (!cf::set_own_picture(app.career_faces_paths(), pp.scope, manager, id, true, &err))
+                    app.log("faces safety: note: the record of his own head could not say that a picture was made (" + err + ")");
+                ++g_own_gen;
+            }
+            app.log(who + (wrote ? "he had no miniface (" + pp.face.detail + "): the picture of " + giver + " copied for career " + pp.scope
+                                 : std::string("no miniface written (") + pp.face.detail + "; " + pp.copy.note + ")"));
+            to_gui_log(app);
+            return;
+        }
+    }
+}
+
+// The undo mark of a render job queued by the give just made (the picture joins that step when nothing came after it)
+static void mark_jobs(App& app, bool manager, int64_t id) {
+    for (MiniJob& j : g_mini)
+        if (j.id == id && j.manager == manager && !j.inflight && j.undo_mark == 0) j.undo_mark = manager ? 0 : app.undo_count(id);
+}
+
 bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_is_manager, const RealFaceOptions& o, std::string* msg,
                      bool* in_step) {
     if (in_step) *in_step = false;
@@ -419,6 +856,7 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
     const Table* t = app.db.table(target_is_manager ? "manager" : "players");
     uint64_t rec = 0;
     std::string target_name;
+    int32_t teamid = -1;
     if (target_is_manager) {
         for (const auto& m : app.model.managers())
             if (m.managerid == target_id) {
@@ -428,16 +866,10 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
     } else if (const PlayerRow* p = app.model.player(target_id)) {
         rec = p->rec;
         target_name = p->name;
+        if (p->club > 0) teamid = static_cast<int32_t>(p->club);
     }
     if (!t || !rec || !h) return fail(target_is_manager ? "manager not found" : "player not found");
-    // the miniface first: while it is loading nothing is written (never a mixed result)
     const MinifaceMove mv = target_is_manager ? to_manager(target_id, game_head_sources(*h)) : to_player(target_id, game_head_sources(*h));
-    std::string src;
-    fs::path src_file;
-    const game_heads::MinifacePlan plan = game_heads::miniface_plan(find_source(app, mv, &src, &src_file), mv.label);
-    if (!plan.write_head) return fail(plan.note);
-    // 2.19: a career Turbo has not identified gets no picture anywhere, so no head either (never a mixed result)
-    if (std::string why; plan.copy && app.career_faces_refused(&why)) return fail(why);
     // validate everything first, then write
     std::vector<std::pair<const Field*, Value>> writes;
     for (const game_heads::FieldWrite& w : game_heads::head_writes(*h)) {
@@ -471,25 +903,23 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
         }
     }
     if (writes.empty()) return fail("no head fields in the " + t->name + " table");
-    const std::string target = (target_is_manager ? "manager " : "player ") + std::to_string(target_id);
+    // 2.20: the scope, his own head kept first, his picture's route (nothing is written when any of it fails)
+    PicPlan pp;
+    if (std::string w; !plan_give(app, *t, rec, target_is_manager, target_id, target_name, mv, pp, &w)) return fail(w);
     const uint64_t pushes = app.undo_pushes;
     for (const auto& w : writes) {
         const int64_t old = app.db.get_int(*t, rec, w.first->name, 0);
         if (!app.edit(*t, rec, *w.first, w.second)) return fail("writing " + w.first->name + " failed");
-        assets::WriteLogEntry e;
-        e.target = target;
-        e.field = w.first->name;
-        e.old_value = std::to_string(old);
-        e.new_value = std::to_string(w.second.i);
-        e.catalog_key = g_heads_cat.build_key;
-        assets::append_write_log(app.bridge.dir(), e);  // best effort: the edit itself is done
+        log_head_write(app, target_is_manager, target_id, w.first->name, old, w.second.i, g_heads_cat.build_key);
     }
     std::string note = "game head " + game_heads::display_name(*h) + " given to " + target_name + " (logged in asset_writes.log)";
     if (!target_is_manager) faces3d_forget_render(app, false, target_id);  // the chooser's render of him shows the old head
     std::vector<App::UndoStep::Picture> written;
-    finish_miniface(app, mv, plan, src, src_file, note, in_step, &written);
+    give_picture(app, pp, mv, target_is_manager, target_id, teamid, target_name, "game head " + game_heads::display_name(*h), note, in_step,
+                 &written);
     // a player: one Undo puts the whole give back (head fields and miniface); managers have no per-row undo
     if (!target_is_manager) app.group_undo(target_id, static_cast<size_t>(app.undo_pushes - pushes), std::move(written));
+    mark_jobs(app, target_is_manager, target_id);
     (void)o;
     if (msg) *msg = note;
     return true;
@@ -517,20 +947,23 @@ static const char* kBeardFields[] = {"facialhairtypecode", "facialhaircolorcode"
 static const char* kEyeFields[] = {"eyecolorcode", "eyebrowcode", "eyedetail"};
 static const char* kSkinFields[] = {"skintonecode", "skintypecode", "skincomplexion", "skinsurfacepack", "skinmakeup"};
 
-static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table& dst, uint64_t dst_rec, const RealFaceOptions& o,
-                      std::string* msg) {
+// The head fields to copy from the owner's row (validated); false with msg when one cannot be read or is invalid
+static bool head_copy_writes(App& app, const Table& src, uint64_t src_rec, const Table& dst, uint64_t dst_rec, const RealFaceOptions& o,
+                             std::vector<std::pair<const Field*, Value>>& writes, std::string* msg) {
     std::vector<const char*> fields(std::begin(kHeadFields), std::end(kHeadFields));
     if (o.hair) fields.insert(fields.end(), std::begin(kHairFields), std::end(kHairFields));
     if (o.beard) fields.insert(fields.end(), std::begin(kBeardFields), std::end(kBeardFields));
     if (o.eyes) fields.insert(fields.end(), std::begin(kEyeFields), std::end(kEyeFields));
     if (o.skin) fields.insert(fields.end(), std::begin(kSkinFields), std::end(kSkinFields));
+    // 2.20 linked fields: the skin tone always goes with the head (a scanned head next to another skin tone is a mixed look);
+    // "Skin" adds the rest of the skin fields
+    else fields.push_back("skintonecode");
     // a Turbo 3D hair / beard (band codes, core/faces3d.h) belongs to the old head: the new head takes the owner's own codes
     if (!o.hair && dst.has("hairtypecode") && faces3d::is_turbo_hair_code(app.db.get_int(dst, dst_rec, "hairtypecode", 0)))
         fields.push_back("hairtypecode");
     if (!o.beard && dst.has("facialhairtypecode") && faces3d::is_turbo_beard_code(app.db.get_int(dst, dst_rec, "facialhairtypecode", 0)))
         fields.push_back("facialhairtypecode");
-    // read everything first, then write (validated per field)
-    std::vector<std::pair<const Field*, Value>> writes;
+    writes.clear();
     for (const char* n : fields) {
         const Field* fs_ = src.field(n);
         const Field* fd = dst.field(n);
@@ -551,11 +984,19 @@ static bool copy_head(App& app, const Table& src, uint64_t src_rec, const Table&
         if (msg) *msg = "no head fields in the " + dst.name + " table";
         return false;
     }
+    return true;
+}
+
+// Writes the copied head fields; every field written is logged in asset_writes.log (2.20)
+static bool copy_head(App& app, const Table& dst, uint64_t dst_rec, const std::vector<std::pair<const Field*, Value>>& writes, bool manager,
+                      int64_t id, const std::string& why, std::string* msg) {
     for (const auto& w : writes) {
+        const int64_t old = app.db.get_int(dst, dst_rec, w.first->name, 0);
         if (!app.edit(dst, dst_rec, *w.first, w.second)) {
             if (msg) *msg = "writing " + w.first->name + " failed";
             return false;
         }
+        log_head_write(app, manager, id, w.first->name, old, w.second.i, why);
     }
     return true;
 }
@@ -569,27 +1010,23 @@ bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const Real
         if (msg) *msg = "player not found";
         return false;
     }
-    // his owner's miniface comes with the head; while it is loading nothing is written (never a mixed result)
+    std::vector<std::pair<const Field*, Value>> writes;
+    if (!head_copy_writes(app, *t, owner->rec, *t, target->rec, o, writes, msg)) return false;
+    // his owner's miniface may come with the head (2.20: only when he has none, only in a career)
     const MinifaceMove mv = to_player(target_pid, {legacy_path::player_miniface(owner_pid)});
-    std::string src;
-    fs::path src_file;
-    const game_heads::MinifacePlan plan = game_heads::miniface_plan(find_source(app, mv, &src, &src_file), mv.label);
-    if (!plan.write_head) {
-        if (msg) *msg = plan.note;
-        return false;
-    }
-    if (std::string why; plan.copy && app.career_faces_refused(&why)) {  // 2.19 (see apply_game_head)
-        if (msg) *msg = why;
-        return false;
-    }
+    PicPlan pp;
+    if (!plan_give(app, *t, target->rec, false, target_pid, target->name, mv, pp, msg)) return false;
+    const std::string giver = owner->name + " (player " + std::to_string(owner_pid) + ")";
     const uint64_t pushes = app.undo_pushes;
-    if (!copy_head(app, *t, owner->rec, *t, target->rec, o, msg)) return false;
+    if (!copy_head(app, *t, target->rec, writes, false, target_pid, "real-face chooser: head of " + giver, msg)) return false;
     faces3d_forget_render(app, false, target_pid);  // the chooser's render of him shows the old head
     std::string note = "head of " + owner->name + " given to " + target->name;
     std::vector<App::UndoStep::Picture> written;
-    finish_miniface(app, mv, plan, src, src_file, note, in_step, &written);
+    give_picture(app, pp, mv, false, target_pid, target->club > 0 ? static_cast<int32_t>(target->club) : -1, target->name, giver, note,
+                 in_step, &written);
     // one Undo puts the whole give back: every head field and the miniface (never a head undone without its picture)
     app.group_undo(target_pid, static_cast<size_t>(app.undo_pushes - pushes), std::move(written));
+    mark_jobs(app, false, target_pid);
     if (msg) *msg = note;
     return true;
 }
@@ -621,27 +1058,282 @@ bool apply_real_face_to_manager(App& app, int64_t managerid, int64_t owner_id, b
         if (msg) *msg = target ? "head owner not found" : "manager not found";
         return false;
     }
-    // the owner's picture comes with the head, written as the target's own heads_staff_<managerid> (512 x 512): a player's
-    // miniface, or the owner manager's picture in the order Turbo shows it; while it is loading nothing is written
+    std::vector<std::pair<const Field*, Value>> writes;
+    if (!head_copy_writes(app, *st, src_rec, *mt, target->rec, o, writes, msg)) return false;
+    // the owner's picture may come with the head (2.20: only when the manager has none, only in a career), written as the
+    // target's own heads_staff_<managerid> (512 x 512): a player's miniface, or the owner manager's picture in the order Turbo
+    // shows it; while it is loading nothing is written
     const int64_t owner_head = owner_is_manager ? app.db.get_int(*st, src_rec, "headassetid", 0) : 0;
     const MinifaceMove mv = to_manager(managerid, owner_is_manager ? legacy_path::staff_pictures(owner_id, owner_head)
                                                                     : std::vector<std::string>{legacy_path::player_miniface(owner_id)});
-    std::string src;
-    fs::path src_file;
-    const game_heads::MinifacePlan plan = game_heads::miniface_plan(find_source(app, mv, &src, &src_file), mv.label);
-    if (!plan.write_head) {
-        if (msg) *msg = plan.note;
-        return false;
-    }
-    if (std::string why; plan.copy && app.career_faces_refused(&why)) {  // 2.19 (see apply_game_head)
-        if (msg) *msg = why;
-        return false;
-    }
-    if (!copy_head(app, *st, src_rec, *mt, target->rec, o, msg)) return false;
+    PicPlan pp;
+    if (!plan_give(app, *mt, target->rec, true, managerid, target->name, mv, pp, msg)) return false;
+    const std::string giver = owner_name + " (" + target_label(owner_is_manager, owner_id) + ")";
+    if (!copy_head(app, *mt, target->rec, writes, true, managerid, "real-face chooser: head of " + giver, msg)) return false;
     std::string note = "head of " + owner_name + " given to " + target->name;
-    finish_miniface(app, mv, plan, src, src_file, note, in_step);
+    give_picture(app, pp, mv, true, managerid, -1, target->name, giver, note, in_step, nullptr);
     if (msg) *msg = note;
     return true;
+}
+
+// ---------------------------------------------------------------- "His own head" (2.20)
+bool has_own_head(App& app, bool manager, int64_t id) {
+    static std::string c_scope;
+    static bool c_manager = false;
+    static int64_t c_id = 0;
+    static uint64_t c_gen = 0;
+    static bool c_has = false;
+    const std::string scope = head_scope(app, nullptr);
+    if (scope.empty()) return false;
+    if (scope != c_scope || manager != c_manager || id != c_id || g_own_gen != c_gen) {
+        cf::OwnHead h;
+        c_has = cf::find_own_head(app.career_faces_paths(), scope, manager, id, h);
+        c_scope = scope;
+        c_manager = manager;
+        c_id = id;
+        c_gen = g_own_gen;
+    }
+    return c_has;
+}
+
+bool restore_own_head(App& app, bool manager, int64_t id, std::string* msg) {
+    auto fail = [&](const std::string& w) {
+        if (msg) *msg = w;
+        return false;
+    };
+    std::string why;
+    const std::string scope = head_scope(app, &why);
+    if (scope.empty()) return fail(why);
+    const cf::Paths paths = app.career_faces_paths();
+    cf::OwnHead own;
+    if (!cf::find_own_head(paths, scope, manager, id, own))
+        return fail(cf::is_career_id(scope) ? "Turbo has not changed his head in this career: nothing to put back"
+                                            : "Turbo has not changed his head outside a career: nothing to put back");
+    const Table* t = app.db.table(manager ? "manager" : "players");
+    uint64_t rec = 0;
+    std::string name;
+    if (manager) {
+        if (const ManagerRow* m = find_manager(app, id)) rec = m->rec, name = m->name;
+    } else if (const PlayerRow* p = app.model.player(id)) {
+        rec = p->rec;
+        name = p->name;
+    }
+    if (!t || !rec) return fail(manager ? "manager not found" : "player not found");
+    std::vector<std::pair<const Field*, Value>> writes;
+    for (const auto& [f, v] : own.fields) {
+        const Field* fd = t->field(f);
+        if (!fd || app.db.get_int(*t, rec, f, v) == v) continue;
+        const Value val = Value::of_int(v);
+        const std::string verr = Database::validate(*fd, val);
+        if (!verr.empty()) return fail(f + ": " + verr + " (nothing was written)");
+        writes.emplace_back(fd, val);
+    }
+    const uint64_t pushes = app.undo_pushes;
+    for (const auto& w : writes) {
+        const int64_t old = app.db.get_int(*t, rec, w.first->name, 0);
+        if (!app.edit(*t, rec, *w.first, w.second)) return fail("writing " + w.first->name + " failed");
+        log_head_write(app, manager, id, w.first->name, old, w.second.i, "His own head");
+    }
+    // the picture a head give made for him in this career goes too (his own shows again)
+    std::vector<App::UndoStep::Picture> pictures;
+    const std::string rel = manager ? legacy_path::staff_miniface_for(id, 0) : legacy_path::player_miniface(id);
+    bool picture_gone = false;
+    if (own.picture && cf::is_career_id(scope) && cf::has_overlay(paths, scope, rel)) {
+        std::string err;
+        fs::path undo_copy;
+        if (cf::remove_overlay(paths, scope, rel, &err, &undo_copy)) {
+            app.career_faces_sync(scope, "his own head back");
+            app.textures.forget(cf::mods_file(paths, rel));
+            pictures.push_back(App::UndoStep::Picture{rel, undo_copy, scope});
+            picture_gone = true;
+        } else {
+            app.log("heads own: " + target_label(manager, id) + " the picture made for him could not be removed: " + err);
+            to_gui_log(app);
+        }
+    }
+    for (auto it = g_mini.begin(); it != g_mini.end();)  // a render still coming for the head he no longer has
+        it = (it->id == id && it->manager == manager && !it->inflight) ? g_mini.erase(it) : it + 1;
+    if (!manager) {
+        app.group_undo(id, static_cast<size_t>(app.undo_pushes - pushes), std::move(pictures));
+        faces3d_forget_render(app, false, id);
+        app.head_miniface_kept.erase(id);
+    }
+    // the record stays (the first original keeps winning: an Undo of this, or a later give, still finds his own head); only the
+    // picture note goes with the picture
+    std::string err;
+    if (picture_gone && !cf::set_own_picture(paths, scope, manager, id, false, &err)) {
+        app.log("heads own: " + target_label(manager, id) + " note: the record could not say the picture is gone (" + err + ")");
+        to_gui_log(app);
+    }
+    if (writes.empty() && !picture_gone) {
+        if (msg) *msg = "he already has his own head";
+        return true;
+    }
+    ++g_own_gen;
+    app.log("heads own: " + target_label(manager, id) + " (" + name + ") his own head back in " + scope + " (" + std::to_string(writes.size()) +
+            " field(s)" + (picture_gone ? ", the picture made for him removed" : "") + ")");
+    to_gui_log(app);
+    if (msg)
+        *msg = "his own head is back (" + std::to_string(writes.size()) + " field(s)" +
+               (picture_gone ? ", and the picture Turbo made for him is gone" : "") + ")" + (manager ? "" : "; Undo puts the change back");
+    return true;
+}
+
+// The "His own head" button of a chooser (true when it put his head back)
+static bool own_head_button(App& app, bool manager, int64_t id, const char* label) {
+    const bool has = has_own_head(app, manager, id);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!has);
+    const bool clicked = ImGui::Button(label);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", has ? "Puts back the head he had before Turbo first changed it here (head, hair, beard, eyes, skin),\n"
+                                      "and removes the picture Turbo made for him with it. Undo puts the change back."
+                                    : "Turbo has not changed his head here: he has his own.");
+    if (!clicked) return false;
+    std::string msg;
+    const bool ok = restore_own_head(app, manager, id, &msg);
+    app.notify(msg, !ok);
+    return ok;
+}
+
+// ---------------------------------------------------------------- the linked head fields (2.20)
+// A head comes with the fields that go with it: the real-face chooser copies them from the head owner's row (kHeadFields and
+// the skin tone), a game head writes its gate set (game_heads::head_writes). A head id written alone (Every appearance field,
+// a preset, the Database window) leaves them as they were: the player pages show one line and "Apply the linked fields".
+static const char* kLinkedFields[] = {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode"};
+
+struct HeadLink {
+    int64_t head = 0;
+    int64_t donor = 0;  // the player of the save whose head it is (0: a game head no player of the save has)
+    std::string donor_name;
+    std::vector<std::string> differ;  // the linked fields that do not go with the head
+};
+
+static bool last_edit_was_head_id(App& app, int64_t pid) {
+    auto u = app.undo_.find(pid);
+    return u != app.undo_.end() && !u->second.empty() && u->second.back().field == "headassetid";
+}
+
+// His head is another player's real head (or a game head) but its linked fields are not the ones that go with it. A generic
+// head (class 1) is drawn by the game from his own codes: offered only right after a head id was written alone.
+static bool head_link_of(App& app, int64_t pid, HeadLink& out) {
+    out = HeadLink{};
+    const Table* t = app.db.table("players");
+    const PlayerRow* p = app.model.player(pid);
+    if (!t || !p) return false;
+    const int64_t head = app.db.get_int(*t, p->rec, "headassetid", 0);
+    if (head <= 0 || head == pid) return false;
+    auto k = app.head_miniface_kept.find(pid);
+    if (k != app.head_miniface_kept.end() && k->second == head) return false;  // "Keep as it is", or a give decided it
+    if (app.db.get_int(*t, p->rec, "headclasscode", 1) != 0 && !last_edit_was_head_id(app, pid)) return false;
+    std::map<std::string, int64_t> want;
+    if (const PlayerRow* d = app.model.player(head)) {
+        // his id only, not his real head: nothing to compare
+        if (app.db.get_int(*t, d->rec, "headclasscode", 1) != 0 || app.db.get_int(*t, d->rec, "headassetid", 0) != head) return false;
+        for (const char* f : kLinkedFields)
+            if (t->has(f)) want[f] = app.db.get_int(*t, d->rec, f, 0);
+        out.donor = head;
+        out.donor_name = d->name;
+    } else if (const game_heads::HeadInfo* h = g_heads_cat.find(head)) {
+        if (h->generic) return false;
+        for (const game_heads::FieldWrite& w : game_heads::head_writes(*h))
+            if (t->has(w.field)) want[w.field] = w.value;
+    } else {
+        return false;
+    }
+    for (const auto& [f, v] : want)
+        if (app.db.get_int(*t, p->rec, f, v) != v) out.differ.push_back(f);
+    out.head = head;
+    return !out.differ.empty();
+}
+
+int64_t head_link_offer(App& app, int64_t playerid) {
+    HeadLink l;
+    return head_link_of(app, playerid, l) ? l.head : 0;
+}
+
+// His own value of each field before the head id was typed: the "before" of his latest edits, newest to oldest, over the
+// run of steps that changed head fields only (a step with any other field or a picture ends the run: what came before it is
+// another change, not this typing). false when the head id is not in that run (written outside the editor, or the history
+// is shorter): his own head is then unknown
+static bool originals_from_history(App& app, int64_t pid, uint64_t rec, std::map<std::string, int64_t>& out) {
+    out.clear();
+    auto u = app.undo_.find(pid);
+    if (u == app.undo_.end()) return false;
+    const std::vector<const char*>& own = own_head_fields();
+    auto is_head = [&](const std::string& f) {
+        for (const char* o : own)
+            if (f == o) return true;
+        return false;
+    };
+    for (auto it = u->second.rbegin(); it != u->second.rend(); ++it) {
+        const App::UndoStep& s = *it;
+        if (s.table != "players" || s.rec != rec || !s.pictures.empty() || !is_head(s.field)) break;
+        bool head_only = true;
+        for (const auto& [f, v] : s.also) head_only = head_only && is_head(f);
+        if (!head_only) break;
+        out[s.field] = s.before.i;  // an older step overwrites: the oldest "before" of the run wins
+        for (const auto& [f, v] : s.also) out[f] = v.i;
+    }
+    return out.count("headassetid") != 0;
+}
+
+bool apply_linked_head_fields(App& app, int64_t playerid, std::string* msg) {
+    auto fail = [&](const std::string& w) {
+        if (msg) *msg = w;
+        return false;
+    };
+    HeadLink l;
+    if (!head_link_of(app, playerid, l)) return fail("nothing to do: his head and the fields that go with it already match");
+    const Table* t = app.db.table("players");
+    const PlayerRow* p = app.model.player(playerid);
+    if (!t || !p) return fail("player not found");
+    // the head id is already his new one: his own head comes from the edit history, never from the row as it is now
+    std::map<std::string, int64_t> seed;
+    const std::string scope = head_scope(app, nullptr);
+    cf::OwnHead kept;
+    const bool have = !scope.empty() && cf::find_own_head(app.career_faces_paths(), scope, false, playerid, kept);
+    if (!scope.empty() && !have && !originals_from_history(app, playerid, p->rec, seed))
+        return fail("nothing was changed: his head before the new head id is not known here (it was not typed in this window), so His own "
+                    "head could not bring it back; choose the head in Choose a real face... instead");
+    g_own_seed = have ? nullptr : &seed;
+    g_own_seed_id = playerid;
+    const std::string name = p->name;
+    bool ok = l.donor ? apply_real_face(app, playerid, l.donor, RealFaceOptions{}, msg, nullptr)
+                      : apply_game_head(app, l.head, playerid, false, RealFaceOptions{}, msg, nullptr);
+    g_own_seed = nullptr;
+    g_own_seed_id = 0;
+    if (ok) {
+        std::string fields;
+        for (const std::string& f : l.differ) fields += " " + f;
+        app.log("linked fields: player " + std::to_string(playerid) + " (" + name + ") head " + std::to_string(l.head) + ": now go with it:" + fields);
+        to_gui_log(app);
+    }
+    return ok;
+}
+
+void head_link_banner(App& app, const PlayerRow& p, const char* id_suffix) {
+    HeadLink l;
+    if (!head_link_of(app, p.playerid, l)) return;
+    std::string names;
+    for (const std::string& f : l.differ) names += (names.empty() ? "" : ", ") + labels::field_title(f);
+    const std::string whose = l.donor ? l.donor_name + "'s head" : "game head " + std::to_string(l.head);
+    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "His head is %s, but these do not go with it yet: %s.", whose.c_str(), names.c_str());
+    const std::string apply = std::string("Apply the linked fields") + id_suffix;
+    if (ImGui::Button(apply.c_str())) {
+        std::string m;
+        const bool ok = apply_linked_head_fields(app, p.playerid, &m);
+        app.notify(m, !ok);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", "Writes the fields that go with this head (class, quality, type, variation, skin tone), as\n"
+                                "Choose a real face... does. His own small picture is never replaced by another player's:\n"
+                                "a real one is kept; with none, one is made from his new head (careers only).\n"
+                                "Undo puts it back; His own head brings back the head he had.");
+    ImGui::SameLine();
+    const std::string keep = std::string("Keep as it is") + id_suffix;
+    if (ImGui::Button(keep.c_str())) app.head_miniface_kept[p.playerid] = l.head;
 }
 
 // ---------------------------------------------------------------- the chooser
@@ -962,6 +1654,11 @@ static std::vector<Head3d> next_heads3d(App& app, size_t max) {
 // Every frame (App::draw): collect finished renders (a couple per frame), or send the next request (never waits)
 void tick_faces3d(App& app) {
     capture::CaptureService* svc = app.capture.get();
+    // 2.20: the minifaces of heads given in a career (their copies need no service; a render in flight owns it)
+    if (!g_mini.empty()) {
+        const bool free = g_r3d.inflight.empty() && !faces3d_preview_pending() && !*bodytype_thumbs_busy_text();
+        if (tick_minifaces(app, svc, free, ImGui::GetTime())) return;
+    }
     if (!svc) return;
     // the 3D hair preview (ui_faces3d_gate.cpp) waits for its own picture: send nothing meanwhile, or its answer could be taken here
     if (g_r3d.inflight.empty() && faces3d_preview_pending()) return;
@@ -1264,13 +1961,18 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     ImGui::Checkbox("Eyes", &ch.opts.eyes);
     ImGui::SameLine();
     ImGui::Checkbox("Skin", &ch.opts.skin);
-    ImGui::SameLine();
-    ImGui::TextDisabled("| the miniface always comes with the head");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", manager_target ? "The head's picture is written as his own heads_staff_<managerid> (512 x 512).\n"
-                                                 "While it is loading nothing is written; when the game has none, the message says so."
-                                               : "The head's miniface is written as his own p<playerid>.\n"
-                                                 "While it is loading nothing is written; when the game has none, the message says so.");
+        ImGui::SetTooltip("%s", "The skin tone always comes with the head (it goes with it).\n"
+                                "Skin adds the skin type, complexion, surface and make-up.");
+    ImGui::SameLine();
+    ImGui::TextDisabled("| his real picture is kept; with none, one is made (careers only)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", manager_target ? "A picture he already has (the game's, or one Turbo did not make) is never replaced.\n"
+                                                 "With none, in a career, the head's picture is copied for that career only.\n"
+                                                 "Outside a career no picture is written."
+                                               : "A picture he already has (the game's, or one Turbo did not make) is never replaced.\n"
+                                                 "With none, in a career, one is made from his new head for that career only.\n"
+                                                 "Outside a career no picture is written.");
 
     // the filters may have changed in the facet popups above this frame: the key is taken again before the rows are kept
     std::string rows_key = ch.view.list_key + "|" + q + "|" + (ch.real_only ? "r" : "-") + (ch.hq_only ? "h" : "-") + (only3d ? "3" : "-") +
@@ -1491,6 +2193,7 @@ void real_face_picker(App& app, int64_t target_pid) {
     }
     if (game_head_confirm(app, g_player_ch, target_pid, false)) ImGui::CloseCurrentPopup();
     if (ImGui::Button("Close##faces")) ImGui::CloseCurrentPopup();
+    if (own_head_button(app, false, target_pid, "His own head##faces")) ImGui::CloseCurrentPopup();  // 2.20
     ImGui::EndPopup();
 }
 
@@ -1512,6 +2215,7 @@ void manager_real_face_picker(App& app, int64_t managerid) {
     }
     if (game_head_confirm(app, g_manager_ch, managerid, true)) ImGui::CloseCurrentPopup();
     if (ImGui::Button("Close##mfaces")) ImGui::CloseCurrentPopup();
+    if (own_head_button(app, true, managerid, "His own head##mfaces")) ImGui::CloseCurrentPopup();  // 2.20
     ImGui::EndPopup();
 }
 
