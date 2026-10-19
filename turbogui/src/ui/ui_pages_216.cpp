@@ -19,6 +19,10 @@
 
 namespace turbo {
 
+// R3 archetypes (2.20): the Populate panel of ui_archetype_populate.h, drawn under the Positions, attributes & PlayStyles tab. Weak, so this file
+// links with or without that track's .cpp (null = nothing is drawn); the Create player entry (archetype_populate_create) lives in the creation form.
+TURBO_WEAK void archetype_populate_panel(App& app, const Table& players, const PlayerRow& p);
+
 // Players: Edit a player. 2.20: one page with four tabs, as the Pit wall decided (13:02): Profile | Positions, attributes & PlayStyles |
 // Appearance | All fields. The first three are the new pages (ui_player_profile.cpp) and the Appearance Editor itself for the selected player;
 // "All fields" is the full editor of 2.19 (draw_players: the filters, the resizable list / rows / frames, the archetype attribute editor),
@@ -41,6 +45,11 @@ static void draw_player_edit(App& app) {
     if (ImGui::BeginTabItem("Positions, attributes & PlayStyles###pe_ability", nullptr, flag(1))) {
         now = 1;
         draw_player_ability(app);
+        if (archetype_populate_panel != nullptr && app.sel_player > 0) {
+            const Table* pt = app.db.table("players");
+            const PlayerRow* pr = app.model.player(app.sel_player);
+            if (pt && pr) archetype_populate_panel(app, *pt, *pr);
+        }
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Appearance###pe_appearance", nullptr, flag(2))) {
