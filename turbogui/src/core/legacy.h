@@ -151,6 +151,11 @@ public:
     // Empty the cache folder and start a new generation (Lua looks at everything again)
     bool clear_cache(std::string* err = nullptr);
 
+    // 2.19 career faces: files under mods\legacy changed behind LegacyImages (core/career_faces.h): no folder look is kept
+    void forget_folder_looks() {
+        std::lock_guard<std::mutex> lock(custom_dirs_m_);
+        custom_dirs_.clear();
+    }
     // Custom file under mods\legacy (any letter case of the name), or empty
     std::filesystem::path custom_file(const std::string& path) const;
     // Write a custom file (previous custom file backed up first). Returns false with a reason.

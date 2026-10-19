@@ -160,6 +160,9 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';
+    // 2.19 career faces: at every Turbo start no career is loaded yet, so a career's face pictures left in modsegacy (the game
+    // or Turbo ended inside that career) are put back the way they were (core/career_faces.h)
+    career_faces_sync("", "Turbo start");
     log(std::string("Turbo GUI ") + kGuiVersion + " started");
 }
 
@@ -921,6 +924,13 @@ void App::tick(double t) {
     }
     legacy.tick(t);
     legacy.next_frame();  // 2.16 gui/perf-3: folder looks and found game pictures are kept within a frame / a second
+    // 2.19 career faces: modsegacy holds the face pictures of the identified career only while it is loaded
+    if (!career_faces_ticked_) {
+        career_faces_ticked_ = true;
+        if (log_hook && !career_faces_start_line_.empty()) log_hook(career_faces_start_line_);
+    }
+    if (const std::string want = career_faces_wanted(); want != career_faces_active_)
+        career_faces_sync(want, want.empty() ? "no identified career loaded" : "career identified");
     if (!visible) legacy.not_prompting();
     {
         // Lua went quiet while pictures on screen wait: said once in the log (the boxes say it on screen)
@@ -1222,23 +1232,8 @@ bool App::undo(int64_t playerid) {
     size_t pics = 0;
     for (const UndoStep::Picture& p : step.pictures) {
         std::string err;
-        bool ok = false;
-        if (p.backup.empty()) {
-            ok = legacy.custom_file(p.path).empty() || legacy.remove_custom(p.path, &err);
-        } else {
-            std::ifstream in(p.backup, std::ios::binary);
-            std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (bytes.empty()) err = "the backup " + p.backup.string() + " is missing or empty";
-            else ok = legacy.save_custom(p.path, bytes, &err);
-        }
-        textures.forget(legacy.custom_file(p.path));
-        if (ok) {
-            ++pics;
-            log("undo picture " + p.path + (p.backup.empty() ? std::string(": Turbo's file removed (the game's own shows)")
-                                                              : ": back from " + p.backup.string()));
-        } else {
-            notify("undo of the picture " + p.path + " failed: " + err + " (the head fields are back)", true);
-        }
+        if (undo_face_picture(p, &err)) ++pics;
+        else notify("undo of the picture " + p.path + " failed: " + err + " (the head fields are back)", true);
     }
     if (!step.pictures.empty()) {
         notify("undone: the head (" + std::to_string(step.also.size() + 1) + " fields)" + (pics ? std::string(" and the miniface") : std::string()) +
@@ -1289,18 +1284,113 @@ bool App::give_matching_miniface(int64_t playerid, std::string* msg) {
     std::ifstream in(file, std::ios::binary);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     std::string err;
-    fs::path backup;
-    if (bytes.empty() || !legacy.save_custom(dst, bytes, &err, &backup)) {
+    UndoStep::Picture rec;
+    // 2.19: in a career, his picture is that career's own (write_face_picture); outside a career the global file as before
+    if (bytes.empty() || !write_face_picture(dst, bytes, &err, &rec)) {
         say("his miniface could not be written: " + (bytes.empty() ? std::string("empty picture") : err));
         return false;
     }
-    textures.forget(legacy.custom_file(dst));
     // the picture joins the head change's undo step: one Undo puts both back
     auto u = undo_.find(playerid);
-    if (u != undo_.end() && !u->second.empty()) u->second.back().pictures.push_back({dst, backup});
+    if (u != undo_.end() && !u->second.empty()) u->second.back().pictures.push_back(rec);
     log("miniface " + dst + " now shows " + src + " (matches his head " + std::to_string(head) + ")");
     say("his miniface now shows " + fs::path(src).filename().string() + ", the picture of his new head (Undo puts both back)");
     return true;
+}
+
+// ---- 2.19 career faces (core/career_faces.h)
+career_faces::Paths App::career_faces_paths() const { return {turbo_output(), legacy.mods_dir()}; }
+
+std::string App::career_faces_wanted() const {
+    const auto& st = bridge.state();
+    if (!st.in_cm) return {};
+    // another career loading: its identity is not read yet (maybe_reapply), so the last one's pictures go out first
+    if (identity_key_ != reapply_key()) return {};
+    return career_faces::is_career_id(reapply.career) ? reapply.career : std::string();
+}
+
+bool App::career_faces_refused(std::string* why) const {
+    if (!bridge.state().in_cm || !career_faces_wanted().empty()) return false;
+    if (why)
+        *why = "Turbo has not identified this career (" + (career_identity_line.empty() ? std::string("not read yet") : career_identity_line) +
+               "): a face picture written now would reach every career and the squad file, so none was written";
+    return true;
+}
+
+bool App::write_face_picture(const std::string& rel, const std::vector<uint8_t>& bytes, std::string* err, UndoStep::Picture* rec) {
+    if (rec) *rec = UndoStep::Picture{rel, fs::path(), std::string()};
+    const bool face = career_faces::is_face_path(rel);
+    if (face && career_faces_refused(err)) return false;
+    const std::string career = face ? career_faces_wanted() : std::string();
+    if (career.empty()) {  // outside a career (or not a face picture): the global mods\legacy file, as before 2.19
+        fs::path backup;
+        if (!legacy.save_custom(rel, bytes, err, &backup)) return false;
+        textures.forget(legacy.custom_file(rel));
+        if (rec) rec->backup = backup;
+        return true;
+    }
+    fs::path undo_copy;
+    if (!career_faces::save_overlay(career_faces_paths(), career, rel, bytes, err, &undo_copy)) return false;
+    log("career faces: " + rel + " written for career " + career + " only (turbo_output\\careers\\" + career + ")");
+    career_faces_sync(career, "a face picture written in this career");
+    if (rec) {
+        rec->backup = undo_copy;
+        rec->career = career;
+    }
+    return true;
+}
+
+bool App::undo_face_picture(const UndoStep::Picture& p, std::string* err) {
+    if (p.career.empty()) {  // the global file (outside a career, or a pre-2.19 write)
+        bool ok = false;
+        if (p.backup.empty()) {
+            ok = legacy.custom_file(p.path).empty() || legacy.remove_custom(p.path, err);
+        } else {
+            std::ifstream in(p.backup, std::ios::binary);
+            std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (bytes.empty()) {
+                if (err) *err = "the backup " + p.backup.string() + " is missing or empty";
+            } else {
+                ok = legacy.save_custom(p.path, bytes, err);
+            }
+        }
+        textures.forget(legacy.custom_file(p.path));
+        if (ok)
+            log("undo picture " + p.path + (p.backup.empty() ? std::string(": Turbo's file removed (the game's own shows)")
+                                                              : ": back from " + p.backup.string()));
+        return ok;
+    }
+    if (!career_faces::restore_overlay(career_faces_paths(), p.career, p.path, p.backup, err)) return false;
+    log("undo picture " + p.path + " of career " + p.career +
+        (p.backup.empty() ? std::string(": the career's copy removed") : ": the career's earlier copy is back"));
+    career_faces_sync(career_faces_wanted(), "undo of a face picture");
+    return true;
+}
+
+void App::career_faces_sync(const std::string& career, const char* why) {
+    const career_faces::SyncResult r = career_faces::sync(career_faces_paths(), career);
+    career_faces_active_ = career;
+    legacy.forget_folder_looks();
+    for (const std::string& rel : r.copied) textures.forget(career_faces::mods_file(career_faces_paths(), rel));
+    for (const std::string& rel : r.restored) {
+        textures.forget(career_faces::mods_file(career_faces_paths(), rel));
+        // the cached "game's own" may be a copy taken while the career's picture was in place (Live Editor exports what the
+        // game loads): drop it and ask the game again
+        const fs::path cached = legacy.cache_file(rel);
+        std::error_code ec;
+        if (!cached.empty() && fs::exists(cached, ec)) {
+            textures.forget(cached);
+            legacy.reload(rel);
+        }
+    }
+    std::string line = std::string("career faces: ") + why + ": " + r.summary();
+    for (const std::string& rel : r.copied) line += "; in " + rel;
+    for (const std::string& rel : r.restored) line += "; back " + rel;
+    for (const std::string& rel : r.left_foreign) line += "; left " + rel;
+    log(line);
+    if (log_hook) log_hook(line);
+    else career_faces_start_line_ = line;  // before the host's log hook: said at the first tick
+    if (!r.ok()) notify("career faces: " + r.errors.front(), true);
 }
 
 void App::group_undo(int64_t playerid, size_t n, std::vector<UndoStep::Picture> pictures) {

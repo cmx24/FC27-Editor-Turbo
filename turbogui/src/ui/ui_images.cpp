@@ -676,13 +676,16 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     if (ImGui::Button("Save as miniface")) {
         std::vector<uint8_t> dds = encode_dds_dxt5(ed.result);
         std::string err;
-        fs::path backup;
+        App::UndoStep::Picture rec;
         if (dds.empty()) {
             app.notify("the new miniface could not be encoded", true);
-        } else if (app.legacy.save_custom(t.path, dds, &err, &backup)) {
+        } else if (app.write_face_picture(t.path, dds, &err, &rec)) {  // 2.19: in a career, that career's own copy only
             fs::path written = app.legacy.custom_file(t.path);
             app.textures.forget(written);
-            app.notify("miniface written: " + written.string() + (backup.empty() ? "" : " (previous one copied to " + backup.filename().string() + ")"));
+            if (!rec.career.empty())
+                app.notify("miniface written for this career only; other careers and the squad file keep theirs");
+            else
+                app.notify("miniface written: " + written.string() + (rec.backup.empty() ? "" : " (previous one copied to " + rec.backup.filename().string() + ")"));
         } else {
             app.notify("miniface: " + err, true);
         }
@@ -698,7 +701,25 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         if (ImGui::Button("Remove")) {
             fs::path old = app.legacy.custom_file(t.path);
             std::string err;
-            if (app.legacy.remove_custom(t.path, &err)) {
+            // 2.19 career faces: in a career only that career's own copy may go; a global picture stays for the other careers
+            const std::string career = app.career_faces_wanted();
+            const bool face = career_faces::is_face_path(t.path);
+            if (face && app.career_faces_refused(&err)) {
+                app.notify("miniface: " + err, true);
+            } else if (face && !career.empty()) {
+                fs::path undo_copy;
+                if (!career_faces::has_overlay(app.career_faces_paths(), career, t.path)) {
+                    app.notify("miniface: this custom picture was made outside a career and belongs to every career and the squad file; "
+                               "remove it outside a career",
+                               true);
+                } else if (career_faces::remove_overlay(app.career_faces_paths(), career, t.path, &err, &undo_copy)) {
+                    app.career_faces_sync(career, "a career's face picture removed");
+                    app.textures.forget(old);
+                    app.notify("This career's miniface removed; the picture the other careers see shows again");
+                } else {
+                    app.notify("miniface: " + err, true);
+                }
+            } else if (app.legacy.remove_custom(t.path, &err)) {
                 app.textures.forget(old);
                 // the cached "game's own" may be the custom file itself (Live Editor exports what the game loads): the
                 // game's picture is exported again

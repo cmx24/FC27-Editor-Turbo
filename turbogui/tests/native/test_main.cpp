@@ -3247,6 +3247,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
+#include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
@@ -5877,6 +5878,7 @@ static void test_ui() {
         });
 
         run_case("UI: Players > Miniface: picture file to custom DDS, backup, remove", [&] {
+            career_faces_test::reset(app, ui);  // 2.19: the UI world is an identified career: Save writes that career's own copy
             fs::path pics = le / "turbo_minifaces";
             fs::create_directories(pics);
             { std::ofstream f(pics / "face.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
@@ -5904,13 +5906,14 @@ static void test_ui() {
             CHECK(app.legacy.locate(legacy_path::player_miniface(1002), nullptr) == LegacyImages::State::Custom, "now custom");
             CHECK(ui.click("Save as miniface"), "save again");
             size_t backups = 0;
-            for (auto& e : fs::directory_iterator(le / "turbo_output" / "miniface_backups")) { (void)e; ++backups; }
+            // 2.19: in a career the earlier copy is that career's (turbo_outputreers<id>_undo)
+            for (auto& e : fs::directory_iterator(le / "turbo_output" / "careers" / app.career_faces_wanted() / "_undo")) { (void)e; ++backups; }
             CHECK(backups == 1, "previous custom miniface backed up");
             CHECK(ui.click("Remove custom miniface"), "Remove");
             ui.frames(2);
             CHECK(ui.click("Remove", "##rmminiface"), "confirm");
             CHECK(!fs::exists(out), "custom miniface removed");
-            CHECK(ui.toast_contains("Custom miniface removed"), "toast");
+            CHECK(ui.toast_contains("miniface removed"), "toast");
         });
 
         run_case("UI: Managers > Miniface: 512 x 512 heads_staff file", [&] {
@@ -6501,6 +6504,7 @@ static void test_ui() {
             std::vector<int64_t> before;
             for (const char* f : hf) before.push_back(app.db.get_int(*pt, prec, f, -1));
             const std::string mpath = legacy_path::player_miniface(3001);
+            career_faces_test::reset(app, ui);  // 2.19: no career copy of p3001 left from the case before
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
             const size_t undo0 = app.undo_count(3001);
@@ -6528,6 +6532,7 @@ static void test_ui() {
         });
 
         run_case("UI: Undo of a head given over a CUSTOM miniface puts that custom picture back byte for byte", [&] {
+            career_faces_test::reset(app, ui);  // 2.19 (the custom picture below is a global one: a career's copy goes over it and back)
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
             if (!pt || !pr) return;
@@ -6564,6 +6569,8 @@ static void test_ui() {
             ui.frames(2);
         });
 
+        career_faces_test::ui_cases(app, ui, le);  // test_career_faces.h (2.19)
+
         run_case("UI: a TYPED head change offers the matching miniface; using it joins the head's undo step; a generic head offers nothing", [&] {
             const Table* pt = app.db.table("players");
             const PlayerRow* pr = app.model.player(3001);
@@ -6574,6 +6581,7 @@ static void test_ui() {
             CHECK(fh && fc, "head fields");
             if (!fh || !fc) return;
             const int64_t h0 = app.db.get_int(*pt, pr->rec, "headassetid", -1), c0 = app.db.get_int(*pt, pr->rec, "headclasscode", -1);
+            career_faces_test::reset(app, ui);  // 2.19
             fs::path custom = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p3001.dds";
             fs::remove(custom);
             app.head_miniface_kept.clear();
@@ -15447,6 +15455,7 @@ int main(int argc, char** argv) {
     test_player_capture();
     test_capture_sequence();  // test_capture_sequence.h (2.17 looks C)
     crest_serve_test::run();  // test_crest_serve.h (2.18)
+    career_faces_test::run();  // test_career_faces.h (2.19)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     std::printf("native kept edits store\n");
     test_reapply_store();

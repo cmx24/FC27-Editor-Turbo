@@ -238,7 +238,11 @@ static void ui_cases_miniface_show(App& app, Ui& ui, const fs::path& le) {
                  shown.drawn = true;
                  CHECK(picture_status_line(app, shown, "miniface") == "The game's own", "the game's own");
                  // a custom file Turbo cannot read: the box says why (tooltip, the line under it, the log)
-                 mf_write(custom, mf_bc7_dds());
+                 // 2.19: in a career Turbo writes the career's own copy (core/career_faces.h); Remove takes that copy away
+                 {
+                     std::string werr;
+                     CHECK(app.write_face_picture(path, mf_bc7_dds(), &werr), "unreadable picture written in this career: " + werr);
+                 }
                  ui.frames(3);
                  CHECK(log_has(app, "picture unreadable: ", "p2002.dds: DDS DX10 format BC7 (DXGI 98) is not supported"), "logged with its format");
                  PictureInfo bad;

@@ -363,7 +363,7 @@ static game_heads::PictureState find_source(App& app, const MinifaceMove& mv, st
 // The picture written as his miniface: a player's miniface onto a player byte for byte, anything else framed to the
 // target's size and encoded as DXT5 (save_custom keeps a backup of what it replaces)
 static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& src, const fs::path& file, std::string* err,
-                           fs::path* backup = nullptr) {
+                           App::UndoStep::Picture* rec) {
     std::vector<uint8_t> bytes;
     if (mv.size == kPlayerMinifaceSize && src.find("/heads/p") != std::string::npos) {
         std::ifstream in(file, std::ios::binary);
@@ -377,9 +377,8 @@ static bool write_miniface(App& app, const MinifaceMove& mv, const std::string& 
         if (err) *err = "empty picture";
         return false;
     }
-    if (!app.legacy.save_custom(mv.target, bytes, err, backup)) return false;
-    app.textures.forget(app.legacy.custom_file(mv.target));
-    return true;
+    // 2.19: in a career the career's own copy (App::write_face_picture), outside a career the global file as before
+    return app.write_face_picture(mv.target, bytes, err, rec);
 }
 
 // After the head fields are written: the miniface part of the plan, said in `note`
@@ -397,9 +396,9 @@ static void finish_miniface(App& app, const MinifaceMove& mv, const game_heads::
         return;
     }
     std::string err;
-    fs::path backup;
-    if (write_miniface(app, mv, src, file, &err, &backup)) {
-        if (written) written->push_back({mv.target, backup});
+    App::UndoStep::Picture rec;
+    if (write_miniface(app, mv, src, file, &err, &rec)) {
+        if (written) written->push_back(rec);
         if (in_step) *in_step = true;
         note += "; " + mv.label + " now shows " + file_part(src);
     } else {
@@ -437,6 +436,8 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
     fs::path src_file;
     const game_heads::MinifacePlan plan = game_heads::miniface_plan(find_source(app, mv, &src, &src_file), mv.label);
     if (!plan.write_head) return fail(plan.note);
+    // 2.19: a career Turbo has not identified gets no picture anywhere, so no head either (never a mixed result)
+    if (std::string why; plan.copy && app.career_faces_refused(&why)) return fail(why);
     // validate everything first, then write
     std::vector<std::pair<const Field*, Value>> writes;
     for (const game_heads::FieldWrite& w : game_heads::head_writes(*h)) {
@@ -577,6 +578,10 @@ bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const Real
         if (msg) *msg = plan.note;
         return false;
     }
+    if (std::string why; plan.copy && app.career_faces_refused(&why)) {  // 2.19 (see apply_game_head)
+        if (msg) *msg = why;
+        return false;
+    }
     const uint64_t pushes = app.undo_pushes;
     if (!copy_head(app, *t, owner->rec, *t, target->rec, o, msg)) return false;
     faces3d_forget_render(app, false, target_pid);  // the chooser's render of him shows the old head
@@ -626,6 +631,10 @@ bool apply_real_face_to_manager(App& app, int64_t managerid, int64_t owner_id, b
     const game_heads::MinifacePlan plan = game_heads::miniface_plan(find_source(app, mv, &src, &src_file), mv.label);
     if (!plan.write_head) {
         if (msg) *msg = plan.note;
+        return false;
+    }
+    if (std::string why; plan.copy && app.career_faces_refused(&why)) {  // 2.19 (see apply_game_head)
+        if (msg) *msg = why;
         return false;
     }
     if (!copy_head(app, *st, src_rec, *mt, target->rec, o, msg)) return false;
