@@ -103,11 +103,36 @@ struct LanguageMatch {
 constexpr double kLangMatchMin = 0.85, kLangMatchMargin = 0.2;
 LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spoken, const std::vector<LanguageCandidate>& cands,
                                     const std::unordered_set<int64_t>* asked = nullptr);
+// 2.21 launcher hint (turbo_dev\tools\turbo_launch.ps1 writes gui_settings.json "callnames": {"launcher_language": "<lang>",
+// "launcher_stamp": "YYYY-MM-DD HH:MM:SS"} when Cassio picks a country; it NEVER writes override_language). Rank, between a and a2:
+//   0 override > a this session's runtime answer > HINT > a2 saved answer > c packs > d eng_us,
+// except that a2 wins when it was heard AFTER the hint was set (its "when" is later than the stamp) or agrees with it; an undated
+// or unreadable stamp ranks below a2. The hint is used only when its pack is live in the game's Data\Win32 (launcher_pack_live:
+// commentaryfull_<lang>.toc + superbundlelayout\commentaryfull_<lang>\cas_NN.cas; <game>\commentary is Cassio's backup store and
+// is never read for this). The hint is the launcher's intent, NOT evidence of what the game loaded: a hint answer is never
+// proven (automatic callname writes wait for the runtime answer), so it can never make callnames mix languages.
+struct LauncherHint {
+    std::string lang;        // "" = no hint
+    std::string stamp;       // as written by the launcher ("" = undated)
+    bool pack_live = false;  // launcher_pack_live(game_root, lang)
+    std::string pack_why;    // what launcher_pack_live found
+    std::string saved_when;  // the a2 answer's "when" ("" = none), compared with `stamp`
+};
+// Data\Win32\commentaryfull_<lang>.toc of at least kLiveTocMin bytes (the not-installed stubs are 923-1,191 B, the live ones
+// 207,263-397,382 B on 2026-10-19) and at least one non-empty superbundlelayout\commentaryfull_<lang>\cas_*.cas. Reads sizes only.
+constexpr uintmax_t kLiveTocMin = 16 * 1024;
+bool launcher_pack_live(const std::filesystem::path& game_root, const std::string& lang, std::string* why);
+// "2026-10-19 16:05:00" / "2026-10-19T16:05:00" (seconds optional) -> "2026-10-19 16:05:00"; "" when not that shape
+std::string normalize_stamp(const std::string& s);
+// xxx_yy (three letters, underscore, two letters), lower case
+bool language_code_ok(const std::string& lang);
+
 // Steps 0, a, a2, c, d above (b is not implemented). `runtime_lang` "" = no runtime evidence; `saved_lang` "" = no
-// usable saved answer. Never returns "". `proven` (optional) = the answer came from 0, a or a2.
+// usable saved answer. Never returns "". `proven` (optional) = the answer came from 0, a or a2. `hint` (optional, 2.21) = the
+// launcher hint, ranked as above.
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
                                        const std::string& saved_lang, const std::string& saved_why, const std::vector<CommentaryPack>& packs,
-                                       std::string* why, bool* proven = nullptr);
+                                       std::string* why, bool* proven = nullptr, const LauncherHint* hint = nullptr);
 // <Live Editor>\turbo_output\callnames_lang_detect_off.txt
 std::filesystem::path lang_detect_off_path(const std::filesystem::path& le_root);
 
@@ -339,6 +364,9 @@ public:
     bool cache_capture(const BankCapture& c, const std::filesystem::path& le_root, const std::string& cache_lang, const std::string& when,
                        const std::string& build, std::string* err);
     std::string game_build;                 // the running game's build key ("" = unknown), set by the App before refresh
+    // 2.21: the launcher hint (gui_settings callnames.launcher_language / launcher_stamp), set by the App before refresh;
+    // refresh fills pack_live / pack_why / saved_when itself
+    LauncherHint launcher_hint;
     std::string saved_lang, saved_why;      // step a2 as used by the last refresh ("" = none / not usable)
     bool lang_proven = false;               // the language came from an override, the runtime answer or a saved answer
     bool runtime_inconclusive = false;      // a full build's answer matched no language: no more builds this session

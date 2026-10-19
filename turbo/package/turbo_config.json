@@ -18,6 +18,13 @@
     "paths": ["data/ui/imgAssets/crest/"]
   },
 
+  "compdata_profile": {
+    "_help": "Which league data a career needs. The launcher's country pick installs the Eerste Divisie data (Netherlands) or the standard data before the game starts; when a career loads, Turbo checks the installed data against this list and shows a red 'do not save' line if they do not match. It only checks, it never changes a file. Careers not listed need the standard data. The key is the career identity Turbo logs as 'career identity: <id>'.",
+    "careers": {
+      "d91d1b4e90a27eda": "eerste"
+    }
+  },
+
   "auto": {
     "form_morale": {
       "enabled": false,

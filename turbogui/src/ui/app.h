@@ -318,6 +318,12 @@ public:
     // "career identity: ..." in turbo_gui.log ("" before the first connect)
     std::string career_label;
     std::string career_identity_line;
+    // 2.21 compdata guard (core/compdata_profile.h; ui_reapply.cpp check_compdata_profile, right after the identity): the last
+    // "compdata profile: ..." line ("" outside a career) and the red "do not save" line drawn in the message area while it is set
+    // ("" = no mismatch). Read-only: nothing is written.
+    std::string compdata_line;
+    std::string compdata_banner;
+    void check_compdata_profile();
     // Write every kept entry into the connected database: kit fields in place (Database::set, range-checked, no undo
     // step), callnames through write_player_callname (never adding a row). Not written, without an error: a player
     // with his own recording, a player or kit not in this career. Returns the summary line, which also goes to the GUI

@@ -597,6 +597,15 @@ void App::refresh_callnames() {
         const std::string b = hook_report().build;
         if (!b.empty()) callnames.game_build = b;
     }
+    // 2.21: the launcher hint (gui_settings "callnames": {"launcher_language", "launcher_stamp"}, written by turbo_launch.ps1
+    // before the game starts); ranked by callnames.h detect_commentary_language, never above the manual override
+    callnames.launcher_hint.lang.clear();
+    callnames.launcher_hint.stamp.clear();
+    if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
+        const auto& c = gui_settings["callnames"];
+        if (c.contains("launcher_language") && c["launcher_language"].is_string()) callnames.launcher_hint.lang = c["launcher_language"].get<std::string>();
+        if (c.contains("launcher_stamp") && c["launcher_stamp"].is_string()) callnames.launcher_hint.stamp = c["launcher_stamp"].get<std::string>();
+    }
     callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
     std::string line = callnames.log_line();
     if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object() &&
@@ -1799,8 +1808,10 @@ void App::draw() {
             if (log_hook) log_hook(buf);
         }
     }
-    // Toasts (top-right)
-    if (!toasts.empty()) {
+    // Toasts (top-right). 2.21: the compdata guard's red "do not save" line leads them while a mismatch is set inside a career
+    // (ui_reapply.cpp check_compdata_profile); drawn also while Turbo is hidden, so it shows on the hub without opening Turbo
+    const bool compdata_warn = !compdata_banner.empty() && bridge.state().in_cm;
+    if (!toasts.empty() || compdata_warn) {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - S(20.0f), vp->WorkPos.y + S(20.0f)), ImGuiCond_Always,
                                 ImVec2(1.0f, 0.0f));
@@ -1808,6 +1819,13 @@ void App::draw() {
         ImGui::Begin("##turbo_toasts", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                          ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings);
+        if (compdata_warn) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.25f, 1.0f));
+            ImGui::PushTextWrapPos(S(520.0f));
+            ImGui::TextUnformatted(compdata_banner.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
         for (const auto& t : toasts) {
             ImGui::PushStyleColor(ImGuiCol_Text, t.error ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f) : ImVec4(0.6f, 1.0f, 0.6f, 1.0f));
             ImGui::PushTextWrapPos(S(520.0f));

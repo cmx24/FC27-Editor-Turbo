@@ -122,7 +122,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/bench_probe.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp \
          src/core/tuning.cpp src/ui/ui_tuning.cpp \
          src/ui/ui_changes.cpp \
-         src/core/game_settings.cpp src/ui/ui_game_settings.cpp \
+         src/core/game_settings.cpp src/ui/ui_game_settings.cpp src/core/compdata_profile.cpp \
          tests/native/test_crash_report.cpp tests/native/test_main.cpp; do
   o="$BIN/obj/$(echo "$s" | sed 's#[/.]#_#g').o"
   # test_main.cpp (13k lines of test code) at -O0: about 50 s instead of 95 s; relative source paths keep the .d files valid

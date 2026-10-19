@@ -166,19 +166,48 @@ LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spok
 
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
                                        const std::string& saved_lang, const std::string& saved_why, const std::vector<CommentaryPack>& packs,
-                                       std::string* why, bool* proven) {
+                                       std::string* why, bool* proven, const LauncherHint* hint) {
     auto set = [&](const std::string& s) { if (why) *why = s; };
     if (proven) *proven = true;
     const std::string ov = lower(override_lang);
+    const std::string hl = hint ? lower(hint->lang) : std::string();
     if (!ov.empty()) {
-        set("MANUAL OVERRIDE in turbo_output\\gui_settings.json callnames.override_language - detection is off");
+        set("MANUAL OVERRIDE in turbo_output\\gui_settings.json callnames.override_language - detection is off" +
+            (hl.empty() ? std::string() : " (launcher hint " + hl + " not used: the manual override wins)"));
         return ov;
     }
     if (!runtime_lang.empty()) {
-        set("detected in the running game: " + runtime_why);
+        std::string w = "detected in the running game: " + runtime_why;
+        if (!hl.empty() && hl != lower(runtime_lang))
+            w += " [launcher hint " + hl + " differs: the running game decides (the in-game Audio setting picks the commentary)]";
+        set(w);
         return lower(runtime_lang);
     }
     std::string pre = runtime_why.empty() ? std::string("no runtime evidence yet") : "runtime: " + runtime_why;
+    // 2.21 launcher hint: after this session's runtime answer, before an earlier session's saved answer heard before it
+    std::string hint_note;  // why the hint was not used ("" = no hint / used)
+    if (!hl.empty()) {
+        const std::string hs = normalize_stamp(hint->stamp);
+        const std::string sw = normalize_stamp(hint->saved_when);
+        if (!language_code_ok(hl)) {
+            hint_note = "launcher hint " + hl + " ignored: not a language code";
+        } else if (!hint->pack_live) {
+            hint_note = "launcher hint " + hl + " ignored: its pack is not live in Data\\Win32 (" + hint->pack_why + ")";
+        } else if (!saved_lang.empty() && lower(saved_lang) == hl) {
+            set("heard in an earlier session (" + saved_why + "); launcher hint " + hl + " agrees; " + pre);
+            return hl;
+        } else if (!saved_lang.empty() && (hs.empty() || (!sw.empty() && sw > hs))) {
+            hint_note = "launcher hint " + hl + " ignored: " +
+                        (hs.empty() ? std::string("its stamp '" + hint->stamp + "' is not a date") : "set " + hs + ", before the answer heard " + sw);
+        } else {
+            if (proven) *proven = false;
+            set("launcher hint " + hl + " (picked in the launcher" + (hs.empty() ? std::string() : " " + hs) +
+                "; its pack is live in Data\\Win32); NOT PROVEN (automatic callname writes wait for the running game's answer); " + pre +
+                (saved_lang.empty() ? std::string() : "; earlier answer " + lower(saved_lang) + " heard " + (sw.empty() ? "undated" : sw) + " not used"));
+            return hl;
+        }
+    }
+    if (!hint_note.empty()) pre += "; " + hint_note;
     if (!saved_lang.empty()) {
         set("heard in an earlier session (" + saved_why + "); " + pre);
         return lower(saved_lang);
@@ -199,6 +228,57 @@ std::string detect_commentary_language(const std::string& override_lang, const s
 }
 
 fs::path lang_detect_off_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames_lang_detect_off.txt"; }
+
+bool language_code_ok(const std::string& lang) {
+    if (lang.size() != 6 || lang[3] != '_') return false;
+    for (size_t i = 0; i < lang.size(); ++i)
+        if (i != 3 && !std::islower(static_cast<unsigned char>(lang[i]))) return false;
+    return true;
+}
+
+std::string normalize_stamp(const std::string& s) {
+    // YYYY-MM-DD[ T]HH:MM[:SS], anything after it (fraction, zone) ignored
+    auto digits = [&](size_t at, size_t n) {
+        if (at + n > s.size()) return false;
+        for (size_t i = at; i < at + n; ++i)
+            if (!std::isdigit(static_cast<unsigned char>(s[i]))) return false;
+        return true;
+    };
+    if (!digits(0, 4) || s.size() < 16 || s[4] != '-' || !digits(5, 2) || s[7] != '-' || !digits(8, 2) || (s[10] != ' ' && s[10] != 'T') ||
+        !digits(11, 2) || s[13] != ':' || !digits(14, 2))
+        return "";
+    std::string out = s.substr(0, 10) + " " + s.substr(11, 5);
+    out += (s.size() >= 19 && s[16] == ':' && digits(17, 2)) ? s.substr(16, 3) : std::string(":00");
+    return out;
+}
+
+bool launcher_pack_live(const fs::path& game_root, const std::string& lang, std::string* why) {
+    auto say = [&](const std::string& s) { if (why) *why = s; return false; };
+    const std::string l = lower(lang);
+    if (game_root.empty()) return say("game folder unknown");
+    if (!language_code_ok(l)) return say("not a language code");
+    const fs::path w32 = game_root / "Data" / "Win32";
+    std::error_code ec;
+    const fs::path toc = w32 / (std::string(kPackPrefix) + l + ".toc");
+    if (!fs::is_regular_file(toc, ec)) return say("no Data\\Win32\\" + toc.filename().string());
+    const uintmax_t ts = fs::file_size(toc, ec);
+    if (ec || ts < kLiveTocMin) return say("Data\\Win32\\" + toc.filename().string() + " is " + std::to_string(ec ? 0 : ts) + " B, a not-installed stub");
+    const fs::path cas_dir = w32 / "superbundlelayout" / (std::string(kPackPrefix) + l);
+    size_t cas = 0;
+    uintmax_t bytes = 0;
+    for (const auto& e : fs::directory_iterator(cas_dir, ec)) {
+        std::error_code fec;
+        const std::string n = lower(e.path().filename().string());
+        if (n.rfind("cas_", 0) != 0 || n.size() < 8 || n.compare(n.size() - 4, 4, ".cas") != 0 || !e.is_regular_file(fec)) continue;
+        const uintmax_t sz = e.file_size(fec);
+        if (fec || sz == 0) continue;
+        ++cas;
+        bytes += sz;
+    }
+    if (cas == 0) return say("no non-empty cas file in Data\\Win32\\superbundlelayout\\" + cas_dir.filename().string());
+    if (why) *why = "Data\\Win32 toc " + std::to_string(ts) + " B + " + std::to_string(cas) + " cas (" + std::to_string(bytes / (1024 * 1024)) + " MB)";
+    return true;
+}
 
 fs::path loaded_language_path(const fs::path& le_root) { return le_root / "turbo_output" / "callnames" / "loaded_language.json"; }
 
@@ -585,21 +665,31 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
     // step a2: the answer heard in an earlier session, while the build and the packs are the same
     saved_lang.clear();
     saved_why.clear();
+    launcher_hint.saved_when.clear();
     {
         std::string stext;
         SavedLanguage sv;
         if (read_text(loaded_language_path(le_root), stext) && parse_saved_language_json(stext, sv)) {
-            if (saved_language_usable(sv, game_build, packs_fingerprint(packs), &saved_why)) saved_lang = sv.lang;
+            if (saved_language_usable(sv, game_build, packs_fingerprint(packs), &saved_why)) {
+                saved_lang = sv.lang;
+                launcher_hint.saved_when = sv.when;
+            }
         }
     }
+    // 2.21: the launcher hint's pack, checked in Data\Win32 only (never <game>\commentary, Cassio's backup store)
+    launcher_hint.pack_live = false;
+    launcher_hint.pack_why.clear();
+    if (!launcher_hint.lang.empty()) launcher_hint.pack_live = launcher_pack_live(game_root, launcher_hint.lang, &launcher_hint.pack_why);
     lang_proven = false;
     if (no_game_root && override_lang.empty() && runtime_lang.empty()) {
         lang.clear();  // no game: nothing to detect (tests, a host without the game folder)
         lang_why = "game folder unknown: no commentary language detected";
     } else {
-        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, packs, &lang_why, &lang_proven);
+        lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, packs, &lang_why, &lang_proven,
+                                          launcher_hint.lang.empty() ? nullptr : &launcher_hint);
         // with the kill switch the packs decide as before the runtime check (the user turned it off)
-        if (!lang_proven && runtime_off) {
+        // (never a launcher-hint answer: the hint is intent, not evidence; 2.21 CHANGE 7)
+        if (!lang_proven && runtime_off && lang_why.rfind("launcher hint ", 0) != 0) {
             lang_proven = true;
             lang_why += " [runtime detection off: the packs' answer is used as before]";
         }

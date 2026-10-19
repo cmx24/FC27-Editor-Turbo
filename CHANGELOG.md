@@ -9,6 +9,8 @@ Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidenc
 
 - **UNPROVEN:** tactics sliders for team length and width (`shape.length_in`, `shape.width_in`). Gate G-T1 was INCONCLUSIVE in game (counted as FAIL for the live write route).
 - **UNPROVEN:** any effect of the game settings sliders on match play. Gate G-S3 (ratio >= 1.4).
+- **UNPROVEN (2.21 compdata guard, offline-green only):** when a career loads, Turbo checks the installed league data against the career. The launcher's country pick decides the data: Netherlands gives the Eerste Divisie data, any other country the standard data (`turbo_output\compdata_profile.json`, plus a stat-only look at the 11 Eerste files in `mods\legacy`). The career's need comes from `turbo_config.json` `compdata_profile.careers`; SPARTA `d91d1b4e90a27eda` = eerste is built in. Turbo logs one line, `compdata profile: <installed> installed, career needs <need>, OK|MISMATCH|UNKNOWN`. On a mismatch a red "DO NOT SAVE" line leads the overlay's message area, and it shows while Turbo is hidden too. A missing record, or a record the disk contradicts, gives UNKNOWN: logged only, no banner. The guard never writes a file.
+- **UNPROVEN (2.21 launcher hint):** the commentary language detection ranks the launcher's pick (`gui_settings.json` `callnames.launcher_language` / `launcher_stamp`) after the manual override and this session's runtime answer. It also ranks the pick before an earlier session's saved answer, unless that answer was heard after the pick. The pick is used only when its pack is live in the game's `Data\Win32` (full toc + a non-empty cas). A hint answer is never "proven", so automatic callname writes still wait for the running game's answer.
 
 ## 2.18.0 (built 2026-10-18)
 
