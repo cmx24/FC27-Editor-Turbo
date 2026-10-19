@@ -8,6 +8,7 @@
       (4) hold a shirt: some clear pixels and some opaque ones, more than 3 colours, not all white, (5) differ from the "before" md5.
       --log LE_LOG: informational only - lists the 'kits/j<t>_<id>_0.dds' lines of the Live Editor log (the MK1 minikits showed in game
       with NO such line, so a missing line is never a FAIL).
+  (after, --any-layout: the club's game file is in another layout; only the DDS magic, size > 128 and a changed md5 are checked)
   python -I minikit_livecheck.py undo   <teamid> [--slots ...] [--kits DIR] [--state FILE]
       after the Undo (Restore): every slot is byte-identical to its "before" md5 (ABSENT before = the file is gone)
   python -I minikit_livecheck.py --self-test      (synthetic files in a temp folder; touches nothing else)
@@ -89,7 +90,7 @@ def log_lines(path, team, slots):
     return out
 
 
-def run(mode, team, slots, kits, state, log=None):
+def run(mode, team, slots, kits, state, log=None, any_layout=False):
     lines, ok = [], True
     if mode == "before":
         snap = snapshot(kits, team, slots)
@@ -110,7 +111,10 @@ def run(mode, team, slots, kits, state, log=None):
                 lines.append("slot %d: FAIL %s is not there" % (s, fname(team, s)))
                 continue
             b = open(p, "rb").read()
-            good, why = inspect(b)
+            if any_layout:
+                good, why = (b[:4] == b"DDS " and len(b) > 128), "game layout: DDS magic, %d bytes (shirt/header not checked)" % len(b)
+            else:
+                good, why = inspect(b)
             changed = md5(b) != b0["md5"]
             if not good:
                 ok = False
@@ -215,7 +219,7 @@ def main(argv):
         else:
             i += 1
     slots = [int(x) for x in opt["--slots"].split(",") if x != ""]
-    ok, lines = run(mode, team, slots, opt["--kits"], opt["--state"], opt["--log"])
+    ok, lines = run(mode, team, slots, opt["--kits"], opt["--state"], opt["--log"], "--any-layout" in argv)
     for ln in lines:
         print(ln)
     print("%s minikit %s team %d" % ("PASS" if ok else "FAIL", mode, team))
