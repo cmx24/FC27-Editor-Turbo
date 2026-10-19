@@ -65,8 +65,9 @@ static void run() {
         CHECK(area_of(Page::BulkEdit) == Area::Squad && std::string(page_label(Page::BulkEdit)) == "Bulk edit", "Players > Bulk edit");
         CHECK(area_of(Page::CreatePlayer) == Area::Squad && std::string(page_label(Page::CreatePlayer)) == "Player creation", "Players > Player creation");
         CHECK(area_of(Page::AdvBulkEdit) == Area::Advanced, "Advanced > Bulk edit stays until the capability check passes");
-        for (Page p : {Page::PlayerEdit, Page::CreatePlayer, Page::BulkEdit, Page::TeamPlayers, Page::TeamTransfers, Page::LooksStudio})
+        for (Page p : {Page::PlayerEdit, Page::CreatePlayer, Page::BulkEdit, Page::TeamPlayers, Page::TeamTransfers})
             CHECK(registered_new_page(p) != nullptr && page_visible(p, false), std::string("new page registered and in the Simple view: ") + page_label(p));
+        CHECK(registered_page(Page::LooksStudio) != nullptr && page_visible(Page::LooksStudio, false), "the Appearance Editor is registered and in the Simple view");
         // (profile_team_players_page() is pointed at Team > Players where Edit a player is drawn: checked in the UI case below)
         CHECK(player_edit_tab() >= 0 && player_edit_tab() <= 3, "Edit a player has four tabs");
     });

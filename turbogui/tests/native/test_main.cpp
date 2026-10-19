@@ -3113,8 +3113,37 @@ public:
             return true;
         }
         const ItemRec* r = find(label, win, scope);
+        if (!r) r = find_scrolling(label, win, scope);  // 2.20: a button one line below the visible part is scrolled to, as a user would
         if (!r) dump("click target not found: '" + label + "' in '" + win + "'");
         return click(r);
+    }
+    // The item drawn this frame with this label whose centre is outside the visible part of its window: scroll that window with the mouse wheel until
+    // it is visible (at most 8 steps). A layout that grows by one line (a page strip that wraps, a longer label) must not turn a click into "not found".
+    const ItemRec* find_scrolling(const std::string& label, const std::string& win, const std::string& scope) {
+        for (int step = 0; step < 8; ++step) {
+            const ItemRec* hid = nullptr;
+            for (const auto& kv : g_items) {
+                const ItemRec& r = kv.second;
+                if (r.frame != g_frame || r.label != label || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
+                if (!win.empty() && r.window.find(win) == std::string::npos) continue;
+                if (!scope.empty() && ImHashStr(scope.c_str(), 0, r.seed2) != r.seed) continue;
+                if (!r.clip.Contains(r.rect.GetCenter())) {
+                    hid = &r;
+                    break;
+                }
+            }
+            if (!hid || hid->clip.GetWidth() <= 0 || hid->clip.GetHeight() <= 0) return nullptr;
+            const float dir = hid->rect.GetCenter().y > hid->clip.Max.y ? -1.0f : hid->rect.GetCenter().y < hid->clip.Min.y ? 1.0f : 0.0f;
+            if (dir == 0.0f) return nullptr;
+            ImGuiIO& io = ImGui::GetIO();
+            const ImVec2 c = hid->clip.GetCenter();
+            io.AddMousePosEvent(c.x, c.y);
+            frame();
+            io.AddMouseWheelEvent(0.0f, dir);
+            frames(2);
+            if (const ItemRec* r = find(label, win, scope)) return r;
+        }
+        return nullptr;
     }
     // The way a user reaches a page (GUI revamp 2.13): the area tab, then the page in that area's strip (App::draw_pages pushes
     // "##shell" and "##pages"). False when either button is not on screen: the page moved to another area, its label changed, or
