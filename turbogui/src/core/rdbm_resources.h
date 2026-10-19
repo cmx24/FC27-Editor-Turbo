@@ -78,6 +78,8 @@ struct Anim {
 // `max_bytes`), into one atlas. false with a reason when the bytes are not a GIF or hold no frame.
 bool decode_gif(const std::vector<uint8_t>& bytes, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
 bool decode_gif_file(const std::filesystem::path& p, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
+// Any picture file: a .gif as above; a still (PNG, JPG, DDS...) as one frame at most max_side pixels on its longer side
+bool decode_picture_file(const std::filesystem::path& p, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
 // Atlas width and height limit (texture side)
 constexpr int kMaxAtlasSide = 8192;
 

@@ -248,22 +248,15 @@ bool draw_anim(App& app, const fs::path& file, int side, size_t max_bytes, ImVec
     return true;
 }
 
+// A still picture: decoded on the store's thread like the animations (TextureCache::file() would decode up to 4 files on
+// the spot in this frame: 22 ms with RDBM26's pictures, measured), given to the window at most kUploadsPerFrame per frame
+constexpr size_t kStillBytes = size_t(4) << 20;
 bool draw_still(App& app, const fs::path& file, int side, ImVec2 a, ImVec2 box, bool quiet = false) {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
     if (file.empty()) {
-        if (!quiet) box_text(dl, a, box, "no picture");
+        if (!quiet) box_text(ImGui::GetWindowDrawList(), a, box, "no picture");
         return false;
     }
-    app.textures.preload(file, side);  // decoded on the background thread; file() then only uploads it
-    TextureCache::Pic pic = app.textures.file(file, side);
-    if (!pic.tex || pic.w <= 0 || pic.h <= 0) {
-        if (!quiet) box_text(dl, a, box, pic.failed ? "no picture" : "loading");
-        return false;
-    }
-    ImVec2 p0, p1;
-    fit_rect(static_cast<float>(pic.w), static_cast<float>(pic.h), a, box, p0, p1);
-    dl->AddImage(pic.tex->GetTexRef(), p0, p1);
-    return true;
+    return draw_anim(app, file, side, kStillBytes, a, box, quiet);
 }
 
 bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, ImVec2 box) {

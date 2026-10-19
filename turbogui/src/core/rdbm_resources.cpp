@@ -349,6 +349,32 @@ bool decode_gif_file(const fs::path& p, int max_side, size_t max_bytes, Anim& ou
     return decode_gif(bytes, max_side, max_bytes, out, err);
 }
 
+bool decode_picture_file(const fs::path& p, int max_side, size_t max_bytes, Anim& out, std::string* err) {
+    std::string ext = p.extension().u8string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".gif") return decode_gif_file(p, max_side, max_bytes, out, err);
+    out = Anim();
+    Rgba img;
+    if (!load_image_file(p, img, err)) return false;
+    img = fit_image(img, std::max(1, max_side));
+    if (img.empty()) {
+        if (err) *err = "empty picture";
+        return false;
+    }
+    if (max_bytes && img.px.size() > max_bytes) {
+        if (err) *err = "picture too large";
+        return false;
+    }
+    out.src_w = out.frame_w = img.w;
+    out.src_h = out.frame_h = img.h;
+    out.cols = 1;
+    out.frames = 1;
+    out.delays_ms.push_back(0);
+    out.total_ms = 0;
+    out.atlas = std::move(img);
+    return true;
+}
+
 // ---------------------------------------------------------------- the store
 
 AnimStore::AnimStore(size_t budget_bytes) : budget_(budget_bytes) { worker_ = std::thread([this] { run(); }); }
@@ -510,7 +536,7 @@ void AnimStore::run() {
         }
         Anim a;
         std::string err;
-        const bool ok = decode_gif_file(path, side, max_bytes, a, &err);
+        const bool ok = decode_picture_file(path, side, max_bytes, a, &err);
         {
             std::lock_guard<std::mutex> lk(m_);
             busy_ = false;
