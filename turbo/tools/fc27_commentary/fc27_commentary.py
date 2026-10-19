@@ -1167,6 +1167,8 @@ def run(a, log=print):
     bank = Bank(a.game, a.lang, team=getattr(a, "team", None))
     try:
         if a.list:
+            if bank.data_source:                # stderr, so the family list on stdout is unchanged
+                print("data source: %s" % bank.data_source["source"], file=sys.stderr)
             for f in bank.families():
                 log(f)
             return 0
