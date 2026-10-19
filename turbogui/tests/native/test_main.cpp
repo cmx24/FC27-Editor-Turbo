@@ -15494,8 +15494,7 @@ int main(int argc, char** argv) {
     parity_test::run_core();
     std::printf("native archetype with a target overall (2.3)\n");
     archetype_target_test::run_core();
-    std::printf("native archetype x overall x tier populate (2.20 R3)
-");
+    std::printf("native archetype x overall x tier populate (2.20 R3)\n");
     archetype_gen_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();

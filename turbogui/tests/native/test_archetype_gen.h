@@ -385,7 +385,7 @@ static std::map<std::string, int64_t> snapshot(App& app, const Table& t, uint64_
 }
 
 static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
-    run_case("UI: Populate - player type, wanted overall and tier fill positions, attributes, roles, PlayStyles, traits, potential; Undo restores every field", [&] {
+    run_case("archetype UI: Populate - player type, wanted overall and tier fill positions, attributes, roles, PlayStyles, traits, potential; Undo restores every field", [&] {
         if (app.busy()) ui.click("Cancel");
         app.lua_queue.clear();
         const Table* pt = app.db.table("players");
@@ -505,7 +505,7 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         ui.frames(2);
     });
 
-    run_case("UI: Populate in a career also writes contract and wage; the changes list is what the write does", [&] {
+    run_case("archetype UI: Populate in a career also writes contract and wage; the changes list is what the write does", [&] {
         const Table* pt = app.db.table("players");
         if (!pt) return;
         const int64_t pid = 2002;
@@ -540,7 +540,7 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(turbo::populate_undo(app, *pt, *row) && snapshot(app, *pt, rec) == orig, "Undo restores everything, contract and wage too");
     });
 
-    run_case("UI: Populate in Create player fills the form's boxes; Undo puts the form back; Lua's create_player takes what is sent", [&] {
+    run_case("archetype UI: Populate in Create player fills the form's boxes; Undo puts the form back; Lua's create_player takes what is sent", [&] {
         const Table* pt = app.db.table("players");
         if (!pt) return;
         if (app.busy()) ui.click("Cancel");

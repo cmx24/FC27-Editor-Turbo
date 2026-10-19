@@ -314,7 +314,7 @@ bool parse_table(const std::string& text, Table& out, std::string& err) {
 bool load_table(const std::filesystem::path& le_root, Table& out, std::string& err) {
     std::ifstream f(table_path(le_root), std::ios::binary);
     if (!f) {
-        err = "the archetype table (turbo\\data\\archetypes.json) is not installed";
+        err = "the player type list is not installed with this build";
         out.rows.clear();
         return false;
     }
