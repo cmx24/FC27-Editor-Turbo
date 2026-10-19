@@ -5,6 +5,7 @@
 --     "teamid": 111592,              -- the club (111592 = Free Agents); national teams are refused
 --     "jersey": 0,                   -- shirt number (0 = the first free one)
 --     "names": { "firstname": "", "surname": "", "commonname": "", "playerjerseyname": "" },   -- "" = keep the source's
+--     "clear_names": [ "commonname" ],  -- names removed from the copy (only the common name; its name id is cleared too)
 --     "set": { "overallrating": 70 },   -- players fields written on top of the source
 --     "playerid": 0,                 -- 0 = the first free id above every existing one (below max_playerid)
 --     "min_playerid": 0, "max_playerid": 459999,   -- the id range Turbo may use (460000+ is the game's own range)
@@ -361,6 +362,23 @@ function M.run(ctx)
             for f, v in pairs(given) do names[f] = v end
         end
     end
+    -- "clear_names" (2.19, the GUI's Create player: a box the user emptied): only the common name can be removed; its name id
+    -- goes too, else the game would still show the source's common name from it
+    if cfg.clear_names ~= nil then
+        if type(cfg.clear_names) ~= "table" then return false, "clear_names must be a list" end
+        for _, f in ipairs(cfg.clear_names) do
+            if f ~= "commonname" then return false, "only the common name can be cleared, not " .. tostring(f) end
+            if (names.firstname or "") == "" and (names.surname or "") == "" then
+                -- the copy would have no name left: the names of the source's ids are the base
+                local base = pnames.names_of_ids(vals, {})
+                if base then
+                    for k, v in pairs(base) do if (names[k] or "") == "" then names[k] = v end end
+                end
+            end
+            names.commonname = ""
+            if db.has_field(players, "commonnameid") then vals.commonnameid = 0 end
+        end
+    end
     local row, defaults = {}, 0
     for _, f in ipairs(db.field_names(players)) do
         local v = vals[f]
@@ -513,6 +531,53 @@ function M.run(ctx)
     if head_log then agate.log_write(gate, "player " .. pid, "headassetid", "(new player)", head_log) end
 
     -- miniface from a Turbo JSON next to the file (both paths)
+    -- the copy check (2.19 create-prefill): a copy of a database player is read back and compared with him, column by column. Every
+    -- column equals his except the ones this create writes on purpose (the id, join date and contract, "set", a head given for the
+    -- id, a cleared common name id); the fields of "set" are compared with what was written. Logged and added to the summary.
+    local function copy_check()
+        local src_pid = type(cfg.source) == "table" and util.to_int(cfg.source.playerid) or nil
+        local srec = src_pid and db.find(players, "playerid", src_pid)
+        local nrec = db.find(players, "playerid", pid)
+        if not srec or not nrec then return end
+        local own = { playerid = true, playerjointeamdate = true, contractvaliduntil = true }
+        if want_head then own.headassetid, own.headclasscode, own.hashighqualityhead, own.headvariation = true, true, true, true end
+        if cfg.clear_names ~= nil then own.commonnameid = true end
+        local set = type(cfg.set) == "table" and cfg.set or {}
+        local n, same, differ, set_n, set_ok = 0, 0, {}, 0, 0
+        for _, f in ipairs(db.field_names(players)) do
+            local now = players:GetRecordFieldValue(nrec, f)
+            if set[f] ~= nil then
+                set_n = set_n + 1
+                if now == row[f] then set_ok = set_ok + 1 else differ[#differ + 1] = f .. " (set)" end
+            elseif not own[f] then
+                n = n + 1
+                if now == players:GetRecordFieldValue(srec, f) then same = same + 1 else differ[#differ + 1] = f end
+            end
+        end
+        local names_note = ""
+        local names_given = false
+        if type(cfg.names) == "table" then
+            for _, f in ipairs(preset.NAME_FIELDS) do
+                if type(cfg.names[f]) == "string" and cfg.names[f] ~= "" then names_given = true end
+            end
+        end
+        if not names_given and cfg.clear_names == nil then
+            local a, b = pnames.edited(src_pid), pnames.edited(pid)
+            local eq = (a == nil) == (b == nil)
+            if eq and a then
+                for _, f in ipairs(preset.NAME_FIELDS) do if tostring(a[f] or "") ~= tostring(b[f] or "") then eq = false end end
+            end
+            names_note = eq and ", names copied" or ", names NOT copied"
+            if not eq then differ[#differ + 1] = "editedplayernames" end
+        end
+        local shown = {}
+        for i = 1, math.min(#differ, 12) do shown[i] = differ[i] end
+        local text = string.format("copy check: %d of %d columns equal player %d, %d of %d set field(s) as written%s%s", same, n, src_pid,
+            set_ok, set_n, names_note, #differ > 0 and ("; DIFFER: " .. table.concat(shown, ", ")) or "")
+        log.info("create_player %d: %s", pid, text)
+        summary = summary .. "; " .. text
+    end
+
     local function miniface()
         if cm_generic_head and parsed and type(parsed.miniface) == "string" and parsed.miniface ~= "" then
             -- the photo next to a generic 3D head would be a mixed result: the game draws his generic head's own miniface
@@ -555,6 +620,7 @@ function M.run(ctx)
                     summary = summary .. "; " .. status_entry(pid)
                 end
             end
+            if status ~= "queued" then copy_check() end
             miniface()
             return true, summary
         else
@@ -586,6 +652,7 @@ function M.run(ctx)
         if state == "plan" then summary = summary .. ", development plan set" end
         summary = summary .. "; " .. status_entry(pid)
     end
+    copy_check()
     miniface()
     if native_note then summary = summary .. native_note end
     return true, summary

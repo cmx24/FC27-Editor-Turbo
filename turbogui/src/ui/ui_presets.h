@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "core/create_form.h"
 #include "core/model.h"
 #include "core/player_id.h"
 #include "nlohmann/json.hpp"
@@ -23,6 +24,20 @@ struct CreateIdState {
 };
 const CreateIdState& create_id_state();
 
+// The Create player dialog's form as the last frame drew it (2.19 create-prefill; tests read it back): the template's row as
+// read when the dialog opened, the boxes now, and the "set" a Create click would send (only the changed fields)
+struct CreatePrefillState {
+    int64_t playerid = 0;
+    create_form::Form orig, cur;
+    nlohmann::json pending = nlohmann::json::object();
+};
+const CreatePrefillState& create_prefill_state();
+// Open the Create player dialog with this database player as the template (the CMTracker and file routes when their player is
+// already in the database): he becomes the selected player and the dialog opens at the next frame of the Players editor
+void request_create_from(App& app, int64_t playerid);
+// The database player an outside player is (create_form::match over this career's players): 0 = none
+int64_t database_match(App& app, int64_t playerid, const std::string& name, int64_t birthdate_days);
+
 // What a preset file holds, for the Import dialog's preview (parsed here, not by Lua)
 struct PresetPreview {
     bool ok = false;
@@ -31,8 +46,11 @@ struct PresetPreview {
     int rows = 0;            // rows in a CSV (Live Editor appends one per save; the last is used)
     int columns = 0;
     std::string name, playerid, overall, potential, position, miniface;
+    int64_t birthdate = 0;   // gregorian days, 0 = not in the file
 };
 PresetPreview preview_preset_file(const std::filesystem::path& file);
+// A birth date as a file writes it: gregorian days (Live Editor preset CSV, Turbo player file) or YYYY-MM-DD; 0 = none
+int64_t birthdate_days(const std::string& text);
 
 // Buttons "Export...", "Import...", "Clone...", "Create player..." and their dialogs, for the selected player
 void player_preset_buttons(App& app, const PlayerRow& p);
