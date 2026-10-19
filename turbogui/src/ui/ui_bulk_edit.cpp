@@ -54,6 +54,7 @@ struct UndoRec {
 struct Done {
     std::string key;    // the loaded database it was made in
     std::string what;   // "Jersey fit"
+    std::vector<std::string> shown;  // the chosen fields (their put-back is logged for small runs)
     std::vector<UndoRec> recs;
 };
 
@@ -67,6 +68,8 @@ struct Run {
     std::vector<UndoRec> back;      // undo: the records to put back (newest last)
     size_t changed = 0, values = 0, failed = 0, same = 0;
     std::string what, key;
+    std::vector<std::string> shown;  // the chosen fields
+    bool verbose = false;            // small runs log what each player reads back (the live check compares it)
 };
 
 Filter g_f;
@@ -84,6 +87,7 @@ State g_state;
 
 constexpr size_t kBigRun = 300;       // above this the run asks for a tick first
 constexpr size_t kPerFrame = 40;      // players handled per frame
+constexpr size_t kLogReadBack = 20;  // runs up to this many players log one read-back line per player and field
 constexpr size_t kMaxDone = 8;        // runs that can be put back
 constexpr size_t kSendPlayers = 350;  // players one fitness / form / morale command can name
 
@@ -344,6 +348,15 @@ void apply_player(App& app, const Table& t, int64_t pid, Run& r) {
         if (!app.edit(t, rec, *f, Value::of_int(nv))) refused = true;
     }
     trim_toasts(app, toasts0);
+    if (r.verbose) {
+        for (const Row& row : r.rows) {
+            const Field* f = t.field(row.field);
+            if (!f) continue;
+            const int64_t now = app.db.get_int(t, rec, row.field, 0);
+            app.log("Bulk edit read back (" + app.model.player_name(pid) + "): " + field_label(row.field) + " = " +
+                    app.describe_value(t, *f, Value::of_int(now)) + "  [players." + row.field + " = " + std::to_string(now) + "]");
+        }
+    }
     UndoRec u;
     u.pid = pid;
     size_t chosen_changed = 0;
@@ -377,6 +390,16 @@ void undo_player(App& app, const Table& t, const UndoRec& u, Run& r) {
         if (!f || !app.edit_field(t, p->rec, *f, Value::of_int(it->second), false)) ok = false;
     }
     trim_toasts(app, toasts0);
+    if (r.verbose) {
+        for (const auto& b : u.before) {
+            if (std::find(r.shown.begin(), r.shown.end(), b.first) == r.shown.end()) continue;
+            const Field* f = t.field(b.first);
+            if (!f) continue;
+            const int64_t now = app.db.get_int(t, p->rec, b.first, 0);
+            app.log("Bulk edit put back (" + app.model.player_name(u.pid) + "): " + field_label(b.first) + " = " +
+                    app.describe_value(t, *f, Value::of_int(now)) + "  [players." + b.first + " = " + std::to_string(now) + "]");
+        }
+    }
     if (ok) ++r.changed;
     else ++r.failed;
 }
@@ -394,6 +417,7 @@ void finish_run(App& app) {
             Done d;
             d.key = r.key;
             d.what = r.what;
+            d.shown = r.shown;
             d.recs = std::move(r.recs);
             g_done.push_back(std::move(d));
             while (g_done.size() > kMaxDone) g_done.erase(g_done.begin());
@@ -1032,6 +1056,8 @@ bool start_apply(App& app) {
     r.rows = g_rows;
     r.snap = snapshot_fields(g_rows);
     r.what = what_of(g_rows);
+    for (const Row& row : g_rows) r.shown.push_back(row.field);
+    r.verbose = sel.size() <= kLogReadBack;
     r.key = load_key(app);
     g_run = std::move(r);
     g_state.result.clear();
@@ -1054,6 +1080,8 @@ bool start_undo(App& app) {
     r.active = true;
     r.undoing = true;
     r.back = std::move(d.recs);
+    r.shown = d.shown;
+    r.verbose = r.back.size() <= kLogReadBack;
     r.key = d.key;
     g_run = std::move(r);
     g_state.result.clear();
