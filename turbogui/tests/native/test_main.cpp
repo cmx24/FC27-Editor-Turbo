@@ -3688,7 +3688,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
-#include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Kits & club pages (page_kits_test::ui_cases)
+#include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
 #include "test_page_creation.h"  // 2.20 IA: Players > Player Creation (page_creation_test::ui_cases)
@@ -4033,7 +4033,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -9684,7 +9684,7 @@ static void test_ui() {
         team_sheet_test::ui_cases(app, ui, le);  // test_team_sheet.h: the live tactic card (channel E)
         gui_perf_test::ui_cases(app, ui, le);  // test_gui_perf.h: per-frame cost of every page (before test_shell_app clears the registry)
         club_page_test::ui_cases(app, ui, le);  // test_club_page.h: Club & Kits pages (before test_shell_app clears the registry)
-        page_kits_test::ui_cases(app, ui, le);  // test_page_kits.h: the tidy Kits & club pages (ui_kits_page.cpp)
+        page_kits_test::ui_cases(app, ui, le);  // test_page_kits.h: the tidy Team pages (ui_kits_page.cpp)
         changes_page_test::ui_cases(app, ui, le);  // test_page_changes.h: Career > Changes and undo (2.16 gui/page-changes)
         player_page_test::ui_cases(app, ui, le);  // test_page_player.h: the Player page (2.16 step 5)
         page_creation_test::ui_cases(app, ui, mem, kMb, le);  // test_page_creation.h: Players > Player Creation (2.20)

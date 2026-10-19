@@ -13,6 +13,7 @@
 #include <set>
 #include <string>
 
+#include "ui/ui_player_profile.h"
 #include "ui/ui_shell.h"
 
 namespace nav220_test {
@@ -21,9 +22,11 @@ using turbo::shell::Area;
 using turbo::shell::Page;
 
 // Registered in BOTH registries on purpose (the 2.16 page replaces the older page of the same id until the old pages are asked for).
-// Wiring chunk 2 adds the pages it replaces; anything else registered twice is a mistake to look at.
+// Wiring chunk 2: BulkEdit, TeamPlayers and TeamTransfers also have an old-registry signpost (ui_nav_pages.cpp) that answers when Settings > Use the
+// old pages is on; anything else registered twice is a mistake to look at.
 static const Page kBoth[] = {Page::Kits,      Page::Identity, Page::TacticPresets, Page::TeamSheet, Page::GameplayPresets,
-                             Page::Transfers, Page::JobOffer, Page::ChangesUndo,   Page::AdvExport,  Page::CreatePlayer};
+                             Page::Transfers, Page::JobOffer, Page::ChangesUndo,   Page::AdvExport,  Page::CreatePlayer,
+                             Page::BulkEdit,  Page::TeamPlayers, Page::TeamTransfers};
 
 static void run() {
     using namespace turbo::shell;
@@ -47,6 +50,25 @@ static void run() {
         for (int i = 1; i < kPageCount; ++i) CHECK(std::string(page_label(static_cast<Page>(i))) != "Looks studio", "no page still says Looks studio");
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) != "Looks studio", "no area says Looks studio");
         CHECK(registered_page(Page::LooksStudio) != nullptr, "the studio's draw function is registered for it");
+    });
+
+    run_case("Navigation 2.20: Team area, Players area and the new pages are wired", [&] {
+        CHECK(std::string(area_label(Area::Club)) == "Team", "the Kits & club area is called Team");
+        for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) != "Kits & club", "no area still says Kits & club");
+        std::set<Page> team(pages_of(Area::Club).begin(), pages_of(Area::Club).end());
+        for (Page p : {Page::Identity, Page::Kits, Page::TeamPlayers, Page::TeamTransfers, Page::StadiumExtras})
+            CHECK(team.count(p) == 1, std::string("Team has ") + page_label(p));
+        CHECK(team.size() == 5, "Team holds exactly Identity, Kits, Players, Transfers, Stadium");
+        CHECK(team.count(Page::TeamSheet) == 0 && area_of(Page::TeamSheet) == Area::Tactics, "Team sheet stays in Tactics");
+        CHECK(area_of(Page::Transfers) == Area::Career, "the money page (Transfers & money) stays in Career");
+        CHECK(std::string(page_label(Page::TeamPlayers)) == "Players" && std::string(page_label(Page::TeamTransfers)) == "Transfers", "Team page labels");
+        CHECK(area_of(Page::BulkEdit) == Area::Squad && std::string(page_label(Page::BulkEdit)) == "Bulk edit", "Players > Bulk edit");
+        CHECK(area_of(Page::CreatePlayer) == Area::Squad && std::string(page_label(Page::CreatePlayer)) == "Player creation", "Players > Player creation");
+        CHECK(area_of(Page::AdvBulkEdit) == Area::Advanced, "Advanced > Bulk edit stays until the capability check passes");
+        for (Page p : {Page::PlayerEdit, Page::CreatePlayer, Page::BulkEdit, Page::TeamPlayers, Page::TeamTransfers, Page::LooksStudio})
+            CHECK(registered_new_page(p) != nullptr && page_visible(p, false), std::string("new page registered and in the Simple view: ") + page_label(p));
+        CHECK(turbo::profile_team_players_page() == Page::TeamPlayers, "the Profile's Open Team > Players button goes to Team > Players");
+        CHECK(player_edit_tab() >= 0 && player_edit_tab() <= 3, "Edit a player has four tabs");
     });
 
     run_case("Navigation 2.20: every page is in one strip, draws something, and a double registration is on the list", [&] {
@@ -82,6 +104,34 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         CHECK(ui.click("Players", "FC 27 LE Turbo", "##shell"), "back to Players");
         ui.frames(4);
         CHECK(ui.find("Edit a player", "FC 27 LE Turbo", "##pages") != nullptr, "the Players strip still has Edit a player");
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
+    run_case("Navigation 2.20: Edit a player has the four tabs; Team has Players and Transfers; Players has Player creation and Bulk edit", [&] {
+        app.prefs.advanced_mode = false;
+        const bool was_legacy = app.legacy_pages;
+        app.legacy_pages = false;  // the new pages (the cases of the other tracks run with the old ones)
+        const int was_tab = player_edit_tab();
+        player_edit_tab() = 0;
+        app.go(Page::PlayerEdit);
+        ui.frames(4);
+        CHECK(ui.find("Profile###pe_profile") != nullptr || ui.find("###pe_profile") != nullptr, "Profile tab");
+        CHECK(ui.find("###pe_ability") != nullptr, "Positions, attributes & PlayStyles tab");
+        CHECK(ui.find("###pe_appearance") != nullptr, "Appearance tab");
+        CHECK(ui.find("###pe_allfields") != nullptr, "All fields tab (last)");
+        CHECK(ui.click("###pe_allfields"), "click All fields");
+        ui.frames(4);
+        CHECK(player_edit_tab() == 3 && ui.find("Card view (beta)###pcardview") != nullptr, "All fields shows the full editor and remembers its tab");
+        CHECK(ui.click("###pe_profile"), "back to Profile");
+        ui.frames(4);
+        CHECK(player_edit_tab() == 0 && ui.find("Card view (beta)###pcardview") == nullptr, "Profile does not show the full editor");
+        CHECK(ui.open_page("Team", "Players") && app.place() == place_of(Page::TeamPlayers), "Team > Players opens");
+        CHECK(ui.open_page("Team", "Transfers") && app.place() == place_of(Page::TeamTransfers), "Team > Transfers opens");
+        CHECK(ui.open_page("Players", "Player creation") && app.place() == place_of(Page::CreatePlayer), "Players > Player creation opens");
+        CHECK(ui.open_page("Players", "Bulk edit") && app.place() == place_of(Page::BulkEdit), "Players > Bulk edit opens");
+        player_edit_tab() = was_tab;
+        app.legacy_pages = was_legacy;
         app.go(Page::PlayerEdit);
         ui.frames(3);
     });

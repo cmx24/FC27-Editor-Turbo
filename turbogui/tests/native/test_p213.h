@@ -83,7 +83,7 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(3);
-        for (const char* area : {"Players", "Appearance Editor", "Kits & club", "Tactics", "Career", "Settings"})
+        for (const char* area : {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings"})
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Advanced", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
         struct Sign { const char* area; const char* page; Page want; };
@@ -195,7 +195,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.open_page("Career", "Transfers & money") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");
         // the other proven panels, each by its own primary control
         CHECK(ui.open_page("Players", "Edit a player") && ui.find("##psearch") != nullptr, "Squad & Players > Player edit: the players list");
-        CHECK(ui.open_page("Kits & club", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
+        CHECK(ui.open_page("Team", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
         CHECK(ui.open_page("Tactics", "Tactic presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
         CHECK(ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
         CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");

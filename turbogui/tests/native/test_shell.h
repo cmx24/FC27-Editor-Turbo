@@ -51,7 +51,7 @@ static void test_shell() {
     run_case("shell: areas and pages (labels, one area per page, strips in order, defaults)", [&] {
         using namespace turbo::shell;
         CHECK(kAreaCount == 7, "six areas plus Advanced");
-        const char* labels[] = {"Players", "Appearance Editor", "Kits & club", "Tactics", "Career", "Settings", "Advanced"};
+        const char* labels[] = {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"};
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) == labels[a], std::string("area label ") + labels[a]);
         CHECK(std::string(area_label(Area::Count)).empty(), "no label for Count");
         const Page defaults[] = {Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
@@ -228,7 +228,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
-        CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Kits & club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
+        CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
               "the six area tabs");
         CHECK(ui.find("Advanced", "FC 27 LE Turbo") == nullptr, "no Advanced tab in Simple");
         CHECK(app.place() == area_for(0), "request_tab 0 -> Squad / Player edit");
