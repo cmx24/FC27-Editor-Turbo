@@ -3174,6 +3174,7 @@ static Rgba solid(int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255
 static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
+#include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -3997,6 +3998,11 @@ static void test_ui() {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
         app.visible = true;
+        // 2.20 S3-window: the panel now starts maximized; the cases below were written against the old first-use window (1180x760 at 60,54 on
+        // the 1920x1080 test display), so they keep it through a stored rectangle. The maximized default has its own cases (test_window_settings.h)
+        app.prefs.window.maximized = false;
+        app.prefs.window.has_rect = true;
+        app.prefs.window.rect = turbo::WindowRect{60.0f, 54.0f, 1180.0f, 760.0f};
         app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
         app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
@@ -9700,6 +9706,7 @@ static void test_ui() {
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
+        window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -15457,6 +15464,7 @@ int main(int argc, char** argv) {
     std::printf("native show/hide key and background loading\n");
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
+    window_settings_test::run();  // test_window_settings.h (pure cases)
     test_shell();  // test_shell.h: shell contract (pure cases)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
     test_gear_pictures();
