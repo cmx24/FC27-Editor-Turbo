@@ -511,6 +511,7 @@ static TargetFace target_miniface(App& app, const std::string& rel, bool manager
         if (cat && cat->loaded()) {
             f.game = cat->has(manager ? assets::Family::Staffface : assets::Family::Miniface, id) ? cf::Ships::Yes : cf::Ships::No;
         } else {
+            app.legacy.look_now(rel);  // a give decides on what is there now, never on a look from the last second
             switch (app.legacy.locate(rel, nullptr, false)) {
                 case LegacyImages::State::Game: f.game = cf::Ships::Yes; break;
                 case LegacyImages::State::Missing: f.game = cf::Ships::No; break;

@@ -231,8 +231,14 @@ static void ui_cases_miniface_show(App& app, Ui& ui, const fs::path& le) {
                  // Lua delivers it: shown
                  const size_t made = app.textures.created();
                  mf_write(cached, encode_dds_dxt5(solid(180, 180, 30, 160, 30)));
-                 ui.frames(3);
-                 CHECK(app.legacy.waiting_for(path) < 0.0 && app.textures.created() > made, "delivered and shown");
+                 // 2.20: a picture not there is looked at once a second (never in every frame): shown within about a second
+                 int frames = 0;
+                 while (frames < 90 && (app.legacy.waiting_for(path) >= 0.0 || app.textures.created() <= made)) {
+                     ui.frame();
+                     ++frames;
+                 }
+                 CHECK(app.legacy.waiting_for(path) < 0.0 && app.textures.created() > made,
+                       "delivered and shown (after " + std::to_string(frames) + " frames of 1/60 s)");
                  PictureInfo shown;
                  shown.state = LegacyImages::State::Game;
                  shown.drawn = true;

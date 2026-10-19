@@ -245,6 +245,7 @@ void LegacyImages::drop_wanted(const std::function<bool(const std::string&)>& go
 void LegacyImages::reload(const std::string& path) {
     if (!legacy_path::valid(path)) return;
     game_present_.erase(path);
+    waiting_seen_.erase(path);
     std::error_code ec;
     fs::remove(cache_file(path), ec);  // an old custom file exported as the game's, or a broken copy
     // "not in the game" set aside: the lines missing.txt has for it now no longer count, a new one does
@@ -282,12 +283,28 @@ LegacyImages::State LegacyImages::locate(const std::string& path, fs::path* file
             game_present_.erase(gp);
         }
     }
+    // 2.20: a picture found absent less than a second ago (waiting for its export, or one the game does not have): no file
+    // call. tick() drops an asked picture from the list once it arrives; a new missing.txt, reload() and clear_cache() forget
+    {
+        auto ws = waiting_seen_.find(path);
+        if (ws != waiting_seen_.end()) {
+            if (frame_ != 0 && now_ >= ws->second && now_ - ws->second < 1.0) {
+                if (missing_.count(path)) return State::Missing;
+                if (want_set_.count(path)) {
+                    want(path, true);
+                    return State::Waiting;
+                }
+            }
+            waiting_seen_.erase(ws);
+        }
+    }
     if (fs::is_regular_file(g, ec) && fs::file_size(g, ec) > 0) {
         if (file) *file = g;
         game_present_[path] = now_;
         if (want_set_.count(path)) drop_wanted([&](const std::string& p) { return p == path; });
         return State::Game;
     }
+    if (frame_ != 0) waiting_seen_[path] = now_;
     if (missing_.count(path)) return State::Missing;
     want(path, true);
     return State::Waiting;
@@ -322,6 +339,7 @@ void LegacyImages::read_missing() {
     if (sz != missing_size_) {
         missing_size_ = sz;
         game_present_.clear();
+        waiting_seen_.clear();
         missing_lines_.clear();
         std::ifstream f(mp, std::ios::binary);
         std::string line;
@@ -392,6 +410,7 @@ size_t LegacyImages::count_cached_files(const fs::path& dir) {
 
 bool LegacyImages::clear_cache(std::string* err) {
     game_present_.clear();
+    waiting_seen_.clear();
     {
         std::lock_guard<std::mutex> lock(custom_dirs_m_);
         custom_dirs_.clear();

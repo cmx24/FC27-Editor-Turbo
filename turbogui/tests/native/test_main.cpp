@@ -6467,9 +6467,6 @@ static void test_ui() {
             fs::remove(staff);
             // 2.20: he has no picture (the game says so), so the head's comes with it; one he had would be kept
             career_faces_test::NoGamePicture no_staff(app, {legacy_path::staff_miniface_for(503, 0)});
-            // the world's game has no picture of Chivu (generic head): it stays listed missing after the case, as Live Editor
-            // lists it (else the Managers page waits for an export of it that never comes: gui perf)
-            no_staff.stays_missing = no_staff.moved.empty();
             const int64_t mskin0 = app.db.get_int(*mt, mrec, "skintonecode");
             CHECK(ui.click("face1004", "Choose a real face##mgr"), "pick 1004's head");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 1004 && app.db.get_int(*mt, mrec, "headclasscode") == 0 &&

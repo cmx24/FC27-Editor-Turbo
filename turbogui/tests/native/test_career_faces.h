@@ -260,6 +260,52 @@ inline void run() {
         CHECK(!cf::record_own_head(p, B, false, 3001, "X", {{"headassetid", 1}}, &err) && bytes_of(cf::heads_own_file(p, B)) == "{broken",
               "unreadable: refused, left as it is: " + err);
     });
+
+    // Pit wall 13:25 / 13:34: a picture that never comes (the Managers page polled heads_staff_503.dds 303 times in 120 frames)
+    run_case("2.20 picture lookups: a picture that is not there (waiting for its export, or missing) is looked at once a second over "
+             "120 frames, never in every frame; it shows within about a second of arriving",
+             [&] {
+                 const fs::path root = g_out / "faces_safety_negcache";
+                 fs::remove_all(root);
+                 turbo::LegacyImages L(root);
+                 const std::string w = "data/ui/imgAssets/heads_staff/heads_staff_503.dds", m = "data/ui/imgAssets/heads_staff/heads_staff_504.dds";
+                 fs::create_directories(L.cache_dir());
+                 { std::ofstream(L.cache_dir() / "missing.txt") << m << "\n"; }
+                 double now = 100.0;
+                 L.next_frame();
+                 L.tick(now);
+                 fs::path f;
+                 CHECK(L.locate(w, &f) == turbo::LegacyImages::State::Waiting && L.locate(m, &f) == turbo::LegacyImages::State::Missing,
+                       "first look: one waits for its export, the game has not the other");
+                 // both files appear right after that look; a look at the file (the only way to see them) shows them at once
+                 put_file(L.cache_file(w), "dds");
+                 put_file(L.cache_file(m), "dds");
+                 int seen_w = 0, seen_m = 0;  // the frame each was first seen (0 = never)
+                 for (int i = 1; i <= 120; ++i) {
+                     now += 1.0 / 60.0;
+                     L.next_frame();
+                     L.tick(now);
+                     if (!seen_w && L.locate(w, &f) == turbo::LegacyImages::State::Game) seen_w = i;
+                     if (!seen_m && L.locate(m, &f) == turbo::LegacyImages::State::Game) seen_m = i;
+                 }
+                 CHECK(seen_w >= 50 && seen_w <= 70, "waiting: not looked at again for about a second, then seen (frame " + std::to_string(seen_w) + " of 120)");
+                 CHECK(seen_m >= 50 && seen_m <= 70, "missing: not looked at again for about a second, then seen (frame " + std::to_string(seen_m) + " of 120)");
+                 // a new missing.txt, a reload: looked at the next time
+                 const std::string w2 = "data/ui/imgAssets/heads_staff/heads_staff_505.dds";
+                 CHECK(L.locate(w2, &f) == turbo::LegacyImages::State::Waiting, "another picture waits");
+                 put_file(L.cache_file(w2), "dds");
+                 L.reload(w2);  // (removes the cached copy and asks again)
+                 put_file(L.cache_file(w2), "dds");
+                 CHECK(L.locate(w2, &f) == turbo::LegacyImages::State::Game, "after a reload: looked at at once");
+                 // calls without frames (unit callers, tools): every call looks, as before
+                 turbo::LegacyImages U(root / "u");
+                 fs::create_directories(U.cache_dir());
+                 const std::string u = "data/ui/imgAssets/heads/p1.dds";
+                 CHECK(U.locate(u, &f) == turbo::LegacyImages::State::Waiting, "no frames: waits");
+                 put_file(U.cache_file(u), "dds");
+                 CHECK(U.locate(u, &f) == turbo::LegacyImages::State::Game, "no frames: seen at the next call");
+                 fs::remove_all(root);
+             });
 }
 
 // A clean start for a UI case: every career's copy put back out of mods\legacy (as at a Turbo start), no career copies kept,
@@ -279,9 +325,6 @@ struct NoGamePicture {
     fs::path missing_txt;
     std::string keep_missing;
     std::vector<std::pair<fs::path, std::string>> moved;
-    // true: the paths stay listed in missing.txt afterwards (a picture the world's game truly lacks: Live Editor would list it
-    // too, and no page waits every frame for an export that never comes)
-    bool stays_missing = false;
     NoGamePicture(App& a, const std::vector<std::string>& rels) : app(a) {
         const fs::path cache = app.legacy.cache_dir();
         missing_txt = cache / "missing.txt";
@@ -299,13 +342,8 @@ struct NoGamePicture {
     }
     ~NoGamePicture() {
         for (const auto& [f, b] : moved) put_file(f, b);
-        if (stays_missing) {
-            // kept as it is now
-        } else if (keep_missing != "<absent>") {
-            put_file(missing_txt, keep_missing);
-        } else {
-            fs::remove(missing_txt);
-        }
+        if (keep_missing != "<absent>") put_file(missing_txt, keep_missing);
+        else fs::remove(missing_txt);
         app.legacy.refresh_missing();
     }
 };
