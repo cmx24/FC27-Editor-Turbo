@@ -109,7 +109,8 @@ local function build_world(sim)
                               teamcolor1r = (t[1] * 37) % 256, teamcolor1g = (t[1] * 59) % 256, teamcolor1b = (t[1] * 83) % 256,
                               teamcolor2r = 255, teamcolor2g = 255, teamcolor2b = 255, teamcolor3r = 0, teamcolor3g = 0, teamcolor3b = 0,
                               goalnetstanchioncolor1r = 200, goalnetstanchioncolor1g = 200, goalnetstanchioncolor1b = 200,
-                              defensivedepth = 50, buildupplay = 0 }
+                              defensivedepth = 50, buildupplay = 0,
+                              hastifo = (t[1] == 7) and 2 or 0, stanchionflamethrower = 0, crowdskintonecode = 70 }
     end
     sim:add_table({
         name = "teams", short = "lyxL",
@@ -126,6 +127,9 @@ local function build_world(sim)
             { name = "goalnetstanchioncolor1r", short = "gn1r", depth = 8 }, { name = "goalnetstanchioncolor1g", short = "gn1g", depth = 8 },
             { name = "goalnetstanchioncolor1b", short = "gn1b", depth = 8 },
             { name = "defensivedepth", short = "ddep", depth = 7, min = 1 }, { name = "buildupplay", short = "bupl", depth = 2 },
+            -- 2.20 K3 (club fields): the crowd columns of the club row
+            { name = "hastifo", short = "hast", depth = 2 }, { name = "stanchionflamethrower", short = "stfl", depth = 2 },
+            { name = "crowdskintonecode", short = "csnt", depth = 7 },
         },
         rows = trows,
     })
@@ -149,6 +153,8 @@ local function build_world(sim)
             -- 2.11 K1 (Teams > Colours): the kit fonts by name; 9 bits = 0..511 as in FC 27, the outline width 0..15 here
             { name = "jerseynamefonttype", short = "jnft", depth = 9 }, { name = "numberfonttype", short = "nbft", depth = 9 },
             { name = "shortsnumberfonttype", short = "snft", depth = 9 }, { name = "jerseynameoutlinewidth", short = "jnow", depth = 4 },
+            -- 2.20 K3 (club fields): kit extras
+            { name = "jerseyfit", short = "jfit", depth = 1 }, { name = "isgeneric", short = "isgn", depth = 1 },
         },
         rows = { { teamtechid = 1, teamkitid = 10, teamkittypetechid = 0, teamcolorprimr = 239, teamcolorprimg = 1, teamcolorprimb = 7,
                    teamcolorsecr = 255, teamcolorsecg = 255, teamcolorsecb = 255, jerseynamecolorr = 255, jerseynamecolorg = 255, jerseynamecolorb = 255, teamcolorprimpercent = 80,
@@ -161,6 +167,23 @@ local function build_world(sim)
                    teamcolorsecpercent = 10, jerseycollargeometrytype = 1, jerseynamelayouttype = 0, shortstyle = 2,
                    jerseynumbercolorprimr = 20, jerseynumbercolorprimg = 30, jerseynumbercolorprimb = 40,
                    jerseynamefonttype = 7, numberfonttype = 144, shortsnumberfonttype = 144, jerseynameoutlinewidth = 0 } },
+    })
+    -- 2.20 K3 (club fields): home grounds. Everton alone in stadium 10, Arsenal alone in 20, Inter and England share 30
+    sim:add_table({
+        name = "stadiums", short = "stdm",
+        fields = { { name = "stadiumid", short = "sdid", depth = 11, min = -1 }, { name = "name", short = "snam", type = "string", depth = 8 * 40 },
+                   { name = "tifo", short = "stif", depth = 1 }, { name = "defaultweather", short = "dwea", depth = 4 },
+                   { name = "seatcolor", short = "seat", depth = 3, min = 1 }, { name = "supportsunlicensedtifos", short = "sunt", depth = 1 },
+                   { name = "tod1weather", short = "tw1_", depth = 2 }, { name = "hasmexicanwave", short = "smxw", depth = 1 } },
+        rows = { { stadiumid = 10, name = "Goodison Test Park", tifo = 1, defaultweather = 0, seatcolor = 4, supportsunlicensedtifos = 1, tod1weather = 0, hasmexicanwave = 0 },
+                 { stadiumid = 20, name = "Emirates Test", tifo = 1, defaultweather = 2, seatcolor = 1, supportsunlicensedtifos = 1, tod1weather = 3, hasmexicanwave = 1 },
+                 { stadiumid = 30, name = "San Siro Test", tifo = 0, defaultweather = 4, seatcolor = 8, supportsunlicensedtifos = 1, tod1weather = 1, hasmexicanwave = 0 } },
+    })
+    sim:add_table({
+        name = "teamstadiumlinks", short = "tstl",
+        fields = { { name = "teamid", short = "tid_", depth = 18, min = -1 }, { name = "stadiumid", short = "sdid", depth = 11, min = -1 },
+                   { name = "forcedhome", short = "fhom", depth = 1 }, { name = "swapcrowdplacement", short = "swcp", depth = 1 } },
+        rows = { { teamid = 7, stadiumid = 10 }, { teamid = 1, stadiumid = 20 }, { teamid = 241, stadiumid = 30 }, { teamid = 1318, stadiumid = 30 } },
     })
     -- league tables (Competitions tab): Arsenal 3W 1D 0L 9:2, Everton 1W 1D 2L 3:6 in league 13; points left stale
     local LT = { [1] = { 2, 1, 0, 1, 0, 0, 5, 1, 4, 1, 0, 2 }, [7] = { 1, 0, 1, 0, 1, 1, 2, 2, 1, 4, 9, 1 } }
@@ -312,6 +335,8 @@ local function build_world(sim)
             { name = "gender", short = "gndr", depth = 1 },
             { name = "tattooleftarm", short = "tla_", depth = 10 },
             { name = "tattoohead", short = "thd_", depth = 10 },
+            { name = "runstylecode", short = "rsc_", depth = 5 },               -- 2.20 visual pickers: run style (FC 27 enum 0..23)
+            { name = "animfreekickstartposcode", short = "afk_", depth = 5 },   -- free-kick run-up
             { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },   -- FC 27's schema (fc27_db_schema.json): 1 .. 512
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "jerseyfit", short = "jfit", depth = 2 },   -- 0 Normal, 1 Tight, 2 Team Kit Fit (the My team preset test)

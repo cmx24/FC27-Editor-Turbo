@@ -56,10 +56,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     (void)le;
     const char* W = "##profilepage_test";
     const int64_t saved_sel = app.sel_player;
+    // the real build hooks the full player-type editor up (ui_players.cpp); the cases that need the smaller stand-in unhook it and put it back
+    const ArchetypeBarFn real_bar = g_ability_archetype_bar;
 
     run_case("ProfilePage: the Team > Players link defaults to the squad page the app has today, and the hook starts empty", [&] {
         CHECK(profile_team_players_page() == shell::Page::Squad, "link target");
-        CHECK(g_ability_archetype_bar == nullptr, "no player-type editor hooked up in the test build");
+        CHECK(g_ability_archetype_bar != nullptr, "the full player-type editor is hooked up");
     });
 
     run_case("ProfilePage: list, search, sections, names, commentary name, details, club summary read only", [&] {
@@ -163,7 +165,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* f : {"trait1", "icontrait1", "trait2", "icontrait2"})
             if (const Field* fl = t->field(f)) bit_boxes += std::min(fl->depth, 62);
         CHECK(st.playstyle_boxes == bit_boxes, "PlayStyle boxes: " + std::to_string(st.playstyle_boxes) + " of " + std::to_string(bit_boxes));
-        CHECK(st.stand_in_shown && !st.archetype_bar_external, "no hook: the smaller stand-in");
+        CHECK(st.archetype_bar_external && !st.stand_in_shown, "hooked: the full player-type editor, no stand-in");
         // the attribute sliders push the PlayStyle section out of view: close the attributes while it is looked at
         toggle(ui, "###ab_attrs", W);
         CHECK(ui.find("###ab_styles", W) != nullptr, "section: ###ab_styles");
@@ -177,12 +179,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("AbilityPage: Overall +1 goes through the shared overall write and both Undo buttons take it back", [&] {
         app.sel_player = 1001;
+        g_ability_archetype_bar = nullptr;  // the smaller stand-in has the +1 / -1 buttons
         show(ui, Which::Ability);
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style"}) toggle(ui, id, W);  // the attributes come into view
         const Table* t = app.db.table("players");
         const PlayerRow* pr = app.model.player(1001);
         CHECK(t && pr, "player 1001");
         if (!t || !pr) {
+            g_ability_archetype_bar = real_bar;
             hide(ui);
             return;
         }
@@ -202,6 +206,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // the single-field Undo of the header
         CHECK(ui.find("###ab_undo", W) != nullptr, "the Undo button is on the page");
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style"}) toggle(ui, id, W);  // open them again
+        g_ability_archetype_bar = real_bar;
         hide(ui);
     });
 
@@ -219,6 +224,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         g_ability_archetype_bar = nullptr;
         ui.frames(2);
         CHECK(player_ability_state().stand_in_shown, "unhooked again: the stand-in");
+        g_ability_archetype_bar = real_bar;
         hide(ui);
     });
 

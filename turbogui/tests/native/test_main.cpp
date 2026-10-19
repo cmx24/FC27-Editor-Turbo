@@ -3297,6 +3297,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
+#include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -3712,6 +3713,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_playtest_fixes.h"  // 1.1.1 playtest fixes (playtest_fix_cases, run near the end of test_ui)
 #include "test_names_tab.h"  // Players > Names (ui_cases_names_tab, run before the playtest fixes)
 #include "test_archetype_target.h"  // 2.3: archetype with a target overall (archetype_target_test::run_core, ::run_ui)
+#include "test_archetype_gen.h"     // 2.20 R3: archetype x overall x tier fills a whole player (archetype_gen_test::run_core, ::run_ui)
 #include "test_tactics_tab.h"  // Teams > Tactics (ui_cases_tactics_tab, run before the Names cases)
 #include "test_team_sheet.h"   // tactics channel E: the live team sheet on a simulated layout (team_sheet_test::run, ::ui_cases)
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
@@ -3741,6 +3743,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_import.h"   // 2.3: Teams > Kits, FIFA Kit Creator zips (test_kit_import, kit_import_ui_cases)
 #include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
+#include "test_club_fields.h"  // 2.20 K3: club, crowd, stadium and kit fields (club_fields_test::run / ui_cases)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
@@ -4922,6 +4925,8 @@ static void test_ui() {
             ui.frames(2);
             // ColorEdit3 pushes the picker's own id ("##c") and draws its R / G / B boxes as ##X / ##Y / ##Z
             CHECK(ui.find("##X", "##tcolours", "##c") != nullptr && ui.find("##Z", "##tcolours", "##c") != nullptr, "colour pickers drawn");
+            // 2.20 K3: the crowd and stadium sections sit above the kits now: scroll the tab to the kit like a person
+            parity_test::scroll_into_view(ui, "Home kit");
             CHECK(ui.find("Home kit", "##tcolours") != nullptr, "Everton's home kit listed");
             const Table* t = app.db.table("teams");
             uint64_t rec = app.db.find(*t, "teamid", 7);
@@ -4954,6 +4959,7 @@ static void test_ui() {
         });
 
         kit_fonts_ui_cases(app, ui, le);  // test_kit_fonts.h: the kit font pickers (2.11 K1), the Colours tab is still open
+        club_fields_test::ui_cases(app, ui, le);  // test_club_fields.h (2.20 K3): the club, crowd, stadium and kit fields (the database is still connected here)
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
             // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
@@ -8244,6 +8250,7 @@ static void test_ui() {
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Colours", "##tedit"), "Colours tab");
             ui.frames(2);
+            parity_test::scroll_into_view(ui, "Home kit");  // 2.20 K3: the kit sits below the crowd and stadium sections now
             CHECK(ui.click("Forget##kitkeep", "##tcolours"), "Forget Everton's home kit");
             CHECK(!app.reapply.kit(7, 0, 70) && app.reapply.kit(1, 1, 11), "Everton's kit forgotten, Arsenal's kept");
             app.request_tab = 0;
@@ -9813,10 +9820,12 @@ static void test_ui() {
         describe_ui_cases(app, ui);  // test_describe.h: edit log, undo toast, pickers, Technical details, the "no code N" walk
         ui_cases_names_tab(app, ui, mem, kMb);  // test_names_tab.h
         archetype_target_test::run_ui(app, ui, mem, kMb);  // test_archetype_target.h
+        archetype_gen_test::run_ui(app, ui, mem, kMb);  // test_archetype_gen.h (2.20 R3)
         playtest_fix_cases(app, ui, le);
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
+        visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
@@ -15532,6 +15541,7 @@ int main(int argc, char** argv) {
     test_kit_import();
     minikit_test::unit();  // test_minikits.h (2.20 K4)
     test_kit_fonts();
+    club_fields_test::run();  // test_club_fields.h (2.20 K3)
     kit_share_test::run();  // test_kit_share.h (2.13)
     kit_plan_test::run();   // test_kit_plan.h (2.20 K1)
     std::printf("native dev service\n");
@@ -15589,6 +15599,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
+    visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();
@@ -15622,6 +15633,8 @@ int main(int argc, char** argv) {
     parity_test::run_core();
     std::printf("native archetype with a target overall (2.3)\n");
     archetype_target_test::run_core();
+    std::printf("native archetype x overall x tier populate (2.20 R3)\n");
+    archetype_gen_test::run_core();
     std::printf("native create player prefill (2.19)\n");
     create_prefill_test::run_core();
     std::printf("native My team preset, growth defaults, descriptors (2.20)\n");

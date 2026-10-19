@@ -161,6 +161,7 @@ static void kit_fonts_ui_cases(App& app, Ui& ui, const fs::path& le) {
         const uint64_t row = app.db.find(*kt, "teamkitid", 70);
         const uint64_t ars = app.db.find(*kt, "teamkitid", 10);
         ui.frames(2);
+        parity_test::scroll_into_view(ui, "Home kit");  // 2.20 K3: the crowd and stadium sections above the kits push them down the tab
         CHECK(ui.find("##kf", "##tcolours", "numberfonttype") && ui.find("##kf", "##tcolours", "jerseynamefonttype") && ui.find("##kf", "##tcolours", "shortsnumberfonttype") &&
                   ui.find("##kf", "##tcolours", "jerseynamelayouttype"),
               "four named pickers on the kit");
