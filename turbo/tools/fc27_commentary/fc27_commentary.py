@@ -55,6 +55,7 @@ import argparse
 import concurrent.futures
 import ctypes
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -412,10 +413,10 @@ def backup_holds(game, lang, kind):
     return None
 
 
-def pack_data_source(game, lang):
+def pack_data_source(game, lang, use_backup=True):
     """Where the BYTES of an installed language are read from, one toc per kind (full, launch, licensed):
     the backup store <game>\\commentary first when it holds that kind (safe from EA-app cleanup), else the live copy
-    (<game>\\Patch\\Win32, then <game>\\Data\\Win32). A language that is not installed (installed_languages) has no
+    (<game>\\Patch\\Win32, then <game>\\Data\\Win32). use_backup=False reads the live copy only (to compare the two sources). A language that is not installed (installed_languages) has no
     data source at all: a backup copy alone gives nothing ("tocs" empty, "backup_only" True). Result:
       {"lang", "installed", "backup_only", "source": "backup" | "live" | "backup+live" | None,
        "kinds": {kind: "backup" | "live"}, "tocs": [paths], "notes": [str]}"""
@@ -431,7 +432,7 @@ def pack_data_source(game, lang):
             if os.path.isfile(p):
                 live = p
                 break
-        bak = backup_holds(game, lang, kind)
+        bak = backup_holds(game, lang, kind) if use_backup else None
         if bak:
             out["tocs"].append(bak)
             out["kinds"][kind] = "backup"
@@ -1346,6 +1347,18 @@ def self_test(game, log=print):
         log("on disk (ita_it, %s):" % game)
         bank = Bank(game, "ita_it")
         try:
+            log("  data source: %s" % bank.data_source["source"])
+            if bank.data_source["source"] != "live":        # both copies on disk: the source must not change a list
+                live = Bank(game, "ita_it", tocs=pack_data_source(game, "ita_it", use_backup=False)["tocs"])
+                try:
+                    def lists(b):
+                        gen = merge_rows(selection_rows(b.load_family("psimple_surname"), "surname_ID"), "commentaryid")
+                        text = "\n".join(b.families()) + "\n" + json.dumps(gen, sort_keys=True)
+                        return hashlib.md5(text.encode()).hexdigest()
+                    check("backup copy and live copy give the same family list and generic rows (md5)",
+                          lists(bank) == lists(live))
+                finally:
+                    live.close()
             gen = merge_rows(selection_rows(bank.load_family("psimple_surname"), "surname_ID"), "commentaryid")
             by = {}
             for r in gen:
