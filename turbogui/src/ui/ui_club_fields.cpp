@@ -296,8 +296,8 @@ void draw_club_crowd_section(App& app, const Table& teams, uint64_t rec) {
     draw_defs(app, teams, rec, cf::Section::Crowd, team);
     ImGui::Spacing();
     undo_line(app, team, "crowd");
-    ImGui::TextDisabled("Each choice is written to the career at once. The game uses crowd and presentation changes when a match is loaded.");
-    ImGui::TextDisabled("Not proven yet: whether they show in a match, and whether they survive saving and loading the career.");
+    ImGui::TextDisabled("Each choice is written at once. These changes last only until the next career load: Turbo does not keep them yet.");
+    ImGui::TextDisabled("Not proven yet: whether they show in a match.");
     ImGui::PopID();
 }
 
@@ -324,8 +324,8 @@ void draw_home_ground_section(App& app, int64_t teamid) {
     draw_defs(app, *st, hg.rec, cf::Section::HomeGround, teamid);
     ImGui::Spacing();
     undo_line(app, teamid, "home");
-    ImGui::TextDisabled("Each choice is written to the career at once. The game reads the stadium again when a match is loaded.");
-    ImGui::TextDisabled("Not proven yet: whether the choices show in a match, and whether they survive saving and loading the career.");
+    ImGui::TextDisabled("Each choice is written at once. These changes last only until the next career load: Turbo does not keep them yet.");
+    ImGui::TextDisabled("Not proven yet: whether the choices show in a match.");
     ImGui::PopID();
 }
 
@@ -335,7 +335,7 @@ void draw_kit_extras_section(App& app, const Table& teamkits, uint64_t rec) {
     draw_defs(app, teamkits, rec, cf::Section::KitExtras, team);
     ImGui::Spacing();
     undo_line(app, team, "kit");
-    ImGui::TextDisabled("These are written to the career at once but last only until the next career load: the game reads its kits again then.");
+    ImGui::TextDisabled("Each choice is written at once. These changes last only until the next career load: Turbo does not keep them yet.");
     ImGui::PopID();
 }
 

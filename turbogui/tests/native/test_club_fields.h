@@ -194,6 +194,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         using shell::Page;
         club_field_undo_clear();
         const std::string store_before = slurp(reapply_store_path(le));
+        const std::string kept0 = club_page_test::kept_rows(app.reapply);
+        const size_t players0 = app.reapply.players.size(), callnames0 = app.reapply.callnames.size();
+        const int64_t sel0 = app.sel_team;
         app.sel_team = 7;
         const Table* t = app.db.table("teams");
         const Table* st = app.db.table("stadiums");
@@ -241,13 +244,17 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(undo_club_field(app, &msg) && app.db.get_int(*t, rec, "hastifo") == 2 && club_field_undo_depth() == 0, "undone: tifo back to 2: " + msg);
         CHECK(!undo_club_field(app, &msg) && msg.find("Nothing") != std::string::npos, "nothing left to undo: " + msg);
         // the kept-edits store: untouched
-        CHECK(app.reapply.empty() && slurp(reapply_store_path(le)) == store_before, "no reapply row was made and the store file is byte-identical");
+        CHECK(club_page_test::kept_rows(app.reapply) == kept0 && app.reapply.players.size() == players0 && app.reapply.callnames.size() == callnames0 &&
+                  slurp(reapply_store_path(le)) == store_before,
+              "no reapply row was made and the store file is byte-identical");
+        app.sel_team = sel0;
         club_page_test::hide(ui);
     });
 
     run_case("club fields UI: Home ground - the club's own stadium, shared grounds, a checkbox On/Off", [&] {
         using shell::Page;
         club_field_undo_clear();
+        const int64_t sel0 = app.sel_team;
         const HomeGround e = home_ground_of(app, 7);
         CHECK(e.found && e.stadiumid == 10 && e.name == "Goodison Test Park" && e.shared_with == 0, "Everton: stadium 10 by name, alone");
         const HomeGround inter = home_ground_of(app, 241);
@@ -284,6 +291,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         }
         CHECK(undo_club_field(app, &msg) && app.db.get_int(*st, e.rec, "hasmexicanwave") == 0, "undone: " + msg);
         CHECK(undo_club_field(app, &msg) && app.db.get_int(*st, e.rec, "defaultweather") == 0, "undone: weather back to Clear: " + msg);
+        app.sel_team = sel0;
         club_page_test::hide(ui);
     });
 
@@ -294,14 +302,21 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (!kt || !kt->field("jerseyfit")) return;
         const uint64_t row = app.db.find(*kt, "teamkitid", 70);
         std::string msg;
-        CHECK(app.db.get_int(*kt, row, "jerseyfit") == 0, "Everton's home kit: Normal fit");
-        CHECK(write_club_field(app, *kt, row, "jerseyfit", 1, &msg) && app.db.get_int(*kt, row, "jerseyfit") == 1 && club_field_undo_top_team() == 7, "Tight: " + msg);
-        CHECK(!write_club_field(app, *kt, row, "jerseyfit", 2, &msg) && app.db.get_int(*kt, row, "jerseyfit") == 1, "Team Kit Fit (2) is outside FC 27: refused");
-        CHECK(write_club_field(app, *kt, row, "shortstyle", 3, &msg) && app.db.get_int(*kt, row, "shortstyle") == 3, "shorts Style 3: " + msg);
+        // earlier cases of a full run may have written this kit: take its values as they are and return to them
+        const std::string kept0 = club_page_test::kept_rows(app.reapply);
+        const int64_t fit0 = app.db.get_int(*kt, row, "jerseyfit"), shorts0 = app.db.get_int(*kt, row, "shortstyle");
+        const int fit1 = fit0 == 0 ? 1 : 0;
+        int shorts1 = 3;
+        for (int v : {3, 2, 6, 7, 0})
+            if (v != shorts0) { shorts1 = v; break; }
+        CHECK(write_club_field(app, *kt, row, "jerseyfit", fit1, &msg) && app.db.get_int(*kt, row, "jerseyfit") == fit1 && club_field_undo_top_team() == 7,
+              "fit changed: " + msg);
+        CHECK(!write_club_field(app, *kt, row, "jerseyfit", 2, &msg) && app.db.get_int(*kt, row, "jerseyfit") == fit1, "Team Kit Fit (2) is outside FC 27: refused");
+        CHECK(write_club_field(app, *kt, row, "shortstyle", shorts1, &msg) && app.db.get_int(*kt, row, "shortstyle") == shorts1, "shorts changed: " + msg);
         CHECK(!write_club_field(app, *kt, row, "shortstyle", 1, &msg), "shorts 1 (GK Pants) is not in the stock set: refused");
-        CHECK(app.reapply.empty(), "a kit extra is live only: no reapply row");
-        CHECK(undo_club_field(app, &msg) && app.db.get_int(*kt, row, "shortstyle") == 2, "undone: shorts back to the world's value 2: " + msg);
-        CHECK(undo_club_field(app, &msg) && app.db.get_int(*kt, row, "jerseyfit") == 0, "undone: fit back to Normal: " + msg);
+        CHECK(club_page_test::kept_rows(app.reapply) == kept0, "a kit extra is live only: no reapply row");
+        CHECK(undo_club_field(app, &msg) && app.db.get_int(*kt, row, "shortstyle") == shorts0, "undone: shorts back to where they were: " + msg);
+        CHECK(undo_club_field(app, &msg) && app.db.get_int(*kt, row, "jerseyfit") == fit0, "undone: fit back to where it was: " + msg);
     });
 }
 
