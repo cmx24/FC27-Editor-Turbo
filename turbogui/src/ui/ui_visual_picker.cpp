@@ -671,7 +671,6 @@ void visual_pictures_setting(App& app) {
         const std::string cur = vis::load_folder_setting(app.turbo_output());
         std::snprintf(s.folder_edit, sizeof(s.folder_edit), "%s", cur.empty() ? vis::kDefaultRoot : cur.c_str());
     }
-    ImGui::SeparatorText("Pictures for the pickers");
     ImGui::SetNextItemWidth(S(360.0f));
     ImGui::InputText("RDBM26 folder###vpfolder", s.folder_edit, sizeof(s.folder_edit));
     ImGui::SameLine();

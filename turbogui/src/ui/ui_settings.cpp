@@ -50,11 +50,12 @@ void draw_settings_page(App& app) {
         if (app.prefs.advanced_mode && ImGui::IsItemHovered())
             ImGui::SetTooltip("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
         draw_preferences(app);
-        visual_pictures_setting(app);  // ui_visual_picker.cpp (2.20 V): the RDBM26 folder of the pickers
         ImGui::Spacing();
     }
     draw_status_health(app);  // pictures, health, technical details (collapsed)
     draw_log_section(app, "settings.log");
+    // 2.20 V: the RDBM26 folder of the pickers (ui_visual_picker.cpp), closed at first and last so it moves no other section
+    if (collapsing_section(app, "settings.pictures", "Pictures for the pickers", false)) visual_pictures_setting(app);
 }
 
 }  // namespace
