@@ -1,0 +1,500 @@
+// FC 27 LE Turbo GUI - Players > Edit player > Profile and Positions, attributes & PlayStyles (see ui_player_profile.h; brief 2.20-IA-pages).
+// New file; every editor on these pages is one that already exists. The two pages replace the Profile, Names, Attributes, PlayStyles and
+// Callname tabs of the old Edit a player panel (ui_players.cpp, untouched). Words, not codes: an ID shows on hover only.
+#include "ui_player_profile.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cfloat>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "app.h"
+#include "core/field_labels.h"
+#include "core/model.h"
+#include "imgui.h"
+#include "playstyles.h"
+#include "table_registry.h"
+#include "ui_names.h"
+#include "ui_player_page.h"
+#include "ui_shell.h"
+#include "ui_theme.h"
+
+namespace turbo {
+
+ArchetypeBarFn g_ability_archetype_bar = nullptr;
+
+namespace {
+
+PlayerProfileState g_pstate;
+PlayerAbilityState g_astate;
+shell::Page g_team_page = shell::Page::Squad;
+
+// ---------------------------------------------------------------- the player list (shared by both pages)
+char g_search[64] = "";
+bool g_my_club = false, g_free = false;
+int g_pos = -1;
+std::vector<int64_t> g_ids;  // the players the list shows, in order (ids, not pointers: the model may rebuild)
+std::string g_list_key;
+uint64_t g_list_version = ~uint64_t(0);
+size_t g_listed = 0;
+
+std::string lower_ascii(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+void rebuild_list(App& app, const PlayerPageFilter& f, int64_t user_team) {
+    std::vector<const PlayerRow*> rows;
+    for (const PlayerRow& p : app.model.players())
+        if (player_page_matches(p, f, user_team)) rows.push_back(&p);
+    // a narrowed list (your club, free agents) reads best by rating; the whole game by name
+    const bool by_rating = f.my_club || f.free_agents;
+    std::stable_sort(rows.begin(), rows.end(), [&](const PlayerRow* a, const PlayerRow* b) {
+        if (by_rating && a->overall != b->overall) return a->overall > b->overall;
+        return lower_ascii(a->name) < lower_ascii(b->name);
+    });
+    g_ids.clear();
+    g_ids.reserve(rows.size());
+    for (const PlayerRow* r : rows) g_ids.push_back(r->playerid);
+    // the pictures the list will want first
+    app.list_player_ids.assign(g_ids.begin(), g_ids.begin() + static_cast<std::ptrdiff_t>(std::min<size_t>(g_ids.size(), 300)));
+}
+
+bool chip(const char* label, bool* on) {
+    const bool lit = *on;
+    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent());
+    const bool hit = ImGui::SmallButton(label);
+    if (lit) ImGui::PopStyleColor();
+    if (hit) *on = !*on;
+    return hit;
+}
+
+void select_panel(App& app, void*) {
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##pfsearch", "Search by name or club", g_search, sizeof(g_search));
+    const int64_t user = app.bridge.state().user_team;
+    const bool had_mine = g_my_club;
+    if (user > 0) {
+        chip("My club###pf_chip_mine", &g_my_club);
+        ImGui::SameLine();
+    }
+    chip("Free agents###pf_chip_free", &g_free);
+    if (g_my_club && !had_mine) g_free = false;
+    ImGui::SameLine();
+    position_combo("##pfpos", g_pos, S(110.0f), "Any position");
+
+    PlayerPageFilter f;
+    f.text = lower_ascii(g_search);
+    f.my_club = g_my_club && user > 0;
+    f.free_agents = g_free && !f.my_club;
+    f.position = g_pos;
+    const std::string key = f.text + "|" + (f.my_club ? "m" : "-") + (f.free_agents ? "f" : "-") + "|" + std::to_string(f.position) + "|" +
+                            std::to_string(user);
+    if (key != g_list_key || app.model.version() != g_list_version) {
+        rebuild_list(app, f, user);
+        g_list_key = key;
+        g_list_version = app.model.version();
+    }
+    g_listed = g_ids.size();
+    theme::muted_text("%zu players", g_ids.size());
+
+    if (ImGui::BeginTable("##players", 3, tbl::kData | ImGuiTableFlags_ScrollY, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+        ImGui::TableSetupScrollFreeze(0, 0);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
+        ImGui::TableSetupColumn("Rating", ImGuiTableColumnFlags_WidthFixed, S(30.0f));
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(g_ids.size()));
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const PlayerRow* p = app.model.player(g_ids[static_cast<size_t>(i)]);
+                if (!p) continue;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                char lbl[200];
+                std::snprintf(lbl, sizeof(lbl), "%s###pf%lld", p->name.c_str(), static_cast<long long>(p->playerid));
+                if (ImGui::Selectable(lbl, app.sel_player == p->playerid, ImGuiSelectableFlags_SpanAllColumns)) app.sel_player = p->playerid;
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s%s\nPlayer ID %lld", p->club_name.empty() ? "No club" : p->club_name.c_str(), p->on_loan ? " (on loan)" : "",
+                                      static_cast<long long>(p->playerid));
+                }
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(position_name(p->position));
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", p->overall);
+            }
+        }
+        ImGui::EndTable();
+    }
+}
+
+// ---------------------------------------------------------------- shared pieces of an editor
+// The picked player and his table, or false after drawing the reason (nobody picked, the data changed)
+bool picked(App& app, const Table*& t, const PlayerRow*& p) {
+    t = app.db.table("players");
+    p = app.model.player(app.sel_player);
+    if (!t || !p) {
+        theme::muted_text("Pick a player on the left.");
+        return false;
+    }
+    if (!app.db.table_alive(*t, p->rec)) {
+        theme::err_text("The game data changed (another career was loaded?). Use Refresh at the top.");
+        return false;
+    }
+    return true;
+}
+
+std::string headline_of(const PlayerRow& p) {
+    char head[200];
+    std::snprintf(head, sizeof(head), "%s, %s, overall %d, potential %d", position_name(p.position),
+                  p.club_name.empty() ? "no club" : p.club_name.c_str(), p.overall, p.potential);
+    return head;
+}
+
+// name, one line of facts (the ID on hover), Undo of his last field edit
+void editor_header(App& app, const PlayerRow& p, const std::string& head, const char* undo_id) {
+    ImGui::TextUnformatted(p.name.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Player ID %lld", static_cast<long long>(p.playerid));
+    ImGui::SameLine();
+    theme::muted_text("%s", head.c_str());
+    const size_t n = app.undo_count(p.playerid);
+    char ul[64];
+    std::snprintf(ul, sizeof(ul), "Undo (%zu)%s", n, undo_id);
+    const float w = ImGui::CalcTextSize(ul).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SameLine();
+    const float room = ImGui::GetContentRegionAvail().x - w;
+    if (room > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room);
+    if (n == 0) ImGui::BeginDisabled();
+    if (ImGui::SmallButton(ul)) app.undo(p.playerid);
+    if (n == 0) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Puts back the last change made to this player");
+    ImGui::Separator();
+}
+
+// One section: a header that is open at first; the caller draws the content when this returns true
+bool section(const char* label) { return ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen); }
+
+// A field's value in words ("" when the table has no such field)
+std::string shown(App& app, const Table& t, uint64_t rec, const char* field) {
+    const Field* f = t.field(field);
+    if (!f) return "";
+    Value v;
+    if (!app.db.get(t, rec, *f, v)) return "";
+    return app.describe_value(t, *f, v);
+}
+
+std::string with_commas(long long n) {
+    std::string s = std::to_string(n < 0 ? -n : n);
+    for (int i = static_cast<int>(s.size()) - 3; i > 0; i -= 3) s.insert(static_cast<size_t>(i), ",");
+    return n < 0 ? "-" + s : s;
+}
+
+// ---------------------------------------------------------------- Profile
+void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
+    // the club (and loan) in words; every team he is linked to with his shirt number
+    std::string club = p.club_name.empty() ? "none (free agent)" : p.club_name;
+    if (p.on_loan && p.loaned_from > 0) club += " (on loan from " + app.model.team_name(p.loaned_from) + ")";
+    else if (p.on_loan) club += " (on loan)";
+    g_pstate.club_line = "Club: " + club;
+    ImGui::TextUnformatted(g_pstate.club_line.c_str());
+    if (ImGui::IsItemHovered() && p.club > 0) ImGui::SetTooltip("Club ID %lld", static_cast<long long>(p.club));
+
+    std::string contract;
+    if (t.field("contractvaliduntil")) contract = "Contract until " + shown(app, t, p.rec, "contractvaliduntil");
+    if (t.field("wage")) {
+        const long long wage = static_cast<long long>(app.db.get_int(t, p.rec, "wage", 0));
+        contract += std::string(contract.empty() ? "Wage " : ", wage ") + with_commas(wage);
+    }
+    g_pstate.contract_line = contract;
+    if (!contract.empty()) ImGui::TextUnformatted(contract.c_str());
+    if (t.field("releaseclause")) {
+        const long long rc = static_cast<long long>(app.db.get_int(t, p.rec, "releaseclause", 0));
+        if (rc > 0) ImGui::Text("Release clause %s", with_commas(rc).c_str());
+    }
+    if (const Table* lt = app.db.table("teamplayerlinks")) {
+        for (const auto& l : app.model.links_of_player(p.playerid)) {
+            std::string line = app.model.team_name(l.teamid);
+            if (app.model.is_national_team(l.teamid)) line += " (national team)";
+            const int64_t shirt = app.db.get_int(*lt, l.rec, "jerseynumber", -1);
+            if (shirt >= 0) line += ", shirt number " + std::to_string(shirt);
+            theme::muted_text("%s", line.c_str());
+        }
+    }
+    if (const Field* jf = t.field("playerjointeamdate")) date_field_editor(app, t, p.rec, *jf, "Joined his club");
+    theme::muted_text("Contract, morale, growth and squad role are edited under Team > Players.");
+    if (ImGui::Button("Open Team > Players###pf_team")) app.go(g_team_page);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contract, morale, growth and squad role of the players of one club");
+    g_pstate.team_link_shown = true;
+}
+
+void profile_editor(App& app, void*) {
+    g_pstate.team_link_shown = false;
+    g_pstate.callname_shown = false;
+    const Table* t = nullptr;
+    const PlayerRow* p = nullptr;
+    if (!picked(app, t, p)) {
+        g_pstate.playerid = 0;
+        return;
+    }
+    g_pstate.playerid = p->playerid;
+    g_pstate.listed = g_listed;
+    g_pstate.headline = headline_of(*p);
+    editor_header(app, *p, g_pstate.headline, "###pf_undo");
+
+    if (section("Name shown in game###pf_names")) names_editor(app, *t, *p);
+
+    if (section("What the commentator says###pf_callname")) {
+        g_pstate.callname_shown = true;
+        callname_editor(app, *t, *p);
+    }
+
+    if (section("Personal details###pf_details")) {
+        if (p->age >= 0) theme::muted_text("Age %d", p->age);
+        if (const Field* bf = t->field("birthdate")) date_field_editor(app, *t, p->rec, *bf, "Date of birth");
+        field_grid(app, *t, p->rec, {"nationality", "internationalrep", "height", "weight", "gender", "personality", "emotion", "isretiring"},
+                   "##pf_detailgrid", 2);
+        if (ImGui::TreeNodeEx("Name editing and custom flags###pf_flags", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            field_grid(app, *t, p->rec, {"usercaneditname", "iscustomized"}, "##pf_flaggrid", 2);
+            ImGui::TreePop();
+        }
+    }
+
+    if (section("Club and contract###pf_club")) profile_club_summary(app, *t, *p);
+}
+
+// ---------------------------------------------------------------- Positions, attributes & PlayStyles
+const std::vector<std::pair<const char*, std::vector<const char*>>>& attribute_groups() {
+    static const std::vector<std::pair<const char*, std::vector<const char*>>> g = {
+        {"Pace", {"acceleration", "sprintspeed"}},
+        {"Shooting", {"positioning", "finishing", "shotpower", "longshots", "volleys", "penalties"}},
+        {"Passing", {"vision", "crossing", "freekickaccuracy", "shortpassing", "longpassing", "curve"}},
+        {"Dribbling", {"agility", "balance", "reactions", "ballcontrol", "dribbling", "composure"}},
+        {"Defending", {"interceptions", "headingaccuracy", "defensiveawareness", "marking", "standingtackle", "slidingtackle"}},
+        {"Physical", {"jumping", "stamina", "strength", "aggression"}},
+        {"Goalkeeping", {"gkdiving", "gkhandling", "gkkicking", "gkpositioning", "gkreflexes"}},
+    };
+    return g;
+}
+
+void positions_block(App& app, const Table& t, uint64_t rec) {
+    for (int k = 1; k <= 7; ++k) {
+        const Field* f = t.field("preferredposition" + std::to_string(k));
+        if (!f) continue;
+        Value v;
+        if (!app.db.get(t, rec, *f, v)) continue;
+        ImGui::PushID(k);
+        char lbl[32];
+        if (k == 1) std::snprintf(lbl, sizeof(lbl), "Main position");
+        else std::snprintf(lbl, sizeof(lbl), "Position %d", k);
+        form_label(lbl, k == 1 ? "The main position (the overall formula follows it)" : "A further preferred position, or None");
+        int cur = static_cast<int>(v.i);
+        if (position_combo("##ab_pos", cur, S(190.0f), f->min <= -1 ? "None" : nullptr, static_cast<int>(std::max<int64_t>(0, f->min)),
+                           static_cast<int>(f->max())))
+            app.edit(t, rec, *f, Value::of_int(cur));
+        ImGui::PopID();
+        ++g_astate.position_rows;
+    }
+}
+
+// The attributes: one heading per category with its average; two columns when the pane is wide
+void attribute_sliders(App& app, const Table& t, uint64_t rec) {
+    const bool wide = ImGui::GetContentRegionAvail().x >= S(760.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(10.0f), S(10.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(6.0f), S(4.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(S(14.0f), S(3.0f)));
+    for (const auto& g : attribute_groups()) {
+        long long sum = 0;
+        std::vector<const Field*> present;
+        for (const char* fn : g.second)
+            if (const Field* f = t.field(fn)) {
+                present.push_back(f);
+                sum += app.db.get_int(t, rec, fn, 0);
+            }
+        if (present.empty()) continue;
+        ImGui::Dummy(ImVec2(0, S(6.0f)));
+        char hdr[96];
+        std::snprintf(hdr, sizeof(hdr), "%s  (average %.1f)", g.first, double(sum) / static_cast<double>(present.size()));
+        ImGui::SeparatorText(hdr);
+        ImGui::PushID(g.first);
+        if (ImGui::BeginTable("##sl", wide ? 2 : 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+            for (const Field* f : present) {
+                ImGui::TableNextColumn();
+                slider_editor_ex(app, t, rec, *f, field_label(f->name).c_str(), S(wide ? 132.0f : 150.0f), -FLT_MIN, S(58.0f));
+                ++g_astate.attribute_sliders;
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopStyleVar(3);
+}
+
+// The check boxes of one bit field (PlayStyles, PlayStyles+, Traits, Traits+) with All / None
+void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names) {
+    const Field* f = t.field(field);
+    if (!f) {
+        theme::muted_text("Not available in this game version.");
+        return;
+    }
+    Value v;
+    if (!app.db.get(t, rec, *f, v)) return;
+    ImGui::PushID(field);
+    const int bits = std::min(f->depth, 62);
+    if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+        for (int b = 0; b < bits; ++b) {
+            ImGui::TableNextColumn();
+            bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
+            char name[48];
+            if (b < static_cast<int>(names.size()) && names[static_cast<size_t>(b)]) std::snprintf(name, sizeof(name), "%s", names[static_cast<size_t>(b)]);
+            else std::snprintf(name, sizeof(name), "Unnamed bit %d", b);
+            char lbl[96];
+            std::snprintf(lbl, sizeof(lbl), "%s###ab_bit%d", name, b);
+            if (ImGui::Checkbox(lbl, &on)) {
+                uint64_t raw = static_cast<uint64_t>(v.i - f->min);
+                raw = on ? (raw | (uint64_t(1) << b)) : (raw & ~(uint64_t(1) << b));
+                app.edit(t, rec, *f, Value::of_int(static_cast<int64_t>(raw) + f->min));
+            }
+            ++g_astate.playstyle_boxes;
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::SmallButton("All###ab_all")) app.edit(t, rec, *f, Value::of_int(f->max()));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("None###ab_none")) app.edit(t, rec, *f, Value::of_int(f->min));
+    ImGui::PopID();
+}
+
+// While the full player-type editor (ui_players.cpp archetype_bar) is not hooked up: Overall +1 / -1 and Undo last big change, which use the
+// same shared writes (App::set_overall, App::bulk_undo) as the editor does
+void archetype_stand_in(App& app, const Table& t, const PlayerRow& p) {
+    g_astate.stand_in_shown = true;
+    const Field* of = t.field("overallrating");
+    const int64_t stored = app.db.get_int(t, p.rec, "overallrating", 0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Overall %lld", static_cast<long long>(stored));
+    for (int delta : {-1, 1}) {
+        ImGui::SameLine();
+        const bool in_range = of && stored + delta >= std::max<int64_t>(1, of->min) && stored + delta <= std::min<int64_t>(99, of->max());
+        if (!in_range) ImGui::BeginDisabled();
+        if (ImGui::Button(delta > 0 ? "Overall +1###ab_ovr_up" : "Overall -1###ab_ovr_down")) {
+            if (!app.set_overall(t, p.rec, stored + delta)) app.notify("The overall could not be changed this way.", true);
+        }
+        if (!in_range) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Moves the attributes that count most for his position");
+    }
+    size_t mine = 0;
+    for (const auto& u : app.bulk_undo) mine += u.playerid == p.playerid;
+    ImGui::SameLine();
+    if (!mine) ImGui::BeginDisabled();
+    char ulbl[64];
+    std::snprintf(ulbl, sizeof(ulbl), "Undo last big change (%zu)###ab_bulkundo", mine);
+    if (ImGui::Button(ulbl)) {
+        auto& st = app.bulk_undo;
+        for (size_t i = st.size(); i-- > 0;) {
+            if (st[i].playerid != p.playerid) continue;
+            const App::BulkUndo u = st[i];
+            st.erase(st.begin() + static_cast<long>(i));
+            for (const auto& b : u.before)
+                if (const Field* f = t.field(b.first)) app.edit_field(t, p.rec, *f, Value::of_int(b.second));
+            app.notify("undone: " + u.label);
+            break;
+        }
+    }
+    if (!mine) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Puts back everything the last Overall +1 / -1 click changed (the Undo button at the top is for single fields)");
+    theme::muted_text("Reshaping the attributes to a player type with a wanted overall is added when this page is wired in.");
+}
+
+void ability_editor(App& app, void*) {
+    g_astate.archetype_bar_external = false;
+    g_astate.stand_in_shown = false;
+    g_astate.position_rows = 0;
+    g_astate.attribute_sliders = 0;
+    g_astate.playstyle_boxes = 0;
+    const Table* t = nullptr;
+    const PlayerRow* p = nullptr;
+    if (!picked(app, t, p)) {
+        g_astate.playerid = 0;
+        return;
+    }
+    g_astate.playerid = p->playerid;
+    g_astate.listed = g_listed;
+    g_astate.headline = headline_of(*p);
+    editor_header(app, *p, g_astate.headline, "###ab_undo");
+
+    if (section("Overall and potential###ab_ovr")) {
+        field_grid(app, *t, p->rec, {"overallrating", "potential", "modifier"}, "##ab_ovrgrid", 3);
+        theme::muted_text("The game works the shown overall out from the attributes: a typed overall moves the attributes that count most for his position.");
+        reapply_player_line(app, *p);  // kept for every career load, his development plan
+    }
+    if (section("Positions###ab_positions")) positions_block(app, *t, p->rec);
+    if (section("Playing style and roles###ab_style")) {
+        field_grid(app, *t, p->rec,
+                   {"preferredfoot", "weakfootabilitytypecode", "skillmoves", "attackingworkrate", "defensiveworkrate", "skillmoveslikelihood",
+                    "gkkickstyle", "runstylecode", "growthprofile"},
+                   "##ab_stylegrid", 2);
+        if (ImGui::TreeNodeEx("Roles###ab_roles", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9"}, "##ab_rolegrid", 2);
+            ImGui::TreePop();
+        }
+    }
+    if (section("Attributes###ab_attrs")) {
+        if (g_ability_archetype_bar) {
+            g_astate.archetype_bar_external = true;
+            g_ability_archetype_bar(app, *t, *p);
+        } else {
+            archetype_stand_in(app, *t, *p);
+        }
+        attribute_sliders(app, *t, p->rec);
+    }
+    if (section("PlayStyles and traits###ab_styles")) {
+        struct Set { const char* title; const char* field; bool second; };
+        const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
+        for (const Set& s : sets) {
+            ImGui::SeparatorText(s.title);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stored as %s", s.field);
+            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names());
+        }
+    }
+}
+
+// The editor alone, framed so that it scrolls like a page
+void editor_scroll(App& app, void (*fn)(App&, void*)) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    fn(app, nullptr);
+}
+
+}  // namespace
+
+shell::Page& profile_team_players_page() { return g_team_page; }
+
+const PlayerProfileState& player_profile_state() { return g_pstate; }
+const PlayerAbilityState& player_ability_state() { return g_astate; }
+
+void draw_player_profile(App& app) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    shell::page::frame(app, select_panel, profile_editor, nullptr, nullptr);
+}
+void draw_player_profile_editor(App& app) { editor_scroll(app, profile_editor); }
+
+void draw_player_ability(App& app) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    shell::page::frame(app, select_panel, ability_editor, nullptr, nullptr);
+}
+void draw_player_ability_editor(App& app) { editor_scroll(app, ability_editor); }
+
+}  // namespace turbo
