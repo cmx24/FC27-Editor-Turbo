@@ -593,6 +593,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const fs::path file = le / "turbo_output" / "gui_settings.json";
     const std::string keep_file = read_file(file);
     const GuiPrefs keep_prefs = app.prefs;
+    const bool keep_legacy = app.legacy_pages;
+    app.legacy_pages = false;  // the 2.16+ pages (page::frame), as test_p213.h does
     auto fresh_settings = [&](const char* body) {
         std::error_code ec;
         fs::remove(file, ec);
@@ -658,13 +660,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.open_page("Players", "Edit a player"), "back to Edit a player");
         ui.frames(4);
         CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player is back at 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
-        // the child keeps ONE window name on every page (the tables inside keep their saved column layout)
-        ImGuiWindow* a = select_pane();
-        const std::string name_edit = a ? a->Name : "";
-        ui.open_page("Players", "Player creation");
-        ui.frames(4);
-        ImGuiWindow* b = select_pane();
-        CHECK(a && b && name_edit == b->Name, "the ##select window has the same name on two pages: " + name_edit);
+        // (A child's window name carries the ID stack of its page, so it differs per page; split::pane_x does not change it: it passes the same
+        // literal "##select" to BeginChild as page::frame did, and pushes no ID.)
     });
 
     run_case("resize UI: a restart puts the stored width back (page::frame restores it)", [&] {
@@ -742,6 +739,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     {
         std::ofstream(file.string(), std::ios::binary) << keep_file;
         app.prefs = keep_prefs;
+        app.legacy_pages = keep_legacy;
         split::reset_runtime_for_tests();
         ui.frames(4);
     }

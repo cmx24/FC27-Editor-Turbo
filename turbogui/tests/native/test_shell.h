@@ -312,10 +312,14 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.go(Page::Settings);
         settle();
         CHECK(app.place() == place_of(Page::Settings), "on the Settings page");
-        // 2.22: "Look and feel" (open by default) is the first section, so the later ones can start below the visible part: scroll to them as a user would
-        CHECK(ui.find_scrolling("Log", "", "") != nullptr && ui.find_scrolling("Preferences", "", "") != nullptr, "sections drawn");
-        CHECK(ui.find_scrolling("##rowheight", "", "") != nullptr, "the Row height slider of Look and feel (replaces the List spacing box)");
-        CHECK(ui.find_scrolling("Change...##hotkey", "", "status") != nullptr, "the preferences of the old Status tab");
+        // 2.22: "Look and feel" is the first section and open by default, so Game link / Preferences / Log start below the visible part of the
+        // test window. Close it for the look at the sections (its Row height slider is checked in test_ux_resize.h), then put the default back.
+        app.prefs.set_section_open("settings.look", false);
+        settle();
+        CHECK(ui.find("Preferences") != nullptr && ui.find("Log") != nullptr, "sections drawn");
+        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr, "the preferences of the old Status tab");
+        app.prefs.sections_open.clear();
+        settle();
         CHECK(ui.click("###advview", "FC 27 LE Turbo"), "click the toggle");
         ui.frames(3);
         CHECK(app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == true, "Advanced on, saved");
