@@ -26,6 +26,7 @@
 #include "ui_images.h"
 #include "ui_parity.h"
 #include "ui_role_rules.h"
+#include "ui_team_pages.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -728,6 +729,13 @@ void draw_career_transfers_money(App& app) {
     card_moves(app, g_state.club);
     card_bans(app);
     hint("To put a player on the transfer or loan list, open him and use More.");
+    // 2.22 G-squad (v2.14 capability): the old Turbo Tools panel (youth academy, every PlayStyle, reveal club / league, game editors). Its own
+    // Advanced gating stays. A child of a fixed height, because the panel fills the space it is given.
+    if (ImGui::CollapsingHeader("More tools###ctmore")) {
+        ImGui::BeginChild("##ctmore_body", ImVec2(0, S(560.0f)), ImGuiChildFlags_Borders);
+        draw_tools(app);
+        ImGui::EndChild();
+    }
 }
 
 void draw_career_manager_jobs(App& app) {
@@ -738,9 +746,8 @@ void draw_career_manager_jobs(App& app) {
     card_move_manager(app);
 }
 
-void draw_career_my_squad(App& app) {
-    if (waiting_for_career(app)) return;
-    Page page(app, "##career_squad", "How is my squad? Form, roles, contracts and growth for the whole club.");
+// The five cards of Players > My squad, unchanged since 2.16: form and fitness, squad roles, contracts, growth, squad tools
+static void squad_cards_body(App& app) {
     const TeamRow* team = g_state.club > 0 ? app.model.team(g_state.club) : nullptr;
     if (team) {
         ImGui::Text("%s", team->name.c_str());
@@ -754,8 +761,53 @@ void draw_career_my_squad(App& app) {
     card_squad_tools(app, team);
 }
 
+// 2.22 G-squad: the first tab of Players > My squad. The sortable squad table of 2.14 for the user's club; outside a career (no club of his own)
+// the club picker of Team > Players stands in, so the page never shows a bare "waiting" line where 2.14 showed a table.
+static void squad_tab(App& app) {
+    int64_t club = g_state.club;
+    if (club <= 0) {
+        ImGui::AlignTextToFramePadding();
+        theme::muted_text("Club");
+        ImGui::SameLine();
+        club_search_box(app, "##sqclub", app.sel_team, S(260.0f));
+        ImGui::Separator();
+        club = app.model.team(app.sel_team) ? app.sel_team : 0;
+    }
+    if (club > 0) squad_table(app, club);
+    else theme::muted_text("Pick a club above to see its squad.");
+}
+
+void draw_career_my_squad(App& app) {
+    if (waiting_for_career(app)) return;
+    Page page(app, "##career_squad", "How is my squad? The table of players, then form, roles, contracts and growth for the whole club.");
+    if (ImGui::BeginTabBar("##career_squad_tabs")) {
+        if (ImGui::BeginTabItem("Squad###sqtabsquad")) {
+            squad_tab(app);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Career tools###sqtabtools")) {
+            squad_cards_body(app);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
+// The cards alone (Team > Players > Whole squad draws these under the My team preset; the table has a tab of its own there)
+void draw_career_squad_cards(App& app) {
+    if (waiting_for_career(app)) return;
+    Page page(app, "##career_squad", "How is my squad? Form, roles, contracts and growth for the whole club.");
+    squad_cards_body(app);
+}
+
 void draw_career_staff(App& app) {
     if (waiting_for_career(app)) return;
+    // 2.22 G-squad (v2.14 capability): the manager table with the 12-field grid, All fields and the move to a club (draw_managers)
+    if (ImGui::CollapsingHeader("All managers (table)###csmgr")) {
+        ImGui::BeginChild("##csmgr_body", ImVec2(0, S(480.0f)), ImGuiChildFlags_Borders);
+        draw_managers(app);
+        ImGui::EndChild();
+    }
     const Table* t = app.db.table("manager");
     if (!t) {
         theme::muted_text("The game's data has no manager table under that name.");

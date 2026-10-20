@@ -3736,6 +3736,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
 #include "test_page_team.h"    // 2.20 ia-team: Team > Players and Team > Transfers (page_team_test::ui_cases)
+#include "test_squad_table_restore.h"  // 2.22 G-squad: the sortable squad table on Players > My squad and Team > Players (squad_table_test::ui_cases)
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
@@ -9831,6 +9832,7 @@ static void test_ui() {
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
         page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
         page_team_test::ui_cases(app, ui, mem, kMb, le);  // test_page_team.h: Team > Players and Team > Transfers
+        squad_table_test::ui_cases(app, ui, le);  // test_squad_table_restore.h (2.22 G-squad): the squad table on both default pages
         test_band_new_head_ui(app, ui, le);  // test_faces_band_newhead.h (2.16)
         test_player_id_ui(app, ui, mem, kMb, le);  // test_player_id.h
         create_prefill_test::run_ui(app, ui, mem, kMb);  // test_create_prefill.h

@@ -1,9 +1,10 @@
 // FC 27 LE Turbo GUI - Team > Players (brief 2.20-IA-pages, track "team"; see ui_team_pages.h). Cassio 2026-10-19 10:56: "everything about
 // contracts, morale etc that only applies to career should be in a players tab of the team menu."
 //
-// Two tabs for the selected club (App::sel_team, the user's club when none is chosen):
+// Three tabs for the selected club (App::sel_team, the user's club when none is chosen):
+//   Squad list    2.22: the sortable squad table of 2.14 (squad_table, ui_teams.cpp) for any club: Jersey, Player, Pos, OVR, Age, Line-up slot.
 //   Player        a list of the club's players and, for the one picked: Contract, Form and morale, Squad role, Growth.
-//   Whole squad   the "My team" preset (core/team_preset, track S2) and the cards of Career > My squad (draw_career_my_squad): form and
+//   Whole squad   the "My team" preset (core/team_preset, track S2) and the cards of Players > My squad (draw_career_squad_cards): form and
 //                 fitness, squad roles, contracts, growth and the squad tools. These exist for the user's club only.
 // "Extra XP development" and "Does not decline" are drawn by those cards and by the growth tool; their default is OFF (S2).
 //
@@ -245,7 +246,7 @@ void whole_squad(App& app, int64_t club) {
         }
         card_end();
     }
-    draw_career_my_squad(app);  // ui_career_pages.h: form and fitness, squad roles, contracts, growth, squad tools
+    draw_career_squad_cards(app);  // ui_career_pages.h: form and fitness, squad roles, contracts, growth, squad tools
 }
 
 }  // namespace
@@ -268,6 +269,11 @@ void draw_team_players(App& app) {
     }
     g_state.own_club = is_own_club(app, club);
     if (ImGui::BeginTabBar("##team_pl_tabs")) {
+        // 2.22 G-squad: the sortable squad table of 2.14 for the club picked above (any club), first and selected by default
+        if (ImGui::BeginTabItem("Squad list###tptabsquadlist")) {
+            squad_table(app, club);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Player###tptabplayer")) {
             const std::vector<const PlayerRow*> squad = squad_of(app, club);
             log_page_once(app, "players", "Team page Players: club " + std::to_string(club) + " (" + app.model.team_name(club) + "), " +
@@ -291,6 +297,11 @@ void draw_team_players(App& app) {
         }
         if (ImGui::BeginTabItem("Whole squad###tptabsquad")) {
             whole_squad(app, club);
+            ImGui::EndTabItem();
+        }
+        // 2.22 G-squad (v2.14 capability): the club browser, Mass actions, Job offer and the team's All fields (draw_teams), for every club
+        if (ImGui::BeginTabItem("All clubs###tptabclubs")) {
+            draw_teams(app);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();

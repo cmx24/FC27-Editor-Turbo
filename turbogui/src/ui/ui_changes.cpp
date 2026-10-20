@@ -750,6 +750,8 @@ void editor_changes(App& app, void*) {
     card_elsewhere(app);
     ImGui::Spacing();
     card_never();
+    ImGui::Spacing();
+    kept_player_edits_section(app);  // 2.22 G-squad (v2.14 capability): per-field Kept / Was / Now with Forget and Forget all
 }
 
 }  // namespace
