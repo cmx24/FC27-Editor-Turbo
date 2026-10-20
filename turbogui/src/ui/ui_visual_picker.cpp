@@ -881,8 +881,14 @@ void draw_picker_window(App& app, const Table& t, uint64_t rec) {
 void row_picture(App& app, const Source& src, int64_t code, float side) {
     const ImVec2 a = ImGui::GetCursorScreenPos();
     const ImVec2 box = src.kind == vis::data::kGif ? ImVec2(side * 0.6f, side) : ImVec2(side, side);
-    ImGui::Dummy(box);
     const int idx = src.index_of(code);
+    if (idx >= 0 && !src.src.empty() && src.src[static_cast<size_t>(idx)] == kSrcGame) {
+        // the game's picture is an item of its own: drawn first, at the cursor (moving the cursor back after a Dummy trips ImGui's SetCursorPos check)
+        draw_picture(app, src, idx, false, a, box);
+        ImGui::Dummy(box);
+        return;
+    }
+    ImGui::Dummy(box);
     if (idx >= 0 && src.src[static_cast<size_t>(idx)] == kSrcNames) return;
     if (src.src.empty() || idx < 0) {
         ImGui::GetWindowDrawList()->AddRectFilled(a, ImVec2(a.x + box.x, a.y + box.y), IM_COL32(58, 58, 64, 255), 4.0f);
