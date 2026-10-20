@@ -175,9 +175,10 @@ def switch_arms(body):
     if len(marks) < 3:
         return {}
     arms = {}
+    pre = body[:marks[0].start()]  # code before the switch (a preamble call) runs for every page
     for i, m in enumerate(marks):
         end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
-        arm = body[m.end():end]
+        arm = pre + "\n" + body[m.end():end]
         d = re.search(r"\bdefault\s*:", arm)
         arms[m.group(1)] = arm[:d.start()] if d else arm
     return arms
@@ -604,6 +605,32 @@ def self_test():
     ok("kept_section" in lost and "draw_tools" in lost and any(r[0] == "FAIL" for r in res), "lost by default: a panel only the legacy route reaches FAILs")
     res, _, _, lost = check(base, wired)
     ok("kept_section" not in lost and "draw_tools" in lost, "kept_section wired into a new default page is not lost: " + ",".join(lost))
+    # the 2.21 shape with the five names the brief's pass/fail line demands
+    shell5 = ('const PageInfo kPages[] = {\n    {Page::Squad, Area::One, "Squad", 0},\n    {Page::Staff, Area::One, "Staff", 1},\n'
+              '    {Page::Tools, Area::Two, "Tools", 5},\n    {Page::Changes, Area::Two, "Changes", 6},\n};\n')
+    app5 = ("static void draw_legacy_page(App& app, shell::Page p) {\n    const int lt = shell::legacy_tab_of(p);\n"
+            "    switch (lt) { case 0: draw_teams(app); break; case 1: draw_managers(app); break; case 5: draw_tools(app); break; default: break; }\n}\n"
+            "void App::draw() { draw_legacy_page(*this, page); }\n")
+    panels5 = ("void draw_teams(App& a) { squad_table(a); }\nvoid squad_table(App&) {}\nvoid draw_managers(App&) {}\n"
+               "void draw_tools(App& a) { kept_player_edits_section(a); }\nvoid kept_player_edits_section(App&) {}\n")
+    base5 = {"ui_shell.cpp": shell5, "app.cpp": app5, "panels.cpp": panels5}
+    new_pages = ("TURBO_REGISTER_NEW_PAGE(shell::Page::Squad, draw_squad_new);\nTURBO_REGISTER_PAGE(shell::Page::Squad, page_squad_old);\n"
+                 "TURBO_REGISTER_NEW_PAGE(shell::Page::Staff, draw_staff_new);\nTURBO_REGISTER_NEW_PAGE(shell::Page::Tools, draw_tools_new);\n"
+                 "TURBO_REGISTER_NEW_PAGE(shell::Page::Changes, draw_changes_new);\n"
+                 "void page_squad_old(App& a) { draw_teams(a); }\nvoid draw_squad_new(App& a) { grid.draw(); }\nvoid draw_staff_new(App&) {}\n"
+                 "void draw_tools_new(App&) {}\nvoid draw_changes_new(App&) {}\n")
+    r2_21 = dict(base5, **{"new.cpp": new_pages})
+    res, _, _, lost = check(base5, r2_21)
+    five = ["squad_table", "draw_teams", "draw_managers", "draw_tools", "kept_player_edits_section"]
+    fails = " ".join(r[1] for r in res if r[0] == "FAIL")
+    ok(all(f in lost for f in five) and all(f in fails for f in five), "2.21 shape (both registries, panels only via the legacy route, a local draw()): FAILs naming %s" % ", ".join(five))
+    wired5 = dict(r2_21, **{"new.cpp": new_pages.replace("void draw_squad_new(App& a) { grid.draw(); }", "void draw_squad_new(App& a) { grid.draw(); draw_teams(a); }")
+                            .replace("void draw_staff_new(App&) {}", "void draw_staff_new(App& a) { draw_managers(a); }")
+                            .replace("void draw_tools_new(App&) {}", "void draw_tools_new(App& a) { draw_tools(a); }")})
+    res, _, _, lost = check(base5, wired5)
+    ok(not lost and not any(r[0] == "FAIL" for r in res), "the same five wired into the new default pages: no FAIL row (%d rows)" % len(res))
+    pre = {"p.cpp": "bool disp(App& a, Page p) { pre_call(a); switch (p) { case Page::X: px(a); return true; case Page::Y: py(a); return true; case Page::Z: pz(a); return true; default: return false; } }\nvoid pre_call(App&) {}\nvoid px(App&) {}\nvoid py(App&) {}\nvoid pz(App&) {}\nvoid c(App& a) { disp(a, Page::Y); }\n"}
+    ok(reachable(["c"], build_index(pre)) == {"c", "disp", "pre_call", "py"}, "a dispatcher's preamble call stays reachable when only one arm is called")
     # same-file resolution and page dispatchers
     two = {"a.cpp": "void ed(App&) { only_a(); }\nvoid pa(App& a) { ed(a); }\nvoid only_a() {}\n",
            "b.cpp": "void ed(App&) { only_b(); }\nvoid only_b() {}\n"}
