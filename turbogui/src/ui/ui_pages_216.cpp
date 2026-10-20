@@ -19,13 +19,11 @@
 
 namespace turbo {
 
-// R3 archetypes (2.20): the Populate panel of ui_archetype_populate.h, drawn under the Positions, attributes & PlayStyles tab. Weak, so this file
-// links with or without that track's .cpp (null = nothing is drawn); the Create player entry (archetype_populate_create) lives in the creation form.
-TURBO_WEAK void archetype_populate_panel(App& app, const Table& players, const PlayerRow& p);
+// (2.22: the Populate panel moved into the "Player type & tier" card, the first card of the Positions tab: ui_player_profile.cpp)
 
 // Players: Edit a player. 2.20: one page with four tabs, as the Pit wall decided (13:02): Profile | Positions, attributes & PlayStyles |
-// Appearance | All fields. The first three are the new pages (ui_player_profile.cpp) and the Appearance Editor itself for the selected player;
-// "All fields" is the full editor of 2.19 (draw_players: the filters, the resizable list / rows / frames, the archetype attribute editor),
+// Appearance | Classic editor (2.22: was "All fields", which repeated the name of the tab inside it). The first three are the new pages (ui_player_profile.cpp) and the Appearance Editor itself for the selected player;
+// "Classic editor" is the full editor of 2.19 (draw_players: the filters, the resizable list / rows / frames, the archetype attribute editor),
 // last, with the 2.16 card page as its opt-in ("Card view (beta)", gui.player_card_view). Nothing is deleted; Settings > Use the old pages
 // still draws the old panel.
 static void draw_player_edit(App& app) {
@@ -45,11 +43,6 @@ static void draw_player_edit(App& app) {
     if (ImGui::BeginTabItem("Positions, attributes & PlayStyles###pe_ability", nullptr, flag(1))) {
         now = 1;
         draw_player_ability(app);
-        if (archetype_populate_panel != nullptr && app.sel_player > 0) {
-            const Table* pt = app.db.table("players");
-            const PlayerRow* pr = app.model.player(app.sel_player);
-            if (pt && pr) archetype_populate_panel(app, *pt, *pr);
-        }
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Appearance###pe_appearance", nullptr, flag(2))) {
@@ -57,7 +50,7 @@ static void draw_player_edit(App& app) {
         looks::draw_looks_studio(app);
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("All fields###pe_allfields", nullptr, flag(3))) {
+    if (ImGui::BeginTabItem("Classic editor###pe_allfields", nullptr, flag(3))) {
         now = 3;
         if (ImGui::Checkbox("Card view (beta)###pcardview", &app.player_card_view)) app.save_gui_settings();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 2.16 card page instead of the full editor (filters, resizable list, archetype editor)");
@@ -67,7 +60,7 @@ static void draw_player_edit(App& app) {
     }
     ImGui::EndTabBar();
     if (now != s_shown) {  // one line in turbo_gui.log per change of tab (the live check of the wiring reads which tabs were really shown)
-        static const char* const names[] = {"Profile", "Positions, attributes & PlayStyles", "Appearance", "All fields"};
+        static const char* const names[] = {"Profile", "Positions, attributes & PlayStyles", "Appearance", "Classic editor"};
         if (now >= 0 && now < 4) app.log(std::string("Edit a player tab: ") + names[now]);
     }
     s_shown = want = now;

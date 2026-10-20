@@ -95,6 +95,8 @@ struct StudioState {
     int thumbs = 0;            // of them with their picture drawn
     int fields = 0;            // field editors in Accessories and Kit fit
     int cards = 0;             // cards drawn
+    bool tattoo_card = false;  // 2.22: the Tattoos card (tattoo_editor, players) was drawn this frame
+    bool miniface_card = false;  // 2.22: the Player / Manager miniface card (the whole miniface_editor) was drawn this frame
     std::string body_result;   // what the last body-type click said
     bool asking = false;       // the "can't be undone" question is open
     bool risky_body = false;   // his body was made for another kind of head: no picture is asked by itself

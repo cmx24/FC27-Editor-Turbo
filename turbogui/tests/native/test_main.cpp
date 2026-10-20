@@ -3750,6 +3750,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
 #include "test_page_creation.h"  // 2.20 IA: Players > Player Creation (page_creation_test::ui_cases)
 #include "test_page_profile.h"  // 2.20 IA pages, track profile: Profile and Positions, attributes & PlayStyles (profile_page_test::ui_cases)
+#include "test_ia_222.h"  // 2.22 G-ia: layout and organisation (ia222_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
@@ -4058,6 +4059,13 @@ static void test_ui() {
     {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
+        {   // 2.22: the shipped player type list where the screens look for it, from the first frame (Edit a player's Positions tab and the Create dialog
+            // draw Populate now; a first draw without the list would hold its 2 s retry over the later cases)
+            std::error_code ec_at;
+            fs::create_directories(app.bridge.root() / "turbo" / "data", ec_at);
+            fs::copy_file("../turbo/package/turbo/data/archetypes.json", app.bridge.root() / "turbo" / "data" / "archetypes.json",
+                          fs::copy_options::overwrite_existing, ec_at);
+        }
         app.visible = true;
         // 2.20 S3-window: the panel now starts maximized; the cases below were written against the old first-use window (1180x760 at 60,54 on
         // the 1920x1080 test display), so they keep it through a stored rectangle. The maximized default has its own cases (test_window_settings.h)
@@ -9805,6 +9813,7 @@ static void test_ui() {
         player_page_test::ui_cases(app, ui, le);  // test_page_player.h: the Player page (2.16 step 5)
         page_creation_test::ui_cases(app, ui, mem, kMb, le);  // test_page_creation.h: Players > Player Creation (2.20)
         profile_page_test::ui_cases(app, ui, le);  // test_page_profile.h: Profile and Positions, attributes & PlayStyles (2.20)
+        ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named

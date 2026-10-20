@@ -75,8 +75,27 @@ table_registry.h	-	##teams	1
 table_registry.h	-	##teamsxf	1
 table_registry.h	-	##tpexttbl	1
 table_registry.h	-	##tproletbl	1
+table_registry.h	-	##vrow	1
+table_registry.h	-	##vrows	1
 table_registry.h	-	##vstable	1
 table_registry.h	-	##xfrows	1
+ui_archetype_populate.cpp	-	##	4
+ui_archetype_populate.cpp	-	Use %d##cpopclosest	1
+ui_archetype_populate.cpp	-	Use %d##popclosest	1
+ui_archetype_populate.cpp	BeginChild	##cpopchg	1
+ui_archetype_populate.cpp	BeginChild	##popchg	1
+ui_archetype_populate.cpp	BeginPopupModal	Fill the whole player	2
+ui_archetype_populate.cpp	Button	###cpopreview	1
+ui_archetype_populate.cpp	Button	###cpopundo	1
+ui_archetype_populate.cpp	Button	###popreview	1
+ui_archetype_populate.cpp	Button	###popundo	1
+ui_archetype_populate.cpp	Button	Cancel##cpop	1
+ui_archetype_populate.cpp	Button	Cancel##pop	1
+ui_archetype_populate.cpp	Button	Close##cpop	1
+ui_archetype_populate.cpp	Button	Close##pop	1
+ui_archetype_populate.cpp	Button	Populate##cpop	1
+ui_archetype_populate.cpp	Button	Populate##pop	1
+ui_archetype_populate.cpp	OpenPopup	Fill the whole player	2
 ui_asset_browser.cpp	-	##scope	1
 ui_asset_browser.cpp	ArrowButton	##next	1
 ui_asset_browser.cpp	ArrowButton	##prev	1
@@ -327,6 +346,15 @@ ui_changes.cpp	SmallButton	###chg_scope_here	1
 ui_changes.cpp	SmallButton	###chg_stop_callname	1
 ui_changes.cpp	SmallButton	###chg_stop_kit	1
 ui_changes.cpp	SmallButton	###chg_stop_player	1
+ui_club_fields.cpp	-	##v	1
+ui_club_fields.cpp	-	Undo last change##cfundo_	1
+ui_club_fields.cpp	BeginCombo	##cf	1
+ui_club_fields.cpp	Checkbox	##cf	1
+ui_club_fields.cpp	CollapsingHeader	###cfcrowd	1
+ui_club_fields.cpp	CollapsingHeader	###cfhome	1
+ui_club_fields.cpp	PushID	cfcrowdsec	1
+ui_club_fields.cpp	PushID	cfhomesec	1
+ui_club_fields.cpp	PushID	cfkitsec	1
 ui_club_page.cpp	-	##clubpick	1
 ui_club_page.cpp	-	##idcols	1
 ui_club_page.cpp	-	##tcrest	1
@@ -730,7 +758,9 @@ ui_looks_studio.cpp	-	##lsgear	1
 ui_looks_studio.cpp	-	##lshair	1
 ui_looks_studio.cpp	-	##lskit	1
 ui_looks_studio.cpp	-	##lsm	1
+ui_looks_studio.cpp	-	##lsminiface	1
 ui_looks_studio.cpp	-	##lsp	1
+ui_looks_studio.cpp	-	##lstattoo	1
 ui_looks_studio.cpp	BeginChild	##lscards	1
 ui_looks_studio.cpp	BeginChild	##lslist	1
 ui_looks_studio.cpp	BeginChild	##lspreview	1
@@ -780,7 +810,14 @@ ui_names.cpp	BeginTable	##nmidtable	1
 ui_names.cpp	Button	Restore database names##nm	1
 ui_names.cpp	Button	Save names##nm	1
 ui_names.cpp	InputTextWithHint	##nmidsearch	1
+ui_nav_pages.cpp	-	###cn%lld	1
 ui_nav_pages.cpp	-	###navgo	1
+ui_nav_pages.cpp	-	##cnclub	1
+ui_nav_pages.cpp	BeginChild	##editor	1
+ui_nav_pages.cpp	BeginChild	##select	1
+ui_nav_pages.cpp	BeginTable	##players	1
+ui_nav_pages.cpp	InputTextWithHint	##cnsearch	1
+ui_nav_pages.cpp	SmallButton	###cn_none	1
 ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
 ui_pages_216.cpp	BeginTabItem	###pe_ability	1
 ui_pages_216.cpp	BeginTabItem	###pe_allfields	1
@@ -886,11 +923,11 @@ ui_player_profile.cpp	-	###ab_ovr_up	1
 ui_player_profile.cpp	-	###ab_positions	1
 ui_player_profile.cpp	-	###ab_style	1
 ui_player_profile.cpp	-	###ab_styles	1
+ui_player_profile.cpp	-	###ab_typetier	1
 ui_player_profile.cpp	-	###ab_undo	1
-ui_player_profile.cpp	-	###pf%lld	1
+ui_player_profile.cpp	-	###bits2	1
+ui_player_profile.cpp	-	###bits3	1
 ui_player_profile.cpp	-	###pf_callname	1
-ui_player_profile.cpp	-	###pf_chip_free	1
-ui_player_profile.cpp	-	###pf_chip_mine	1
 ui_player_profile.cpp	-	###pf_club	1
 ui_player_profile.cpp	-	###pf_details	1
 ui_player_profile.cpp	-	###pf_names	1
@@ -901,12 +938,11 @@ ui_player_profile.cpp	-	##ab_rolegrid	1
 ui_player_profile.cpp	-	##ab_stylegrid	1
 ui_player_profile.cpp	-	##pf_detailgrid	1
 ui_player_profile.cpp	-	##pf_flaggrid	1
-ui_player_profile.cpp	-	##pfpos	1
+ui_player_profile.cpp	BeginChild	##editor	1
+ui_player_profile.cpp	BeginChild	##select	1
 ui_player_profile.cpp	BeginTable	##bits	1
-ui_player_profile.cpp	BeginTable	##players	1
 ui_player_profile.cpp	BeginTable	##sl	1
 ui_player_profile.cpp	Button	###pf_team	1
-ui_player_profile.cpp	InputTextWithHint	##pfsearch	1
 ui_player_profile.cpp	SmallButton	###ab_all	1
 ui_player_profile.cpp	SmallButton	###ab_none	1
 ui_player_profile.cpp	TreeNodeEx	###ab_roles	1
@@ -1008,9 +1044,7 @@ ui_players.cpp	checkbox_right	+ only	1
 ui_players.cpp	checkbox_right	Free agent	1
 ui_players.cpp	checkbox_right	My club	1
 ui_players.cpp	checkbox_right	Retiring	1
-ui_presets.cpp	-	###carchchg	1
 ui_presets.cpp	-	##ca_%s	1
-ui_presets.cpp	-	##carch	1
 ui_presets.cpp	-	##common	1
 ui_presets.cpp	-	##first	1
 ui_presets.cpp	-	##height	1
@@ -1029,7 +1063,6 @@ ui_presets.cpp	-	##position3	1
 ui_presets.cpp	-	##position4	1
 ui_presets.cpp	-	##potential	1
 ui_presets.cpp	-	##weight	1
-ui_presets.cpp	-	Use %d##cclosest	1
 ui_presets.cpp	-	Use##pid%lld	1
 ui_presets.cpp	BeginCombo	##foot	1
 ui_presets.cpp	BeginCombo	##pidwant	1
@@ -1577,6 +1610,25 @@ ui_tuning.cpp	SmallButton	Rename...##tvren	1
 ui_tuning.cpp	checkbox_right	Apply my tuning profile automatically (every career load, the hub)##tvprof	1
 ui_tuning.cpp	checkbox_right	Only changed##tvonlychanged	1
 ui_tuning.cpp	checkbox_right	Write in this game session (Apply, Reset)##tvsess	1
+ui_visual_picker.cpp	-	###vispicker	1
+ui_visual_picker.cpp	-	##vbtn	1
+ui_visual_picker.cpp	-	##vname	1
+ui_visual_picker.cpp	-	##vpic	1
+ui_visual_picker.cpp	-	##vtitle	1
+ui_visual_picker.cpp	BeginChild	##vpgrid	1
+ui_visual_picker.cpp	BeginChild	##vppreview	1
+ui_visual_picker.cpp	BeginTable	##vrow	1
+ui_visual_picker.cpp	BeginTable	##vrows	1
+ui_visual_picker.cpp	Button	###vpfolderdef	1
+ui_visual_picker.cpp	Button	###vpfolderset	1
+ui_visual_picker.cpp	Button	Apply##vpapply	1
+ui_visual_picker.cpp	Button	Cancel##vpcancel	1
+ui_visual_picker.cpp	Button	Choose...	1
+ui_visual_picker.cpp	InputText	###vpfolder	1
+ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
+ui_visual_picker.cpp	InvisibleButton	##tile	1
+ui_visual_picker.cpp	OpenPopup	###vispicker	1
+ui_visual_picker.cpp	PushID	vispickers	2
 widgets.cpp	-	##	4
 widgets.cpp	-	##%s_from	1
 widgets.cpp	-	##%s_to	1

@@ -32,6 +32,11 @@ void draw_player_ability_editor(App& app);  // the editor alone, for App::sel_pl
 // it at the new Team > Players page when that page has an id.
 shell::Page& profile_team_players_page();
 
+// 2.22: the Classic editor's player list (ui_players.cpp): eight sortable columns and the full filter grid; the Profile and Positions tabs of Edit a
+// player draw the same one (one list, one set of filters, one selection). classic_player_list_rows() = rows of its last frame.
+void draw_classic_player_list(App& app);
+size_t classic_player_list_rows();
+
 // The player-type editor (Overall +1/-1, role, wanted overall, preview, Apply, Undo) is archetype_bar() in ui_players.cpp, which is `static`
 // there, so a new file cannot link to it. The Integrator sets this pointer ONCE, from ui_players.cpp, with one line at the end of that file:
 //     static const bool s_ability_hook = (g_ability_archetype_bar = archetype_bar, true);
@@ -58,6 +63,8 @@ struct PlayerAbilityState {
     std::string headline;
     bool archetype_bar_external = false;  // the full player-type editor (g_ability_archetype_bar) was drawn
     bool stand_in_shown = false;          // the smaller stand-in was drawn
+    bool type_tier_shown = false;         // 2.22: the card "Player type & tier" (the first thing on the page) was drawn open this frame
+    int bar_calls = 0;                    // 2.22: archetype_bar (or its stand-in) calls this frame: one, in that card
     int position_rows = 0;                // position boxes drawn
     int attribute_sliders = 0;            // attribute sliders drawn
     int playstyle_boxes = 0;              // PlayStyle / trait check boxes drawn

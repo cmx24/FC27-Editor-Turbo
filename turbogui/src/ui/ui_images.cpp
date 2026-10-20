@@ -1,5 +1,6 @@
 // FC 27 LE Turbo GUI - pictures in the Turbo window: minifaces (players and managers), the real-face picker, the tattoo
 // picker, and a file browser for pictures on the PC.
+#include <chrono>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -773,7 +774,17 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             }
             ImGui::SameLine();
             ImGui::TextDisabled("Turbo minifaces folder:");
-            std::vector<fs::path> files = picture_files(folder);
+            // 2.22: the editor now sits on the Appearance Editor page too; the folder is listed once a second, not every frame
+            static fs::path cached_folder;
+            static std::vector<fs::path> cached_files;
+            static std::chrono::steady_clock::time_point cached_at;
+            const auto now_tp = std::chrono::steady_clock::now();
+            if (cached_folder != folder || now_tp - cached_at > std::chrono::seconds(1)) {
+                cached_files = picture_files(folder);
+                cached_folder = folder;
+                cached_at = now_tp;
+            }
+            const std::vector<fs::path>& files = cached_files;
             ImGui::BeginChild("##mffiles", ImVec2(0, S(140.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
             if (files.empty()) ImGui::TextDisabled("(empty)");
             for (const auto& f : files) {

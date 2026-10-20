@@ -69,18 +69,18 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.lua_queue.clear();
         app.sel_player = 1001;
         show(ui, Which::Profile);
-        CHECK(ui.find("##pfsearch", W) != nullptr, "search box");
-        CHECK(ui.find("Free agents###pf_chip_free", W) != nullptr, "chip: free agents");
-        CHECK(ui.find("##pfpos", W) != nullptr, "position filter");
+        // 2.22 (G-ia, CHANGE h): the list is the Classic editor's: search, the filter grid, one sortable table of 8 columns
+        CHECK(ui.find("##psearch", W) != nullptr, "search box");
+        CHECK(ui.find("Clear##filters", W) != nullptr, "the filter grid (Clear filters)");
+        CHECK(ui.find("##fpos", W) != nullptr && ui.find("##fteam", W) != nullptr && ui.find("##fnat", W) != nullptr, "position, club and nationality filters");
         const PlayerProfileState& st = player_profile_state();
         CHECK(st.listed > 3, "the list holds players: " + std::to_string(st.listed));
-        CHECK(ui.find("ID", W) == nullptr && ui.find("Player ID", W) == nullptr, "no ID column or ID label on the page");
-        CHECK(ui.find("###pf1001", W) != nullptr && ui.find("###pf1005", W) != nullptr, "players listed by name");
+        CHECK(ui.find("1001", W) != nullptr && ui.find("1005", W) != nullptr, "players listed (ID column of the Classic list)");
         // nobody picked: no editor
         app.sel_player = 0;
         ui.frames(2);
         CHECK(player_profile_state().playerid == 0, "nobody picked: no editor");
-        CHECK(ui.click("###pf1005", W), "click a row");
+        CHECK(ui.click("1005", W), "click a row");
         ui.frames(2);
         const PlayerRow* pr = app.model.player(1005);
         CHECK(app.sel_player == 1005 && st.playerid == 1005 && pr != nullptr, "the click picked him");
@@ -109,10 +109,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // no contract or wage box: they are Team > Players
         CHECK(ui.find("Wage", W) == nullptr && ui.find("Contract valid until", W) == nullptr, "contract and wage are not editable here");
         // search narrows the list
-        CHECK(ui.type_into(ui.find("##pfsearch", W), "zzzz-no-such-player"), "type a search");
+        CHECK(ui.type_into(ui.find("##psearch", W), "zzzz-no-such-player"), "type a search");
         ui.frames(2);
         CHECK(st.listed == 0, "nobody matches");
-        CHECK(ui.type_into(ui.find("##pfsearch", W), ""), "clear the search");
+        CHECK(ui.type_into(ui.find("##psearch", W), ""), "clear the search");
         ui.frames(2);
         CHECK(st.listed > 3, "everybody again");
         hide(ui);
@@ -133,7 +133,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // the editor alone: the same sections, no list, no search (it is its own scroll area with its own open/closed sections:
         // close the three long ones so the last one is in view)
         show(ui, Which::ProfileEditor);
-        CHECK(ui.find("##pfsearch", W) == nullptr && ui.find("###pf1001", W) == nullptr, "no list in the editor alone");
+        CHECK(ui.find("##psearch", W) == nullptr && ui.find("1001", W) == nullptr, "no list in the editor alone");
         for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);
         CHECK(ui.find("###pf_names", W) != nullptr && ui.find("###pf_club", W) != nullptr, "sections of the editor alone");
         for (const char* id : {"###pf_names", "###pf_callname", "###pf_details"}) toggle(ui, id, W);  // open them again
@@ -146,7 +146,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         show(ui, Which::Ability);
         const PlayerAbilityState& st = player_ability_state();
         CHECK(st.playerid == 1001 && st.listed > 3, "the list and the editor");
-        CHECK(ui.find("##pfsearch", W) != nullptr, "the list");
+        CHECK(ui.find("##psearch", W) != nullptr, "the list");
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs", "###ab_undo"})
             CHECK(ui.find(id, W) != nullptr, std::string("section: ") + id);
         const Table* t = app.db.table("players");
@@ -220,7 +220,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(g_stub_calls >= 1 && g_stub_player == 1003, "the hook was called for the picked player: " + std::to_string(g_stub_calls));
         CHECK(st.archetype_bar_external && !st.stand_in_shown, "the full editor, no stand-in");
         CHECK(ui.find("###ab_bulkundo", W) == nullptr && ui.find("Overall +1###ab_ovr_up", W) == nullptr, "the stand-in's buttons are gone");
-        CHECK(ui.find("##pfsearch", W) == nullptr, "the editor alone draws no list");
+        CHECK(ui.find("##psearch", W) == nullptr, "the editor alone draws no list");
         g_ability_archetype_bar = nullptr;
         ui.frames(2);
         CHECK(player_ability_state().stand_in_shown, "unhooked again: the stand-in");

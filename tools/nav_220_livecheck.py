@@ -5,7 +5,7 @@ PASS / FAIL per point and one RESULT line.
 
 The operator's steps, 11 clicks (the Turbo window open in the career hub; stay about 2 s on each, the page must be shown for 60 frames):
   1. Players tab (it opens on Edit a player, tab Profile).
-  2. Tab "Positions, attributes & PlayStyles", then tab "Appearance", then tab "All fields" (the tabs inside Edit a player).
+  2. Tab "Positions, attributes & PlayStyles", then tab "Appearance", then tab "Classic editor" (was All fields; the tabs inside Edit a player).
   3. Players page strip: "Player creation", then "Bulk edit".
   4. The tab "Appearance Editor" (its own tab, no second row of page buttons).
   5. The tab "Team", then in its strip "Players", then "Transfers".
@@ -15,7 +15,7 @@ A screenshot of the Team strip (Kits, Club name, Players, Transfers, Stadium) if
 What it reads: the frame-cost lines of core/frame_cost.h ("Turbo frame cost on <page label> (left): ..."), one for every page left after 60 frames,
 named by the label the page strip shows, and the line "Edit a player tab: <name>" that the page writes when a tab is shown. So the log is the list
 of pages and tabs the GUI really drew.
-  tabs       a line for each of: Profile, Positions, attributes & PlayStyles, Appearance, All fields
+  tabs       a line for each of: Profile, Positions, attributes & PlayStyles, Appearance, Classic editor
   pages      a frame-cost line for Edit a player, Player creation, Bulk edit, Appearance Editor, Players (Team), Transfers (Team)
   gone       NO line for "Faces & hair", "Body, tattoos & gear" or "Looks studio" (the 2.19 names)
   errors     no "frame error:" line in the session
@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gui_revamp_livecheck import _cost, pages_seen, report, session_lines  # noqa: E402
 
 OLD_NAMES = ("Faces & hair", "Body, tattoos & gear", "Looks studio")
-TABS = ("Profile", "Positions, attributes & PlayStyles", "Appearance", "All fields")
+TABS = ("Profile", "Positions, attributes & PlayStyles", "Appearance", "Classic editor")
 PAGES = (("edit", "Edit a player", "click the Players tab and stay 2 s, then click the next tab"),
          ("creation", "Player creation", "Players strip: click Player creation, stay 2 s, then click Bulk edit"),
          ("bulk", "Bulk edit", "Players strip: click Bulk edit, stay 2 s, then click the Appearance Editor tab"),
