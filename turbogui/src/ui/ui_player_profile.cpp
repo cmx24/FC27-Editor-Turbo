@@ -395,7 +395,7 @@ void ability_editor(App& app, void*) {
             ImGui::TreePop();
         }
     }
-    // 2.22: G-pickers' Set-pieces card (penalty and free-kick takers): a weak default in ui_setpiece_card_stub.cpp draws nothing
+    // 2.22: G-pickers' Set-pieces card (penalty and free-kick takers), ui_setpiece_card.cpp
     setpiece_card::draw(app, p->playerid);
     if (section("Attributes###ab_attrs")) attribute_sliders(app, *t, p->rec);
     if (section("PlayStyles and traits###ab_styles")) {
