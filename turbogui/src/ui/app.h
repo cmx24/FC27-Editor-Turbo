@@ -155,7 +155,7 @@ public:
     // 2.19: Players > Edit a player draws the full editor (draw_players: filters, resizable list and rows, archetype editor) unless the person
     // opts into the 2.16 card page (gui.player_card_view; the "Card view (beta)" switch on the page)
     bool player_card_view = false;
-    RowDensity density_applied = RowDensity::Normal;  // the row density the style was last built for
+    float row_height_applied = 0.0f;                  // the Row height (gui_prefs.h) the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
     float ui_scale_applied = 0.0f;  // scale the style was last built for
@@ -594,7 +594,8 @@ void draw_tools(App& app);
 void draw_status(App& app);
 // The Status tab in its three parts (ui_tools.cpp); the Settings page (ui_settings.cpp) draws the first two under its own title
 void draw_status_health(App& app);  // pictures, health, collapsed technical details
-void draw_preferences(App& app);    // show/hide key, UI size, row density, background loading
+void draw_look_and_feel(App& app);  // 2.22: UI size and Row height (Settings > Look and feel)
+void draw_preferences(App& app, bool with_look = true);  // show/hide key, background loading; with_look also UI size and Row height (the old Status tab)
 void draw_status_log(App& app);     // the log, filling the window
 void draw_log_section(App& app, const char* key);  // ui_settings.cpp: a collapsing "Log" section (closed at first; `key` keeps its state)
 // Game-code hook status (part of the Status tab; App::hook_report supplies the data)

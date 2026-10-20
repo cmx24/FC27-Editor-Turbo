@@ -112,7 +112,7 @@ ui_tools.cpp	channel	2
 ui_tools.cpp	dll	1
 ui_tools.cpp	hex	2
 ui_tools.cpp	hook	6
-ui_tools.cpp	json	6
+ui_tools.cpp	json	5
 ui_tools.cpp	lua	9
 ui_tools.cpp	path	3
 ui_tools.cpp	turbo_output	4

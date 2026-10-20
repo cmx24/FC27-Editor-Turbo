@@ -185,7 +185,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w != nullptr, "the panel exists");
         if (!w) return;
         CHECK(near(w->Pos.x, 0) && near(w->Pos.y, 0) && near(w->Size.x, 1920) && near(w->Size.y, 1080), fmt("whole viewport: %.0f,%.0f %.0fx%.0f", w->Pos.x, w->Pos.y, w->Size.x, w->Size.y));
-        CHECK((w->Flags & ImGuiWindowFlags_NoMove) && (w->Flags & ImGuiWindowFlags_NoResize), "maximized: no drag, no edge resize");
+        CHECK(!(w->Flags & ImGuiWindowFlags_NoMove) && !(w->Flags & ImGuiWindowFlags_NoResize), "maximized: free to drag and resize (2.22: dragging leaves maximized)");
         CHECK(ui.find("Restore###winmax", "FC 27 LE Turbo") != nullptr || ui.find("###winmax", "FC 27 LE Turbo") != nullptr, "the status line has the Restore button");
         ui.frames(120);
         CHECK(!fs::exists(file), "nothing written while it just sits there");

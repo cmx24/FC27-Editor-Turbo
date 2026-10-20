@@ -268,7 +268,7 @@ static const int TABLE_DRAW_CHANNEL_BG0 = 0;
 static const int TABLE_DRAW_CHANNEL_BG2_FROZEN = 1;
 static const int TABLE_DRAW_CHANNEL_NOCLIP = 2;                     // When using ImGuiTableFlags_NoClip (this becomes the last visible channel)
 static const float TABLE_BORDER_SIZE                     = 1.0f;    // FIXME-TABLE: Currently hard-coded because of clipping assumptions with outer borders rendering.
-static const float TABLE_RESIZE_SEPARATOR_HALF_THICKNESS = 4.0f;    // Extend outside inner borders.
+#define TABLE_RESIZE_SEPARATOR_HALF_THICKNESS (6.0f * ImMax(1.0f, GImGui->Style.FontScaleDpi)) // Turbo: was "static const float ... = 4.0f"; 12 px grab zone at UI size 1, scaled with the UI size (FontScaleDpi) so a column edge is easy to hit (Cassio 10-19)
 static const float TABLE_RESIZE_SEPARATOR_FEEDBACK_TIMER = 0.06f;   // Delay/timer before making the hover feedback (color+cursor) visible because tables/columns tends to be more cramped.
 
 // Helper

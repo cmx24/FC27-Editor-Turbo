@@ -9825,6 +9825,7 @@ static void test_ui() {
         test_file_picker_ui(app, ui, mem, kMb);
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
+        resize_ui_test::ui_cases(app, ui, le);  // test_ux_resize.h (2.22 G-resize): divider, window drags with the mouse; Row height; Refresh
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h

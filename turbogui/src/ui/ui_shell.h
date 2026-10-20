@@ -56,6 +56,7 @@ constexpr int kPageCount = static_cast<int>(Page::Count);
 // ---- labels (sentence case, as drawn on the tab and the page strip)
 const char* area_label(Area a);  // "Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"
 const char* page_label(Page p);  // "Edit a player", "Kits", "Tactic presets", ...
+const char* page_key(Page p);    // 2.22: the enumerator's name ("PlayerEdit"), the stable key of a page's saved pane widths (ui_split.h)
 
 // ---- structure
 Area area_of(Page p);                       // Area::Count for Page::None / Count
@@ -122,7 +123,8 @@ struct Primary {
 };
 using DrawFn = void (*)(App&, void* user);
 // Child ids "##select" and "##editor" (stable in imgui.ini). select_fn may be nullptr (single-object page: editor only).
-// The select panel is theme::kSelectWidth wide (scaled) and collapses to theme::kRailWidth under theme::kNarrowWindow.
+// The select panel starts theme::kSelectWidth wide (scaled), the person drags its right border to resize it (2.22: ui_split.h; the width is
+// kept per page in gui_settings.json gui.splits, 180 px .. 70 % of the panel); under theme::kNarrowWindow it collapses to the rail (theme::kRailWidth, child "##selectrail").
 // Must be called inside the main window, after the page strip.
 void frame(App& app, DrawFn select_fn, DrawFn editor_fn, void* user, Primary* primary);
 }  // namespace page

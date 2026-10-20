@@ -15,6 +15,10 @@ constexpr ImVec4 kWarn{1.00f, 0.78f, 0.25f, 1.0f};    // "not proven" banner, pe
 constexpr ImVec4 kErr{1.00f, 0.50f, 0.30f, 1.0f};     // errors: the existing orange-red, kept
 constexpr ImVec4 kMuted{0.70f, 0.72f, 0.76f, 1.0f};   // hints: equals the style's TextDisabled (app.cpp)
 
+// 2.22: table column dividers (ImGuiCol_TableBorderStrong / Light): clearly visible on the dark window; there is one theme (dark)
+constexpr ImVec4 kTableBorderStrong{0.52f, 0.58f, 0.70f, 1.0f};
+constexpr ImVec4 kTableBorderLight{0.40f, 0.45f, 0.56f, 1.0f};
+
 inline ImVec4 accent() { return kAccent; }
 inline ImVec4 accent_hover() { return ImVec4(kAccent.x * 1.15f, kAccent.y * 1.15f, kAccent.z * 1.05f, 1.0f); }
 inline ImVec4 accent_active() { return ImVec4(kAccent.x * 0.85f, kAccent.y * 0.85f, kAccent.z * 0.85f, 1.0f); }

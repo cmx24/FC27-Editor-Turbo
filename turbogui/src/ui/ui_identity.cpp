@@ -1077,6 +1077,10 @@ void crest_editor(App& app, int64_t teamid) {
         ImGui::TextDisabled("%d can be written, %d loading, %d the game does not have. Each custom file keeps the original's size, pixel format and mipmaps.",
                             ed.plan.writable, ed.plan.waiting, ed.plan.missing);
         if (ImGui::BeginTable("##crestfiles", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("File");  // 2.22 G-resize: a header row
+            ImGui::TableSetupColumn("Format");
+            ImGui::TableSetupColumn("Custom");
+            ImGui::TableHeadersRow();
             for (const auto& it : ed.plan.items) {
                 if (it.game == LegacyImages::State::Missing) continue;
                 ImGui::TableNextRow();

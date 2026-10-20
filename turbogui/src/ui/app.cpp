@@ -21,6 +21,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "preload.h"
+#include "ui_split.h"
 #include "ui_zoom.h"
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
@@ -92,6 +93,9 @@ static void turbo_theme(ImGuiStyle& st) {
     c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.20f, 0.36f, 1.0f);
     c[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.05f);
     c[ImGuiCol_TableHeaderBg] = ImVec4(0.14f, 0.17f, 0.24f, 1.0f);
+    // 2.22: column dividers you can see (Dear ImGui's dark greys are nearly the window colour here); the column under the pointer lights up in SeparatorHovered
+    c[ImGuiCol_TableBorderStrong] = theme::kTableBorderStrong;
+    c[ImGuiCol_TableBorderLight] = theme::kTableBorderLight;
     // Thin bars with a small rounding (Dear ImGui's default rounding 9 turns a short grab into an oval)
     st.ScrollbarSize = 12.0f;
     st.ScrollbarRounding = 3.0f;
@@ -104,7 +108,7 @@ void App::update_style() {
     ImGuiIO& io = ImGui::GetIO();
     float want = auto_ui_scale(io.DisplaySize.y) * std::max(kUiScaleMin, std::min(kUiScaleMax, ui_scale_user));
     want = std::round(want * 20.0f) / 20.0f;
-    if (want == ui_scale_applied && prefs.row_density == density_applied) return;
+    if (want == ui_scale_applied && prefs.row_height == row_height_applied) return;
     ImGuiStyle& st = ImGui::GetStyle();
     // Start from Dear ImGui's unscaled sizes every time: ScaleAllSizes multiplies what is there, and turbo_theme only
     // resets a few sizes, so each scale change (window height, UI size, Ctrl + wheel) used to grow the scrollbars,
@@ -119,10 +123,12 @@ void App::update_style() {
     // Row density (Status > Settings, gui_settings.json gui.row_density, ui/gui_prefs.h): table rows are text height +
     // 2 * CellPadding.y, list rows text + ItemSpacing.y, widget rows FrameHeight. "normal" multiplies by 1: the style is
     // then exactly the one before this setting existed (no rounding: it moved rows at fractional scales).
-    st.CellPadding.y *= row_density_cell_padding(prefs.row_density);
-    st.ItemSpacing.y *= row_density_item_spacing(prefs.row_density);
-    st.FramePadding.y *= row_density_frame_padding(prefs.row_density);
-    density_applied = prefs.row_density;
+    // 2.22: the Row height slider (gui_prefs.h kRowHeight*): a table row is 17 px text + 2 * CellPadding.y; the default 21 px is CellPadding.y 2 = the
+    // style as it was before the setting existed
+    st.CellPadding.y = row_height_cell_padding(prefs.row_height) * want;
+    st.ItemSpacing.y *= row_height_item_spacing_mult(prefs.row_height);
+    st.FramePadding.y *= row_height_frame_padding_mult(prefs.row_height);
+    row_height_applied = prefs.row_height;
     if (ui_scale_applied > 0.0f && ui_scale_applied != want) ui_scale_changed_from = ui_scale_applied;
     ui_scale_applied = want;
     g_ui_scale = want;
@@ -1748,6 +1754,8 @@ void App::draw_pages() {
     }
     area_page_[static_cast<int>(place_.area)] = place_.page;
 
+    split::bind(&prefs.splits);  // ui_split.h: the pane widths live in gui_settings.json gui.splits
+    split::set_page(page_key(place_.page));
     ImGui::PushID("##shell");
     // the area strip
     bool first = true;
@@ -1784,6 +1792,8 @@ void App::draw_pages() {
     // 2.16 wiring: the new page of this id first (ui_pages_216.cpp), unless the old panels were asked for; then the page registered before 2.16;
     // then the legacy panel
     if (!(!legacy_pages && draw_new_page(*this, page, adv)) && !draw_page(*this, page, adv)) draw_legacy_page(*this, page);
+    // a pane divider that has rested (ui_split.h) is written once, never per frame
+    if (prefs.splits.take_dirty() && !save_gui_settings()) notify("cannot save the panel size", true);
 }
 
 void App::draw() {
@@ -1879,9 +1889,11 @@ void App::draw() {
     ui_scale_changed_from = 0.0f;
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(S(480.0f), max_w), std::min(S(320.0f), max_h)), ImVec2(max_w, max_h));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, wprefs.maximized ? 0.0f : ImGui::GetStyle().WindowRounding);
-    const bool main_open = ImGui::Begin("FC 27 LE Turbo", &visible,
-                                        ImGuiWindowFlags_NoCollapse |
-                                            (wprefs.maximized ? ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize : 0));
+    // 2.22 G-resize (Cassio 10-19: "STILL cant resize ... frames"; "even the window not saving resizes is baffling"): the panel is NEVER NoResize / NoMove.
+    // Maximized (the default) is only where it starts: dragging an edge or the title bar leaves it ("moved or resized" below: maximized = false,
+    // saved), Restore / Maximize stay. While maximized only the title bar moves it (a stray click-drag on empty panel space must not un-maximize it).
+    ImGui::GetIO().ConfigWindowsMoveFromTitleBarOnly = wprefs.maximized;
+    const bool main_open = ImGui::Begin("FC 27 LE Turbo", &visible, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleVar();
     if (!main_open) {
         ImGui::End();
@@ -1931,7 +1943,11 @@ void App::draw() {
                 wprefs.maximized = false;
                 wprefs.rect = cur;
                 wprefs.has_rect = true;
-                wtrack.have_seen = false;
+                // start the debounce now: a drag that ends right here (a one-pixel nudge) must still be written once it has rested
+                wtrack.seen = cur;
+                wtrack.have_seen = true;
+                wtrack.pending_save = true;
+                wtrack.changed_at = now;
             }
         } else if (wtrack.observe(cur, now, ImGui::IsMouseDown(0))) {
             wprefs.rect = cur;  // the last place and size the person left it at (written once, not per frame)
@@ -1988,6 +2004,15 @@ void App::draw() {
             notify(usertext::pending_text(pending_label) + ": cancelled");
             pending_label.clear();
         }
+    } else {
+        // 2.22 (Pit wall CHANGE 21:43 f): the Refresh button of v2.14 is back on the status line (same call as "Reload from game" in Settings)
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Refresh###statusrefresh")) {
+            bridge.poll_files();
+            if (refresh()) notify("Lists refreshed from the game");
+            else notify(db_error, true);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read the lists from the game again");
     }
     {
         // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)

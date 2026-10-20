@@ -33,6 +33,11 @@ void draw_game_link(App& app) {
 }
 
 void draw_settings_page(App& app) {
+    // 2.22 G-resize: the sizes first, open at first use (Cassio: "STILL cant resize columns, rows and frames")
+    if (collapsing_section(app, "settings.look", "Look and feel", true)) {
+        draw_look_and_feel(app);
+        ImGui::Spacing();
+    }
     if (collapsing_section(app, "settings.link", "Game link", true)) {
         draw_game_link(app);
         ImGui::Spacing();
@@ -49,7 +54,7 @@ void draw_settings_page(App& app) {
             app.notify("The setting could not be saved", true);
         if (app.prefs.advanced_mode && ImGui::IsItemHovered())
             ImGui::SetTooltip("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
-        draw_preferences(app);
+        draw_preferences(app, false);  // the sizes are in Look and feel above
         ImGui::Spacing();
     }
     draw_status_health(app);  // pictures, health, technical details (collapsed)

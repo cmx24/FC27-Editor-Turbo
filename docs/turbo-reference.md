@@ -243,6 +243,7 @@ game calls, installs the hooks and reads the switch files inside FC27.exe; `ui/`
 - **Failure handling**: every frame runs behind an exception barrier; any error switches the overlay off for the session and
   the game keeps running. The main window is clamped to the screen size.
 - Third party (vendored in `turbogui/third_party`): Dear ImGui v1.92.9, MinHook v1.3.4, nlohmann/json 3.11.3.
+  - Local edits to vendored code (each line commented `// Turbo:`): `third_party/imgui/imgui_tables.cpp` line 271, `TABLE_RESIZE_SEPARATOR_HALF_THICKNESS` is `6 * FontScaleDpi` instead of the constant 4 (a 12 px column-edge grab zone that scales with the UI size; 2.22 G-resize). Re-apply it when updating ImGui.
 - Toolchain: mingw-w64 13 (posix threads) with `-DWIDL_EXPLICIT_AGGREGATE_RETURNS` (needed for the D3D12 descriptor-handle ABI), static linking.
 
 ## Build and test
