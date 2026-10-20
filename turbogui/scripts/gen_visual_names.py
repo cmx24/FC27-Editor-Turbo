@@ -21,13 +21,20 @@ Sources (each code carries its source tag in "src"):
   fce            FC Editor's community hair names (tables\\hairnames.txt), only where the game has no string.
 
 usage: gen_visual_names.py --rdbm <RDBM26\\Resources> --loc <LanguageStrings1.txt> [--loc ...] --le-loc <localize.json>
-                           --fce <FC Editor tables dir> [--out data/visual_names.json]
+                           --fce <FC Editor tables dir> [--census <turbo_table_players.csv>] [--catalog <catalog_*.json>]
+                           [--out data/visual_names.json]
+  --census / --catalog (2.22 pickers): the player census and the game asset catalog give the eyebrow, generic-head and
+  accessory-colour codes that players really carry (60101 is style 60000 + variant 0101: the picture is the style's);
+  default turbo_output when present.
        gen_visual_names.py --header-only    (src/core/visual_names_data.h from the committed data/visual_names.json)
 Every full run also writes src/core/visual_names_data.h, the same facts as C++ tables compiled into the GUI.
 """
 import argparse, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+_OUT = r"C:\FC 27 Live Editor\turbo_output"
+DEFAULT_CENSUS = os.path.join(_OUT, "turbo_table_players.csv")
+DEFAULT_CATALOG = os.path.join(_OUT, "asset_catalog", "catalog_6AC07E31-2145C000.json")
 
 # ---- FC 27 enums (EBX member name -> value), see the docstring
 SSF_RUN_STYLE = ["Normal", "Darting_Striker", "The_General", "Big_Man", "T_Rex", "Morning_Sunshine", "Big_Bird",
@@ -72,6 +79,35 @@ def codes_from(names, rx):
         if m:
             out[int(m.group(1))] = n
     return out
+
+
+def census_values(path, field):
+    """The distinct integer values of one column of the player census CSV (empty when the file is not on this PC)."""
+    import csv
+    cache = census_values.__dict__.setdefault("cache", {})
+    if (path, field) in cache:
+        return cache[(path, field)]
+    out = set()
+    try:
+        with open(path, encoding="utf-8", errors="replace", newline="") as f:
+            for row in csv.DictReader(f):
+                v = row.get(field, "")
+                if v.lstrip("-").isdigit():
+                    out.add(int(v))
+    except OSError:
+        print("note: census %s not found: no %s codes added" % (path, field), file=sys.stderr)
+    cache[(path, field)] = out
+    return out
+
+
+def catalog_ids(path, family):
+    """The ids of one family of the game asset catalog JSON (empty when the file is not on this PC)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return set(int(i) for i in json.load(f)["families"][family]["ids"])
+    except (OSError, ValueError, KeyError, TypeError):
+        print("note: catalog %s not found: no %s ids added" % (path, family), file=sys.stderr)
+        return set()
 
 
 def entry(name, src, file=None, note=None):
@@ -237,9 +273,19 @@ def build(a):
                           "codes": dict(sorted(codes.items()))}
     fields["facialhairtypecode"] = "facialhair"
 
-    codes = {v: entry("", "none", n) for v, n in codes_from(files(os.path.join(R, "eyebrow")), r"brow_(\d+)\.png").items()}
+    # eyebrows: RDBM26 has one picture per STYLE (brow_<style*10000>.png, 38 of them); the players carry style + variant
+    # (60101 = style 60000 + variant 0101; the catalog's ids run 10101..10503 per style). Every code the census / the game
+    # catalog has gets its style's picture (variants within a style share it). What the variant digits mean is not written
+    # anywhere we can read, so the codes stay unnamed ("Eyebrows 60101").
+    style_files = codes_from(files(os.path.join(R, "eyebrow")), r"brow_(\d+)\.png")
+    codes = {v: entry("", "none", n) for v, n in style_files.items()}
+    census_eb = census_values(a.census, "eyebrowcode")
+    for v in sorted(census_eb | catalog_ids(a.catalog, "eyebrow")):
+        if v not in codes:
+            n = style_files.get(v // 10000 * 10000)
+            codes[v] = entry("", "census" if v in census_eb else "catalog", n, "style picture" if n else None)
     sets["eyebrow"] = {"title": "Eyebrows", "dir": "eyebrow", "kind": "png", "pattern": "brow_{code}.png",
-                       "codes": dict(sorted(codes.items()))}
+                       "note": "variants within a style share the style's picture", "codes": dict(sorted(codes.items()))}
     fields["eyebrowcode"] = "eyebrow"
 
     codes = {v: entry("", "none", n) for v, n in codes_from(files(os.path.join(R, "tattoo")), r"item_(\d+)_0\.png").items()}
@@ -254,13 +300,59 @@ def build(a):
                                             "GK gloves")):
         sub = next((s for s in subs if files(os.path.join(R, s))), subs[0])
         codes = {}
-        for v, n in codes_from(files(os.path.join(R, sub)), rx).items():
-            key = "CreatePlayerBoot_%d" % v
-            codes[v] = entry("", "none", n)
+        # the codes of BOTH folders (2.22: FC26_shoes lacks 7 ids that shoes\ has, e.g. boots 165 and 80; the GUI resolves each
+        # picture file by file, FC26_ first)
+        for s_ in [sub] + [x for x in subs if x != sub]:
+            for v, n in codes_from(files(os.path.join(R, s_)), rx).items():
+                codes.setdefault(v, entry("", "none", n))
         sets[set_id] = {"title": title, "dir": sub, "fallback_dirs": [s for s in subs if s != sub], "kind": "png",
                         "pattern": rx.replace(r"(\d+)", "{code}").replace("\\", ""), "codes": dict(sorted(codes.items())),
                         "note": "pictures are FC 26's; FC 27 moved some ids to other models"}
         fields[field] = set_id
+
+    # accessory colours (accessorycolourcode1..4): LE's names (White, Black, ... 99 None); the pictures are
+    # Accessory_<colour>_<accessory>.png, found at run time for the player's accessory
+    colour_codes = set()
+    for n in files(os.path.join(R, "Accessory")):
+        m = re.fullmatch(r"Accessory_(\d+)_(\d+)\.png", n, re.I)
+        if m:
+            colour_codes.add(int(m.group(1)))
+    for k in range(1, 5):
+        colour_codes |= census_values(a.census, "accessorycolourcode%d" % k)
+    for k in range(0, 100):
+        if le_name("accessorycolourcode_%d" % k):
+            colour_codes.add(k)
+    codes = {}
+    for v in sorted(colour_codes):
+        nm = le_name("accessorycolourcode_%d" % v)
+        codes[v] = entry(nm or "Colour %d" % v, "le:accessorycolourcode_%d" % v if nm else "ordinal")
+    sets["accessorycolour"] = {"title": "Accessory colour", "dir": "Accessory", "kind": "png",
+                               "pattern": "Accessory_{colour}_{accessory}.png",
+                               "note": "the picture is the player's accessory in this colour", "codes": codes}
+    for k in range(1, 5):
+        fields["accessorycolourcode%d" % k] = "accessorycolour"
+
+    # generic heads (headtypecode): RDBM26's gheads\<n>.png, grouped by its *Models.txt lists. Key checked 2.22: 526 of the 529
+    # codes the census uses have a file (21,331 of 21,340 players), the lists split by skin tone as their names say.
+    gdir = os.path.join(R, "gheads")
+    gfiles = {int(f[:-4]): f for f in files(gdir) if re.fullmatch(r"\d+\.png", f)}
+    groups = {}
+    for g, label in (("African", "African"), ("Arabic", "Arabic"), ("Asiatic", "Asiatic"), ("Caucasian", "Caucasian"),
+                     ("Euro", "European"), ("Latin", "Latin")):
+        try:
+            for line in open(os.path.join(gdir, g + "Models.txt"), encoding="utf-8", errors="replace"):
+                if line.strip().isdigit():
+                    groups.setdefault(int(line.strip()), label)
+        except OSError:
+            pass
+    codes = {}
+    for v in sorted(set(gfiles) | census_values(a.census, "headtypecode")):
+        grp = groups.get(v)
+        codes[v] = entry("%s head %d" % (grp, v) if grp else "", "rdbm:gheads/%sModels.txt" % grp if grp else "none",
+                         gfiles.get(v))
+    sets["ghead"] = {"title": "Generic head", "dir": "gheads", "kind": "png", "pattern": "{code}.png",
+                     "note": "preview from RDBM26", "codes": codes}
+    fields["headtypecode"] = "ghead"
 
     def jsonable(sets):
         return {k: dict(v, codes={str(c): e for c, e in v["codes"].items()}) for k, v in sets.items()}
@@ -354,6 +446,8 @@ def main(argv=None):
     ap.add_argument("--loc", action="append", required=True)
     ap.add_argument("--le-loc", required=True)
     ap.add_argument("--fce", required=True)
+    ap.add_argument("--census", default=DEFAULT_CENSUS)
+    ap.add_argument("--catalog", default=DEFAULT_CATALOG)
     ap.add_argument("--out", default=os.path.join(HERE, "..", "data", "visual_names.json"))
     a = ap.parse_args(argv)
     doc = build(a)

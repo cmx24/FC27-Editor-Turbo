@@ -111,6 +111,36 @@ bool gallery_picture(App& app, const std::string& field, int64_t id, float side,
 // Clickable cell: gallery_picture with `caption` under it; true when clicked
 bool gallery_picture_cell(App& app, const std::string& field, int64_t id, float side, const std::string& caption,
                           const std::string& fallback_text, const char* bid, bool selected, bool none = false);
+// ---- 2.22 merged pickers (ui_visual_picker.cpp): the game gallery of a field behind the one grid. The catalog rules stay here.
+// Fields with a game gallery: players' hair, facial hair, boots, small-sided boots, GK gloves, accessories 1-4; managers' hair and
+// facial hair (the manager outfit keeps its own gallery in item_galleries).
+struct GalleryEntry {
+    int64_t id = 0;
+    std::string preview;      // the game's picture path ("" = none: 3D only, or not listed)
+    std::string name;         // readable name from the game files ("" = none)
+    bool model_only = false;  // the game has the 3D model and no preview picture
+    bool writable = true;
+    std::string why;          // why it cannot be applied ("" = it can)
+    bool hidden = false;      // in the game files, no row of the save uses it
+    std::string tag;          // "3D only", "Hidden", "Preview only", "Not checked" or ""
+    std::string tip;          // the catalog's extra hover lines
+};
+bool gallery_has(const std::string& field, bool manager = false);
+const char* gallery_title(const std::string& field, bool manager = false);  // "Hair", "Facial hair", "Boots" ... ("" = none)
+// Every id the game lists for the field (ascending, no 0), with the catalog's flags; colour: the player's accessory colour
+std::vector<GalleryEntry> gallery_entries(App& app, const std::string& field, bool manager, int64_t colour = 0);
+bool gallery_catalog_active(const std::string& field, bool manager);
+// May `id` be written (the catalog gate; 0 = none always; no catalog = yes)? Ids the catalog does not list are refused with a reason.
+bool gallery_write_ok(App& app, const std::string& field, bool manager, int64_t id, std::string* why);
+// Is `id` Hidden now (call before the write; after it the save uses the id)? Then log it (turbo_output\asset_writes.log) after the write.
+bool gallery_hidden(App& app, const std::string& field, bool manager, int64_t id);
+void gallery_log_hidden(App& app, const Table& t, uint64_t rec, const std::string& field, int64_t old_v, int64_t new_v);
+void gallery_stale_line(const std::string& field, bool manager);  // the "catalog built for another game build" lines, when stale
+// "All / In this save / Hidden" combo (persisted per field): the scope 0..2, or -1 when the field has no catalog
+int gallery_scope_combo(App& app, const std::string& field, bool manager, float width);
+bool gallery_scope_shows(int scope, bool hidden);  // scope -1 shows everything
+bool gallery_favourite(App& app, const std::string& field, int64_t id);
+void gallery_toggle_favourite(App& app, const std::string& field, int64_t id);
 // The game asset catalog the gear galleries and tattoo pickers read (docs/asset-catalog.md). The app sets it after every
 // catalog load or switch change; nullptr (catalog off, not loaded, refused) = every gallery behaves exactly as in 2.0.
 void set_gear_catalog(std::shared_ptr<const assets::Catalog> catalog);

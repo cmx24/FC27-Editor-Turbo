@@ -24,6 +24,7 @@
 #include "ui_club_search.h"
 #include "ui_faces3d_gate.h"
 #include "ui_images.h"
+#include "ui_visual_picker.h"
 #include "ui_names.h"
 #include "ui_presets.h"
 #include "ui_shell.h"
@@ -222,6 +223,7 @@ void looks_card(App& app, const Table& t, const PlayerRow& p) {
     if (fold("Tattoos, hairstyle, boots and gloves###pp_gear")) {
         tattoo_editor(app, t, p.rec);
         item_galleries(app, t, p.rec);
+        vp::inline_appearance(app, t, p.rec);  // 2.22 G-pickers: eyebrows, colours, generic head with their pictures
         ImGui::TreePop();
     }
     if (fold("The small picture in menus###pp_mini")) {

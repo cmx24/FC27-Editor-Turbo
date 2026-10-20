@@ -4418,6 +4418,8 @@ static void test_ui() {
                 << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
                    "3;data/ui/imgAssets/boots/item_678_0.dds\n4;data/ui/imgAssets/gkglove/gkglove_41.dds\n"
                    "5;data/ui/imgAssets/accessories/item_52_0.dds\n6;data/ui/imgAssets/accessories/item_52_3.dds\n7;data/ui/imgAssets/heads/p1.dds\n";
+            visual_pictures_override((test_tmp_dir("gallery_no_rdbm") / "nowhere").u8string());  // 2.22: no RDBM26 folder of this PC in the way
+            visual_pictures_refresh(app);
             app.request_tab = 0;
             ui.frames(2);  // the list is read again on the next frame
             const GearPictureIndex& gx = gear_pictures(app);
@@ -4425,22 +4427,33 @@ static void test_ui() {
             CHECK(gx.ids("accessories", "item_") == std::vector<int64_t>{52} && gx.ids("gkglove", "gkglove_") == std::vector<int64_t>{41}, "variants collapse to one id");
             CHECK(ui.click("3001", "##plist"), "player 3001");
             CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
+            const Table* t0 = app.db.table("players");
+            const uint64_t rec0 = app.db.find(*t0, "playerid", 3001);
+            const int64_t hair_was = app.db.get_int(*t0, rec0, "hairtypecode");
+            app.db.set_int(*t0, rec0, "hairtypecode", 3261);  // his row shows the game's picture of hair 3261 (asked from the game)
             ui.frames(2);
             // the first Choose...##gal of the galleries table is Hair (hairtypecode is in the test players table)
             const ItemRec* btn = ui.find("Choose...##gal", "##app");
             CHECK(btn != nullptr, "Hair Choose... button");
             CHECK(ui.click(btn), "open the hair gallery");
             ui.frames(3);
-            CHECK(ui.find("hairtypecode3261", "##gallerypick") != nullptr && ui.find("hairtypecode1053", "##gallerypick") != nullptr, "both hair previews listed");
+            // 2.22 G-pickers: Choose... opens the merged grid of the field (one grid for the game's gallery and the RDBM26 pictures)
+            CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode", "the merged hair grid is open");
+            CHECK(visual_picker_tile_source(3261) == TileSource::Game && visual_picker_tile_source(1053) == TileSource::Game, "both hair previews listed (the game's own pictures)");
             const Table* t = app.db.table("players");
             uint64_t rec = app.db.find(*t, "playerid", 3001);
-            CHECK(ui.click("hairtypecode1053", "##gallerypick"), "pick hair 1053");
+            visual_picker_select(1053);
+            CHECK(visual_picker_apply(app), "pick hair 1053: " + visual_picker_ui().last_result);
             CHECK(app.db.get_int(*t, rec, "hairtypecode") == 1053, "hairtypecode = 1053");
-            CHECK(ui.toast_contains("Hair: 1053"), "toast");
+            CHECK(visual_picker_ui().last_result.find("1053") != std::string::npos, "result in words: " + visual_picker_ui().last_result);
+            visual_picker_close();
+            ui.frames(2);
             CHECK(app.undo(3001) && app.db.get_int(*t, rec, "hairtypecode") != 1053, "undo");
             app.legacy.flush();
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
             CHECK(want.find("data/ui/imgAssets/hairstyle/item_3261_0.dds") != std::string::npos, "previews asked from the game: " + want);
+            app.db.set_int(*t0, rec0, "hairtypecode", hair_was);
+            visual_pictures_override("");
         });
 
         // 2.16 live looks (ui_faces3d_gate.cpp, core/faces3d.h template v4): on a real face, "Apply hair & beard" writes his two codes
@@ -15600,6 +15613,7 @@ int main(int argc, char** argv) {
     test_hair_catalog();
     test_bodytype_catalog();
     visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
+    visual_picker_test::core_cases_222();  // 2.22 G-pickers: colour JSON, eyebrow styles, per-file fallback, accessory colours, generic heads
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();

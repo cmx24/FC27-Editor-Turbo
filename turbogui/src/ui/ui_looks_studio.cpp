@@ -413,7 +413,9 @@ bool field_combo(App& app, Studio& s, const Table& t, uint64_t rec, const Subjec
     Value before;
     const bool have = app.db.get(t, rec, *f, before);
     ++s.st.fields;
-    const bool wrote = enum_editor(app, t, rec, *f, label, S(220.0f));
+    // 2.22 G-pickers: a field with a picture or swatch (RDBM26 or the game's own preview) shows it inline, its grid behind Change
+    const bool wrote = vp::has_picture(app, t, field, who.manager) ? vp::inline_field(app, t, rec, field, label, who.manager)
+                                                                  : enum_editor(app, t, rec, *f, label, S(220.0f));
     if (wrote) note_write(s, who, rec, field, before, have);
     return wrote;
 }
@@ -429,6 +431,11 @@ bool look_combo(App& app, Studio& s, const Table& t, uint64_t rec, const Subject
     ++s.st.fields;
     const int64_t cur = before.i;
     bool wrote = false;
+    if (vp::has_picture(app, t, lf.name, who.manager)) {  // 2.22 G-pickers: the picture or swatch inline, the grid behind Change
+        wrote = vp::inline_field(app, t, rec, lf.name, lf.title, who.manager);
+        if (wrote) note_write(s, who, rec, lf.name, before, true);
+        return wrote;
+    }
     ImGui::PushID(lf.name);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(lf.title);
