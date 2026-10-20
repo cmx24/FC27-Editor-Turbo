@@ -1146,7 +1146,7 @@ bool inline_field(App& app, const Table& t, uint64_t rec, const char* field, con
     row_picture(app, rc.src, v, side);
     ImGui::SameLine();
     ImGui::BeginGroup();
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::max(0.0f, (side - ImGui::GetFrameHeight()) * 0.5f));
+    ImGui::Dummy(ImVec2(1.0f, std::max(0.0f, (side - ImGui::GetFrameHeight()) * 0.5f - ImGui::GetStyle().ItemSpacing.y)));  // centre under the picture (no SetCursorPos: ImGui asserts)
     const int idx = rc.src.index_of(v);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(idx >= 0 ? rc.src.names[static_cast<size_t>(idx)].c_str() : "-");
