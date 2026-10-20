@@ -1,0 +1,9 @@
+# nav_capability_allow.txt - capabilities of the base (default v2.14.0) that the new default navigation no longer reaches ON PURPOSE.
+# tools/nav_capability_check.py fails on every other function that was reachable by default on the base and is not now.
+#
+# One line per function:   function | why it is gone on purpose | who decided (CHANGE line / commit / Cassio message)
+# Add a line ONLY when a Pit wall CHANGE, a signed brief or Cassio says the loss is deliberate. A builder never adds a line to make the
+# check pass; "renamed" is not a reason (wire the new name's page instead, or name it in a capability line in PITWALL\capabilities).
+# Lines whose function is reachable again, or was never reached by default on the base, are reported so they can be removed.
+head_miniface_mismatch | the v2.14 head/miniface mismatch prompt was replaced by the 2.20 faces-safety rules (a head edit never overwrites or deletes a real miniface) | Pit wall CHANGE 21:44 in briefs\2.22-G-ia.md ("do not bring it back"); commit 4c25b73
+give_matching_miniface | the prompt's action (copy the head owner's picture over the player's own, even a real one) was removed with it; app.cpp 2.20 comment "App::give_matching_miniface is gone" | Pit wall CHANGE 21:44 in briefs\2.22-G-ia.md; commit 4c25b73

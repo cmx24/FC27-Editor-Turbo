@@ -51,4 +51,22 @@ for t in run run_callnames run_game_heads run_gear run_pages run_kitswap run_lua
   cr="$cr $t=$(grep -E -o '[0-9]+ (passed|checks)' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)/$(grep -E -o '[0-9]+ failed' "$L/check_catalog_$t.log" | tail -1 | cut -d' ' -f1)"
 done
 echo "CATALOG exit=$c$cr (ok/failed)"
-[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ] && [ $c -eq 0 ]
+# 2.22 navigation capability check (tools/nav_capability_check.py): every function the DEFAULT navigation of v2.14.0 reached must still
+# be reachable by default (generic names make no call edge; a page in both registries counts its NEW function; the "Use the old pages"
+# toggle does not count), minus tools/nav_capability_allow.txt. Symbol scan, no build, no game. Fails check_all when anything is lost;
+# NAVCAP_BASE=<ref> changes the baseline, NAVCAP_ADVISORY=1 reports without failing (a track that cannot fix a loss of another track).
+pyn=""
+for pc in "${PYTHON:-}" python3 python "py -3"; do
+  [ -n "$pc" ] && $pc -c "import sys; sys.exit(0)" > /dev/null 2>&1 && { pyn="$pc"; break; }
+done
+nv=0
+if [ -z "$pyn" ]; then
+  echo "NAVCAP skipped: no Python found (set PYTHON=)"
+else
+  $pyn -I tools/nav_capability_check.py --self-test > "$L/check_navcap_self.log" 2>&1; nvs=$?
+  $pyn -I tools/nav_capability_check.py --base "${NAVCAP_BASE:-v2.14.0}" > "$L/check_navcap.log" 2>&1; nv=$?
+  echo "NAVCAP exit=$nv self-test=$nvs base=${NAVCAP_BASE:-v2.14.0} $(grep '^RESULT' "$L/check_navcap.log" | tail -1) $(grep -E -o '^LOST BY DEFAULT \([0-9]+' "$L/check_navcap.log" | tr -d '(')  (list: $L/check_navcap.log)"
+  [ $nvs -ne 0 ] && nv=1
+  [ "${NAVCAP_ADVISORY:-0}" = "1" ] && nv=0
+fi
+[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ] && [ $c -eq 0 ] && [ $nv -eq 0 ]
