@@ -163,6 +163,9 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         CHECK(ten != nullptr && ten->club == mine, "player 1005 plays for my club");
         app.sel_player = 1005;
         show(ui, draw_team_players);
+        // 2.22: the page opens on the Squad list tab (test_squad_table_restore.h); the player list and cards are the Player tab
+        CHECK(ui.click("Player###tptabplayer", "##teampage_test"), "the Player tab");
+        ui.frames(4);
         const TeamPageState& s = team_players_state();
         CHECK(!s.waiting && s.club == mine && s.own_club, "the page works on my club");
         CHECK(s.listed == app.model.links_of_team(mine).size() && s.listed >= 5, fmt("the list shows my squad: %zu", s.listed));

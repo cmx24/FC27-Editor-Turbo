@@ -241,6 +241,9 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
 
     run_case("Career pages: My squad - the five cards, every action asks first, the daily switches write the old settings keys", [&] {
         show(ui, draw_career_my_squad);
+        // 2.22: the page opens on the Squad tab (the sortable table, test_squad_table_restore.h); the five cards are the second tab, unchanged
+        CHECK(ui.click("###sqtabtools", "##careerpage_test"), "the Career tools tab is there");
+        ui.frames(3);
         CHECK(!career_page_state().waiting && career_page_state().cards == 5, fmt("five cards: %d", career_page_state().cards));
         CHECK(career_page_state().tags >= 2, "the cards that were never seen in game carry the tag");
         for (const char* l : {"Apply to my squad", "Set for my squad", "Extend my squad's contracts", "Develop to potential", "Reveal my players", "Run for my squad"})
@@ -333,6 +336,10 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
     run_case("Career pages: a visible label is short and has no code in it (R3, R4)", [&] {
         for (auto fn : {draw_career_transfers_money, draw_career_manager_jobs, draw_career_my_squad}) {
             show(ui, fn);
+            if (fn == draw_career_my_squad) {  // 2.22: the cards are on the second tab
+                ui.click("###sqtabtools", "##careerpage_test");
+                ui.frames(3);
+            }
             int checked = 0;
             for (const auto& kv : g_items) {
                 const ItemRec& r = kv.second;

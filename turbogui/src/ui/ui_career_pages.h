@@ -6,7 +6,8 @@
 //
 //   draw_career_transfers_money  Career > Transfers & money   Budget, Contracts, Moves of my club, Transfer bans
 //   draw_career_manager_jobs     Career > Manager jobs        Job offer, Stop the club sacking me, Move a manager
-//   draw_career_my_squad         Players > My squad           Form & fitness, Squad roles, Contracts, Growth & youth, Squad tools
+//   draw_career_my_squad         Players > My squad           2.22: tab Squad (the sortable squad table, squad_table) and tab Career tools:
+//                                                             Form & fitness, Squad roles, Contracts, Growth & youth, Squad tools
 //   draw_career_staff            Players > Managers & staff   the manager list, Details, Face, Scouts (rules and market left)
 #pragma once
 #include <cstdint>
@@ -19,6 +20,8 @@ class App;
 void draw_career_transfers_money(App& app);
 void draw_career_manager_jobs(App& app);
 void draw_career_my_squad(App& app);
+// 2.22: the five cards of My squad without the tab bar and the table (Team > Players > Whole squad draws these)
+void draw_career_squad_cards(App& app);
 void draw_career_staff(App& app);
 
 // What the last frame of each page drew (plain text is not an ImGui item, so the tests read it here)

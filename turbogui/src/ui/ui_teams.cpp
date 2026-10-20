@@ -17,6 +17,7 @@
 #include "ui_role_rules.h"
 #include "ui_tactic_presets.h"
 #include "ui_team_filter.h"
+#include "ui_team_pages.h"
 
 namespace turbo {
 
@@ -131,11 +132,20 @@ static void team_list(App& app) {
     }
 }
 
-static void squad_table(App& app, int64_t teamid) {
+// 2.22 G-squad: the sortable squad table of 2.14 (declared in ui_team_pages.h), drawn by Players > My squad and Team > Players as well as by
+// the old Teams panel. Same table, same ini id ("##squad"), same edits through field_editor / App::edit.
+static SquadTableState g_squad_state;
+const SquadTableState& squad_table_state() { return g_squad_state; }
+
+void squad_table(App& app, int64_t teamid) {
     const Table* lt = app.db.table("teamplayerlinks");
     auto links = app.model.links_of_team(teamid);
+    g_squad_state = SquadTableState{};
+    g_squad_state.club = teamid;
+    g_squad_state.rows = links.size();
     ImGui::TextDisabled("%zu players linked", links.size());
     if (!lt) return;
+    g_squad_state.table_drawn = false;
     if (ImGui::BeginTable("##squad", 6,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
@@ -147,6 +157,14 @@ static void squad_table(App& app, int64_t teamid) {
         ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
         ImGui::TableSetupColumn("Line-up slot", ImGuiTableColumnFlags_WidthFixed, S(90.0f));
         ImGui::TableHeadersRow();
+        g_squad_state.table_drawn = true;
+        g_squad_state.columns = 6;
+        if (const ImGuiTableSortSpecs* ss = ImGui::TableGetSortSpecs()) {
+            if (ss->SpecsCount > 0) {
+                g_squad_state.sort_column = static_cast<int>(ss->Specs[0].ColumnIndex);
+                g_squad_state.sort_ascending = ss->Specs[0].SortDirection == ImGuiSortDirection_Ascending;
+            }
+        }
         // the displayed rows keep the database order until a header is clicked
         struct SquadRow {
             const LinkRow* link;
@@ -179,7 +197,9 @@ static void squad_table(App& app, int64_t teamid) {
             ImGui::TableNextColumn();
             if (ImGui::Selectable(sr.name.c_str(), false)) {
                 app.sel_player = l.playerid;
-                app.request_tab = 0;
+                // the 2.16 page route (Players > Edit a player); the old panels (Settings > Use the old pages) keep the legacy tab index
+                if (app.legacy_pages) app.request_tab = 0;
+                else app.go(shell::Page::PlayerEdit);
             }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(p ? position_name(p->position) : "");

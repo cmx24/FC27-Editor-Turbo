@@ -261,7 +261,7 @@ ui_career_page.cpp	-	##career_roles	1
 ui_career_page.cpp	-	##career_sacking	1
 ui_career_page.cpp	-	##career_scouts	1
 ui_career_page.cpp	-	##career_scouts_only	1
-ui_career_page.cpp	-	##career_squad	1
+ui_career_page.cpp	-	##career_squad	2
 ui_career_page.cpp	-	##career_staff_details	1
 ui_career_page.cpp	-	##career_staff_face	1
 ui_career_page.cpp	-	##career_tools	1
@@ -270,12 +270,18 @@ ui_career_page.cpp	-	##careerjobclub	1
 ui_career_page.cpp	-	##careerm	1
 ui_career_page.cpp	-	##careermgrid	1
 ui_career_page.cpp	-	##careermoveclub	1
+ui_career_page.cpp	-	##sqclub	1
 ui_career_page.cpp	-	)##mgr	1
 ui_career_page.cpp	BeginChild	##career_moves_list	1
 ui_career_page.cpp	BeginChild	##career_staffedit	1
 ui_career_page.cpp	BeginChild	##career_stafflist	1
 ui_career_page.cpp	BeginChild	##careerstaffrows	1
+ui_career_page.cpp	BeginChild	##csmgr_body	1
+ui_career_page.cpp	BeginChild	##ctmore_body	1
 ui_career_page.cpp	BeginCombo	##careertool	1
+ui_career_page.cpp	BeginTabBar	##career_squad_tabs	1
+ui_career_page.cpp	BeginTabItem	###sqtabsquad	1
+ui_career_page.cpp	BeginTabItem	###sqtabtools	1
 ui_career_page.cpp	Button	Cancel	1
 ui_career_page.cpp	Checkbox	Grow my squad every week##careergrow	1
 ui_career_page.cpp	Checkbox	Include loaned-in players##careerloaned	1
@@ -284,6 +290,8 @@ ui_career_page.cpp	Checkbox	Keep this every day##careerformkeep	1
 ui_career_page.cpp	Checkbox	My club can still buy##careerbankeep	1
 ui_career_page.cpp	Checkbox	Nobody gets worse##careernodecline	1
 ui_career_page.cpp	Checkbox	Repeat after each season reset##careerrolekeep	1
+ui_career_page.cpp	CollapsingHeader	###csmgr	1
+ui_career_page.cpp	CollapsingHeader	###ctmore	1
 ui_career_page.cpp	Combo	##careerlevel	1
 ui_career_page.cpp	Combo	##careerrole	1
 ui_career_page.cpp	InputInt	##careerbanday	1
@@ -1308,8 +1316,10 @@ ui_team_players.cpp	BeginChild	##team_pl_cards	1
 ui_team_players.cpp	BeginChild	##team_pl_list	1
 ui_team_players.cpp	BeginChild	##team_pl_rows	1
 ui_team_players.cpp	BeginTabBar	##team_pl_tabs	1
+ui_team_players.cpp	BeginTabItem	###tptabclubs	1
 ui_team_players.cpp	BeginTabItem	###tptabplayer	1
 ui_team_players.cpp	BeginTabItem	###tptabsquad	1
+ui_team_players.cpp	BeginTabItem	###tptabsquadlist	1
 ui_team_players.cpp	Checkbox	###tpnodecline	1
 ui_team_players.cpp	Checkbox	###tpweeklyon	1
 ui_team_players.cpp	Combo	##role	1
