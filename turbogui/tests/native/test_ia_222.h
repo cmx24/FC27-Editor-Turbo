@@ -238,8 +238,22 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         CHECK(ss.tattoo_card, "the Tattoos card is drawn (tattoo_editor, all body areas)");
         CHECK(ss.miniface_card, "the Player miniface card is drawn (the whole miniface_editor)");
         // the miniface editor's own tabs and buttons, with no card to open first
-        // (the card is the fifth of a scrolling column: the wheel, not a click on a card header, brings it into view)
-        auto reach = [&](const char* tab) { return ui.find(tab) != nullptr || ui.find_scrolling(tab, "", "") != nullptr; };
+        // (the card is the fifth of a scrolling column and a card scrolled out of view submits nothing: the wheel, over the cards, brings it in;
+        // no click on a card header is needed because no card is collapsed)
+        auto reach = [&](const char* tab) {
+            if (ui.find(tab) != nullptr) return true;
+            const ItemRec* anchor = ui.find("###lsundo");
+            ImVec2 over(300.0f, 400.0f);
+            if (anchor) over = ImVec2(anchor->rect.GetCenter().x, anchor->rect.GetCenter().y + S(120.0f));
+            for (int step = 0; step < 60; ++step) {
+                ImGui::GetIO().AddMousePosEvent(over.x, over.y);
+                ui.frame();
+                ImGui::GetIO().AddMouseWheelEvent(0.0f, -3.0f);
+                ui.frames(2);
+                if (ui.find(tab) != nullptr) return true;
+            }
+            return false;
+        };
         CHECK(reach("An image file") || reach("The 3D model"), "the miniface editor's source tabs are drawn");
         CHECK(reach("A player's miniface") && reach("Head model / youth face"), "the miniface editor's other tabs");
         CHECK(ui.find("###navgo") == nullptr, "no signpost");
