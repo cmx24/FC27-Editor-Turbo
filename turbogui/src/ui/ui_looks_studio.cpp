@@ -976,7 +976,39 @@ void fields_card(App& app, Studio& s, const Subject& who, const Table& t, uint64
     card_end();
 }
 
+// 2.22 (G-ia): Tattoos (all seven body areas, preview and picker: ui_images.cpp tattoo_editor). Players only: managers have none.
+void tattoo_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+    if (who.manager) return;
+    card_begin(s, "##lstattoo", "Tattoos");
+    tattoo_editor(app, t, rec);
+    s.st.tattoo_card = true;
+    card_end();
+}
+
+// 2.22 (G-ia; Cassio: "miniface editor disappeared too"): the whole miniface editor (ui_images.cpp miniface_editor: its capture, a player's
+// miniface, asset-source and result tabs), open, for the person picked. Same target as the Card view's (ui_player_page.cpp) and, for a
+// manager, as Career > Managers & staff. No head/miniface mismatch prompt (replaced by the 2.20 faces-safety rules).
+void miniface_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+    card_begin(s, "##lsminiface", who.manager ? "Manager miniface" : "Player miniface");
+    MinifaceTarget mt;
+    mt.manager = who.manager;
+    mt.headassetid = app.db.get_int(t, rec, "headassetid", 0);
+    mt.id = who.id;
+    mt.teamid = who.club;
+    if (who.manager) {
+        mt.path = legacy_path::staff_miniface_for(who.id, mt.headassetid);
+        mt.shown = app.legacy.first_present(legacy_path::staff_pictures(who.id, mt.headassetid));
+    } else {
+        mt.path = legacy_path::player_miniface(who.id);
+    }
+    miniface_editor(app, mt);
+    s.st.miniface_card = true;
+    card_end();
+}
+
 void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_t rec) {
+    s.st.tattoo_card = false;
+    s.st.miniface_card = false;
     if (!who.valid() || !t) {
         hint_line("The cards show once you pick someone.");
         return;
@@ -986,6 +1018,8 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     face_card(app, s, who, *t, rec);
     hair_card(app, s, who, *t, rec);
     body_card(app, s, who, *t, rec);
+    tattoo_card(app, s, who, *t, rec);
+    miniface_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
     fields_card(app, s, who, *t, rec, Card::KitFit);
     visual_pickers_section(app, *t, rec, who.manager);  // ui_visual_picker.cpp (2.20 V): looks by picture and animation
@@ -1145,7 +1179,9 @@ void draw_looks_studio(App& app) {
     preview_pane(app, s, who);
     ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("##lscards", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    // 2.22: the cards' pane is as tall as the page; its right edge is the page's, so the divider to the preview is the one that drags (the preview's
+    // ResizeX); this pane is resizable too (ResizeX of a child on the right edge widens it into the window's scroll)
+    ImGui::BeginChild("##lscards", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
     cards_pane(app, s, who, t, rec);
     ImGui::EndChild();
     s.st.requests = s.body.requests() + s.big.requests();

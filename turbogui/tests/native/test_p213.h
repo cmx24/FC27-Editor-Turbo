@@ -74,7 +74,7 @@ static void ui_cases(App& app, Ui& ui) {
               "the one-line proof note");
     });
 
-    run_case("navigation (2.16 step 4): six areas and Advanced; the new pages are signposts to where the feature is; Standings leads Career; nothing was dropped", [&] {
+    run_case("navigation (2.16 step 4): six areas and Advanced; the new pages are real pages (Team sheet stays a signpost in the old pages); Standings leads Career; nothing was dropped", [&] {
         auto drawn = [&](const char* label) {  // an item submitted in the last frame, on screen or scrolled out of view
             for (const auto& kv : g_items)
                 if (kv.second.frame == g_frame && kv.second.label == label) return true;
@@ -86,12 +86,9 @@ static void ui_cases(App& app, Ui& ui) {
         for (const char* area : {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings"})
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Advanced", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
-        struct Sign { const char* area; const char* page; Page want; };
-        for (const Sign& s : {Sign{"Players", "Commentary names", Page::CommentaryNames}}) {
-            CHECK(ui.open_page(s.area, s.page) && app.place() == shell::place_of(s.want), std::string("opens: ") + s.area + " > " + s.page);
-            CHECK(ui.find("###navgo") != nullptr, std::string("a button that goes to the feature: ") + s.page);
-            CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::PlayerEdit)), std::string("it opens Edit a player: ") + s.page);
-        }
+        // 2.22 (G-ia): Commentary names is a real page (a player list and the callname editor), no longer a signpost to Edit a player
+        CHECK(ui.open_page("Players", "Commentary names") && app.place() == shell::place_of(Page::CommentaryNames), "opens: Players > Commentary names");
+        CHECK(ui.find("###navgo") == nullptr && ui.find("##cnsearch") != nullptr, "Commentary names is a page, not a signpost");
         // Team sheet & bench: Simple goes to Settings (where the Advanced switch is), Advanced to the experimental tactics
         CHECK(ui.open_page("Tactics", "Team sheet & bench"), "Tactics > Team sheet & bench");
         CHECK(ui.click("###navgo") && (ui.frames(2), app.place() == shell::place_of(Page::Settings)), "Simple: it opens Settings");

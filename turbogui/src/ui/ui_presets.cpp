@@ -716,40 +716,7 @@ static void put_player_id(json& o, const player_id::Verdict& v) {
         o["id_assets"] = {{"head3d", v.give_head}, {"headvariation", a.head_var}, {"callname", a.callname()}, {"miniface", a.miniface}};
 }
 
-// Create player's archetype (2.3): the template's 34 attributes reshaped so that the position's formula gives the Overall
-// box (core/archetypes.h apply_target), recomputed only when an input changes
-struct CreateArchetype {
-    int arch = -1, position = -1, target = 0;
-    int64_t template_pid = 0;
-    overall::Attrs from{};
-    bool have = false;  // the template has all 34 attributes
-    archetypes::TargetResult r;
-};
-static const CreateArchetype& create_archetype(App& app, const PlayerRow& p, int arch, int position, int target) {
-    static CreateArchetype c;
-    overall::Attrs from{};
-    bool have = false;
-    if (const Table* t = app.db.table("players")) {
-        have = true;
-        for (int i = 0; i < overall::kAttrCount && have; ++i) {
-            const Field* f = t->field(overall::kAttrNames[i]);
-            have = f && f->type == FieldType::Int;
-            if (have) from[static_cast<size_t>(i)] = static_cast<int>(app.db.get_int(*t, p.rec, overall::kAttrNames[i], 0));
-        }
-    }
-    if (c.arch == arch && c.position == position && c.target == target && c.template_pid == p.playerid && c.have == have && c.from == from)
-        return c;
-    c.arch = arch;
-    c.position = position;
-    c.target = target;
-    c.template_pid = p.playerid;
-    c.from = from;
-    c.have = have;
-    c.r = archetypes::TargetResult();
-    if (have && arch >= 0 && arch < static_cast<int>(archetypes::all().size()))
-        archetypes::apply_target(archetypes::all()[static_cast<size_t>(arch)], position, from, target, c.r);
-    return c;
-}
+// (2.22: the 2.3 attributes-only reshape of this dialog, with its own Archetype box, is gone: the Player type & tier section fills the whole form)
 
 // Create player (2.19 create-prefill): the dialog opens with every box it shows read from the template's database row (names as
 // the game shows them, exact birth date, profile, positions, the 34 attributes), snapshotted each time it opens; a Create click
@@ -788,7 +755,6 @@ static void int_box(const char* label, const char* id, int64_t& v, int lo, int h
 static void create_dialog(App& app, const PlayerRow& p) {
     static CreateIdBox idbox;
     static int teamid = 111592;
-    static int arch = -1;
     static create_form::Form orig, cur;
     static bool jersey_typed = false;
     CreatePrefillState& st = g_create_prefill;
@@ -803,11 +769,21 @@ static void create_dialog(App& app, const PlayerRow& p) {
                 orig.template_pid = p.playerid;
             }
             cur = orig;
-            jersey_typed = false;   // the archetype choice and the club are kept from one open to the next
+            jersey_typed = false;   // the player type and the club are kept from one open to the next
         }
         ImGui::Text("Create a player from %s (ID %lld): every box below starts as his", p.name.c_str(), static_cast<long long>(p.playerid));
         ImGui::TextDisabled("Only the boxes you change are written; everything else (appearance, PlayStyles, the rest) is an exact copy of "
                             "him. The new player gets a free player ID and joins the club below.");
+        st.sections.clear();
+        // 2.22 (G-ia): "Player type & tier" is the first section (Populate fills the boxes below it: names, club, profile, attributes); it is the
+        // only Player type picker of this dialog. Potential, Birth date, Nationality and Foot are under Profile.
+        bool populated = false;
+        if (archetype_populate_create) {
+            st.sections.push_back("Player type & tier");
+            populated = archetype_populate_create(app, p, cur);  // R3 Populate (weak: nothing before that track links)
+        }
+        (void)populated;
+        st.sections.push_back("Names");
         ImGui::SeparatorText("Names");
         const std::string last_before = cur.names.last, common_before = cur.names.common;
         name_box("First name", "##first", cur.names.first);
@@ -824,10 +800,12 @@ static void create_dialog(App& app, const PlayerRow& p) {
             if (!follow.empty()) cur.names.jersey = follow;
         }
         ImGui::TextDisabled("An empty first name, surname or jersey name keeps his; an emptied common name is removed.");
+        st.sections.push_back("Club");
         ImGui::SeparatorText("Club");
         club_picker(app, teamid);
         club_notes(app, teamid);
         const player_id::Verdict& idv = player_id_box(app, idbox);
+        st.sections.push_back("Profile");
         ImGui::SeparatorText("Profile");
         int position = static_cast<int>(cur.get("preferredposition1", 25));
         if (cur.has("preferredposition1")) {
@@ -846,10 +824,6 @@ static void create_dialog(App& app, const PlayerRow& p) {
         if (cur.has("overallrating"))
             int_box("Overall", "##overall", cur.ints["overallrating"], 1, 99,
                     "With an archetype: the target the attributes are reshaped to (the position's formula gives it)");
-        form_label("Archetype", "Optional (2.3): his attributes reshaped to a role so that the formula for the position gives the "
-                                "Overall above; None keeps the attributes below");
-        archetype_combo("##carch", arch, position, S(220.0f), "None: the template's attributes");
-        if (archetype_populate_create && archetype_populate_create(app, p, cur)) arch = -1;  // R3 Populate (weak: nothing before that track links)
         if (cur.has("potential")) int_box("Potential", "##potential", cur.ints["potential"], 1, 99);
         if (cur.has_birthdate) {
             form_label("Birth date", "Day, month, year: his exact birth date unless you change it");
@@ -876,36 +850,10 @@ static void create_dialog(App& app, const PlayerRow& p) {
         }
         if (cur.has("height")) int_box("Height (cm)", "##height", cur.ints["height"], 130, 230);
         if (cur.has("weight")) int_box("Weight (kg)", "##weight", cur.ints["weight"], 30, 150);
-        // the archetype's attributes for that overall, shown before Create (they replace the boxes below)
-        const int target = static_cast<int>(cur.get("overallrating", p.overall));
-        const CreateArchetype* ca = nullptr;
-        bool arch_ok = true;
+        st.sections.push_back("Attributes");
         ImGui::SeparatorText("Attributes");
-        if (arch >= 0) {
-            ca = &create_archetype(app, p, arch, position, target);
-            if (!ca->have) {
-                ImGui::TextDisabled("The archetype needs the 34 attribute fields; this game's player table lacks some.");
-                arch_ok = false;
-            } else {
-                ImGui::Text("%s: his attributes reshaped for %s", archetypes::all()[static_cast<size_t>(arch)].name, position_name(position));
-                const int closest = archetype_result_lines(ca->r, position);
-                arch_ok = ca->r.ok;
-                if (closest > 0) {
-                    char ub[48];
-                    std::snprintf(ub, sizeof(ub), "Use %d##cclosest", closest);
-                    if (ImGui::Button(ub)) cur.ints["overallrating"] = closest;
-                } else {
-                    int changed = 0;
-                    for (int i = 0; i < overall::kAttrCount; ++i) changed += ca->r.attrs[static_cast<size_t>(i)] != ca->from[static_cast<size_t>(i)];
-                    char hdr[96];
-                    std::snprintf(hdr, sizeof(hdr), "%d attributes differ from the template###carchchg", changed);
-                    if (ImGui::TreeNode(hdr)) {
-                        attribute_changes_table(ca->from, ca->r.attrs, &archetypes::all()[static_cast<size_t>(arch)]);
-                        ImGui::TreePop();
-                    }
-                }
-            }
-        } else if (ImGui::TreeNode("His attributes (edit any)###cattrs")) {
+        const bool arch_ok = true;
+        if (ImGui::TreeNode("His attributes (edit any)###cattrs")) {
             // two per line: the name, then the box (a plain layout, no table)
             int shown = 0;
             for (int i = 0; i < overall::kAttrCount; ++i) {
@@ -922,8 +870,7 @@ static void create_dialog(App& app, const PlayerRow& p) {
             }
             ImGui::TreePop();
         }
-        const overall::Attrs* arch_attrs = (ca && ca->have && ca->r.ok) ? &ca->r.attrs : nullptr;
-        const create_form::Overrides d = create_form::diff(orig, cur, arch_attrs);
+        const create_form::Overrides d = create_form::diff(orig, cur, nullptr);
         st.playerid = p.playerid;
         st.orig = orig;
         st.cur = cur;

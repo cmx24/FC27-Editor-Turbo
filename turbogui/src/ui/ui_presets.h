@@ -30,6 +30,7 @@ struct CreatePrefillState {
     int64_t playerid = 0;
     create_form::Form orig, cur;
     nlohmann::json pending = nlohmann::json::object();
+    std::vector<std::string> sections;  // 2.22: the section headings of the last frame, in the order drawn (Player type & tier is first)
 };
 const CreatePrefillState& create_prefill_state();
 // Open the Create player dialog with this database player as the template (the CMTracker and file routes when their player is

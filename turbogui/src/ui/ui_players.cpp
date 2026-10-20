@@ -23,6 +23,7 @@
 #include "ui_images.h"
 #include "ui_names.h"
 #include "ui_archetype.h"
+#include "ui_archetype_populate.h"
 #include "ui_presets.h"
 #include "ui_player_profile.h"
 #include "ui_faces.h"
@@ -105,7 +106,11 @@ static const std::unordered_map<int64_t, int64_t>& player_nationalities(App& app
 }
 
 // ---------------------------------------------------------------- list
-static void player_list(App& app) {
+static size_t g_list_rows = 0;  // rows of the last frame (the pages that share this list read it)
+size_t classic_player_list_rows() { return g_list_rows; }
+
+// 2.22: the one player list of Edit a player (its Profile and Positions tabs draw it too: one selection, one set of filters)
+void draw_classic_player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
     // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent (gender: the search line). Position &
@@ -321,6 +326,7 @@ static void player_list(App& app) {
         for (const PlayerRow* r : rows) app.list_player_ids.push_back(r->playerid);
     }
 
+    g_list_rows = rows.size();
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                          ImGuiTableFlags_Hideable;
@@ -996,7 +1002,9 @@ static void archetype_apply(App& app, const Table& t, const PlayerRow& p, Archet
 }
 
 // Overall +1 / -1 and the archetype row (role, position, Target overall, preview, Apply, Undo) above the sliders
-static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
+// shared = nullptr: the Classic editor's bar, unchanged. Non-null (2.22: the "Player type & tier" card of Edit a player): the Player type and the
+// Wanted overall are the card's own (the Populate controls above), so the bar draws neither box and reshapes with those two
+static void archetype_bar_impl(App& app, const Table& t, const PlayerRow& p, const PopulateUiState* shared) {
     using namespace overall;
     ArchetypeUiState& st = arch_state();
 
@@ -1072,11 +1080,19 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     if (!st.position_picked || st.position < 0) st.position = pos;
     const int formula_at = compute_overall(st.position, cur);
     if (!st.target_typed) st.target = st.position == pos ? archetypes::default_target(static_cast<int>(stored), formula_at) : formula_at;
+    if (shared) {
+        st.arch = shared->arch;
+        if (st.arch >= static_cast<int>(all.size())) st.arch = -1;
+        st.target = std::max(1, std::min(99, shared->target));
+        st.target_typed = true;
+    } else {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Player type");
+        ImGui::SameLine();
+        archetype_combo("##arch", st.arch, st.position, S(220.0f));
+        ImGui::SameLine();
+    }
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Player type");
-    ImGui::SameLine();
-    archetype_combo("##arch", st.arch, st.position, S(220.0f));
-    ImGui::SameLine();
     ImGui::TextUnformatted("Position");
     ImGui::SameLine();
     int pick = st.position;
@@ -1086,19 +1102,25 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The position whose overall formula the target is for (his own: %s)", position_name(pos));
     // second row (the pane is often narrow): the target and the preview
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Wanted overall");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(S(70.0f));
-    int tv = st.target;
-    if (ImGui::InputInt("##archtarget", &tv, 0)) {
-        st.target = std::max(1, std::min(99, tv));
-        st.target_typed = true;
+    if (shared) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Wanted overall %d", st.target);
+        ImGui::SameLine();
+    } else {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Wanted overall");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(70.0f));
+        int tv = st.target;
+        if (ImGui::InputInt("##archtarget", &tv, 0)) {
+            st.target = std::max(1, std::min(99, tv));
+            st.target_typed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("1..99. Starts at his overall (stored %lld, formula for %s %d) and keeps a typed value until another player is selected.",
+                              static_cast<long long>(stored), position_name(st.position), formula_at);
+        ImGui::SameLine();
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("1..99. Starts at his overall (stored %lld, formula for %s %d) and keeps a typed value until another player is selected.",
-                          static_cast<long long>(stored), position_name(st.position), formula_at);
-    ImGui::SameLine();
     const bool can_preview = st.arch >= 0;
     if (!can_preview) ImGui::BeginDisabled();
     if (ImGui::Button("See changes...###archpreview") && can_preview) {
@@ -1192,6 +1214,10 @@ static void archetype_bar(App& app, const Table& t, const PlayerRow& p) {
         ImGui::EndPopup();
     }
 }
+
+static void archetype_bar(App& app, const Table& t, const PlayerRow& p) { archetype_bar_impl(app, t, p, nullptr); }
+// the card's bar: the Player type and the Wanted overall come from the Populate controls of the same card
+static void archetype_bar_card(App& app, const Table& t, const PlayerRow& p) { archetype_bar_impl(app, t, p, &populate_ui_state()); }
 
 // The attribute sliders: one heading per category with its average, roomy rows (two columns when the pane is wide)
 static void attribute_sliders(App& app, const Table& t, uint64_t rec) {
@@ -1483,7 +1509,7 @@ void draw_players(App& app) {
     // list width: up to 560 (room for the Nationality column) but never more than ~45% of the window, so the editor's tabs keep their room
     const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
     ImGui::BeginChild("##plist", ImVec2(list_w, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
-    player_list(app);
+    draw_classic_player_list(app);
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##pedit", ImVec2(0, 0));
@@ -1492,6 +1518,6 @@ void draw_players(App& app) {
 }
 
 // 2.20 IA (ui_player_profile.h): the Profile page draws the full player-type editor through this pointer
-static const bool s_ability_hook = (g_ability_archetype_bar = archetype_bar, true);
+static const bool s_ability_hook = (g_ability_archetype_bar = archetype_bar_card, true);
 
 }  // namespace turbo

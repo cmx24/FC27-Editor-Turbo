@@ -279,7 +279,7 @@ void archetype_populate_panel(App& app, const Table& t, const PlayerRow& p) {
     PopulateUiState& u = s.ui;
     u.create_mode = false;
     ensure_table(app, s);
-    ImGui::SeparatorText("Fill the whole player from a player type");
+    // (2.22: the card "Player type & tier" of Edit a player draws the heading; this panel starts with its controls)
     if (!u.table_ok) {
         ImGui::TextDisabled("The player type list is not available: %s", u.table_error.c_str());
         return;
@@ -458,7 +458,7 @@ bool archetype_populate_create(App& app, const PlayerRow& tmpl, create_form::For
     u.create_mode = true;
     bool clicked = false;
     ensure_table(app, s);
-    ImGui::SeparatorText("Fill the whole player from a player type");
+    ImGui::SeparatorText("Player type & tier");
     if (!u.table_ok) {
         ImGui::TextDisabled("The player type list is not available: %s", u.table_error.c_str());
         return false;

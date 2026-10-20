@@ -18,8 +18,11 @@
 #include "imgui.h"
 #include "playstyles.h"
 #include "table_registry.h"
+#include "ui_archetype_populate.h"
 #include "ui_names.h"
 #include "ui_player_page.h"
+#include "ui_sections.h"
+#include "ui_setpiece_card.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
 
@@ -34,102 +37,22 @@ PlayerAbilityState g_astate;
 shell::Page g_team_page = shell::Page::Squad;
 
 // ---------------------------------------------------------------- the player list (shared by both pages)
-char g_search[64] = "";
-bool g_my_club = false, g_free = false;
-int g_pos = -1;
-std::vector<int64_t> g_ids;  // the players the list shows, in order (ids, not pointers: the model may rebuild)
-std::string g_list_key;
-uint64_t g_list_version = ~uint64_t(0);
+// 2.22: the list is the Classic editor's own (draw_classic_player_list, ui_players.cpp): eight sortable columns and the full filter grid (club,
+// nationality, continent, position, PlayStyle, age / overall / potential ranges, gender, loans, retiring, free agents). Its filters and
+// the pick (App::sel_player) are shared with the Classic editor and with both pages. A fixed 300 px pane is too narrow for it: the split is as wide
+// as the Classic editor's and its divider can be dragged.
 size_t g_listed = 0;
 
-std::string lower_ascii(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-void rebuild_list(App& app, const PlayerPageFilter& f, int64_t user_team) {
-    std::vector<const PlayerRow*> rows;
-    for (const PlayerRow& p : app.model.players())
-        if (player_page_matches(p, f, user_team)) rows.push_back(&p);
-    // a narrowed list (your club, free agents) reads best by rating; the whole game by name
-    const bool by_rating = f.my_club || f.free_agents;
-    std::stable_sort(rows.begin(), rows.end(), [&](const PlayerRow* a, const PlayerRow* b) {
-        if (by_rating && a->overall != b->overall) return a->overall > b->overall;
-        return lower_ascii(a->name) < lower_ascii(b->name);
-    });
-    g_ids.clear();
-    g_ids.reserve(rows.size());
-    for (const PlayerRow* r : rows) g_ids.push_back(r->playerid);
-    // the pictures the list will want first
-    app.list_player_ids.assign(g_ids.begin(), g_ids.begin() + static_cast<std::ptrdiff_t>(std::min<size_t>(g_ids.size(), 300)));
-}
-
-bool chip(const char* label, bool* on) {
-    const bool lit = *on;
-    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent());
-    const bool hit = ImGui::SmallButton(label);
-    if (lit) ImGui::PopStyleColor();
-    if (hit) *on = !*on;
-    return hit;
-}
-
-void select_panel(App& app, void*) {
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##pfsearch", "Search by name or club", g_search, sizeof(g_search));
-    const int64_t user = app.bridge.state().user_team;
-    const bool had_mine = g_my_club;
-    if (user > 0) {
-        chip("My club###pf_chip_mine", &g_my_club);
-        ImGui::SameLine();
-    }
-    chip("Free agents###pf_chip_free", &g_free);
-    if (g_my_club && !had_mine) g_free = false;
+void list_and_editor(App& app, void (*editor_fn)(App&, void*)) {
+    const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
+    ImGui::BeginChild("##select", ImVec2(list_w, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+    draw_classic_player_list(app);
+    g_listed = classic_player_list_rows();
+    ImGui::EndChild();
     ImGui::SameLine();
-    position_combo("##pfpos", g_pos, S(110.0f), "Any position");
-
-    PlayerPageFilter f;
-    f.text = lower_ascii(g_search);
-    f.my_club = g_my_club && user > 0;
-    f.free_agents = g_free && !f.my_club;
-    f.position = g_pos;
-    const std::string key = f.text + "|" + (f.my_club ? "m" : "-") + (f.free_agents ? "f" : "-") + "|" + std::to_string(f.position) + "|" +
-                            std::to_string(user);
-    if (key != g_list_key || app.model.version() != g_list_version) {
-        rebuild_list(app, f, user);
-        g_list_key = key;
-        g_list_version = app.model.version();
-    }
-    g_listed = g_ids.size();
-    theme::muted_text("%zu players", g_ids.size());
-
-    if (ImGui::BeginTable("##players", 3, tbl::kData | ImGuiTableFlags_ScrollY, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
-        ImGui::TableSetupScrollFreeze(0, 0);
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
-        ImGui::TableSetupColumn("Rating", ImGuiTableColumnFlags_WidthFixed, S(30.0f));
-        ImGuiListClipper clipper;
-        clipper.Begin(static_cast<int>(g_ids.size()));
-        while (clipper.Step()) {
-            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-                const PlayerRow* p = app.model.player(g_ids[static_cast<size_t>(i)]);
-                if (!p) continue;
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                char lbl[200];
-                std::snprintf(lbl, sizeof(lbl), "%s###pf%lld", p->name.c_str(), static_cast<long long>(p->playerid));
-                if (ImGui::Selectable(lbl, app.sel_player == p->playerid, ImGuiSelectableFlags_SpanAllColumns)) app.sel_player = p->playerid;
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s%s\nPlayer ID %lld", p->club_name.empty() ? "No club" : p->club_name.c_str(), p->on_loan ? " (on loan)" : "",
-                                      static_cast<long long>(p->playerid));
-                }
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(position_name(p->position));
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", p->overall);
-            }
-        }
-        ImGui::EndTable();
-    }
+    ImGui::BeginChild("##editor", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    if (editor_fn) editor_fn(app, nullptr);
+    ImGui::EndChild();
 }
 
 // ---------------------------------------------------------------- shared pieces of an editor
@@ -321,6 +244,10 @@ void attribute_sliders(App& app, const Table& t, uint64_t rec) {
         ImGui::SeparatorText(hdr);
         ImGui::PushID(g.first);
         if (ImGui::BeginTable("##sl", wide ? 2 : 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+            // 2.22: a header row (G-ia, the three header-less tables): the heading of the group above names the rows
+            ImGui::TableSetupColumn(g.first, ImGuiTableColumnFlags_WidthStretch);
+            if (wide) ImGui::TableSetupColumn("(continued)", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
             for (const Field* f : present) {
                 ImGui::TableNextColumn();
                 slider_editor_ex(app, t, rec, *f, field_label(f->name).c_str(), S(wide ? 132.0f : 150.0f), -FLT_MIN, S(58.0f));
@@ -334,7 +261,7 @@ void attribute_sliders(App& app, const Table& t, uint64_t rec) {
 }
 
 // The check boxes of one bit field (PlayStyles, PlayStyles+, Traits, Traits+) with All / None
-void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names) {
+void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names, const char* title) {
     const Field* f = t.field(field);
     if (!f) {
         theme::muted_text("Not available in this game version.");
@@ -345,6 +272,11 @@ void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, c
     ImGui::PushID(field);
     const int bits = std::min(f->depth, 62);
     if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+        // 2.22: a header row (the tick boxes below are the ones this field has)
+        ImGui::TableSetupColumn(title, ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("(continued)###bits2", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("(continued)###bits3", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
         for (int b = 0; b < bits; ++b) {
             ImGui::TableNextColumn();
             bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
@@ -413,6 +345,8 @@ void archetype_stand_in(App& app, const Table& t, const PlayerRow& p) {
 void ability_editor(App& app, void*) {
     g_astate.archetype_bar_external = false;
     g_astate.stand_in_shown = false;
+    g_astate.type_tier_shown = false;
+    g_astate.bar_calls = 0;
     g_astate.position_rows = 0;
     g_astate.attribute_sliders = 0;
     g_astate.playstyle_boxes = 0;
@@ -427,6 +361,24 @@ void ability_editor(App& app, void*) {
     g_astate.headline = headline_of(*p);
     editor_header(app, *p, g_astate.headline, "###ab_undo");
 
+    // 2.22 (Cassio: "the archetype/player tier menu is HIDDEN at the bottom of a very long menu"): the FIRST thing on the tab. One card with the Player
+    // type, the Tier, the Wanted overall and the Side, the preview and Populate / Undo (archetype_populate_panel), then the Overall +1 / -1 and the
+    // attributes-only reshape of the Classic editor's bar (it takes the type and the wanted overall from the controls above: one picker).
+    // Open at first, collapsible, remembered (gui.sections_open "ability.type_tier").
+    g_astate.type_tier_shown = false;
+    g_astate.bar_calls = 0;
+    if (collapsing_section(app, "ability.type_tier", "Player type & tier###ab_typetier", true)) {
+        g_astate.type_tier_shown = true;
+        archetype_populate_panel(app, *t, *p);
+        ImGui::Spacing();
+        if (g_ability_archetype_bar) {
+            g_astate.archetype_bar_external = true;
+            ++g_astate.bar_calls;
+            g_ability_archetype_bar(app, *t, *p);
+        } else {
+            archetype_stand_in(app, *t, *p);
+        }
+    }
     if (section("Overall and potential###ab_ovr")) {
         field_grid(app, *t, p->rec, {"overallrating", "potential", "modifier"}, "##ab_ovrgrid", 3);
         theme::muted_text("The game works the shown overall out from the attributes: a typed overall moves the attributes that count most for his position.");
@@ -443,22 +395,16 @@ void ability_editor(App& app, void*) {
             ImGui::TreePop();
         }
     }
-    if (section("Attributes###ab_attrs")) {
-        if (g_ability_archetype_bar) {
-            g_astate.archetype_bar_external = true;
-            g_ability_archetype_bar(app, *t, *p);
-        } else {
-            archetype_stand_in(app, *t, *p);
-        }
-        attribute_sliders(app, *t, p->rec);
-    }
+    // 2.22: G-pickers' Set-pieces card (penalty and free-kick takers): a weak default in ui_setpiece_card_stub.cpp draws nothing
+    setpiece_card::draw(app, p->playerid);
+    if (section("Attributes###ab_attrs")) attribute_sliders(app, *t, p->rec);
     if (section("PlayStyles and traits###ab_styles")) {
         struct Set { const char* title; const char* field; bool second; };
         const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
         for (const Set& s : sets) {
             ImGui::SeparatorText(s.title);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stored as %s", s.field);
-            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names());
+            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title);
         }
     }
 }
@@ -484,7 +430,7 @@ void draw_player_profile(App& app) {
         not_connected_hint();
         return;
     }
-    shell::page::frame(app, select_panel, profile_editor, nullptr, nullptr);
+    list_and_editor(app, profile_editor);
 }
 void draw_player_profile_editor(App& app) { editor_scroll(app, profile_editor); }
 
@@ -493,7 +439,7 @@ void draw_player_ability(App& app) {
         not_connected_hint();
         return;
     }
-    shell::page::frame(app, select_panel, ability_editor, nullptr, nullptr);
+    list_and_editor(app, ability_editor);
 }
 void draw_player_ability_editor(App& app) { editor_scroll(app, ability_editor); }
 
