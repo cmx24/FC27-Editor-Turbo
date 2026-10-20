@@ -163,17 +163,81 @@ fs::path find_resources(const fs::path& turbo_output) {
     return resources_dir(s.empty() ? fs::path(kDefaultRoot) : fs::u8path(s));
 }
 
-fs::path picture_file(const fs::path& resources, const SetDef& s, const CodeDef& c) {
-    if (resources.empty() || !c.file || !s.dir || !s.dir[0]) return {};
-    std::error_code ec;
-    fs::path p = resources / s.dir / c.file;
-    if (fs::is_regular_file(p, ec)) return p;
-    if (s.fallback_dir) {
-        p = resources / s.fallback_dir / c.file;
-        if (fs::is_regular_file(p, ec)) return p;
+bool FolderIndex::has(const fs::path& dir, const std::string& file) {
+    const std::string key = lower(dir.u8string());
+    auto it = dirs_.find(key);
+    if (it == dirs_.end()) {
+        std::unordered_set<std::string> names;
+        std::error_code ec;
+        for (fs::directory_iterator d(dir, ec), end; !ec && d != end; d.increment(ec)) names.insert(lower(d->path().filename().u8string()));
+        it = dirs_.emplace(key, std::move(names)).first;
     }
+    return it->second.count(lower(file)) != 0;
+}
+
+void FolderIndex::reset() { dirs_.clear(); }
+
+static bool file_there(const fs::path& dir, const std::string& file, FolderIndex* idx) {
+    if (idx) return idx->has(dir, file);
+    std::error_code ec;
+    return fs::is_regular_file(dir / file, ec);
+}
+
+fs::path picture_file(const fs::path& resources, const SetDef& s, const CodeDef& c, FolderIndex* idx) {
+    if (resources.empty() || !c.file || !s.dir || !s.dir[0]) return {};
+    if (file_there(resources / s.dir, c.file, idx)) return resources / s.dir / c.file;
+    if (s.fallback_dir && file_there(resources / s.fallback_dir, c.file, idx)) return resources / s.fallback_dir / c.file;
     return {};
 }
+
+int64_t eyebrow_style(int64_t code) { return code / 10000 * 10000; }
+
+const CodeDef* find_code_or_style(const SetDef& s, int64_t code) {
+    if (const CodeDef* c = find_code(s, code)) return c;
+    if (std::strcmp(s.id, "eyebrow") == 0) return find_code(s, eyebrow_style(code));
+    return nullptr;
+}
+
+fs::path accessory_picture(const fs::path& resources, int64_t colour, int64_t accessory, FolderIndex* idx) {
+    if (resources.empty() || accessory <= 0) return {};
+    const fs::path dir = resources / "Accessory";
+    const std::string coloured = "Accessory_" + std::to_string(colour) + "_" + std::to_string(accessory) + ".png";
+    if (colour >= 0 && file_there(dir, coloured, idx)) return dir / coloured;
+    const std::string plain = "Accessory_" + std::to_string(accessory) + ".png";
+    if (file_there(dir, plain, idx)) return dir / plain;
+    return {};
+}
+
+bool accessory_colour_swatch(int64_t colour, Rgb8& out) {
+    static const Rgb8 kColours[] = {{255, 255, 255}, {20, 20, 20},   {30, 90, 220},  {210, 35, 35},  {245, 215, 40},
+                                    {20, 100, 50},   {240, 130, 20}, {130, 60, 190}, {110, 70, 40},  {240, 130, 175},
+                                    {110, 15, 40},   {40, 205, 225}, {15, 30, 110}};
+    if (colour < 0 || colour >= static_cast<int64_t>(sizeof(kColours) / sizeof(kColours[0]))) return false;
+    out = kColours[colour];
+    return true;
+}
+
+uint8_t linear_to_srgb8(double v) {
+    v = std::min(1.0, std::max(0.0, v));
+    const double s = v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055;
+    return static_cast<uint8_t>(std::lround(s * 255.0));
+}
+
+bool decode_colour_json(const std::vector<uint8_t>& bytes, Rgb8& out, std::string* err) {
+    try {
+        const nlohmann::json j = nlohmann::json::parse(bytes.begin(), bytes.end());
+        const nlohmann::json& c = j.at("Color");
+        out.r = linear_to_srgb8(c.at("x").get<double>());
+        out.g = linear_to_srgb8(c.at("y").get<double>());
+        out.b = linear_to_srgb8(c.at("z").get<double>());
+        return true;
+    } catch (const std::exception& e) {
+        if (err) *err = std::string("not a colour file (") + e.what() + ")";
+        return false;
+    }
+}
+
+bool is_colour_file(const fs::path& p) { return lower(p.extension().u8string()) == ".json"; }
 
 // ---------------------------------------------------------------- GIF
 
@@ -354,6 +418,28 @@ bool decode_picture_file(const fs::path& p, int max_side, size_t max_bytes, Anim
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".gif") return decode_gif_file(p, max_side, max_bytes, out, err);
     out = Anim();
+    if (ext == ".json") {  // a colour file: one pixel of that colour (swatch drawn from it, no texture)
+        std::ifstream f(p, std::ios::binary);
+        if (!f) {
+            if (err) *err = "cannot open the file";
+            return false;
+        }
+        const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        Rgb8 c;
+        if (bytes.size() > (size_t(1) << 20)) {
+            if (err) *err = "colour file too large";
+            return false;
+        }
+        if (!decode_colour_json(bytes, c, err)) return false;
+        out.src_w = out.frame_w = 1;
+        out.src_h = out.frame_h = 1;
+        out.cols = 1;
+        out.frames = 1;
+        out.delays_ms.push_back(0);
+        out.atlas.w = out.atlas.h = 1;
+        out.atlas.px = {c.r, c.g, c.b, 255};
+        return true;
+    }
     Rgba img;
     if (!load_image_file(p, img, err)) return false;
     img = fit_image(img, std::max(1, max_side));

@@ -18,6 +18,7 @@
 #include <list>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -56,9 +57,40 @@ std::string load_folder_setting(const std::filesystem::path& turbo_output);
 bool save_folder_setting(const std::filesystem::path& turbo_output, const std::string& folder, std::string* err = nullptr);
 // The folder to use: the setting when set, else the default; then resources_dir() of it
 std::filesystem::path find_resources(const std::filesystem::path& turbo_output);
-// The picture of a code in that folder (the set's own folder, then its fallback folder); empty when there is none.
-// Looks at the disk: callers cache it.
-std::filesystem::path picture_file(const std::filesystem::path& resources, const SetDef& s, const CodeDef& c);
+// Directory listings kept in memory, so a picker asking for 1,400 pictures reads each folder once, not 1,400 file entries.
+// File names are compared in lower case (Windows). reset() after the folder setting changed.
+class FolderIndex {
+public:
+    bool has(const std::filesystem::path& dir, const std::string& file);
+    void reset();
+
+private:
+    std::unordered_map<std::string, std::unordered_set<std::string>> dirs_;
+};
+// The picture of a code, file by file: the set's own folder first, then its fallback folder (boots / gloves: FC26_shoes\ then
+// shoes\, so an id only the old folder has still gets its picture); empty when neither has the file.
+// With `idx` a listing is used, without it the disk is asked (callers cache the answer).
+std::filesystem::path picture_file(const std::filesystem::path& resources, const SetDef& s, const CodeDef& c, FolderIndex* idx = nullptr);
+
+// ---- eyebrows: RDBM26 has one picture per style
+// A player's eyebrow code is style * 10000 + a variant (60101 = style 60000, variant 0101); the picture is the style's
+int64_t eyebrow_style(int64_t code);
+// The set's entry of a code, or for the eyebrow set the entry of its style when the code itself is not listed
+const CodeDef* find_code_or_style(const SetDef& s, int64_t code);
+
+// ---- accessory colours: Accessory_<colour>_<accessory>.png in the Accessory folder, else the plain Accessory_<accessory>.png
+std::filesystem::path accessory_picture(const std::filesystem::path& resources, int64_t colour, int64_t accessory, FolderIndex* idx = nullptr);
+struct Rgb8 {
+    uint8_t r = 0, g = 0, b = 0;
+};
+// The named colour of an accessory colour code (LE's names: 0 White, 1 Black, 2 Blue, 3 Red ... 12 Dark Blue), drawn as the common
+// colour of that name; false for a code with no colour name (99 = none)
+bool accessory_colour_swatch(int64_t colour, Rgb8& out);
+
+// ---- colour files: RDBM26's haircolor_N.json / Facial_Hair_N.json hold the game's colour as linear {x, y, z}
+uint8_t linear_to_srgb8(double v);
+bool decode_colour_json(const std::vector<uint8_t>& bytes, Rgb8& out, std::string* err = nullptr);
+bool is_colour_file(const std::filesystem::path& p);  // a .json colour file (decode_picture_file gives it as a 1 x 1 picture)
 
 // ---- animated GIFs
 struct Anim {
@@ -78,7 +110,8 @@ struct Anim {
 // `max_bytes`), into one atlas. false with a reason when the bytes are not a GIF or hold no frame.
 bool decode_gif(const std::vector<uint8_t>& bytes, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
 bool decode_gif_file(const std::filesystem::path& p, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
-// Any picture file: a .gif as above; a still (PNG, JPG, DDS...) as one frame at most max_side pixels on its longer side
+// Any picture file: a .gif as above; a colour .json as a 1 x 1 picture of that colour; a still (PNG, JPG, DDS...) as one frame at
+// most max_side pixels on its longer side
 bool decode_picture_file(const std::filesystem::path& p, int max_side, size_t max_bytes, Anim& out, std::string* err = nullptr);
 // Atlas width and height limit (texture side)
 constexpr int kMaxAtlasSide = 8192;

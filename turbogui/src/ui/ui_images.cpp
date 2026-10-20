@@ -25,6 +25,7 @@
 #include "imgui.h"
 #include "ui_asset_browser.h"
 #include "ui_images.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -1523,6 +1524,104 @@ static void toggle_favourite(App& app, const char* field, int64_t id) {
     app.save_gui_settings();
 }
 
+// ---- 2.22 merged pickers: the game gallery of a field, read by ui_visual_picker.cpp (one grid per field: RDBM picture, else
+// the game's preview, else a grey tile). The catalog rules (what may be written, Hidden / 3D only / Preview only tags, the
+// write log) stay here, in one place.
+static const GalleryDef* merged_def_of(const std::string& field, bool manager) {
+    if (manager) {
+        for (const GalleryDef& d : kManagerGalleries)
+            if (field == d.field && field != std::string("outfitid")) return &d;
+        return nullptr;
+    }
+    return gallery_def_of(field);
+}
+
+bool gallery_has(const std::string& field, bool manager) { return merged_def_of(field, manager) != nullptr; }
+
+const char* gallery_title(const std::string& field, bool manager) {
+    const GalleryDef* d = merged_def_of(field, manager);
+    return d ? d->title : "";
+}
+
+static const gear::FamilyView& merged_view(const std::string& field, bool manager) {
+    static const gear::FamilyView kInactive;
+    return manager ? kInactive : gear_view(gear::family_of_field(field));
+}
+
+bool gallery_catalog_active(const std::string& field, bool manager) { return merged_view(field, manager).active; }
+
+static GalleryEntry entry_of(App& app, const GalleryDef& g, const gear::Item& it, int64_t colour) {
+    GalleryEntry e;
+    e.id = it.id;
+    e.preview = item_path(app, g, it.id, colour);
+    e.name = it.name;
+    e.model_only = (it.model || it.model_ts) && it.preview.empty();
+    e.writable = it.writable;
+    e.why = it.why;
+    e.hidden = it.hidden;
+    if (e.model_only) e.tag = it.model ? "3D only" : "3D, content_ts";
+    if (it.model_ts && !it.in_save) e.tag = "Not checked";
+    else if (!it.model && !it.preview.empty() && !it.in_save && !it.known && !it.writable) e.tag = "Preview only";
+    else if (it.hidden) e.tag = "Hidden";
+    if (it.model && it.preview.empty()) e.tip += std::string("\n") + asset_badge_tooltip(AssetBadge::ModelOnly);
+    if (it.model_ts) e.tip += "\n3D model only under content_ts (the gate's boots are under content/): not checked in a match yet";
+    if (it.hidden) e.tip += std::string("\n") + asset_badge_tooltip(AssetBadge::Hidden);
+    if (!it.writable) e.tip += "\nCannot be applied: " + it.why;
+    return e;
+}
+
+std::vector<GalleryEntry> gallery_entries(App& app, const std::string& field, bool manager, int64_t colour) {
+    std::vector<GalleryEntry> out;
+    const GalleryDef* g = merged_def_of(field, manager);
+    if (!g) return out;
+    const gear::FamilyView& v = merged_view(field, manager);
+    if (v.active) {
+        for (const gear::Item& it : gear::items(v, gear_used(app, field)))
+            if (it.id > 0) out.push_back(entry_of(app, *g, it, colour));
+        return out;
+    }
+    for (int64_t id : gallery_ids(app, *g)) {
+        if (id <= 0) continue;
+        GalleryEntry e;
+        e.id = id;
+        e.preview = item_path(app, *g, id, colour);
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+bool gallery_write_ok(App& app, const std::string& field, bool manager, int64_t id, std::string* why) {
+    if (why) why->clear();
+    const gear::FamilyView& v = merged_view(field, manager);
+    if (!v.active) return true;
+    return gear::writable(v, gear_used(app, field), id, why);
+}
+
+bool gallery_hidden(App& app, const std::string& field, bool manager, int64_t id) {
+    const gear::FamilyView& v = merged_view(field, manager);
+    return v.active && gear::item(v, gear_used(app, field), id).hidden;
+}
+
+void gallery_log_hidden(App& app, const Table& t, uint64_t rec, const std::string& field, int64_t old_v, int64_t new_v) {
+    log_hidden_write(app, t, rec, field.c_str(), old_v, new_v, gear_view(gear::family_of_field(field)));
+}
+
+void gallery_stale_line(const std::string& field, bool manager) { gear_stale_banner(merged_view(field, manager)); }
+
+int gallery_scope_combo(App& app, const std::string& field, bool manager, float width) {
+    if (!merged_view(field, manager).active) return -1;
+    AssetScope scope = gallery_scope(app, field.c_str());
+    if (asset_scope_combo("##gscope", scope, width)) set_gallery_scope(app, field.c_str(), scope);
+    return static_cast<int>(scope);
+}
+
+bool gallery_scope_shows(int scope, bool hidden) {
+    return scope < 0 || assets::scope_shows(static_cast<AssetScope>(scope), hidden);
+}
+
+bool gallery_favourite(App& app, const std::string& field, int64_t id) { return is_favourite(app, field.c_str(), id); }
+void gallery_toggle_favourite(App& app, const std::string& field, int64_t id) { toggle_favourite(app, field.c_str(), id); }
+
 // Hair gallery filters (hairtypecode): one combo per catalog facet (-1 = any), each option with its count among ids.
 struct HairFilter {
     int length = -1, type = -1, accessory = -1;
@@ -1599,22 +1698,34 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
             Value v;
             app.db.get(t, rec, *f, v);
             if (v.i > 0) {
-                draw_item_picture(app, item_path(app, g, v.i, colour), thumb);
+                // 2.22: the RDBM26 picture of the value when there is one, else the game's own preview
+                if (!vp::draw_field_picture(app, t, rec, g.field, manager, thumb))
+                    draw_item_picture(app, item_path(app, g, v.i, colour), thumb);
             } else {
                 placeholder(thumb, "none");
             }
             ImGui::TableNextColumn();
             enum_editor(app, t, rec, *f, nullptr, S(240.0f));  // its name ("Adidas boots #16"), or the id where there is none
             ImGui::TableNextColumn();
-            if (ids.empty()) ImGui::BeginDisabled();
+            // 2.22: hair, beard, boots, gloves and accessories open the ONE merged grid of ui_visual_picker.cpp (RDBM26 picture, else
+            // this gallery's preview, else a grey tile); the rest (the manager outfit) keeps the gallery window below
+            const bool merged = gallery_has(g.field, manager);
+            if (ids.empty() && !merged) ImGui::BeginDisabled();
             if (ImGui::Button("Choose...##gal")) {
-                open_gal = static_cast<int>(gi);
-                ImGui::OpenPopup("##gallerypick");
+                if (merged) {
+                    vp::open(app, t, rec, g.field, manager);
+                } else {
+                    open_gal = static_cast<int>(gi);
+                    ImGui::OpenPopup("##gallerypick");
+                }
             }
-            if (ids.empty()) {
+            if (ids.empty() && !merged) {
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::TextDisabled("(no previews listed in legacy_filename_hash_list.csv)");
+            } else if (ids.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("no game previews listed");
             } else if (gv.active) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("%zu in the game, %zu hidden", ids.size(), nhidden);
@@ -1728,6 +1839,7 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
         }
         ImGui::EndTable();
     }
+    vp::window(app, t, rec);  // 2.22: the merged grid when one of the Choose... buttons opened it (same id scope as the buttons)
     if (!any) ImGui::TextDisabled(manager ? "The outfitid field does not exist in this manager table."
                                           : "None of the hair / boots / gloves / accessory fields exist in this players table.");
     if (!manager) {
