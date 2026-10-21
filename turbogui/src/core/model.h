@@ -77,12 +77,9 @@ struct PlayerRow {
 constexpr int kNoCalcDelta = -1000;
 inline int calc_delta(const PlayerRow& p) { return p.calc_overall < 0 ? kNoCalcDelta : p.calc_overall - p.overall; }
 constexpr const char* kCalcOvrHelp =
-    "Calc OVR is the overall the attributes give for his main position (Turbo's formula). OVR is the stored overall, the one the game shows.
-"
-    "Delta = Calc OVR minus OVR. It is normally 0 for an OVR modifier of 0 to +2.
-"
-    "An OVR modifier of -5 typically puts the stored OVR about 5 below Calc OVR (stock database, 23 players, +-2).
-"
+    "Calc OVR is the overall the attributes give for his main position (Turbo's formula). OVR is the stored overall, the one the game shows.\n"
+    "Delta = Calc OVR minus OVR. It is normally 0 for an OVR modifier of 0 to +2.\n"
+    "An OVR modifier of -5 typically puts the stored OVR about 5 below Calc OVR (stock database, 23 players, +-2).\n"
     "A kept Overall or attribute edits also move the gap. Nothing here is written to the game.";
 
 // The Players list Position filter: any of the player's 7 preferred positions matches `wanted` (position_matches).
