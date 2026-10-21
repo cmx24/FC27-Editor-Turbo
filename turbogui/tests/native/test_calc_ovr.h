@@ -59,6 +59,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const PlayerRow& p : app.model.players()) {
             const int want = expected_calc(app, p);
             CHECK(p.calc_overall == want, fmt("player %lld: calc %d want %d", static_cast<long long>(p.playerid), p.calc_overall, want));
+            if (const Table* pt = app.db.table("players"); pt && pt->has("modifier"))
+                CHECK(p.ovr_modifier == static_cast<int>(app.db.get_int(*pt, p.rec, "modifier", 0)), "Mod column holds players.modifier");
             if (p.calc_overall >= 0) {
                 ++computable;
                 distinct.insert(p.calc_overall);
@@ -104,10 +106,17 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                 if (t && t->LastFrameActive >= g.FrameCount - 1 && t->InnerWindow && std::strstr(t->InnerWindow->Name, "##players")) tb = t;
             }
         }
-        CHECK(tb != nullptr && tb->ColumnsCount == 10 && (tb->Flags & ImGuiTableFlags_Sortable), "ten sortable columns");
-        if (tb && tb->ColumnsCount == 10)
+        CHECK(tb != nullptr && tb->ColumnsCount == 11 && (tb->Flags & ImGuiTableFlags_Sortable), "eleven sortable columns");
+        if (tb && tb->ColumnsCount == 11)
             CHECK(std::string(ImGui::TableGetColumnName(tb, 8)) == "Calc OVR" && std::string(ImGui::TableGetColumnName(tb, 9)) == "Delta",
                   "appended after Age");
+        if (tb && tb->ColumnsCount == 11)
+            CHECK(std::string(ImGui::TableGetColumnName(tb, 10)) == "Mod", "Mod appended after Delta");
+        {
+            const std::string help = kCalcOvrHelp;
+            CHECK(help.find("Delta") != std::string::npos && help.find("-5") != std::string::npos && help.find("modifier") != std::string::npos, "tooltip explains Delta and the -5 modifier");
+            for (char ch : help) CHECK(static_cast<unsigned char>(ch) < 128, "tooltip is ASCII");
+        }
         if (!h1 || !h2) return;
         auto key_calc = [&](int64_t id) { return app.model.player(id)->calc_overall; };
         auto key_delta = [&](int64_t id) { return calc_delta(*app.model.player(id)); };

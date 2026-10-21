@@ -51,6 +51,8 @@ std::string position_descriptor(int pos);
 // passes the CB filter. -1 on either side matches nothing.
 bool position_matches(int stored, int wanted, bool exact);
 
+constexpr int kNoOvrModifier = -1000;
+
 struct PlayerRow {
     int64_t playerid = 0;
     uint32_t idx = 0;        // record index in players snapshot
@@ -65,6 +67,7 @@ struct PlayerRow {
     uint64_t playstyles = 0, playstyles_plus = 0;    // trait1 / icontrait1 bits
     int gender = 0;                                  // players.gender: 0 men, 1 women
     int calc_overall = -1;                           // overall::compute_overall(preferredposition1, the 34 attributes); -1 when a field is missing (2.22 calc-ovr). Read-only, never written to the DB
+    int ovr_modifier = kNoOvrModifier;               // players.modifier (OVR modifier), read with the filter fields; kNoOvrModifier when the field is absent (2.22 calc-ovr)
     bool on_loan = false;                            // a playerloans row (read at rebuild)
     int64_t loaned_from = 0;                         // playerloans.teamidloanedfrom: the parent club of a player on loan
 };
@@ -74,8 +77,13 @@ struct PlayerRow {
 constexpr int kNoCalcDelta = -1000;
 inline int calc_delta(const PlayerRow& p) { return p.calc_overall < 0 ? kNoCalcDelta : p.calc_overall - p.overall; }
 constexpr const char* kCalcOvrHelp =
-    "Calc OVR is the overall the attributes give for his main position (Turbo's formula). OVR is the stored overall, the one the game shows. "
-    "Nothing here is written to the game.";
+    "Calc OVR is the overall the attributes give for his main position (Turbo's formula). OVR is the stored overall, the one the game shows.
+"
+    "Delta = Calc OVR minus OVR. It is normally 0 for an OVR modifier of 0 to +2.
+"
+    "An OVR modifier of -5 typically puts the stored OVR about 5 below Calc OVR (stock database, 23 players, +-2).
+"
+    "A kept Overall or attribute edits also move the gap. Nothing here is written to the game.";
 
 // The Players list Position filter: any of the player's 7 preferred positions matches `wanted` (position_matches).
 bool player_passes_position(const PlayerRow& p, int wanted, bool exact);

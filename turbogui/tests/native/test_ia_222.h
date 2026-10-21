@@ -26,7 +26,7 @@ static int sortable_8col_tables() {
     int n = 0;
     for (int i = 0; i < g.Tables.GetMapSize(); ++i)
         if (ImGuiTable* t = g.Tables.TryGetMapData(i))
-            if (t->LastFrameActive >= g.FrameCount - 1 && t->ColumnsCount == 10 &&  /* 2.22 calc-ovr: + Calc OVR, Delta */ (t->Flags & ImGuiTableFlags_Sortable)) ++n;
+            if (t->LastFrameActive >= g.FrameCount - 1 && t->ColumnsCount == 11 &&  /* 2.22 calc-ovr: + Calc OVR, Delta, Mod */ (t->Flags & ImGuiTableFlags_Sortable)) ++n;
     return n;
 }
 

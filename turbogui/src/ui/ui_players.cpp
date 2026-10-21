@@ -330,7 +330,7 @@ void draw_classic_player_list(App& app) {
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                          ImGuiTableFlags_Hideable;
-    if (ImGui::BeginTable("##players", 10, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+    if (ImGui::BeginTable("##players", 11, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
@@ -343,6 +343,7 @@ void draw_classic_player_list(App& app) {
         // 2.22 calc-ovr (appended, so saved widths of the first eight columns still load): what the attributes give, and calc - stored
         ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.3f);
         ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // stretch: a narrow list pane never grows wider than its window
+        ImGui::TableSetupColumn("Mod", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // players.modifier (OVR modifier), appended
         ImGui::TableHeadersRow();
 
         const Geo& g = geo(app);
@@ -372,7 +373,8 @@ void draw_classic_player_list(App& app) {
                         case 6: c = a->potential - b->potential; break;
                         case 7: c = a->age - b->age; break;
                         case 8: c = a->calc_overall - b->calc_overall; break;  // -1 (not computable) sorts first ascending
-                        default: c = calc_delta(*a) - calc_delta(*b); break;
+                        case 9: c = calc_delta(*a) - calc_delta(*b); break;
+                        default: c = a->ovr_modifier - b->ovr_modifier; break;  // kNoOvrModifier sorts first ascending
                     }
                     return asc ? c < 0 : c > 0;
                 });
@@ -420,6 +422,8 @@ void draw_classic_player_list(App& app) {
                 }
                 ImGui::TableNextColumn();
                 if (p->calc_overall >= 0) ImGui::Text("%+d", p->calc_overall - p->overall);
+                ImGui::TableNextColumn();
+                if (p->ovr_modifier != kNoOvrModifier) ImGui::Text("%+d", p->ovr_modifier);
             }
         }
         ImGui::EndTable();
