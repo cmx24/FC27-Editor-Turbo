@@ -330,7 +330,7 @@ void draw_classic_player_list(App& app) {
     ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
                          ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                          ImGuiTableFlags_Hideable;
-    if (ImGui::BeginTable("##players", 8, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+    if (ImGui::BeginTable("##players", 10, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
@@ -340,6 +340,9 @@ void draw_classic_player_list(App& app) {
         ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
         ImGui::TableSetupColumn("POT", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
         ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
+        // 2.22 calc-ovr (appended, so saved widths of the first eight columns still load): what the attributes give, and calc - stored
+        ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(62.0f));
+        ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(40.0f));
         ImGui::TableHeadersRow();
 
         const Geo& g = geo(app);
@@ -367,7 +370,9 @@ void draw_classic_player_list(App& app) {
                         case 4: c = a->position - b->position; break;
                         case 5: c = a->overall - b->overall; break;
                         case 6: c = a->potential - b->potential; break;
-                        default: c = a->age - b->age; break;
+                        case 7: c = a->age - b->age; break;
+                        case 8: c = a->calc_overall - b->calc_overall; break;  // -1 (not computable) sorts first ascending
+                        default: c = calc_delta(*a) - calc_delta(*b); break;
                     }
                     return asc ? c < 0 : c > 0;
                 });
@@ -408,6 +413,13 @@ void draw_classic_player_list(App& app) {
                 ImGui::Text("%d", p->potential);
                 ImGui::TableNextColumn();
                 if (p->age >= 0) ImGui::Text("%d", p->age);
+                ImGui::TableNextColumn();
+                if (p->calc_overall >= 0) {
+                    ImGui::Text("%d", p->calc_overall);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kCalcOvrHelp);
+                }
+                ImGui::TableNextColumn();
+                if (p->calc_overall >= 0) ImGui::Text("%+d", p->calc_overall - p->overall);
             }
         }
         ImGui::EndTable();
@@ -1023,7 +1035,8 @@ static void archetype_bar_impl(App& app, const Table& t, const PlayerRow& p, con
                           "So Overall +1 / -1 and an overall typed into the Overall box (Profile, All fields) move the attributes that\n"
                           "weigh most for his position until the formula gives it; Undo / Undo last big change put them back.\n"
                           "The other way round too: an attribute (or his position) you edit moves the stored overall by what the\n"
-                          "formula moves, so the game shows it at once; one Undo puts both back. %s",
+                          "formula moves, so the game shows it at once; one Undo puts both back.\n"
+                          "Calc OVR (the formula line) is what the attributes give; the stored overall is what the game shows. %s",
                           overall_follow_off(app) ? "OFF now: turbo_output\\overall_follow_off.txt exists."
                                                   : "Off switch: create turbo_output\\overall_follow_off.txt.");
     ImGui::SameLine();

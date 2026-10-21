@@ -148,7 +148,7 @@ void squad_table(App& app, int64_t teamid) {
     ImGui::TextDisabled("%zu players linked", links.size());
     if (!lt) return;
     g_squad_state.table_drawn = false;
-    if (ImGui::BeginTable("##squad", 6,
+    if (ImGui::BeginTable("##squad", 7,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -158,9 +158,10 @@ void squad_table(App& app, int64_t teamid) {
         ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
         ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
         ImGui::TableSetupColumn("Line-up slot", ImGuiTableColumnFlags_WidthFixed, S(90.0f));
+        ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(62.0f));  // 2.22 calc-ovr, appended
         ImGui::TableHeadersRow();
         g_squad_state.table_drawn = true;
-        g_squad_state.columns = 6;
+        g_squad_state.columns = 7;
         if (const ImGuiTableSortSpecs* ss = ImGui::TableGetSortSpecs()) {
             if (ss->SpecsCount > 0) {
                 g_squad_state.sort_column = static_cast<int>(ss->Specs[0].ColumnIndex);
@@ -186,7 +187,8 @@ void squad_table(App& app, int64_t teamid) {
                 case 2: return cmp_num(a.p ? a.p->position : -1, b.p ? b.p->position : -1);
                 case 3: return cmp_num(a.p ? a.p->overall : -1, b.p ? b.p->overall : -1);
                 case 4: return cmp_num(a.p ? a.p->age : -1, b.p ? b.p->age : -1);
-                default: return cmp_num(a.link->position, b.link->position);
+                case 5: return cmp_num(a.link->position, b.link->position);
+                default: return cmp_num(a.p ? a.p->calc_overall : -1, b.p ? b.p->calc_overall : -1);
             }
         });
         for (const auto& sr : srows) {
@@ -211,6 +213,11 @@ void squad_table(App& app, int64_t teamid) {
             if (p && p->age >= 0) ImGui::Text("%d", p->age);
             ImGui::TableNextColumn();
             if (const Field* pf = lt->field("position")) field_editor(app, *lt, l.rec, *pf, nullptr, S(80.0f));
+            ImGui::TableNextColumn();
+            if (p && p->calc_overall >= 0) {
+                ImGui::Text("%d", p->calc_overall);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kCalcOvrHelp);
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();

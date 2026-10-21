@@ -3780,6 +3780,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_team.h"    // 2.20 ia-team: Team > Players and Team > Transfers (page_team_test::ui_cases)
 #include "test_team_players_40.h"  // 4.0 S8: the Team pages in the page template, the preset on the page, the player card actions (called from page_team_test::ui_cases)
 #include "test_squad_table_restore.h"  // 2.22 G-squad: the sortable squad table on Players > My squad and Team > Players (squad_table_test::ui_cases)
+#include "test_calc_ovr.h"  // 2.22 calc-ovr: Calc OVR / Delta columns, the model field (calc_ovr_test::ui_cases)
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)
 #include "test_create_prefill.h"  // 2.19: Create player prefilled from the template, only changed boxes sent (create_prefill_test::run_core, ::run_ui)
@@ -9896,6 +9897,7 @@ static void test_ui() {
 #include "test_ability_40.h"  // 4.0 S6: statements inside this block (the Positions, attributes & PlayStyles tab: card first, descriptors, registry tables)
         ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
         player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
+        calc_ovr_test::ui_cases(app, ui, le);  // test_calc_ovr.h: Calc OVR / Delta columns (2.22 calc-ovr)
         shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
