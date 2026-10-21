@@ -341,8 +341,8 @@ void draw_classic_player_list(App& app) {
         ImGui::TableSetupColumn("POT", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
         ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
         // 2.22 calc-ovr (appended, so saved widths of the first eight columns still load): what the attributes give, and calc - stored
-        ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(62.0f));
-        ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(40.0f));
+        ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.3f);
+        ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // stretch: a narrow list pane never grows wider than its window
         ImGui::TableHeadersRow();
 
         const Geo& g = geo(app);

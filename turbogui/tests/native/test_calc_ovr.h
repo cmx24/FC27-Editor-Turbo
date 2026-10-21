@@ -47,6 +47,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const bool was_legacy = app.legacy_pages;
     const bool was_advanced = app.prefs.advanced_mode;
     const int64_t old_sel_player = app.sel_player;
+    const int64_t old_sel_team = app.sel_team;
     const int was_tab = shell::player_edit_tab();
     app.prefs.advanced_mode = false;
     app.legacy_pages = false;
@@ -150,13 +151,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(desc, "rows by Calc OVR, best first");
         CHECK(squad_table_test::click_header(ui, "Calc OVR") && squad_table_test::click_header(ui, "Calc OVR") && squad_table_state().sort_column == -1,
               "a third click returns to the database order");
-        app.sel_team = app.bridge.state().user_team;
     });
 
     app.legacy_pages = was_legacy;
     app.prefs.advanced_mode = was_advanced;
     app.sel_player = old_sel_player;
+    app.sel_team = old_sel_team;
     shell::player_edit_tab() = was_tab;
+    ui.frames(2);
 }
 
 }  // namespace calc_ovr_test
