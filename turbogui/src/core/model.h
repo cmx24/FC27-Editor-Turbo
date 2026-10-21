@@ -81,6 +81,13 @@ constexpr const char* kCalcOvrHelp =
     "Delta = Calc OVR minus OVR. It is normally 0 for an OVR modifier of 0 to +2.\n"
     "An OVR modifier of -5 typically puts the stored OVR about 5 below Calc OVR (stock database, 23 players, +-2).\n"
     "A kept Overall or attribute edits also move the gap. Nothing here is written to the game.";
+// The Mod column header, the Overall tooltip's extra line and the OVR modifier label/box on the Profile card (2.22 calc-ovr)
+constexpr const char* kModColumnHelp =
+    "Mod = the OVR modifier (players.modifier). It shifts the stored overall: about -5 for a modifier of -5. Calc OVR ignores it.";
+constexpr const char* kOverallModifierLine =
+    "The OVR modifier shifts the stored overall too: a modifier of -5 typically puts it about 5 below Calc OVR (stock data, 23 players).";
+constexpr const char* kOvrModifierHelp =
+    "OVR modifier shifts the stored overall (about -5 for -5); Calc OVR ignores it.";
 
 // The Players list Position filter: any of the player's 7 preferred positions matches `wanted` (position_matches).
 bool player_passes_position(const PlayerRow& p, int wanted, bool exact);

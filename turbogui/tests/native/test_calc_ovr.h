@@ -116,6 +116,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             const std::string help = kCalcOvrHelp;
             CHECK(help.find("Delta") != std::string::npos && help.find("-5") != std::string::npos && help.find("modifier") != std::string::npos, "tooltip explains Delta and the -5 modifier");
             for (char ch : help) CHECK(static_cast<unsigned char>(ch) < 128, "tooltip is ASCII");
+            for (const char* tip : {kModColumnHelp, kOverallModifierLine, kOvrModifierHelp}) {
+                const std::string t = tip;
+                CHECK(!t.empty() && t.find("modifier") != std::string::npos, "Mod / Overall / OVR modifier tooltip is non-empty and names the modifier");
+                for (char ch : t) CHECK(static_cast<unsigned char>(ch) < 128, "modifier tooltip is ASCII");
+            }
         }
         if (!h1 || !h2) return;
         auto key_calc = [&](int64_t id) { return app.model.player(id)->calc_overall; };

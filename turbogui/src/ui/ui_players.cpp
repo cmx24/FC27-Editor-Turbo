@@ -344,7 +344,15 @@ void draw_classic_player_list(App& app) {
         ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.3f);
         ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // stretch: a narrow list pane never grows wider than its window
         ImGui::TableSetupColumn("Mod", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // players.modifier (OVR modifier), appended
-        ImGui::TableHeadersRow();
+        // TableHeadersRow spelled out, so the three 2.22 columns can carry their tooltips on the header
+        ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+        for (int c = 0; c < ImGui::TableGetColumnCount(); ++c) {
+            if (!ImGui::TableSetColumnIndex(c)) continue;
+            ImGui::PushID(c);
+            ImGui::TableHeader(ImGui::TableGetColumnName(c));
+            if (c >= 8 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", c == 10 ? kModColumnHelp : kCalcOvrHelp);
+            ImGui::PopID();
+        }
 
         const Geo& g = geo(app);
         static const std::string no_name;
@@ -1040,7 +1048,8 @@ static void archetype_bar_impl(App& app, const Table& t, const PlayerRow& p, con
                           "weigh most for his position until the formula gives it; Undo / Undo last big change put them back.\n"
                           "The other way round too: an attribute (or his position) you edit moves the stored overall by what the\n"
                           "formula moves, so the game shows it at once; one Undo puts both back.\n"
-                          "Calc OVR (the formula line) is what the attributes give; the stored overall is what the game shows. %s",
+                          "Calc OVR (the formula line) is what the attributes give; the stored overall is what the game shows.\n%s\n%s",
+                          kOverallModifierLine,
                           overall_follow_off(app) ? "OFF now: turbo_output\\overall_follow_off.txt exists."
                                                   : "Off switch: create turbo_output\\overall_follow_off.txt.");
     ImGui::SameLine();
@@ -1411,8 +1420,10 @@ static void player_editor(App& app) {
             if (const Field* mf = t->field("modifier")) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("OVR modifier");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kOvrModifierHelp);
                 ImGui::SameLine();
                 field_editor(app, *t, p->rec, *mf, nullptr, S(70.0f));
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kOvrModifierHelp);
             }
             ImGui::TextDisabled("(the game recalculates the shown overall from the attributes when the player card is drawn)");
             reapply_player_line(app, *p);  // kept for every career load, his development plan (ui_reapply.cpp)
