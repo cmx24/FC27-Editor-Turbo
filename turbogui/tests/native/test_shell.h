@@ -9,6 +9,7 @@
 #include <string>
 
 #include "ui/gui_prefs.h"
+#include "ui/ui_home.h"
 #include "ui/ui_shell.h"
 #include "ui/ui_theme.h"
 
@@ -50,11 +51,12 @@ static void shell_other_page(turbo::App&) { g_shell_calls += 100; }
 static void test_shell() {
     run_case("shell: areas and pages (labels, one area per page, strips in order, defaults)", [&] {
         using namespace turbo::shell;
-        CHECK(kAreaCount == 7, "six areas plus Advanced");
-        const char* labels[] = {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"};
+        CHECK(kAreaCount == 8, "3.0: Home, six areas and the Lab");
+        const char* labels[] = {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings", "Lab"};
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) == labels[a], std::string("area label ") + labels[a]);
         CHECK(std::string(area_label(Area::Count)).empty(), "no label for Count");
-        const Page defaults[] = {Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
+        CHECK(static_cast<int>(Area::Home) == 0 && pages_of(Area::Home).size() == 1, "Home is first and has one page");
+        const Page defaults[] = {Page::Home, Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
         std::set<int> seen;
         for (int a = 0; a < kAreaCount; ++a) {
             const auto& strip = pages_of(static_cast<Area>(a));
@@ -76,6 +78,18 @@ static void test_shell() {
         CHECK(!place_of(Page::None).valid() && !place_of(Page::Count).valid() && area_of(Page::None) == Area::Count, "None/Count are invalid");
         CHECK(default_page(Area::Count) == Page::None && pages_of(Area::Count).empty(), "Count has no pages");
         CHECK(std::string(page_label(Page::None)).empty(), "no label for None");
+        // 3.0 plain-English page names (brief 3.0-shell A.2)
+        struct L { Page p; const char* label; };
+        const L names30[] = {{Page::Home, "Home"}, {Page::PlayerEdit, "Player"}, {Page::CreatePlayer, "Create & clone"}, {Page::BulkEdit, "Many players at once"},
+                             {Page::Staff, "Staff"}, {Page::CommentaryNames, "Callnames"}, {Page::LooksStudio, "Appearance Editor"}, {Page::Kits, "Kits"},
+                             {Page::Identity, "Name, colours & crest"}, {Page::TeamPlayers, "Squad"}, {Page::TeamTransfers, "Transfers"},
+                             {Page::StadiumExtras, "Stadium & extras"}, {Page::TacticPresets, "Presets"}, {Page::TeamSheet, "Team sheet & bench"},
+                             {Page::GameplayPresets, "Game sliders"}, {Page::Standings, "Standings"}, {Page::Transfers, "Money & transfers"},
+                             {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"},
+                             {Page::Squad, "My squad (old page)"}};
+        for (const L& l : names30) CHECK(std::string(page_label(l.p)) == l.label, std::string("3.0 label: ") + l.label);
+        CHECK(area_of(Page::Squad) == Area::Advanced && pages_of(Area::Advanced).back() == Page::Squad, "My squad (old page) is the last Lab page");
+        for (Page p : shell_all_pages()) CHECK(std::string(page_label(p)).find("(Lab)") == std::string::npos, "no page says (Lab)");
         // sentence case: no capitalised second word (except proper names and the single acronym CMTracker)
         for (Page p : shell_all_pages()) {
             const std::string l = page_label(p);
@@ -90,7 +104,7 @@ static void test_shell() {
         struct Row { int tab; Area a; Page p; };
         const Row rows[] = {
             {turbo::TabPlayers, Area::Squad, Page::PlayerEdit},
-            {turbo::TabTeams, Area::Squad, Page::Squad},
+            {turbo::TabTeams, Area::Advanced, Page::Squad},  // 3.0: the page is unchanged, it moved to the Lab ("My squad (old page)")
             {turbo::TabManagers, Area::Squad, Page::Staff},
             {turbo::TabCompetitions, Area::Career, Page::Standings},
             {turbo::TabDatabase, Area::Advanced, Page::AdvDatabase},
@@ -111,7 +125,7 @@ static void test_shell() {
         for (Page p : shell_all_pages()) {
             const int t = legacy_tab_of(p);
             // 2.16 step 4: the pages that are new in the re-cut navigation never lived in a legacy tab
-            const bool is_new = p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::LooksStudio || p == Page::TeamSheet ||
+            const bool is_new = p == Page::Home || p == Page::CreatePlayer || p == Page::CommentaryNames || p == Page::LooksStudio || p == Page::TeamSheet ||
                                 p == Page::BulkEdit || p == Page::TeamPlayers || p == Page::TeamTransfers;  // 2.20 pages
             CHECK(is_new ? t == -1 : (t >= 0 && t < turbo::TabCount), std::string("every older page has a legacy tab, the new ones none: ") + page_label(p));
         }
@@ -136,12 +150,13 @@ static void test_shell() {
         for (Page p : pages_of(Area::Advanced)) want.insert(static_cast<int>(p));
         CHECK(hidden == want, "the hidden set of Simple is the Advanced strip");
         CHECK(!page_visible(Page::None, true) && !page_visible(Page::Count, true), "None/Count never visible");
-        // the not-proven set: tactics sliders, match setup, gameplay tuning (all under Advanced); the mixed page is visible in Simple
-        const Page np[] = {Page::AdvTactics, Page::AdvMatchSetup, Page::AdvGameplayTuning};
+        // 3.0: the not-proven set is the whole Lab (every page of the Advanced area carries the amber line); the mixed page is visible in Simple
         std::set<int> npset;
         for (Page p : shell_all_pages()) if (page_unproven(p)) npset.insert(static_cast<int>(p));
-        CHECK(npset.size() == 3, "exactly three pages carry the amber line");
-        for (Page p : np) CHECK(page_unproven(p) && !page_visible(p, false) && page_visible(p, true), std::string("not proven, Advanced only: ") + page_label(p));
+        CHECK(npset == want, "exactly the Lab pages carry the amber line");
+        CHECK(std::string(lab_banner_text()) == "Lab: not proven in game yet. Nothing here is guaranteed to show up in your match.", "the Lab line");
+        for (Page p : {Page::AdvTactics, Page::AdvMatchSetup, Page::AdvGameplayTuning, Page::Squad})
+            CHECK(page_unproven(p) && !page_visible(p, false) && page_visible(p, true), std::string("not proven, Lab only: ") + page_label(p));
         CHECK(!page_unproven(Page::GameplayPresets) && page_effect_unmeasured(Page::GameplayPresets) && page_visible(Page::GameplayPresets, false),
               "Gameplay presets: visible in Simple, one muted sentence, no banner");
         CHECK(!page_unproven(Page::TacticPresets) && !page_unproven(Page::Kits) && !page_effect_unmeasured(Page::Kits), "proven pages carry nothing");
@@ -229,12 +244,18 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
-        CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"),
-              "the six area tabs");
-        CHECK(ui.find("Advanced", "FC 27 LE Turbo") == nullptr, "no Advanced tab in Simple");
-        CHECK(app.place() == area_for(0), "request_tab 0 -> Squad / Player edit");
-        CHECK(ui.find("Edit a player") && ui.find("Managers & staff"), "the Players page strip");
-        for (int t : {1, 2, 3, 5, 6, 7}) {
+        for (const char* a : {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings"})
+            CHECK(ui.find(a, "##rail", "##shell") != nullptr, std::string("the rail button ") + a);
+        CHECK(ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr, "no Lab in the rail while the Lab is off");
+        CHECK(app.place() == area_for(0), "request_tab 0 -> Players / Player");
+        CHECK(ui.find("Player", "##content", "##pages") && ui.find("Staff", "##content", "##pages"), "the Players page strip, inside the content child");
+        {
+            const Place at = app.place();
+            app.request_tab = 1;  // 3.0: My squad (old page) is a Lab page: hidden while the Lab is off
+            settle();
+            CHECK(app.place() == at && app.request_tab == -1, "request_tab 1 (My squad, now in the Lab) is ignored while the Lab is off");
+        }
+        for (int t : {2, 3, 5, 6, 7}) {
             app.request_tab = t;
             settle();
             CHECK(app.place() == area_for(t), "request_tab " + std::to_string(t) + " -> " + page_label(area_for(t).page));
@@ -262,13 +283,13 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         const Place at = app.place();
         app.go(Area::Advanced, Page::AdvDatabase);
         settle();
-        CHECK(app.place() == at, "go to an Advanced page is ignored in Simple");
+        CHECK(app.place() == at, "go to a Lab page is ignored while the Lab is off");
         app.go(Area::Club, Page::Standings);  // wrong area for the page
         settle();
         CHECK(app.place() == at, "a page in the wrong area is ignored");
         app.prefs.advanced_mode = true;
         settle();
-        CHECK(ui.find("Advanced", "FC 27 LE Turbo") != nullptr, "Advanced tab with the toggle");
+        CHECK(ui.find("Lab", "##rail", "##shell") != nullptr, "the Lab in the rail with the toggle");
         for (Page p : pages_of(Area::Advanced)) {
             app.go(p);  // the one-argument form takes the page's own area
             settle();
@@ -317,7 +338,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(ui.click("###advview", "FC 27 LE Turbo"), "click the toggle");
         ui.frames(3);
         CHECK(app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == true, "Advanced on, saved");
-        CHECK(ui.find("Advanced", "FC 27 LE Turbo") != nullptr, "the Advanced tab appeared");
+        CHECK(ui.find("Lab", "##rail", "##shell") != nullptr, "the Lab appeared in the rail");
         CHECK(ui.click("###advview", "FC 27 LE Turbo"), "click again");
         ui.frames(3);
         CHECK(!app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == false, "Advanced off, saved");
@@ -332,6 +353,117 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(ui.find("###rowdensity") == nullptr, "the closed section is not drawn");
         app.prefs.sections_open.clear();
         app.save_gui_settings();
+    });
+
+    // ---- 3.0 shell (brief 3.0-shell A.6): Home, the rail, the Lab gate
+    run_case("shell UI 3.0: Home draws its five sections (status chip, My squad, Presets, Recent changes, tiles) and a tile opens its area", [&] {
+        app.prefs.advanced_mode = false;
+        app.go(Page::Home);
+        settle();
+        CHECK(app.place() == place_of(Page::Home), "on Home");
+        CHECK(ui.find("Home", "##rail", "##shell") != nullptr, "Home is in the rail");
+        const turbo::HomeState& h = turbo::home_state();
+        CHECK(h.sections == 5 && h.status_chip && h.squad && h.presets && h.recent && h.tiles == 6,
+              "five sections, six tiles: sections " + std::to_string(h.sections) + ", tiles " + std::to_string(h.tiles));
+        CHECK(h.squad_table == h.in_career, "the squad table exactly when a career is loaded");
+        for (const char* id : {"###home_preset_team", "###home_preset_tactics", "###home_preset_sliders", "###home_preset_season", "###home_changes"})
+            CHECK(ui.find(id) != nullptr, std::string("Home button ") + id);
+        CHECK(ui.find("##gsearch") != nullptr, "the global search box in the top bar");
+        CHECK(ui.click("###home_tile_" + std::to_string(static_cast<int>(Area::Tactics))), "click the Tactics tile");
+        settle(2);
+        CHECK(app.place() == place_of(Page::TacticPresets), "the tile opened Tactics > Presets");
+        app.go(Page::Home);
+        settle();
+        CHECK(ui.click("###home_changes"), "click See all changes");
+        settle(2);
+        CHECK(app.place() == place_of(Page::ChangesUndo), "it opened Career > Changes & undo");
+        app.go(Page::Home);
+        settle();
+        CHECK(ui.click("###home_preset_sliders"), "click Game sliders");
+        settle(2);
+        CHECK(app.place() == place_of(Page::GameplayPresets), "it opened Tactics > Game sliders");
+    });
+
+    run_case("shell UI 3.0: a rail click changes the area; the narrow rail keeps working and is saved; the search opens a player", [&] {
+        app.prefs.advanced_mode = false;
+        app.prefs.rail_collapsed = false;
+        app.go(Page::Home);
+        settle();
+        CHECK(ui.click("Tactics", "##rail", "##shell"), "click Tactics in the rail");
+        settle(2);
+        CHECK(app.place().area == Area::Tactics && app.place().page == default_page(Area::Tactics), "Tactics, its first page");
+        CHECK(ui.click("Club", "##rail", "##shell"), "click Club in the rail");
+        settle(2);
+        CHECK(app.place().area == Area::Club, "Club");
+        CHECK(ui.click("Squad", "##content", "##pages"), "the page strip: Squad");
+        settle(2);
+        CHECK(app.place() == place_of(Page::TeamPlayers), "Club > Squad");
+        CHECK(ui.click("Home", "##rail", "##shell") && (settle(2), app.place() == place_of(Page::Home)), "back to Home");
+        CHECK(ui.click("Club", "##rail", "##shell") && (settle(2), app.place() == place_of(Page::TeamPlayers)), "Club remembers its page");
+        CHECK(ui.open_page("Players", "Callnames") && app.place() == place_of(Page::CommentaryNames), "Ui::open_page still works on the rail");
+        CHECK(ui.click("###railtoggle"), "narrow the rail");
+        settle(2);
+        CHECK(app.prefs.rail_collapsed && ui.find("Tactics", "##rail", "##shell") == nullptr && ui.find("###rail_Tactics") != nullptr,
+              "narrow rail: first letters, stable ids");
+        {
+            std::ifstream f(app.turbo_output() / "gui_settings.json", std::ios::binary);
+            nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
+            CHECK(!j.is_discarded() && j["gui"]["rail_collapsed"] == true && j["gui"]["version"] == "3.0.0", "saved: gui.rail_collapsed, gui.version");
+        }
+        CHECK(ui.click("###rail_Tactics"), "click T");
+        settle(2);
+        CHECK(app.place().area == Area::Tactics, "the narrow rail changes the area");
+        CHECK(ui.click("###railtoggle") && (settle(2), !app.prefs.rail_collapsed) && ui.find("Tactics", "##rail", "##shell") != nullptr, "wide again");
+        // the global search: a player's name (Enter takes the first match) -> Players > Player with him selected
+        const turbo::PlayerRow* pick = nullptr;
+        for (const turbo::PlayerRow& p : app.model.players())
+            if (p.name.size() >= 4) { pick = &p; break; }
+        if (pick) {
+            std::string q = pick->name;
+            for (char& c : q) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');  // case-insensitive
+            const int64_t want_id = pick->playerid;
+            const std::string want_name = pick->name;
+            app.sel_player = 0;
+            CHECK(ui.type_into(ui.find("##gsearch"), q), "type into the search");
+            settle(2);
+            const turbo::PlayerRow* got = app.model.player(app.sel_player);
+            CHECK(app.place() == place_of(Page::PlayerEdit) && got != nullptr && (app.sel_player == want_id || got->name == want_name),
+                  "the search opened Players > Player with " + want_name);
+        }
+    });
+
+    run_case("shell UI 3.0: the Lab is hidden with advanced_mode = false; the first 3.0 start hides it once", [&] {
+        app.prefs.advanced_mode = false;
+        app.go(Page::Home);
+        settle();
+        CHECK(ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr && ui.find("Lab") == nullptr, "no Lab button anywhere");
+        app.go(Page::AdvDatabase);
+        settle();
+        CHECK(app.place() == place_of(Page::Home), "go to a Lab page is ignored");
+        app.prefs.advanced_mode = true;
+        settle();
+        CHECK(ui.find("Lab", "##rail", "##shell") != nullptr, "the Lab with advanced_mode = true");
+        CHECK(ui.click("Lab", "##rail", "##shell"), "open the Lab");
+        settle(2);
+        CHECK(app.place().area == Area::Advanced && page_unproven(app.place().page), "a Lab page, which carries the amber line");
+        app.prefs.advanced_mode = false;
+        settle();
+        CHECK(app.place() == place_of(Page::Home) && ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr, "Lab off: back to Home, the Lab is gone");
+        // gui.version: missing or older than 3.0.0 = the first 3.0 start (Lab hidden once); written as 3.0.0; a 3.0 file keeps the choice
+        using turbo::GuiPrefs;
+        const auto j = [](const char* s) { return nlohmann::json::parse(s); };
+        CHECK(!GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true}}")).advanced_mode &&
+                  GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true}}")).first_30_start, "no version: the Lab starts hidden");
+        CHECK(!GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true,\"version\":\"2.22.0\"}}")).advanced_mode, "2.22.0: hidden");
+        CHECK(GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true,\"version\":\"3.0.0\"}}")).advanced_mode &&
+                  !GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true,\"version\":\"3.0.0\"}}")).first_30_start, "3.0.0: the choice holds");
+        CHECK(GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true,\"version\":\"3.10.1\"}}")).advanced_mode, "3.10.1 is newer than 3.0.0");
+        GuiPrefs p = GuiPrefs::load(j("{\"gui\":{\"advanced_mode\":true}}"));
+        p.advanced_mode = true;  // the person turns the Lab on after the first start
+        nlohmann::json out = nlohmann::json::object();
+        p.save(out);
+        CHECK(out["gui"]["version"] == "3.0.0" && GuiPrefs::load(out).advanced_mode, "saved with gui.version 3.0.0: the Lab stays on");
+        CHECK(turbo::gui_version_compare("3.0.0", "3.0") == 0 && turbo::gui_version_compare("2.21.0", "3.0.0") < 0, "version compare");
     });
 
     app.prefs.advanced_mode = was_advanced;

@@ -22,27 +22,28 @@ struct PageInfo {
 // legacy tab (-1) is new. Scouting, Budget and Bans are sections of the Transfers & money page (the old Turbo Tools panel); Exports is
 // Advanced > Data export; Career tools > Maintenance is Advanced > Maintenance (Game editors stay on Transfers & money).
 const PageInfo kPages[] = {
-    {Page::PlayerEdit, Area::Squad, "Edit a player", 0},
-    {Page::Squad, Area::Squad, "My squad", 1},
-    {Page::CreatePlayer, Area::Squad, "Player creation", -1},  // 2.20: create / clone / import / export / delete (ui_player_creation.cpp)
-    {Page::BulkEdit, Area::Squad, "Bulk edit", -1},  // 2.20: any field of many players at once (ui_bulk_edit.cpp); Advanced > Bulk edit stays until the capability check passes
-    {Page::Staff, Area::Squad, "Managers & staff", 2},
-    {Page::CommentaryNames, Area::Squad, "Commentary names", -1},
+    {Page::Home, Area::Home, "Home", -1},  // 3.0: search, squad table, presets strip, recent changes, the area tiles (ui_home.cpp)
+
+    {Page::PlayerEdit, Area::Squad, "Player", 0},
+    {Page::CreatePlayer, Area::Squad, "Create & clone", -1},  // 2.20: create / clone / import / export / delete (ui_player_creation.cpp)
+    {Page::BulkEdit, Area::Squad, "Many players at once", -1},  // 2.20: any field of many players at once (ui_bulk_edit.cpp); Lab > Bulk edit stays until the capability check passes
+    {Page::Staff, Area::Squad, "Staff", 2},
+    {Page::CommentaryNames, Area::Squad, "Callnames", -1},
 
     {Page::LooksStudio, Area::Looks, "Appearance Editor", -1},  // 2.17 ui_looks_studio.cpp (the Looks studio); 2.20: renamed, and the only page of its area
 
     {Page::Kits, Area::Club, "Kits", 1},
-    {Page::Identity, Area::Club, "Club name, colours & crest", 1},
-    {Page::TeamPlayers, Area::Club, "Players", -1},      // 2.20: career side of a club: contract, form, growth, squad role, team preset (ui_team_players.cpp)
+    {Page::Identity, Area::Club, "Name, colours & crest", 1},
+    {Page::TeamPlayers, Area::Club, "Squad", -1},        // 2.20: career side of a club: contract, form, growth, squad role, team preset (ui_team_players.cpp)
     {Page::TeamTransfers, Area::Club, "Transfers", -1},  // 2.20: moves, loans, signings, contract extensions (ui_team_transfers.cpp)
     {Page::StadiumExtras, Area::Club, "Stadium & extras", 5},
 
-    {Page::TacticPresets, Area::Tactics, "Tactic presets", 1},
+    {Page::TacticPresets, Area::Tactics, "Presets", 1},
     {Page::TeamSheet, Area::Tactics, "Team sheet & bench", -1},
     {Page::GameplayPresets, Area::Tactics, "Game sliders", 7},
 
     {Page::Standings, Area::Career, "Standings", 3},
-    {Page::Transfers, Area::Career, "Transfers & money", 5},
+    {Page::Transfers, Area::Career, "Money & transfers", 5},
     {Page::JobOffer, Area::Career, "Manager jobs", 1},
     {Page::CMTracker, Area::Career, "Season pack", 5},
     {Page::ChangesUndo, Area::Career, "Changes & undo", 5},
@@ -59,8 +60,10 @@ const PageInfo kPages[] = {
     {Page::AdvExport, Area::Advanced, "Data export", 5},
     // health, hooks, switches and the log: until its own page is registered the legacy Status panel stands in (draw_legacy_page)
     {Page::AdvDiagnostics, Area::Advanced, "Diagnostics & logs", 6},
-    // the old Kits body with every developer control (page-kits): Advanced only, it lived in the Teams tab
+    // the old Kits body with every developer control (page-kits): Lab only, it lived in the Teams tab
     {Page::AdvKitDiagnostics, Area::Advanced, "Kit diagnostics", 1},
+    // 3.0: Career > My squad (draw_career_my_squad) repeated Club > Squad: kept, in the Lab, last
+    {Page::Squad, Area::Advanced, "My squad (old page)", 1},
 };
 
 const PageInfo* info_of(Page p) {
@@ -83,13 +86,14 @@ std::map<int, PageFn>& new_registry() {
 
 const char* area_label(Area a) {
     switch (a) {
+        case Area::Home: return "Home";
         case Area::Squad: return "Players";
-        case Area::Looks: return "Appearance Editor";
-        case Area::Club: return "Team";
+        case Area::Looks: return "Looks";
+        case Area::Club: return "Club";
         case Area::Tactics: return "Tactics";
         case Area::Career: return "Career";
         case Area::Settings: return "Settings";
-        case Area::Advanced: return "Advanced";
+        case Area::Advanced: return "Lab";
         default: return "";
     }
 }
@@ -142,7 +146,8 @@ bool page_visible(Page p, bool advanced) {
     return a != Area::Count && area_visible(a, advanced);
 }
 
-bool page_unproven(Page p) { return p == Page::AdvTactics || p == Page::AdvMatchSetup || p == Page::AdvGameplayTuning; }
+bool page_unproven(Page p) { return area_of(p) == Area::Advanced; }
+const char* lab_banner_text() { return "Lab: not proven in game yet. Nothing here is guaranteed to show up in your match."; }
 bool page_effect_unmeasured(Page p) { return p == Page::GameplayPresets; }
 
 Place area_for(int legacy_tab) {

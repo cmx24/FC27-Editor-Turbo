@@ -19,13 +19,16 @@ class App;
 
 namespace turbo::shell {
 
-// 2.16 step 4 (plan 4.2): Players, Faces & looks (2.20: Appearance Editor), Team, Tactics, Career, Settings, Advanced. The identifiers keep their 2.13 names
-// (Squad = Players, Club = Team) so that no caller changes; only the labels in ui_shell.cpp are new.
-enum class Area : int { Squad = 0, Looks, Club, Tactics, Career, Settings, Advanced, Count };
+// 3.0 shell: Home, Players, Looks, Club, Tactics, Career, Settings, Lab (the left rail, top to bottom; Settings and Lab pinned at the bottom).
+// The identifiers keep their 2.13 names (Squad = Players, Club = Club, Advanced = Lab) so that no caller changes; only the labels in ui_shell.cpp
+// are new. Home is first (3.0: the page the app opens on).
+enum class Area : int { Home = 0, Squad, Looks, Club, Tactics, Career, Settings, Advanced, Count };
 
 // One id per page, unique across areas. Order inside an area = order of the page strip (see pages_of).
 enum class Page : int {
     None = 0,
+    // Home (3.0: the only page of its area, ui_home.cpp)
+    Home,
     // Players
     PlayerEdit, Squad, CreatePlayer, BulkEdit, Staff, CommentaryNames,
     // Appearance Editor (2.20: the empty Faces & hair and Body, tattoos & gear signpost pages are gone; the Looks studio is the Appearance Editor)
@@ -54,13 +57,13 @@ constexpr int kAreaCount = static_cast<int>(Area::Count);
 constexpr int kPageCount = static_cast<int>(Page::Count);
 
 // ---- labels (sentence case, as drawn on the tab and the page strip)
-const char* area_label(Area a);  // "Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings", "Advanced"
-const char* page_label(Page p);  // "Edit a player", "Kits", "Tactic presets", ...
+const char* area_label(Area a);  // "Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings", "Lab"
+const char* page_label(Page p);  // "Player", "Kits", "Presets", ...
 
 // ---- structure
 Area area_of(Page p);                       // Area::Count for Page::None / Count
 const std::vector<Page>& pages_of(Area a);  // the page strip of the area, in order
-Page default_page(Area a);                  // first of the strip: Edit a player, Appearance Editor, Kits, Tactic presets, Standings, Settings, Database
+Page default_page(Area a);                  // first of the strip: Home, Player, Appearance Editor, Kits, Presets, Standings, Settings, Database
 Place place_of(Page p);                     // {area_of(p), p}
 
 // Edit a player is one page with tabs: 0 Profile, 1 Positions, attributes & PlayStyles, 2 Appearance, 3 All fields. The page follows this value
@@ -71,14 +74,15 @@ int& player_edit_tab();
 // not-proven panels); every other page is visible in both views. The Advanced area only exists with the toggle.
 bool page_visible(Page p, bool advanced);
 bool area_visible(Area a, bool advanced);
-// Pages that show the one amber "Not proven in game yet" line in the Advanced view: AdvTactics, AdvMatchSetup, AdvGameplayTuning
+// 3.0: every Lab page (the Advanced area) shows the one amber line lab_banner_text() above the page (App::draw_pages)
 bool page_unproven(Page p);
+const char* lab_banner_text();  // "Lab: not proven in game yet. Nothing here is guaranteed to show up in your match."
 // Mixed page: the write is proven, the effect on play is not (GameplayPresets): one muted sentence instead of the banner
 bool page_effect_unmeasured(Page p);
 
 // ---- legacy tab shim: TopTab indices 0 players, 1 teams, 2 managers, 3 competitions, 4 database, 5 tools, 6 status,
 // 7 game settings (gui_prefs.h) -> their new home. Out of range -> invalid Place.
-//   0 Players/PlayerEdit  1 Players/Squad  2 Players/Staff  3 Career/Standings  4 Advanced/AdvDatabase
+//   0 Players/PlayerEdit  1 Lab/Squad (3.0: "My squad (old page)")  2 Players/Staff  3 Career/Standings  4 Advanced/AdvDatabase
 //   5 Career/Transfers  6 Settings/Settings  7 Tactics/GameplayPresets
 Place area_for(int legacy_tab);
 // The legacy tab a page used to live in (-1 when it had none): inverse of area_for for the pages above, plus the pages

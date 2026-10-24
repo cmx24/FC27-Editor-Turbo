@@ -59,6 +59,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/ui_tactics_page.cpp \
          src/ui/ui_player_creation.cpp \
          src/ui/ui_bulk_edit.cpp \
+         src/ui/ui_home.cpp \
          src/core/edit_unlock.cpp src/ui/ui_edit_unlock.cpp \
          src/core/edit_unlock_rules.cpp src/core/edit_unlock_hook.cpp src/win/edit_unlock_hook_win.cpp \
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/bench_probe.cpp src/win/team_sheet_win.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp src/win/teamname_override_win.cpp \

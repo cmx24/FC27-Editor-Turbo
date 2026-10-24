@@ -8,6 +8,9 @@
 //   gui.window          {x, y, w, h, maximized}: the main panel's place, size and maximized state (2.20; see WindowPrefs below)
 //   gui.sections_open   {"<page>.<section>": true|false}: which collapsing sections of the revamped pages are open (spec 2.1);
 //                       a section not listed uses the page's own default
+//   gui.rail_collapsed  false (default): the 3.0 left rail shows the area names; true: the narrow rail (first letters)
+//   gui.version         the GUI that last wrote the file (3.0: "3.0.0"). Missing or older than 3.0.0 = the first 3.0 start: the Lab
+//                       (advanced_mode) starts hidden once; the next save writes "3.0.0" and the person's choice holds from then on
 // Pure (json in / out), so the native tests can check the defaults and the round trip. The hotkey and the UI size keep
 // their own code in App::load_gui_settings / save_gui_settings.
 #pragma once
@@ -200,6 +203,21 @@ struct WindowTracker {
     }
 };
 
+// "3.0.0" < "3.0.1" < "3.10.0": numeric per dot-separated part; a missing part is 0, non-digits end a part
+inline int gui_version_compare(const std::string& a, const std::string& b) {
+    size_t i = 0, j = 0;
+    while (i < a.size() || j < b.size()) {
+        long x = 0, y = 0;
+        while (i < a.size() && a[i] != '.') { if (a[i] >= '0' && a[i] <= '9' && x < 100000) x = x * 10 + (a[i] - '0'); ++i; }
+        while (j < b.size() && b[j] != '.') { if (b[j] >= '0' && b[j] <= '9' && y < 100000) y = y * 10 + (b[j] - '0'); ++j; }
+        if (x != y) return x < y ? -1 : 1;
+        if (i < a.size()) ++i;
+        if (j < b.size()) ++j;
+    }
+    return 0;
+}
+constexpr const char* kShellGuiVersion = "3.0.0";  // the gui.version the 3.0 shell writes (kGuiVersion, app.h, is the release number)
+
 struct GuiPrefs {
     WindowPrefs window;        // gui.window (the main panel's place, size and maximized state)
     WindowTracker window_rt;   // run time only
@@ -207,6 +225,8 @@ struct GuiPrefs {
     bool preload_images = true;
     RowDensity row_density = RowDensity::Normal;
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
+    bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
+    bool first_30_start = false;   // run time only: load() found no gui.version >= 3.0.0 and hid the Lab
 
     bool section_open(const std::string& id, bool default_open) const {
         auto it = sections_open.find(id);
@@ -223,11 +243,17 @@ struct GuiPrefs {
     // From the whole gui_settings.json object (anything missing or malformed keeps the default)
     static GuiPrefs load(const nlohmann::json& gui_settings) {
         GuiPrefs p;
+        p.first_30_start = true;  // nothing stored yet counts as a first 3.0 start (advanced_mode is false already)
         if (!gui_settings.is_object()) return p;
         auto g = gui_settings.find("gui");
         if (g == gui_settings.end() || !g->is_object()) return p;
+        auto ver = g->find("version");
+        p.first_30_start = !(ver != g->end() && ver->is_string() && gui_version_compare(ver->get<std::string>(), kShellGuiVersion) >= 0);
         auto am = g->find("advanced_mode");
         if (am != g->end() && am->is_boolean()) p.advanced_mode = am->get<bool>();
+        if (p.first_30_start) p.advanced_mode = false;  // 3.0 first start: the Lab starts hidden, once
+        auto rc = g->find("rail_collapsed");
+        if (rc != g->end() && rc->is_boolean()) p.rail_collapsed = rc->get<bool>();
         auto pi = g->find("preload_images");
         if (pi != g->end() && pi->is_boolean()) p.preload_images = pi->get<bool>();
         auto rd = g->find("row_density");
@@ -250,6 +276,8 @@ struct GuiPrefs {
         nlohmann::json so = nlohmann::json::object();
         for (const auto& kv : sections_open) so[kv.first] = kv.second;
         g["sections_open"] = so;
+        g["rail_collapsed"] = rail_collapsed;
+        g["version"] = kShellGuiVersion;
         window.save(gui_settings);
     }
 };
