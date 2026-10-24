@@ -1,7 +1,8 @@
-// FC 27 LE Turbo GUI - Settings area, the one page (GUI_REVAMP_SPEC.md 1.1 "Status" row, track T1):
-// preferences first (Advanced view, show/hide key, UI size, row density, background loading), then the health summary and the
-// technical details (collapsed), then the log (collapsed). The pieces are the old Status tab's, drawn by ui_tools.cpp.
+// FC 27 LE Turbo GUI - Settings area, the one page (3.0 track C): Look and feel, Pictures, Show / hide key, the connection and
+// health summary (technical details collapsed), the log (collapsed), and at the bottom the switch that shows the Lab and the
+// one for the old pages. The health pieces are the old Status tab's, drawn by ui_tools.cpp.
 #include "app.h"
+#include "hotkey_setting.h"
 #include "imgui.h"
 #include "ui_sections.h"
 #include "ui_shell.h"
@@ -32,30 +33,86 @@ void draw_game_link(App& app) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Read the lists from the game again");
 }
 
+// One plain sentence under a control
+void note(const char* sentence) { theme::muted_text("%s", sentence); }
+
+void save_or_complain(App& app) {
+    if (!app.save_gui_settings()) app.notify("The setting could not be saved", true);
+}
+
+// 3.0 track C: "Look and feel" - how big Turbo is and how tall its rows are (the section keeps the key settings.preferences,
+// so a section the user closed before stays closed)
+void draw_look_and_feel(App& app) {
+    form_label("UI size", "The size of the whole Turbo window, on top of the automatic size for the window height");
+    ImGui::SetNextItemWidth(S(140.0f));
+    ImGui::SliderFloat("##uisize", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemDeactivatedAfterEdit()) save_or_complain(app);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset size")) {
+        app.ui_scale_user = 1.0f;
+        save_or_complain(app);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("now %.2fx", static_cast<double>(app.ui_scale_applied));
+    note("Makes everything in Turbo bigger or smaller.");
+    ImGui::Spacing();
+    // Row density (ui/gui_prefs.h): the style follows on the next tick
+    ImGui::SetNextItemWidth(S(140.0f));
+    int d = static_cast<int>(app.prefs.row_density);
+    const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
+    if (ImGui::Combo("Row height###rowdensity", &d, names, 3)) {
+        app.prefs.row_density = static_cast<RowDensity>(d);
+        save_or_complain(app);
+    }
+    note("How tall the rows of tables and lists are.");
+}
+
+// "Pictures": the folder of the animations and pictures the pickers show, and loading them ahead of time
+void draw_pictures(App& app) {
+    visual_pictures_setting(app);  // the RDBM26 folder: the one place a folder path is shown
+    ImGui::Spacing();
+    if (ImGui::Checkbox("Load pictures ahead of time###preload", &app.prefs.preload_images)) save_or_complain(app);
+    note("On: galleries open with their pictures ready. Off: pictures load when a screen shows them.");
+}
+
+// "Show / hide key": the key that shows and hides Turbo over the game
+void draw_show_hide_key(App& app) {
+    hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
+    note("The key that shows and hides Turbo while you play.");
+}
+
+// The two switches at the bottom: the Lab and the old pages
+void draw_lab_switches(App& app) {
+    ImGui::Separator();
+    if (ImGui::Checkbox("Show the Lab (tools not proven in game)###advview", &app.prefs.advanced_mode)) save_or_complain(app);
+    note("Adds the Lab to the left menu. It holds tools that are not proven to show up in your match.");
+    if (app.prefs.advanced_mode) {
+        if (ImGui::Checkbox("Use the old pages###legacypages", &app.legacy_pages)) save_or_complain(app);
+        note("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
+    }
+}
+
 void draw_settings_page(App& app) {
-    if (collapsing_section(app, "settings.link", "Game link", true)) {
+    if (collapsing_section(app, "settings.preferences", "Look and feel", true)) {
+        draw_look_and_feel(app);
+        ImGui::Spacing();
+    }
+    if (collapsing_section(app, "settings.pictures", "Pictures", true)) {
+        draw_pictures(app);
+        ImGui::Spacing();
+    }
+    if (collapsing_section(app, "settings.hotkey", "Show / hide key", true)) {
+        draw_show_hide_key(app);
+        ImGui::Spacing();
+    }
+    if (collapsing_section(app, "settings.link", "Connection to the game", true)) {
         draw_game_link(app);
         ImGui::Spacing();
+        draw_status_health(app);  // pictures, health, technical details (collapsed)
     }
-    if (collapsing_section(app, "settings.preferences", "Preferences", true)) {
-        if (ImGui::Checkbox("Show advanced tools###advview", &app.prefs.advanced_mode) && !app.save_gui_settings())
-            app.notify("cannot write gui_settings.json", true);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Shows the Advanced section: raw tables, bulk edit, experimental tactics, match setup and gameplay tuning. "
-                              "Off keeps only what is proven to work in the game.");
-        if (app.prefs.advanced_mode &&
-            ImGui::Checkbox("Use the old pages (Players, Kits, Tactics, Career, Changes, Diagnostics)###legacypages", &app.legacy_pages) &&
-            !app.save_gui_settings())
-            app.notify("The setting could not be saved", true);
-        if (app.prefs.advanced_mode && ImGui::IsItemHovered())
-            ImGui::SetTooltip("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
-        draw_preferences(app);
-        ImGui::Spacing();
-    }
-    draw_status_health(app);  // pictures, health, technical details (collapsed)
     draw_log_section(app, "settings.log");
-    // 2.20 V: the RDBM26 folder of the pickers (ui_visual_picker.cpp), closed at first and last so it moves no other section
-    if (collapsing_section(app, "settings.pictures", "Pictures for the pickers", false)) visual_pictures_setting(app);
+    ImGui::Spacing();
+    draw_lab_switches(app);
 }
 
 }  // namespace

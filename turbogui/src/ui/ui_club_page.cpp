@@ -28,7 +28,7 @@ bool club_ctx(App& app, const Table*& t, const TeamRow*& tr) {
         return false;
     }
     if (!app.db.table_alive(*t, tr->rec)) {
-        theme::err_text("The database changed (another save loaded?). Press Refresh.");
+        theme::err_text("The club list changed (another save loaded?). Use Reload from game in Settings.");
         return false;
     }
     return true;
@@ -52,7 +52,7 @@ bool page_header(App& app) {
     }
     ImGui::SameLine();
     const TeamRow* tr = app.model.team(app.sel_team);
-    if (tr) theme::muted_text("%s (ID %lld)", tr->name.c_str(), static_cast<long long>(tr->teamid));
+    if (tr) theme::muted_text("%s", tr->name.c_str());
     ImGui::Separator();
     return app.model.team(app.sel_team) != nullptr;
 }
@@ -107,8 +107,8 @@ void stadium_page_fn(App& app) {
     ImGui::BeginChild("##stadium", ImVec2(0, 0), ImGuiChildFlags_Borders);
     club_stadium_section(app);
     ImGui::Spacing();
-    ImGui::SeparatorText("Customisation hub");
-    ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // the hub's own header
+    ImGui::SeparatorText("More for your club");
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // the extras' own header
     draw_club_tools(app);
     ImGui::EndChild();
 }
