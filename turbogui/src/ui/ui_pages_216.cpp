@@ -11,25 +11,44 @@
 #include "ui_player_creation.h"
 #include "ui_bulk_edit.h"
 #include "ui_player_page.h"
+#include "ui_player_header.h"
 #include "ui_player_profile.h"
 #include "ui_team_pages.h"
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
 #include "ui_looks_studio.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
 // (2.22: the Populate panel moved into the "Player type & tier" card, the first card of the Positions tab: ui_player_profile.cpp)
 
-// Players: Edit a player. 2.20: one page with four tabs, as the Pit wall decided (13:02): Profile | Positions, attributes & PlayStyles |
-// Appearance | Classic editor (2.22: was "All fields", which repeated the name of the tab inside it). The first three are the new pages (ui_player_profile.cpp) and the Appearance Editor itself for the selected player;
-// "Classic editor" is the full editor of 2.19 (draw_players: the filters, the resizable list / rows / frames, the archetype attribute editor),
-// last, with the 2.16 card page as its opt-in ("Card view (beta)", gui.player_card_view). Nothing is deleted; Settings > Use the old pages
-// still draws the old panel.
+// Players > Player. 2.20: one page with tabs, as the Pit wall decided (13:02). 3.0 (brief 3.0-shell, track B): a read-only header card for the
+// selected player above the tab bar (ui_player_header.cpp) and five tabs, ids kept: Profile | Attributes & roles | Looks | Callname (NEW) |
+// Everything (classic). The first two are the new pages (ui_player_profile.cpp), Looks is the Appearance Editor itself for the selected player,
+// Callname is the Callnames page's right pane (callname_editor: list, Preview, Apply, Undo) for the selected player, and "Everything (classic)"
+// is the full editor of 2.19 (draw_players: the filters, the resizable list / rows / frames, the archetype attribute editor), last, with the
+// 2.16 card page as its opt-in ("Card view (beta)", gui.player_card_view). shell::player_edit_tab(): 0..4 (Callname = 3, classic = 4).
+// Nothing is deleted; Settings > Use the old pages still draws the old panel.
+static void draw_player_callname_tab(App& app) {
+    const Table* t = app.db.table("players");
+    const PlayerRow* p = app.model.player(app.sel_player);
+    if (!t || !p) {
+        theme::muted_text("Pick a player (Profile tab) to choose what the commentator says for him.");
+        return;
+    }
+    if (!app.db.table_alive(*t, p->rec)) {
+        theme::err_text("The game data changed (another career was loaded?). Use Refresh at the top.");
+        return;
+    }
+    callname_editor(app, *t, *p);
+}
+
 static void draw_player_edit(App& app) {
     // the Profile's "Open Team > Players" button goes to the new page. Set where the page is drawn (not at start-up) so that the Profile's own test, which draws
     // it without the shell, still sees its default (the squad page)
     profile_team_players_page() = shell::Page::TeamPlayers;
+    draw_player_header(app);  // nothing when no player is picked
     if (!ImGui::BeginTabBar("##pe_tabs")) return;
     static int s_shown = -1;  // the tab the bar showed last frame; a different shell::player_edit_tab() (set by code) is selected once
     int& want = shell::player_edit_tab();
@@ -40,18 +59,23 @@ static void draw_player_edit(App& app) {
         draw_player_profile(app);
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Positions, attributes & PlayStyles###pe_ability", nullptr, flag(1))) {
+    if (ImGui::BeginTabItem("Attributes & roles###pe_ability", nullptr, flag(1))) {
         now = 1;
         draw_player_ability(app);
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Appearance###pe_appearance", nullptr, flag(2))) {
+    if (ImGui::BeginTabItem("Looks###pe_appearance", nullptr, flag(2))) {
         now = 2;
         looks::draw_looks_studio(app);
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Classic editor###pe_allfields", nullptr, flag(3))) {
+    if (ImGui::BeginTabItem("Callname###pe_callname", nullptr, flag(3))) {
         now = 3;
+        draw_player_callname_tab(app);
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Everything (classic)###pe_allfields", nullptr, flag(4))) {
+        now = 4;
         if (ImGui::Checkbox("Card view (beta)###pcardview", &app.player_card_view)) app.save_gui_settings();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 2.16 card page instead of the full editor (filters, resizable list, archetype editor)");
         if (app.player_card_view) draw_player_page(app);
@@ -60,8 +84,8 @@ static void draw_player_edit(App& app) {
     }
     ImGui::EndTabBar();
     if (now != s_shown) {  // one line in turbo_gui.log per change of tab (the live check of the wiring reads which tabs were really shown)
-        static const char* const names[] = {"Profile", "Positions, attributes & PlayStyles", "Appearance", "Classic editor"};
-        if (now >= 0 && now < 4) app.log(std::string("Edit a player tab: ") + names[now]);
+        static const char* const names[] = {"Profile", "Attributes & roles", "Looks", "Callname", "Everything (classic)"};
+        if (now >= 0 && now < 5) app.log(std::string("Edit a player tab: ") + names[now]);
     }
     s_shown = want = now;
 }
