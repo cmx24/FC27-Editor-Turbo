@@ -3,6 +3,19 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 3.0.0 (built 2026-10-24) - the clean shell
+
+Status is filled in by the G3 record (`turbo_dev\PITWALL\briefs\3.0-shell.md`, evidence `turbo_dev\evidence\2026-10-24\GUI30`). Base: 2.22/integration 7ef3a20 (everything in 2.21.0 plus the 2.22 G-squad, G-ia, G-resize, G-pickers, capcheck tracks; those 2.22 items are offline-green and were NOT proven in game before this build).
+
+- A new shell: a left rail with Home, Players, Looks, Club, Tactics, Career, and Settings + Lab pinned at the bottom (the rail collapses to initials). The top bar keeps the connection words, adds a global search over players and clubs, and keeps Undo + Changes on the right.
+- Home: status chip, your squad table (sortable), a Presets strip (My team preset, Tactic presets, Game sliders, Season pack), Recent changes with Undo, and one tile per area.
+- Lab replaces "Advanced": hidden until Settings > "Show the Lab (tools not proven in game)" is on; every Lab page carries one amber line. The old Players > My squad page lives there as "My squad (old page)" (Club > Squad has the same cards). A 3.0 first start turns the Lab off once (`gui_settings.json` `gui.version`).
+- Plain-English page names: Players > Player, Create & clone, Many players at once, Staff, Callnames; Club > Kits, Name, colours & crest, Squad, Transfers, Stadium & extras; Tactics > Presets, Team sheet & bench, Game sliders; Career > Standings, Money & transfers, Manager jobs, Season pack, Changes & undo.
+- Players > Player: a header card for the picked player (miniface, name, club, age, positions, nationality, OVR / POT, Calc OVR) above the tabs Profile, Attributes & roles, Looks, Callname (the one-click list, Preview, Apply, Undo) and Everything (classic).
+- Settings: Look and feel first (UI size, Row height), Pictures (RDBM26 folder, load ahead), Show / hide key, Connection to the game, Log, and the Lab switch last; plain wording throughout.
+- Theme: deeper graphite palette, accent-tinted headers and tabs, rounded cards and frames (`ui_style.cpp`, `ui_theme.h` helpers).
+- Tests: the native suite compiles on Linux g++ again (SvmWorld address list), shell / navigation / header cases updated and added.
+
 ## Unreleased
 
 Nothing here is shipped or claimed as a feature. Gates are in `turbo_dev\evidence6-10-15\TEST_31.md`.
