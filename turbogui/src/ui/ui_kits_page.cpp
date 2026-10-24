@@ -401,7 +401,7 @@ void pitch_tick(App& app, int64_t team, Slot slot, bool custom) {
         }
         if (busy) ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Diagnostics: plans every switched-on kit again from the game's files. Needed only after a game update or when a kit says so.");
+            ImGui::SetTooltip("Prepares every kit that is switched on again from the game's own files. Needed only after a game update or when a kit asks for it.");
     }
     ImGui::PopTextWrapPos();
 }

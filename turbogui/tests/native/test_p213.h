@@ -41,7 +41,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(app.place() == shell::place_of(Page::ChangesUndo), "Changes opens Career tools > Changes & undo");
         app.go(Page::Settings);
         ui.frames(3);
-        CHECK(ui.find("###reload") != nullptr && ui.find("###advview") != nullptr && ui.find("##hkpick", "", "status") != nullptr,
+        CHECK(ui.find("###reload") != nullptr && ui.find("##hkpick", "", "status") != nullptr && (ui.find("Show the Lab (tools not proven in game)###advview") != nullptr || ui.find_scrolling("Show the Lab (tools not proven in game)###advview", "", "") != nullptr),
               "Settings has Reload from game, the Advanced switch and the show/hide key");
         CHECK(logged_frame(ui).find(std::string("Turbo ") + kGuiVersion) != std::string::npos, "Settings shows the version");
         app.go(Page::PlayerEdit);
@@ -200,7 +200,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
         CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");
         CHECK(ui.open_page("Career", "Season pack") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
-        CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Preferences") != nullptr, "Settings (one page, no strip)");
+        CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Look and feel") != nullptr, "Settings (one page, no strip)");
     });
 
     run_case("P213: every page button is on screen; no page is a dead end or names a place the revamp removed (Simple and Advanced views)", [&] {
