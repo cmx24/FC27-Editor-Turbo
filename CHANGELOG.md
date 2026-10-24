@@ -3,6 +3,15 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 3.0.1 (built 2026-10-24) - fixes after the 3.0 shell
+
+Offline-green only (check_all); the G3 record says what was seen in game. Base: 3.0.0 (b153e489). Brief: `turbo_dev\PITWALL\briefs\3.0.1-tests.md`, classification of every failing native case: `turbo_dev\PITWALL\reviews\3.0.1_native_classification.md`.
+
+- Tactics > Game sliders: the steps and the "Prepared" line told you to "run Turbo's settings installer". That program, started with no argument, only prints a usage line and changes nothing, so a user who followed the page got no sliders. The page now gives the exact command, with the game closed: `turbo\turbo_settings_apply.exe --apply`.
+- Looks > Appearance Editor: the picture picker checked its shortcut folders on disk (Desktop, Pictures, OneDrive, Downloads, the minifaces folder: up to seven checks) on every screen redraw, even with the picker closed, so the page touched the disk about 7 times a frame all the time. The picker now looks at those folders once, when you open it; the Desktop / Pictures buttons are still there on the first open. The club crest image picker uses the same picker code.
+- The left rail's narrow and widen arrows no longer share one internal id, so a click meant for one arrow cannot be taken by the other.
+- The offline test suite was repaired for the 3.0 shell (new page and area names, the Lab, the 156 px rail, a window left small by the UI-size tests, pages that scroll). Test files only apart from the two items above. One native test crashed the whole run when the Tactics rows were not on screen; it now reports the missing row and goes on.
+
 ## 3.0.0 (built 2026-10-24) - the clean shell
 
 Status is filled in by the G3 record (`turbo_dev\PITWALL\briefs\3.0-shell.md`, evidence `turbo_dev\evidence\2026-10-24\GUI30`). Base: 2.22/integration 7ef3a20 (everything in 2.21.0 plus the 2.22 G-squad, G-ia, G-resize, G-pickers, capcheck tracks; those 2.22 items are offline-green and were NOT proven in game before this build).
