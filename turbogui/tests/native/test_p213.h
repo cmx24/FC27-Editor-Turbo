@@ -189,18 +189,23 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         ui.frames(2);
         CHECK(app.place() == shell::place_of(Page::Standings) && (ui.find("Try again") || ui.find("Reload")), "the link lands on the live view");
-        // Job offer: until the Squad track exports its panel, the page says where it is and opens it
-        const bool was_leg_jobs = app.legacy_pages;
-        app.legacy_pages = false;  // 3.0.1: with the old pages on, Club > Squad is the signpost "Open My squad" (ui_nav_pages.cpp page_team_players); the real page has the All clubs tab
+        // Job offer: Career > Manager jobs draws the career page (ui_career_page.cpp draw_career_manager_jobs, GUI revamp step 10: the Job offer, Never sack me and
+        // Move manager cards). The "Open Club > Squad" pointer (ui_tools.cpp:715 squad_pointer) is only the fallback for a build without that page.
+        // 3.0.1: this block clicked the pointer, which a build that links the page never draws; the page itself is what a user uses.
         CHECK(ui.open_page("Career", "Manager jobs"), "Career > Manager jobs");
-        CHECK(ui.click("###squadgo"), "Manager jobs: the way to the club panel");
+        CHECK(ui.find("Ask for the job") != nullptr && ui.find("Allow sacking again") != nullptr && ui.find("Move manager") != nullptr,
+              "Manager jobs: the Job offer, Never sack me and Move manager cards are on the page");
+        CHECK(ui.find("###squadgo") == nullptr, "Manager jobs: no fallback pointer next to the real page");
+        // the club panel with its Job offer / Transfers / Mass actions tabs: Club > Squad > All clubs (2.22 G-squad, ui_team_players.cpp:302), reached through the
+        // strip as a user does; with the old pages on, Club > Squad is the signpost "Open My squad" (ui_nav_pages.cpp page_team_players)
+        const bool was_leg_jobs = app.legacy_pages;
+        app.legacy_pages = false;
         ui.frames(2);
-        // 3.0 (b1439e25, ui_tools.cpp:715): the way goes to Club > Squad; its "All clubs" tab (2.22 G-squad, ui_team_players.cpp:302) holds the club panel with Job offer / Mass actions
-        CHECK(app.place() == shell::place_of(Page::TeamPlayers), "Manager jobs: Club > Squad");
+        CHECK(ui.open_page("Club", "Squad") && app.place() == shell::place_of(Page::TeamPlayers), "Club > Squad");
         CHECK(ui.click("All clubs###tptabclubs"), "Club > Squad: the All clubs tab");
         ui.frames(3);
         CHECK(ui.find("Job offer") != nullptr && ui.find("Mass actions") != nullptr,
-              "Manager jobs: Club > Squad > All clubs, the club panel with its Job offer / Transfers / Mass actions tabs");
+              "Club > Squad > All clubs: the club panel with its Job offer / Transfers / Mass actions tabs");
         app.legacy_pages = was_leg_jobs;
         // Transfers: until then the old Turbo Tools panel (integration 721bf59), not a dead end
         CHECK(ui.open_page("Career", "Money & transfers") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");

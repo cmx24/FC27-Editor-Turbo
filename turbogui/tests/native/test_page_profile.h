@@ -38,11 +38,37 @@ static void hide(Ui& ui) {
     g_ui_extra = nullptr;
     ui.frames(2);
 }
-// 3.0.1: a section header that is on the page but below the fold (the 3.0 Ability page is taller: the Roles tile grids come before Attributes and PlayStyles,
-// ui_player_profile.cpp:388) is reached by scrolling, as a user does. null when it is not on the page at all.
-static const ItemRec* reach(Ui& ui, const char* id, const char* W) {
-    const ItemRec* r = ui.find(id, W);
-    return r ? r : ui.find_scrolling(id, W, "");
+// 3.0.1: a widget that is on the page but out of view (the 3.0 Ability page is taller than the window: the Player type & tier card and the Roles tile grids
+// come before Attributes and PlayStyles, ui_player_profile.cpp:370-388) is reached by scrolling, as a user does. The editor window keeps its scroll between
+// cases, so a widget can be above the view as well as below it. The scroll is set on the window that holds the widget (the wheel can be taken by a child
+// window under the mouse); `scope` is the PushID string of a widget that exists once per field (every PlayStyle set has its own All and bit boxes).
+// null when the widget is not on the page at all.
+static const ItemRec* reach(Ui& ui, const char* id, const char* W, const char* scope = "") {
+    if (const ItemRec* r = ui.find(id, W, scope)) return r;
+    for (int step = 0; step < 3; ++step) {
+        const ItemRec* hid = nullptr;
+        for (const auto& kv : g_items) {
+            const ItemRec& r = kv.second;
+            if (r.frame != g_frame || !label_matches(r, id) || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
+            if (r.window.find(W) == std::string::npos) continue;
+            if (scope[0] && ImHashStr(scope, 0, r.seed2) != r.seed) continue;
+            hid = &r;
+            break;
+        }
+        if (!hid) return nullptr;
+        ImGuiWindow* w = ImGui::FindWindowByName(hid->window.c_str());
+        if (!w) return nullptr;
+        ImGui::SetScrollY(w, w->Scroll.y + (hid->rect.GetCenter().y - w->InnerClipRect.GetCenter().y));
+        ui.frames(3);
+        if (const ItemRec* r = ui.find(id, W, scope)) return r;
+    }
+    return nullptr;
+}
+// The user scrolls back to the top of the editor (its header with Undo, and the Player type & tier card with Overall +1 / -1, are there)
+static void to_top(Ui& ui) {
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+        if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ImGui::SetScrollY(w, 0.0f);
+    ui.frames(3);
 }
 // Open or close a section by its stable id (a collapsing header toggles on a click)
 static void toggle(Ui& ui, const char* id, const char* W) {
@@ -188,6 +214,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         g_ability_archetype_bar = nullptr;  // the smaller stand-in has the +1 / -1 buttons
         show(ui, Which::Ability);
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style"}) toggle(ui, id, W);  // the attributes come into view
+        to_top(ui);  // 3.0.1: Overall +1 / -1 sit in the Player type & tier card at the top of the page; the editor window kept the previous case's scroll
         const Table* t = app.db.table("players");
         const PlayerRow* pr = app.model.player(1001);
         CHECK(t && pr, "player 1001");
@@ -248,18 +275,19 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs"}) toggle(ui, id, W);  // PlayStyles come into view
         const int64_t before = app.db.get_int(*t, pr->rec, "trait1", 0);
         const size_t undo0 = app.undo_count(1002);
-        const ItemRec* box = reach(ui, "###ab_bit0", W);
+        const ItemRec* box = reach(ui, "###ab_bit0", W, "trait1");  // the first of the four PlayStyle sets is trait1
         CHECK(box != nullptr, "the first PlayStyle box");
         CHECK(ui.click(box), "click it");
         ui.frames(2);
         const int64_t after = app.db.get_int(*t, pr->rec, "trait1", 0);
         CHECK(after != before && ((after ^ before) & 1) == 1, "bit 0 flipped: " + std::to_string(before) + " -> " + std::to_string(after));
         CHECK(app.undo_count(1002) > undo0, "an undo step was kept");
+        to_top(ui);  // the header's Undo is above the PlayStyles
         CHECK(ui.click("###ab_undo", W), "click Undo");
         ui.frames(2);
         CHECK(app.db.get_int(*t, pr->rec, "trait1", 0) == before, "Undo put the field back");
         // All / None write the whole field
-        const ItemRec* all = reach(ui, "###ab_all", W);
+        const ItemRec* all = reach(ui, "###ab_all", W, "trait1");
         CHECK(all != nullptr, "All");
         if (all && ui.click(all)) {
             ui.frames(2);
