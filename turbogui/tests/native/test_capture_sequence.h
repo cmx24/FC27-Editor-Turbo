@@ -259,20 +259,8 @@ static void test_capture_sequence() {
         {
             // CHANGE-1: the exact body_camera.txt texts the Tester copies (mode 1, and its mode-0 rollback). No type line: "type = -1"
             // is refused (type must be 0..255) and a file of "mode = 0" alone is not configured, so either would be ignored.
-            const char* const texts[2] = {"mode = 1
-extra = 0
-desc 0x0C = team
-desc 0x50 = 2
-desc 0x58 = 0
-desc 0x5C = -1
-",
-                                          "mode = 0
-extra = 0
-desc 0x0C = team
-desc 0x50 = 2
-desc 0x58 = 0
-desc 0x5C = -1
-"};
+            const char* const texts[2] = {"mode = 1\nextra = 0\ndesc 0x0C = team\ndesc 0x50 = 2\ndesc 0x58 = 0\ndesc 0x5C = -1\n",
+                                          "mode = 0\nextra = 0\ndesc 0x0C = team\ndesc 0x50 = 2\ndesc 0x58 = 0\ndesc 0x5C = -1\n"};
             for (int mode = 1; mode >= 0; --mode) {
                 tc::BodyCamera f;
                 std::string e;
@@ -284,11 +272,8 @@ desc 0x5C = -1
             }
             tc::BodyCamera f;
             std::string e;
-            CHECK(!tc::parse_body_camera("type = -1
-mode = 1
-", f, &e) && !f.ok, "the brief's 'type = -1' line is refused: " + e);
-            CHECK(tc::parse_body_camera("mode = 0
-", f, &e) && !f.ok, "the brief's rollback 'mode = 0' alone is not configured");
+            CHECK(!tc::parse_body_camera("type = -1\nmode = 1\n", f, &e) && !f.ok, "the brief's 'type = -1' line is refused: " + e);
+            CHECK(tc::parse_body_camera("mode = 0\n", f, &e) && !f.ok, "the brief's rollback 'mode = 0' alone is not configured");
         }
         CHECK(tc::hex_bytes(p.desc.b, 0x10) == "06 E2 03 00 FF FF FF FF 5F 00 00 00 5F 00 00 00", "first 16 bytes as LE's (W2220 hex): " + tc::hex_bytes(p.desc.b, 0x10));
         p = tc::plan_request(tc::body_request(254470, -1), nullptr, &full);
