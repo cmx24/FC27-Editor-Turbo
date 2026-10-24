@@ -3047,6 +3047,15 @@ const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*, ImGuiID id) {
 // 2026-10-16: a page test draws its own window after the app (test_club_page.h); null = nothing
 static void (*g_ui_extra)(turbo::App&) = nullptr;
 
+// 3.0.1: the label match of Ui::find, shared with Ui::find_scrolling: the exact label, the "###stable_id" form of "Text###stable_id", or a widget that
+// reports no label (a combo) whose ID the label hashes to. find_scrolling matched only the exact label, so a header below the fold of a 3.0 page
+// (taller than the 2.x pages) was found by "###ab_attrs" when visible and not found, instead of scrolled to, when hidden.
+static bool label_matches(const ItemRec& r, const std::string& label) {
+    const bool stable_id = label.size() > 3 && label.compare(0, 3, "###") == 0 && r.label.size() >= label.size() &&
+                           r.label.compare(r.label.size() - label.size(), label.size(), label) == 0;
+    return r.label == label || stable_id || (r.label.empty() && ImHashStr(label.c_str(), 0, r.seed) == r.id);
+}
+
 class Ui {
 public:
     App& app;
@@ -3143,7 +3152,7 @@ public:
             const ItemRec* hid = nullptr;
             for (const auto& kv : g_items) {
                 const ItemRec& r = kv.second;
-                if (r.frame != g_frame || r.label != label || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
+                if (r.frame != g_frame || !label_matches(r, label) || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
                 if (!win.empty() && r.window.find(win) == std::string::npos) continue;
                 if (!scope.empty() && ImHashStr(scope.c_str(), 0, r.seed2) != r.seed) continue;
                 if (!r.clip.Contains(r.rect.GetCenter())) {

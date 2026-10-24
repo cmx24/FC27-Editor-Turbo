@@ -49,9 +49,34 @@ static void* g_target[kFsOps] = {};
 static inline void hit(FsOp op) {
     if (GetCurrentThreadId() == g_tid.load(std::memory_order_relaxed)) g_fs[op].fetch_add(1, std::memory_order_relaxed);
 }
+// 3.0.1: with TURBO_TEST_DEBUG set, the paths NtCreateFile opened in a stretch (counted per path, no allocation inside the detour):
+// printed as FSTRACE lines for a page that makes more than 5 file calls a frame, so the cause is read, not guessed
+struct UStr { USHORT len, max; PWSTR buf; };
+struct ObjAttr { ULONG len; HANDLE root; UStr* name; };
+static bool g_trace_on = false;
+static const int kTraceSlots = 64;
+static wchar_t g_trace_path[kTraceSlots][260];
+static long g_trace_hits[kTraceSlots];
+static int g_trace_n = 0;
+static inline void trace_path(P attrs) {
+    if (!g_trace_on || GetCurrentThreadId() != g_tid.load(std::memory_order_relaxed) || !attrs) return;
+    const ObjAttr* oa = static_cast<const ObjAttr*>(attrs);
+    if (!oa->name || !oa->name->buf) return;
+    const size_t n = std::min<size_t>(oa->name->len / 2, 259);
+    for (int i = 0; i < g_trace_n; ++i)
+        if (wcsncmp(g_trace_path[i], oa->name->buf, n) == 0 && g_trace_path[i][n] == 0) {
+            ++g_trace_hits[i];
+            return;
+        }
+    if (g_trace_n >= kTraceSlots) return;
+    wmemcpy(g_trace_path[g_trace_n], oa->name->buf, n);
+    g_trace_path[g_trace_n][n] = 0;
+    g_trace_hits[g_trace_n++] = 1;
+}
 // x64: every argument is one 8-byte slot, so each detour forwards the exact count as pointers
 static LONG NTAPI d_create(P a, P b, P c, P d, P e, P f, P g, P h, P i, P j, P k) {
     hit(kNtCreate);
+    trace_path(c);
     return reinterpret_cast<Nt11>(g_orig[kNtCreate])(a, b, c, d, e, f, g, h, i, j, k);
 }
 static LONG NTAPI d_open(P a, P b, P c, P d, P e, P f) {
@@ -202,6 +227,10 @@ static Cost measure(Ui& ui, const std::string& what, int frames) {
     double total = 0.0;
     long op_before[kFsOps];
     for (int i = 0; i < kFsOps; ++i) op_before[i] = g_fs[i].load();
+#ifdef _WIN32
+    g_trace_n = 0;
+    g_trace_on = std::getenv("TURBO_TEST_DEBUG") != nullptr;
+#endif
     for (int i = 0; i < frames; ++i) {
         const long before = fs_total();
         const auto t0 = std::chrono::steady_clock::now();
@@ -217,6 +246,12 @@ static Cost measure(Ui& ui, const std::string& what, int frames) {
     for (int i = 0; i < kFsOps; ++i) c.by_op[i] = g_fs[i].load() - op_before[i];
     c.ms_avg = frames ? total / frames : 0.0;
     c.reports = g_reports - reports_before;
+#ifdef _WIN32
+    g_trace_on = false;
+    if (std::getenv("TURBO_TEST_DEBUG") && c.fs_per_frame() > 5.0)
+        for (int i = 0; i < g_trace_n; ++i) std::printf("    FSTRACE %s: %ld x %ls
+", what.c_str(), g_trace_hits[i], g_trace_path[i]);
+#endif
     std::string ops;
     for (int i = 0; i < kFsOps; ++i)
         if (c.by_op[i]) ops += fmt("%s%s %ld", ops.empty() ? "" : ", ", kFsOpNames[i], c.by_op[i]);
@@ -367,8 +402,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // kit import record's files every frame (LegacyImages::locate + TextureCache::file: about 6 calls per picture drawn;
         // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
         // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
+        // 3.0.1: Looks > Appearance Editor joins them. Since 2.22 (G-ia) the page carries the whole miniface editor card
+        // (ui_looks_studio.cpp miniface_card -> ui_images.cpp: textures.file at :97, legacy.locate at :131 and :453), the same
+        // per-picture look as Kits. The page measured 2.04 calls a frame only while the 3.0 shell's small window left that card
+        // below the fold (runs 5 and 8: the card was not drawn); in the 1880x1040 window it is 7.23, under the ceiling of 30.
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics"})
+            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics",
+                                  "Looks > Appearance Editor"})
                 if (what == p) return true;
             return false;
         };

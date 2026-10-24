@@ -153,7 +153,6 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         CHECK(st.bar_calls == 1 && st.archetype_bar_external, "the player type bar (Overall +/-1, See changes...) is drawn once, in the card: " + std::to_string(st.bar_calls));
         CHECK(ui.find("See changes...###archpreview") != nullptr, "See changes... is reachable in the card");
         CHECK(count_items("##arch") == 0 && count_items("##parch") == 1, "one Player type picker: the card's");
-        CHECK(ui.find("Attributes###ab_attrs") != nullptr || ui.find("###ab_attrs") != nullptr, "Attributes follow");
         // the Tier combo offers the five tiers
         if (tier) {
             CHECK(ui.click("##ptier"), "open the Tier combo");
@@ -170,6 +169,9 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         CHECK(ui.click("###ab_typetier"), "open the card again");
         ui.frames(3);
         CHECK(app.prefs.section_open("ability.type_tier", false) && player_ability_state().type_tier_shown && ui.find("##ptier") != nullptr, "open again, and remembered");
+        // 3.0.1: the Attributes header follows the card; since the 3.0 pages grew (c497923a shell, 3db038b7 theme) it is below the fold of a 1080 px window,
+        // so it is reached by scrolling, as a user does (last, so the checks above saw the page at the top)
+        CHECK(ui.find("###ab_attrs") != nullptr || ui.find_scrolling("###ab_attrs", "", "") != nullptr, "Attributes follow");
         // the Attributes section has no bar of its own any more, and the attribute sliders are still there
         CHECK(player_ability_state().attribute_sliders > 0, "attribute sliders drawn: " + std::to_string(player_ability_state().attribute_sliders));
     });

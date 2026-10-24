@@ -38,6 +38,12 @@ static void hide(Ui& ui) {
     g_ui_extra = nullptr;
     ui.frames(2);
 }
+// 3.0.1: a section header that is on the page but below the fold (the 3.0 Ability page is taller: the Roles tile grids come before Attributes and PlayStyles,
+// ui_player_profile.cpp:388) is reached by scrolling, as a user does. null when it is not on the page at all.
+static const ItemRec* reach(Ui& ui, const char* id, const char* W) {
+    const ItemRec* r = ui.find(id, W);
+    return r ? r : ui.find_scrolling(id, W, "");
+}
 // Open or close a section by its stable id (a collapsing header toggles on a click)
 static void toggle(Ui& ui, const char* id, const char* W) {
     ui.click(id, W);
@@ -148,7 +154,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(st.playerid == 1001 && st.listed > 3, "the list and the editor");
         CHECK(ui.find("##psearch", W) != nullptr, "the list");
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs", "###ab_undo"})
-            CHECK(ui.find(id, W) != nullptr, std::string("section: ") + id);
+            CHECK(reach(ui, id, W) != nullptr, std::string("section: ") + id);
         const Table* t = app.db.table("players");
         CHECK(t != nullptr, "players table");
         if (!t) {
@@ -168,7 +174,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(st.archetype_bar_external && !st.stand_in_shown, "hooked: the full player-type editor, no stand-in");
         // the attribute sliders push the PlayStyle section out of view: close the attributes while it is looked at
         toggle(ui, "###ab_attrs", W);
-        CHECK(ui.find("###ab_styles", W) != nullptr, "section: ###ab_styles");
+        CHECK(reach(ui, "###ab_styles", W) != nullptr, "section: ###ab_styles");
         toggle(ui, "###ab_attrs", W);
         CHECK(st.headline.find("1001") == std::string::npos, "the headline names no ID");
         for (const char* gone : {"Profile", "Names", "Attributes", "PlayStyles", "Appearance", "Miniface", "Contract & Clubs", "Callname", "All fields", "Growth"})
@@ -242,7 +248,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs"}) toggle(ui, id, W);  // PlayStyles come into view
         const int64_t before = app.db.get_int(*t, pr->rec, "trait1", 0);
         const size_t undo0 = app.undo_count(1002);
-        const ItemRec* box = ui.find("###ab_bit0", W);
+        const ItemRec* box = reach(ui, "###ab_bit0", W);
         CHECK(box != nullptr, "the first PlayStyle box");
         CHECK(ui.click(box), "click it");
         ui.frames(2);
@@ -253,7 +259,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(app.db.get_int(*t, pr->rec, "trait1", 0) == before, "Undo put the field back");
         // All / None write the whole field
-        const ItemRec* all = ui.find("All###ab_all", W);
+        const ItemRec* all = reach(ui, "###ab_all", W);
         CHECK(all != nullptr, "All");
         if (all && ui.click(all)) {
             ui.frames(2);
