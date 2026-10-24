@@ -4,13 +4,20 @@
 # label: write it "Text###stable_id" first, then change the text. After an intended id change, regenerate with
 # TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
 app.cpp	-	###changes	1
+app.cpp	-	###gsr%zu	1
+app.cpp	-	###rail_%s	1
+app.cpp	-	###railtoggle	2
 app.cpp	-	###winmax	1
 app.cpp	-	##turbo_toasts	1
+app.cpp	Begin	##gsearch_results	1
 app.cpp	Begin	##texture_test	1
 app.cpp	Begin	##turbo_toasts	1
 app.cpp	Begin	FC 27 LE Turbo	1
+app.cpp	BeginChild	##content	1
+app.cpp	BeginChild	##rail	1
+app.cpp	InputTextWithHint	##gsearch	1
 app.cpp	PushID	##pages	1
-app.cpp	PushID	##shell	1
+app.cpp	PushID	##shell	2
 app.cpp	SmallButton	Cancel	1
 app.cpp	SmallButton	Stop##faces3d	1
 file_picker.cpp	-	##fpplace	1
@@ -554,6 +561,13 @@ ui_game_settings.cpp	SmallButton	Export...##gsexp	1
 ui_game_settings.cpp	SmallButton	Import...##gsimp	1
 ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
+ui_home.cpp	-	###home_preset_season	1
+ui_home.cpp	-	###home_preset_sliders	1
+ui_home.cpp	-	###home_preset_tactics	1
+ui_home.cpp	-	###home_preset_team	1
+ui_home.cpp	-	###home_tile_%d	1
+ui_home.cpp	BeginChild	##home_squad	1
+ui_home.cpp	Button	###home_changes	1
 ui_identity.cpp	-	##c	1
 ui_identity.cpp	-	##crestassets	1
 ui_identity.cpp	-	##crestbrowser	1
@@ -598,7 +612,7 @@ ui_identity.cpp	SmallButton	This career##nscope	1
 ui_identity.cpp	TreeNodeEx	The game's crest files for this club	1
 ui_images.cpp	-	##asrc%d%d	1
 ui_images.cpp	-	##browser	1
-ui_images.cpp	-	##gscope	1
+ui_images.cpp	-	##gscope	2
 ui_images.cpp	-	##hairacc	1
 ui_images.cpp	-	##hairlen	1
 ui_images.cpp	-	##hairtype	1
@@ -822,6 +836,7 @@ ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
 ui_pages_216.cpp	BeginTabItem	###pe_ability	1
 ui_pages_216.cpp	BeginTabItem	###pe_allfields	1
 ui_pages_216.cpp	BeginTabItem	###pe_appearance	1
+ui_pages_216.cpp	BeginTabItem	###pe_callname	1
 ui_pages_216.cpp	BeginTabItem	###pe_profile	1
 ui_pages_216.cpp	Checkbox	###pcardview	1
 ui_parity.cpp	-	##	2
@@ -849,6 +864,7 @@ ui_player_creation.cpp	Button	###pc_delete	1
 ui_player_creation.cpp	Button	###pc_delgo	1
 ui_player_creation.cpp	Button	###pc_delno	1
 ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
+ui_player_header.cpp	BeginChild	##pe_header	1
 ui_player_page.cpp	-	###	1
 ui_player_page.cpp	-	###pp%lld	1
 ui_player_page.cpp	-	###pp_body	1
@@ -1170,10 +1186,15 @@ ui_role_rules.cpp	OpenPopup	Apply squad roles?	2
 ui_role_rules.cpp	PushID	rolerules	1
 ui_role_rules.cpp	Selectable	Leave alone	1
 ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
+ui_setpiece_card.cpp	PushID	setpiece_card	1
 ui_settings.cpp	BeginChild	##settings_log	1
 ui_settings.cpp	Button	###reload	1
 ui_settings.cpp	Checkbox	###advview	1
 ui_settings.cpp	Checkbox	###legacypages	1
+ui_settings.cpp	Checkbox	###preload	1
+ui_settings.cpp	Combo	###rowdensity	1
+ui_settings.cpp	SliderFloat	##uisize	1
+ui_settings.cpp	SmallButton	Reset size	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##select	1
 ui_standings.cpp	-	##%s	1
@@ -1610,25 +1631,38 @@ ui_tuning.cpp	SmallButton	Rename...##tvren	1
 ui_tuning.cpp	checkbox_right	Apply my tuning profile automatically (every career load, the hub)##tvprof	1
 ui_tuning.cpp	checkbox_right	Only changed##tvonlychanged	1
 ui_tuning.cpp	checkbox_right	Write in this game session (Apply, Reset)##tvsess	1
+ui_visual_picker.cpp	-	###vbtn	1
 ui_visual_picker.cpp	-	###vispicker	1
-ui_visual_picker.cpp	-	##vbtn	1
-ui_visual_picker.cpp	-	##vname	1
-ui_visual_picker.cpp	-	##vpic	1
-ui_visual_picker.cpp	-	##vtitle	1
+ui_visual_picker.cpp	-	###vname	1
+ui_visual_picker.cpp	-	###vpic	1
+ui_visual_picker.cpp	-	###vtitle	1
+ui_visual_picker.cpp	-	##vphairacc	1
+ui_visual_picker.cpp	-	##vphairlen	1
+ui_visual_picker.cpp	-	##vphairtype	1
+ui_visual_picker.cpp	-	##vpowner	1
+ui_visual_picker.cpp	BeginChild	##grid	1
 ui_visual_picker.cpp	BeginChild	##vpgrid	1
 ui_visual_picker.cpp	BeginChild	##vppreview	1
+ui_visual_picker.cpp	BeginCombo	##vpgroup	1
 ui_visual_picker.cpp	BeginTable	##vrow	1
 ui_visual_picker.cpp	BeginTable	##vrows	1
 ui_visual_picker.cpp	Button	###vpfolderdef	1
 ui_visual_picker.cpp	Button	###vpfolderset	1
 ui_visual_picker.cpp	Button	Apply##vpapply	1
+ui_visual_picker.cpp	Button	Apply##vpgridapply	1
 ui_visual_picker.cpp	Button	Cancel##vpcancel	1
+ui_visual_picker.cpp	Button	Change##vpchange	1
 ui_visual_picker.cpp	Button	Choose...	1
+ui_visual_picker.cpp	Checkbox	Favourites only##vpfav	1
 ui_visual_picker.cpp	InputText	###vpfolder	1
 ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
 ui_visual_picker.cpp	InvisibleButton	##tile	1
 ui_visual_picker.cpp	OpenPopup	###vispicker	1
 ui_visual_picker.cpp	PushID	vispickers	2
+ui_visual_picker.cpp	PushID	vpgrid	1
+ui_visual_picker.cpp	PushID	vpinline	1
+ui_visual_picker.cpp	PushID	vpwin	1
+ui_visual_picker.cpp	SmallButton	Clear##vphairclear	1
 widgets.cpp	-	##	4
 widgets.cpp	-	##%s_from	1
 widgets.cpp	-	##%s_to	1

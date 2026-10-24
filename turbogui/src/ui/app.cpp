@@ -1614,7 +1614,11 @@ void App::load_gui_settings() {
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
         gui_settings["gui"]["legacy_pages"].is_boolean())
         legacy_pages = gui_settings["gui"]["legacy_pages"].get<bool>();
-    if (prefs.first_30_start) legacy_pages = false;  // 3.0 first start: the new pages, once (the switch sits under the Lab switch, which starts off)
+    // 3.0 first start: a STORED "old pages" choice is dropped once (the switch sits under the Lab switch, which starts off); a value set in
+    // memory (a test, Settings in this session) is kept
+    if (prefs.first_30_start && gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
+        gui_settings["gui"]["legacy_pages"].is_boolean() && gui_settings["gui"]["legacy_pages"].get<bool>())
+        legacy_pages = false;
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("player_card_view") &&
         gui_settings["gui"]["player_card_view"].is_boolean())
         player_card_view = gui_settings["gui"]["player_card_view"].get<bool>();
@@ -1819,7 +1823,9 @@ static bool rail_button(const char* label, bool selected, float width) {
 // as the area tabs and the strip did, so Ui::open_page and the tests' scoped clicks still find them by label.
 void App::draw_pages() {
     using namespace shell;
-    const bool adv = prefs.advanced_mode;
+    // 3.0: "Use the old pages" (Settings, under the Lab switch; the tests of the pre-2.16 panels set it directly) keeps the Lab reachable:
+    // the old Teams tab (request_tab 1) lands on "My squad (old page)", which is a Lab page now
+    const bool adv = prefs.advanced_mode || legacy_pages;
     // Legacy request_tab = N (cross-links, tests) -> its new home. Taken before drawing: a panel may request another place
     // for the next frame. A page the view hides (the Lab is off) is not opened, as the old hidden tabs were not.
     if (request_tab >= 0) {
