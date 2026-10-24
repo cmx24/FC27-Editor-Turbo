@@ -780,16 +780,12 @@ ui_looks_studio.cpp	BeginChild	##lslist	1
 ui_looks_studio.cpp	BeginChild	##lspreview	1
 ui_looks_studio.cpp	BeginChild	##lsrows	1
 ui_looks_studio.cpp	BeginCombo	##lv	1
-ui_looks_studio.cpp	BeginPopupModal	###lsask	1
-ui_looks_studio.cpp	Button	###lsaskno	1
-ui_looks_studio.cpp	Button	###lsaskok	1
 ui_looks_studio.cpp	Button	###lsface	1
 ui_looks_studio.cpp	Checkbox	###lsmine	1
 ui_looks_studio.cpp	InputTextWithHint	##lsbodyq	1
 ui_looks_studio.cpp	InputTextWithHint	##lsq	1
 ui_looks_studio.cpp	InputTextWithHint	##lvq	1
 ui_looks_studio.cpp	InvisibleButton	##btpic	1
-ui_looks_studio.cpp	OpenPopup	###lsask	1
 ui_looks_studio.cpp	OpenPopup	Choose a real face	1
 ui_looks_studio.cpp	RadioButton	###lsmanagers	1
 ui_looks_studio.cpp	RadioButton	###lsplayers	1

@@ -54,9 +54,10 @@ inline void run() {
               "the margin grows the box inside the picture: " + box_text(g));
         const turbo::Rgba shown = turbo::fit_height(turbo::crop_image(img, g), 640);
         CHECK(shown.h == 640 && within_px(shown.w, 190, 3), "with the margin: " + std::to_string(shown.w) + "x" + std::to_string(shown.h) + " (about 190x640)");
-        // the old route (fit the whole square to the pane) drew him 60/256 of the pane wide: the crop is what makes him big
+        // the pre-3.1 route: fit_image never upscales, so the whole 256 square stayed 256 and the backend stretched it ~2.5x (the
+        // blur), with him 60/256 of the pane wide; the crop + fit_height is what makes him big and sharp
         const turbo::Rgba whole = turbo::fit_image(img, 640);
-        CHECK(whole.w == 640 && whole.h == 640, "the whole square fits to 640x640 (the pre-3.1 route)");
+        CHECK(whole.w == 256 && whole.h == 256, "the pre-3.1 route keeps the 256 square: " + std::to_string(whole.w) + "x" + std::to_string(whole.h));
     });
 
     run_case("image crop: a transparent border -> the box of the opaque pixels; a margin is clamped to the picture", [&] {
