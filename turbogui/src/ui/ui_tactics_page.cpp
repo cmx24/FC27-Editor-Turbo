@@ -581,7 +581,9 @@ void draw_game_sliders_page(App& app) {
 }
 
 // The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,
-// under its heading and label. Its own ID scope and a fixed height: it is drawn below the Lab's live-slider block, inside its child.
+// under its heading and label. Its own ID scope; its body fills the rest of the Lab page's bottom region (##labtacoff), so the list's
+// Refresh (top of ##select) and Prepare (footer) are both in view: a fixed 480 px body overflowed the up-to-320 px region and hid Refresh
+// (GUI30K FAIL on 0f5d3b2, test_nav_220.h:196); the list and the editor scroll inside their own panels.
 void draw_offline_slider_section(App& app) {
     s3.drawn = true;
     s3.lab_heading = kOfflineSlidersHeading;
@@ -591,7 +593,7 @@ void draw_offline_slider_section(App& app) {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
     ImGui::TextWrapped("%s", kOfflineSlidersLabel);
     ImGui::PopStyleColor();
-    ImGui::BeginChild("##offslbody", ImVec2(0, S(480.0f)), ImGuiChildFlags_None);
+    ImGui::BeginChild("##offslbody", ImVec2(0, 0), ImGuiChildFlags_None);
     try {
         update_sliders_state(app);
         shell::page::Primary primary;
