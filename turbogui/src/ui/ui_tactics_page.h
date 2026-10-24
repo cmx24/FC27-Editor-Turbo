@@ -82,7 +82,7 @@ void draw_game_sliders_page(App& app);
 extern const char* const kOfflineSlidersHeading;  // "Offline slider file (experimental)"
 extern const char* const kOfflineSlidersLabel;    // "No effect seen in game on 2026-10-24: ... Kept for diagnosis."
 void draw_offline_slider_section(App& app);
-// Lab > Tactics (experimental) in the new registry: draw_tactics_page's body (ui_tactics.cpp), then the section above inside the same child
+// Lab > Tactics (experimental) in the new registry: draw_tactics_page (ui_tactics.cpp) as it is, then the section above in the bottom part
 void draw_lab_tactics_page(App& app);
 // Tests: forget the pages' state (a new simulated game)
 void tactics_pages_reset();

@@ -581,7 +581,9 @@ void draw_game_sliders_page(App& app) {
 }
 
 // The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,
-// under its heading and label. Its own ID scope and a fixed height: it is drawn below the Lab's live-slider block, inside its child.
+// under its heading and label. Its own ID scope; its body fills the rest of the Lab page's bottom region (##labtacoff), so the list's
+// Refresh (top of ##select) and Prepare (footer) are both in view: a fixed 480 px body overflowed the up-to-320 px region and hid Refresh
+// (GUI30K FAIL on 0f5d3b2, test_nav_220.h:196); the list and the editor scroll inside their own panels.
 void draw_offline_slider_section(App& app) {
     s3.drawn = true;
     s3.lab_heading = kOfflineSlidersHeading;
@@ -591,7 +593,7 @@ void draw_offline_slider_section(App& app) {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
     ImGui::TextWrapped("%s", kOfflineSlidersLabel);
     ImGui::PopStyleColor();
-    ImGui::BeginChild("##offslbody", ImVec2(0, S(480.0f)), ImGuiChildFlags_None);
+    ImGui::BeginChild("##offslbody", ImVec2(0, 0), ImGuiChildFlags_None);
     try {
         update_sliders_state(app);
         shell::page::Primary primary;
@@ -608,13 +610,17 @@ void draw_offline_slider_section(App& app) {
     ImGui::PopID();
 }
 
-// Lab > Tactics (experimental): draw_tactics_page's body (ui_tactics.cpp, the old registry; it still answers with the old pages on), then
-// the offline slider file section inside the same child, below the live-slider block
+// Lab > Tactics (experimental): the old page draw_tactics_page (ui_tactics.cpp: amber line, ##ttac child, draw_tactics) called as it is,
+// in a region that leaves the bottom part of the page free, then the offline slider file section in that bottom part, below the
+// live-slider block. Calling draw_tactics_page itself (not a copy of its body) keeps it reached by the default navigation (NAVCAP,
+// tools/nav_capability_check.py: "Advanced > Tactics (experimental): draw_tactics_page"); with the old pages on it still answers alone.
 void draw_lab_tactics_page(App& app) {
-    draw_unproven_line("docs/TACTICS_OVERHAUL_DECISION.md");
-    ImGui::BeginChild("##ttac");
-    draw_tactics(app);
-    ImGui::Spacing();
+    const float avail = ImGui::GetContentRegionAvail().y;
+    const float off_h = std::max(1.0f, std::min(S(320.0f), avail * 0.4f));
+    ImGui::BeginChild("##labtaclive", ImVec2(0, -off_h), ImGuiChildFlags_None);  // negative height: all but the bottom off_h
+    draw_tactics_page(app);
+    ImGui::EndChild();
+    ImGui::BeginChild("##labtacoff", ImVec2(0, 0), ImGuiChildFlags_None);
     draw_offline_slider_section(app);
     ImGui::EndChild();
 }
