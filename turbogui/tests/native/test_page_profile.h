@@ -41,26 +41,25 @@ static void hide(Ui& ui) {
 // 3.0.1: a widget that is on the page but out of view (the 3.0 Ability page is taller than the window: the Player type & tier card and the Roles tile grids
 // come before Attributes and PlayStyles, ui_player_profile.cpp:370-388) is reached by scrolling, as a user does. The editor window keeps its scroll between
 // cases, so a widget can be above the view as well as below it. The scroll is set on the window that holds the widget (the wheel can be taken by a child
-// window under the mouse); `scope` is the PushID string of a widget that exists once per field (every PlayStyle set has its own All and bit boxes).
+// window under the mouse). A widget that exists once per field set (every PlayStyle set has its own All and bit boxes) is reached at its topmost copy, the
+// first set (trait1); `scope` is the PushID string of a widget that sits directly under the field's PushID (the All / None buttons).
 // null when the widget is not on the page at all.
 static const ItemRec* reach(Ui& ui, const char* id, const char* W, const char* scope = "") {
-    if (const ItemRec* r = ui.find(id, W, scope)) return r;
-    for (int step = 0; step < 3; ++step) {
-        const ItemRec* hid = nullptr;
+    for (int step = 0; step < 4; ++step) {
+        const ItemRec* top = nullptr;  // the topmost copy on the page, in view or not
         for (const auto& kv : g_items) {
             const ItemRec& r = kv.second;
             if (r.frame != g_frame || !label_matches(r, id) || r.rect.GetWidth() <= 0 || r.rect.GetHeight() <= 0) continue;
             if (r.window.find(W) == std::string::npos) continue;
             if (scope[0] && ImHashStr(scope, 0, r.seed2) != r.seed) continue;
-            hid = &r;
-            break;
+            if (!top || r.rect.Min.y < top->rect.Min.y) top = &r;  // as Ui::find: the first PlayStyle set (trait1) is above the other three
         }
-        if (!hid) return nullptr;
-        ImGuiWindow* w = ImGui::FindWindowByName(hid->window.c_str());
+        if (!top) return nullptr;
+        if (top->clip.Contains(top->rect.GetCenter())) return ui.find(id, W, scope);  // in view: find answers with the topmost copy in view, which is this one
+        ImGuiWindow* w = ImGui::FindWindowByName(top->window.c_str());
         if (!w) return nullptr;
-        ImGui::SetScrollY(w, w->Scroll.y + (hid->rect.GetCenter().y - w->InnerClipRect.GetCenter().y));
+        ImGui::SetScrollY(w, w->Scroll.y + (top->rect.GetCenter().y - w->InnerClipRect.GetCenter().y));
         ui.frames(3);
-        if (const ItemRec* r = ui.find(id, W, scope)) return r;
     }
     return nullptr;
 }
@@ -275,7 +274,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* id : {"###ab_ovr", "###ab_positions", "###ab_style", "###ab_attrs"}) toggle(ui, id, W);  // PlayStyles come into view
         const int64_t before = app.db.get_int(*t, pr->rec, "trait1", 0);
         const size_t undo0 = app.undo_count(1002);
-        const ItemRec* box = reach(ui, "###ab_bit0", W, "trait1");  // the first of the four PlayStyle sets is trait1
+        const ItemRec* box = reach(ui, "###ab_bit0", W);  // the topmost copy: the first of the four PlayStyle sets, trait1 (ui_player_profile.cpp:402)
         CHECK(box != nullptr, "the first PlayStyle box");
         CHECK(ui.click(box), "click it");
         ui.frames(2);

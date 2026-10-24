@@ -189,24 +189,31 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         ui.frames(2);
         CHECK(app.place() == shell::place_of(Page::Standings) && (ui.find("Try again") || ui.find("Reload")), "the link lands on the live view");
-        // Job offer: Career > Manager jobs draws the career page (ui_career_page.cpp draw_career_manager_jobs, GUI revamp step 10: the Job offer, Never sack me and
-        // Move manager cards). The "Open Club > Squad" pointer (ui_tools.cpp:715 squad_pointer) is only the fallback for a build without that page.
-        // 3.0.1: this block clicked the pointer, which a build that links the page never draws; the page itself is what a user uses.
-        CHECK(ui.open_page("Career", "Manager jobs"), "Career > Manager jobs");
-        CHECK(ui.find("Ask for the job") != nullptr && ui.find("Allow sacking again") != nullptr && ui.find("Move manager") != nullptr,
-              "Manager jobs: the Job offer, Never sack me and Move manager cards are on the page");
-        CHECK(ui.find("###squadgo") == nullptr, "Manager jobs: no fallback pointer next to the real page");
-        // the club panel with its Job offer / Transfers / Mass actions tabs: Club > Squad > All clubs (2.22 G-squad, ui_team_players.cpp:302), reached through the
-        // strip as a user does; with the old pages on, Club > Squad is the signpost "Open My squad" (ui_nav_pages.cpp page_team_players)
+        // Job offer. With the old pages on (this case's state) Career > Manager jobs is the panel with the pointer "Open Club > Squad" (ui_tools.cpp:715
+        // squad_pointer); 3.0 (b1439e25) sends it to Club > Squad, not to Players > My squad. With the old pages off the page is the career page
+        // (ui_career_page.cpp:741 draw_career_manager_jobs), which draws only the "not connected" hint without a game connection (ui_career_page.cpp:203).
+        // 3.0.1: the old pointer answer is pinned with the old pages explicitly on, and the real page is checked beside it.
         const bool was_leg_jobs = app.legacy_pages;
+        app.legacy_pages = true;
+        ui.frames(2);
+        CHECK(ui.open_page("Career", "Manager jobs"), "Career > Manager jobs (old pages on)");
+        CHECK(ui.click("###squadgo"), "Manager jobs: the way to the club panel");
+        ui.frames(2);
+        CHECK(app.place() == shell::place_of(Page::TeamPlayers), "Manager jobs: Club > Squad");
         app.legacy_pages = false;
         ui.frames(2);
+        CHECK(ui.open_page("Career", "Manager jobs") && ui.find("###squadgo") == nullptr, "Career > Manager jobs (old pages off): the career page, no pointer");
+        // the club panel with its Job offer / Transfers / Mass actions tabs: Club > Squad > All clubs (2.22 G-squad, ui_team_players.cpp:302), reached through the
+        // strip as a user does; with the old pages on, Club > Squad is the signpost "Open My squad" (ui_nav_pages.cpp page_team_players)
         CHECK(ui.open_page("Club", "Squad") && app.place() == shell::place_of(Page::TeamPlayers), "Club > Squad");
         CHECK(ui.click("All clubs###tptabclubs"), "Club > Squad: the All clubs tab");
         ui.frames(3);
         CHECK(ui.find("Job offer") != nullptr && ui.find("Mass actions") != nullptr,
               "Club > Squad > All clubs: the club panel with its Job offer / Transfers / Mass actions tabs");
+        CHECK(ui.click("Squad list###tptabsquadlist"), "Club > Squad: back on the Squad list tab (ImGui keeps the chosen tab; the squad table cases expect to open on it)");
+        ui.frames(2);
         app.legacy_pages = was_leg_jobs;
+        ui.frames(2);
         // Transfers: until then the old Turbo Tools panel (integration 721bf59), not a dead end
         CHECK(ui.open_page("Career", "Money & transfers") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");
         // the other proven panels, each by its own primary control
