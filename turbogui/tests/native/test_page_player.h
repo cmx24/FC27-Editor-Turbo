@@ -214,9 +214,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Managers###lsmanagers"), "Managers");
         ui.frames(3);
         CHECK(ui.click("###lsface"), "Choose a real face...");
-        ui.frames(2);
-        CHECK(ui.click("###lsaskok"), "Choose a face");
-        ui.frames(3);
+        ui.frames(3);  // with 3.1/render R4 the click opens the chooser at once: no question (###lsaskok) before it (merge 3.1/gui)
         CHECK(ui.find("Close##mfaces") != nullptr, "the manager chooser is open");
         CHECK(manager_chooser_on_manager_heads(), "the chooser shows Manager heads");
         if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
