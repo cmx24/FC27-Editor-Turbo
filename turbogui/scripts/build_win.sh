@@ -55,7 +55,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/core/rdbm_resources.cpp src/ui/ui_visual_picker.cpp src/ui/ui_setpiece_card.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/win/callname_audio_win.cpp src/core/callname_voice.cpp src/core/callname_voice_host.cpp src/win/callname_voice_win.cpp \
-         src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_nav_pages.cpp src/ui/ui_pages_216.cpp src/ui/ui_player_page.cpp \
+         src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_nav_pages.cpp src/ui/ui_pages_216.cpp src/ui/ui_player_header.cpp src/ui/ui_player_page.cpp \
          src/ui/ui_tactics_page.cpp \
          src/ui/ui_player_creation.cpp \
          src/ui/ui_bulk_edit.cpp \

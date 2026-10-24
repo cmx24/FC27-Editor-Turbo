@@ -3752,6 +3752,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_creation.h"  // 2.20 IA: Players > Player Creation (page_creation_test::ui_cases)
 #include "test_page_profile.h"  // 2.20 IA pages, track profile: Profile and Positions, attributes & PlayStyles (profile_page_test::ui_cases)
 #include "test_ia_222.h"  // 2.22 G-ia: layout and organisation (ia222_test::ui_cases)
+#include "test_player_header.h"  // 3.0 track B: Players > Player header card and the five tabs (player_header_test::ui_cases)
 #include "test_p213.h"         // 2026-10-17 P213 triage: proven panels on the user's path, no dead-end page, no removed place named
 #include "test_gui_perf.h"     // 2.16 gui/perf: per-frame cost of every page, shown and hidden (gui_perf_test::ui_cases)
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
@@ -9828,6 +9829,7 @@ static void test_ui() {
         page_creation_test::ui_cases(app, ui, mem, kMb, le);  // test_page_creation.h: Players > Player Creation (2.20)
         profile_page_test::ui_cases(app, ui, le);  // test_page_profile.h: Profile and Positions, attributes & PlayStyles (2.20)
         ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
+        player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
