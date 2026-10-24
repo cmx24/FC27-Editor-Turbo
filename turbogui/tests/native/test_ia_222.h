@@ -259,6 +259,36 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         CHECK(reach("An image file") || reach("The 3D model"), "the miniface editor's source tabs are drawn");
         CHECK(reach("A player's miniface") && reach("Head model / youth face"), "the miniface editor's other tabs");
         CHECK(ui.find("###navgo") == nullptr, "no signpost");
+        // 3.0.1: the picture picker now probes its shortcut folders when it opens (ui_images.cpp file_browser_modal), not on every frame it is
+        // closed: the very first open must still show them. A home folder of our own, so the check holds on any machine.
+        {
+            const char* env_home = std::getenv("USERPROFILE");
+            const std::string saved_home = env_home ? env_home : "";
+            const bool had_home = env_home != nullptr;
+            const fs::path home = test_tmp_dir("picker_home");
+            fs::remove_all(home);
+            fs::create_directories(home / "Desktop");
+            fs::create_directories(home / "Pictures");
+#ifdef _WIN32
+            _putenv_s("USERPROFILE", home.string().c_str());
+#else
+            setenv("USERPROFILE", home.string().c_str(), 1);
+#endif
+            CHECK(reach("An image file") && ui.click("An image file"), "the miniface editor's image-file tab");
+            ui.frames(2);
+            CHECK(reach("Browse...") && ui.click("Browse..."), "Browse...");
+            ui.frames(3);
+            CHECK(ui.find("Desktop##fpplace") != nullptr && ui.find("Pictures##fpplace") != nullptr, "first open of the picker: the Desktop and Pictures shortcuts are there");
+            CHECK(ui.click("Cancel##fp"), "close the picker");
+            ui.frames(3);
+            CHECK(ui.find("Desktop##fpplace") == nullptr, "the picker is closed");
+#ifdef _WIN32
+            _putenv_s("USERPROFILE", saved_home.c_str());
+#else
+            if (had_home) setenv("USERPROFILE", saved_home.c_str(), 1);
+            else unsetenv("USERPROFILE");
+#endif
+        }
     });
 
     app.legacy_pages = was_legacy;
