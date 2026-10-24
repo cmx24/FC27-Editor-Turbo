@@ -394,6 +394,9 @@ public:
     // hides the Advanced area) or invalid.
     void go(shell::Area a, shell::Page p);
     void go(shell::Page p) { go(shell::area_of(p), p); }
+    // 3.1 N1: back to the place the last navigation left (shell::back_place()); false when there is none or it is hidden in this view.
+    // Going back does not make the place it leaves the next "back" (no ping-pong), and clears the back place.
+    bool back();
     // Where the shell is now (set while drawing; Home before the first frame)
     shell::Place place() const { return place_; }
     // The area tabs, the page strip and the page: the body of the window under the status line (called by draw())
@@ -488,6 +491,7 @@ private:
     HookReport hook_report_cache_;      // hook_report_cached()
     double hook_report_cache_at_ = -1.0;  // App time of that report (< 0 = none)
     shell::Place go_to_;                                    // a go() waiting for the next draw_pages()
+    bool back_nav_ = false;                                 // the go_to_ above is a back(): the place it leaves is not kept as the back place
     shell::Page area_page_[shell::kAreaCount] = {};         // the page last shown per area (None = the area's default)
     bool legacy_repaired_ = false;  // repair_dds_files ran (first tick)
     void load_voice();               // constructor: turbo_output\callnames\voice_swaps.json

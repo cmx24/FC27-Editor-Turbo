@@ -214,4 +214,28 @@ static void ui_cases_club_search(App& app, Ui& ui, SimMemory& mem, uint64_t kMb)
         app.request_tab = 0;
         ui.frames(2);
     });
+
+    // 3.1 N4 (Defect 3, navigation loops): a club found with the top-bar search keeps a Club page (Kits here), now showing that club;
+    // from any other page it opens the club's squad
+    run_case("Shell 3.1 N4: the top-bar search on Club > Kits keeps Kits for a club hit; from Home it opens the club's squad", [&] {
+        const bool was_adv = app.prefs.advanced_mode;
+        app.prefs.advanced_mode = false;
+        app.go(turbo::shell::Page::Kits);
+        ui.frames(3);
+        CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Kits), "on Club > Kits");
+        app.sel_team = 1;  // Arsenal
+        CHECK(ui.type_into(ui.find("##gsearch"), "everton"), "type a club name into the top-bar search");
+        ui.frames(3);
+        CHECK(app.sel_team == 7, "the search picked Everton: " + std::to_string(app.sel_team));
+        CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Kits), "the page is still Kits");
+        app.go(turbo::shell::Page::Home);
+        ui.frames(3);
+        app.sel_team = 1;
+        CHECK(ui.type_into(ui.find("##gsearch"), "everton"), "the same search from Home");
+        ui.frames(3);
+        CHECK(app.sel_team == 7 && app.place() == turbo::shell::place_of(turbo::shell::Page::TeamPlayers), "from Home it opens Club > Squad");
+        app.go(turbo::shell::Page::Home);
+        ui.frames(2);
+        app.prefs.advanced_mode = was_adv;
+    });
 }

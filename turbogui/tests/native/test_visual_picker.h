@@ -292,6 +292,26 @@ inline void core_cases() {
         CHECK(vis::picture_file(res, *rs, *vis::find_code(*rs, 21)).empty(), "a picture not in the folder: none");
         CHECK(vis::picture_file(fs::path(), *rs, *vis::find_code(*rs, 0)).empty(), "no folder: no picture");
     });
+
+    run_case("3.1 G2b: the RDBM26 folder has three states (missing / found with no picture sets / found)", [] {
+        const fs::path d = test_tmp_dir("visual_folder3");
+        std::error_code ec;
+        fs::remove_all(d, ec);
+        write_bytes(d / "nosets" / "Resources" / "picture.png", {1, 2, 3, 4});  // a folder with a picture and no runstyle / hairstyle / fkanim
+        write_bytes(d / "plain" / "picture.png", {1, 2, 3, 4});
+        write_bytes(d / "RDBM" / "Resources" / "runstyle" / "runstyle_0.gif", make_gif(8, 8, 2, 5));
+        CHECK(vis::folder_info(d / "gone").state == vis::FolderState::NotFound, "a missing folder: NotFound");
+        CHECK(vis::folder_info("").state == vis::FolderState::NotFound, "no folder: NotFound");
+        const vis::FolderInfo a = vis::folder_info(d / "nosets");
+        CHECK(a.state == vis::FolderState::FoundNoSets && a.resources.empty() && a.root == d / "nosets", "a folder with no picture sets: FoundNoSets, no resources, its path kept");
+        CHECK(vis::folder_info(d / "plain").state == vis::FolderState::FoundNoSets, "a plain folder with one png: FoundNoSets");
+        const vis::FolderInfo b = vis::folder_info(d / "RDBM");
+        CHECK(b.state == vis::FolderState::Found && b.resources == d / "RDBM" / "Resources", "a folder with the sets: Found, its Resources");
+        CHECK(vis::resources_dir(d / "nosets").empty() && vis::resources_dir(d / "plain").empty(), "resources_dir is unchanged: empty without sets");
+        const fs::path to = d / "turbo_output";
+        CHECK(vis::save_folder_setting(to, (d / "nosets").u8string()) && vis::find_folder_info(to).state == vis::FolderState::FoundNoSets, "the setting to a folder with no sets: FoundNoSets");
+        CHECK(vis::save_folder_setting(to, (d / "gone").u8string()) && vis::find_folder_info(to).state == vis::FolderState::NotFound, "the setting to a missing folder: NotFound");
+    });
 }
 
 // ---- 2.22 G-pickers: the census (Cassio's players table export) read-only, for the coverage counts
@@ -630,6 +650,58 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         CHECK(visual_picker_apply(app) && app.db.get_int(*p, rec, "runstylecode", -1) == 8, "Head Down written without pictures");
         visual_apply(app, *p, rec, "runstylecode", was);
         visual_picker_close();
+        ui.frames(2);
+    });
+
+    run_case("UI 3.1 G2b: a pictures folder with no picture sets says so (path + runstyle, hairstyle, fkanim) in the setting and in every names-only grid", [&] {
+        if (!p || !rec) return;
+        const fs::path d = test_tmp_dir("visual_nosets");
+        std::error_code ec;
+        fs::remove_all(d, ec);
+        write_bytes(d / "onepng" / "picture.png", {1, 2, 3, 4});
+        const std::string folder = (d / "onepng").u8string();
+        auto names_all_three = [](const std::string& s) {
+            return s.find("runstyle") != std::string::npos && s.find("hairstyle") != std::string::npos && s.find("fkanim") != std::string::npos;
+        };
+        ui.extra_draw = draw_section;
+        // the folder is there, holds one png and no sets
+        visual_pictures_override(folder);
+        visual_pictures_refresh(app);
+        CHECK(visual_pictures_state(app) == turbo::visual::FolderState::FoundNoSets, "a folder with one png and no sets: FoundNoSets (not 'not found')");
+        const std::string note = visual_pictures_note(app);
+        CHECK(note.find(folder) != std::string::npos, "the note names the folder: " + note);
+        CHECK(names_all_three(note) && note.find("no picture sets") != std::string::npos, "the note names runstyle, hairstyle and fkanim: " + note);
+        ui.frames(2);
+        visual_picker_request("runstylecode");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && visual_picker_ui().names_only, "the run-style grid is names only");
+        CHECK(names_all_three(visual_picker_ui().pictures_line) && visual_picker_ui().pictures_line.find(folder) != std::string::npos,
+              "its note says where and why: " + visual_picker_ui().pictures_line);
+        visual_picker_close();
+        ui.frames(2);
+        visual_picker_request("hairtypecode");  // a gallery grid (the game's previews) says it too
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && names_all_three(visual_picker_ui().pictures_line), "the hair grid's note names the three folders: " + visual_picker_ui().pictures_line);
+        visual_picker_close();
+        ui.frames(2);
+        // a folder that is not there keeps the old line, and says nothing about picture sets
+        visual_pictures_override((d / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        CHECK(visual_pictures_state(app) == turbo::visual::FolderState::NotFound, "a missing folder: NotFound");
+        CHECK(visual_pictures_note(app).find("no picture sets") == std::string::npos && visual_pictures_note(app).find("RDBM26 folder") != std::string::npos,
+              "a missing folder keeps its own line: " + visual_pictures_note(app));
+        // the sets are there: no line at all
+        visual_pictures_override(make_fake_rdbm(d / "fake").u8string());
+        visual_pictures_refresh(app);
+        CHECK(visual_pictures_state(app) == turbo::visual::FolderState::Found && visual_pictures_note(app).empty(), "a folder with the sets: Found, no line");
+        ui.frames(2);
+        visual_picker_request("runstylecode");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && !visual_picker_ui().names_only && visual_picker_ui().pictures_line.empty(), "the grid with pictures shows no 'why none' line");
+        visual_picker_close();
+        ui.frames(2);
+        visual_pictures_override("");
+        ui.extra_draw = nullptr;
         ui.frames(2);
     });
 

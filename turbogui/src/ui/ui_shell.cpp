@@ -129,6 +129,11 @@ int& player_edit_tab() {
     return tab;
 }
 
+Place& back_place() {
+    static Place p;
+    return p;
+}
+
 Place place_of(Page p) {
     Place pl;
     pl.area = area_of(p);

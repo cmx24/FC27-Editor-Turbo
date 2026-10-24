@@ -70,6 +70,11 @@ Place place_of(Page p);                     // {area_of(p), p}
 // when code changes it (a link that opens the Appearance tab, a test) and writes the tab the user clicked back into it.
 int& player_edit_tab();
 
+// 3.1 N1: the place the last navigation left (go(), a cross-link, a rail or page-strip click), so a page that was opened from another
+// one can offer "< Back to <page>". One level. Place{} (invalid) = nothing to go back to. App::back() goes there and clears it; the App
+// constructor clears it (the value outlives an App only in tests).
+Place& back_place();
+
 // ---- Simple / Advanced view (A6): Simple hides the whole Advanced area (raw rows, bulk edit, maintenance and the
 // not-proven panels); every other page is visible in both views. The Advanced area only exists with the toggle.
 bool page_visible(Page p, bool advanced);

@@ -105,6 +105,7 @@ void App::update_style() {
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
     preloader = std::make_unique<Preloader>();
+    shell::back_place() = shell::Place{};  // 3.1 N1: a new App has nothing to go back to (the value is a static; tests build several Apps)
     game_root = game_root_from_process();
     if (mailbox_addr) {
         mailbox = std::make_unique<Mailbox>(mem, mailbox_addr);
@@ -1654,6 +1655,19 @@ void App::go(shell::Area a, shell::Page p) {
     if (p == Page::None || p == Page::Count || area_of(p) != a) return;
     if (!page_visible(p, prefs.advanced_mode)) return;
     go_to_ = Place{a, p};
+    back_nav_ = false;
+}
+
+// 3.1 N1: the place the last navigation left, one level. The target is taken like any go(): at the next draw_pages(), where the place
+// it leaves is NOT kept as the new back place (so "Back" twice does not bounce between two pages).
+bool App::back() {
+    using namespace shell;
+    const Place b = back_place();
+    if (!b.valid() || !page_visible(b.page, prefs.advanced_mode || legacy_pages) || b == place_) return false;
+    go_to_ = b;
+    back_nav_ = true;
+    back_place() = Place{};
+    return true;
 }
 
 // A page nobody registered yet (its track has not landed): the panel it lived in before the revamp, drawn as it was, so that
@@ -1752,9 +1766,11 @@ void global_search_pick(App& app, GlobalSearch& g, size_t i) {
     const GlobalSearch::Hit h = g.hits[i];
     if (h.club) {
         app.sel_team = h.id;
-        app.go(shell::Page::TeamPlayers);
+        // 3.1 N4: a club hit on a Club page (Kits, Colours, Squad...) keeps that page, now showing the club; elsewhere it opens its squad
+        if (shell::area_of(app.place().page) != shell::Area::Club) app.go(shell::Page::TeamPlayers);
     } else {
         app.sel_player = h.id;
+        shell::player_edit_tab() = 1;  // 3.1 N2: a found player opens on Attributes & roles (CHANGE-4), not on whatever tab was left open
         app.go(shell::Page::PlayerEdit);
     }
     g.buf[0] = '\0';
@@ -1826,6 +1842,7 @@ void App::draw_pages() {
     // 3.0: "Use the old pages" (Settings, under the Lab switch; the tests of the pre-2.16 panels set it directly) keeps the Lab reachable:
     // the old Teams tab (request_tab 1) lands on "My squad (old page)", which is a Lab page now
     const bool adv = prefs.advanced_mode || legacy_pages;
+    const Place frame_start = place_;  // 3.1 N1: the place this frame starts on; where it ends differently, the start is the new back place
     // Legacy request_tab = N (cross-links, tests) -> its new home. Taken before drawing: a panel may request another place
     // for the next frame. A page the view hides (the Lab is off) is not opened, as the old hidden tabs were not.
     if (request_tab >= 0) {
@@ -1886,13 +1903,37 @@ void App::draw_pages() {
     ImGui::EndChild();
     ImGui::SameLine();
 
-    // ---- the content: page strip + page
+    // 3.1 N1: keep the place a go() / cross-link / rail click just left (a page strip click is noted below, after the strip)
+    auto note_leave = [&](const Place& from) {
+        if (place_ == from) return;
+        if (back_nav_) back_place() = Place{};
+        else if (from.valid()) back_place() = from;
+        back_nav_ = false;
+    };
+    note_leave(frame_start);
+    back_nav_ = false;  // a back() is taken in the frame after it is asked for, once
+
+    // ---- the content: back button + page strip + page
     ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
     const auto& strip = pages_of(place_.area);
+    // 3.1 N1: "< Back to <page>" at the left of the strip row (or on its own row on a page without a strip) while a place to go back to exists
+    bool back_drawn = false;
+    {
+        const Place bp = back_place();
+        if (bp.valid() && bp.page != place_.page && page_visible(bp.page, adv)) {
+            const std::string label = std::string("< Back to ") + page_label(bp.page) + "###nav_back";
+            ImGui::PushID("##shell");
+            if (ImGui::Button(label.c_str())) back();
+            ImGui::PopID();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Return to the page you came from");
+            back_drawn = true;
+        }
+    }
     if (strip.size() > 1) {  // an area with one page (Home, Looks, Settings) has no strip
         ImGui::PushID("##shell");
         ImGui::PushID("##pages");
-        bool pfirst = true;
+        bool pfirst = !back_drawn;
+        const Place before_strip = place_;
         for (Page p : strip) {
             if (p == Page::GameplayPresets) continue;  // 3.0.1 GUI30K: no slider staging on the Tactics strip (Lab > Tactics (experimental))
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
@@ -1901,8 +1942,11 @@ void App::draw_pages() {
             }
             pfirst = false;
         }
+        note_leave(before_strip);
         ImGui::PopID();
         ImGui::PopID();
+        ImGui::Separator();
+    } else if (back_drawn) {
         ImGui::Separator();
     }
 

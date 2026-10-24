@@ -6,6 +6,10 @@
 #include "ui/ui_player_page.h"
 #include "ui/ui_shell.h"
 
+namespace turbo {
+bool manager_chooser_on_manager_heads();  // ui_faces.cpp (3.1 N3)
+}
+
 namespace player_page_test {
 
 using namespace turbo;
@@ -171,6 +175,141 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             }
         }
         hide(ui);
+    });
+    // 3.1 N2 (Defect 3, navigation loops): the top-bar search lands on Attributes & roles (CHANGE-4), whatever Player tab was open before
+    run_case("Shell 3.1 N2: a player found with the top-bar search opens on tab 1 (Attributes & roles), not the tab left open", [&] {
+        hide(ui);
+        app.go(shell::Page::Home);
+        ui.frames(3);
+        shell::player_edit_tab() = 3;  // the Callname tab was left open
+        const PlayerRow* pick = nullptr;
+        for (const PlayerRow& p : app.model.players())
+            if (p.name.size() >= 4) { pick = &p; break; }
+        CHECK(pick != nullptr, "a player with a name to search");
+        if (!pick) return;
+        std::string q = pick->name;
+        for (char& c : q) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+        const std::string want_name = pick->name;
+        app.sel_player = 0;
+        CHECK(ui.type_into(ui.find("##gsearch"), q), "type into the search");
+        ui.frames(3);
+        const PlayerRow* got = app.model.player(app.sel_player);
+        CHECK(app.place() == shell::place_of(shell::Page::PlayerEdit) && got != nullptr, "the search opened Players > Player with " + want_name);
+        CHECK(shell::player_edit_tab() == 1, "the tab is Attributes & roles: " + std::to_string(shell::player_edit_tab()));
+        shell::player_edit_tab() = 0;
+        app.go(shell::Page::Home);
+        ui.frames(3);
+    });
+
+    // 3.1 N3: the chooser opened for a manager starts on the managers' heads (the radio "Manager heads" was a click away)
+    run_case("Shell 3.1 N3: Looks > Managers > Choose a real face opens the chooser on Manager heads", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        app.sel_manager = 0;
+        app.go(shell::Page::LooksStudio);
+        ui.frames(3);
+        CHECK(ui.click("Managers###lsmanagers"), "Managers");
+        ui.frames(3);
+        CHECK(ui.click("###lsface"), "Choose a real face...");
+        ui.frames(3);  // with 3.1/render R4 the click opens the chooser at once: no question (###lsaskok) before it (merge 3.1/gui)
+        // "the chooser is open" is read from the radio "Manager heads" (top of the modal), not from Close: Close is the last row of the fixed-size modal and
+        // Ui::find skips an item whose centre is outside its clip, so a header grown by state an earlier case left (a filter) hid it (3.1 merge check)
+        CHECK(ui.find("Manager heads") != nullptr, "the manager chooser is open");
+        CHECK(manager_chooser_on_manager_heads(), "the chooser shows Manager heads");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(2);
+        ui.click("Players###lsplayers");
+        app.go(shell::Page::Home);
+        ui.frames(3);
+    });
+
+    // 3.1 N3b: Looks > Managers (3.1 R4) begins the chooser's window itself first in the frame, for the warning line, and manager_real_face_picker
+    // appends to it. ImGui recomputes IsWindowAppearing() on every Begin, so the second Begin reads false: the chooser must open on Manager heads
+    // anyway, and again after it was closed with Player heads picked. Drawn here in that order, after the app's own frame.
+    run_case("Shell 3.1 N3b: a chooser whose window the page begins first in the frame opens on Manager heads, and again after Player heads + Close", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        const int64_t mid = app.model.managers()[0].managerid;
+        bool open_it = false;
+        ui.extra_draw = [&] {
+            if (open_it) {
+                ImGui::OpenPopup(kManagerFacePopup);
+                open_it = false;
+            }
+            ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+            if (ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+                ImGui::TextUnformatted("the page's warning line");
+                ImGui::EndPopup();
+            }
+            manager_real_face_picker(app, mid);
+        };
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (first time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
+        CHECK(ui.click("Player heads"), "Player heads");
+        ui.frames(2);
+        CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        CHECK(ui.click("Close##mfaces"), "Close");
+        ui.frames(3);
+        CHECK(ui.find("Manager heads") == nullptr, "the chooser is closed");
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (second time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the second time");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(3);
+        ui.extra_draw = nullptr;
+        ui.frames(2);
+    });
+
+    // 3.1 N3c: closed in frame F and opened again in frame F+1. The 57d9f9f counter ("the chooser was not drawn last frame") read that as still open
+    // and left the chooser on Player heads; the open itself (OpenPopup, ImGuiPopupData::OpenFrameCount) is what counts. One Begin here (no R4 double
+    // Begin), so the consecutive-frame reopen is the only variable.
+    run_case("Shell 3.1 N3c: a chooser closed and opened again on the very next frame opens on Manager heads again", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        const int64_t mid = app.model.managers()[0].managerid;
+        bool open_it = false, was_open = false, reopen_on_close = false;
+        ui.extra_draw = [&] {
+            if (open_it) {
+                ImGui::OpenPopup(kManagerFacePopup);
+                open_it = false;
+            }
+            manager_real_face_picker(app, mid);
+            const bool is_open = ImGui::IsPopupOpen(kManagerFacePopup);
+            if (was_open && !is_open && reopen_on_close) {  // closed in this very frame: OpenPopup in the next one
+                open_it = true;
+                reopen_on_close = false;
+            }
+            was_open = is_open;
+        };
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (first time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
+        CHECK(ui.click("Player heads"), "Player heads");
+        ui.frames(2);
+        CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        reopen_on_close = true;
+        CHECK(ui.click("Close##mfaces"), "Close");
+        ui.frames(3);
+        CHECK(!reopen_on_close, "the chooser was closed and reopened on consecutive frames");
+        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open again");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads again after a reopen on the very next frame");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(3);
+        ui.extra_draw = nullptr;
+        ui.frames(2);
     });
     app.sel_player = saved_sel;
     app.lua_queue.clear();
