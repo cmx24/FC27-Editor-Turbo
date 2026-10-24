@@ -130,6 +130,7 @@ static const std::string& test_only() {
     }();
     return only;
 }
+static std::function<std::string()> g_case_probe;  // 3.0.1 (debug): TURBO_TEST_DEBUG_WIN prints the main window size after each case
 static void run_case(const char* name, const std::function<void()>& fn) {
     if (g_case_depth == 0 && !test_only().empty() && lower_ascii(name).find(test_only()) == std::string::npos) {
         ++g_skipped;
@@ -149,6 +150,7 @@ static void run_case(const char* name, const std::function<void()>& fn) {
     // code between cases (group setup, runners of their own) must not be blamed on a case that already printed PASS
     g_case = std::string("(after) ") + name;
     std::printf("  %s %s\n", g_fail == before ? "PASS" : "FAIL", name);
+    if (g_case_probe && g_case_depth == 0) std::printf("    WINPROBE %s\n", g_case_probe().c_str());
     if (g_case_depth > 0) g_case = outer;
 }
 
@@ -3149,7 +3151,23 @@ public:
                     break;
                 }
             }
-            if (!hid || hid->clip.GetWidth() <= 0 || hid->clip.GetHeight() <= 0) return nullptr;
+            if (!hid) return nullptr;
+            // 3.0.1: a tab pushed out sideways (the 3.0 rail takes 156 px from the content, so the Teams editor's tab bar scrolls) is reached the way
+            // a user reaches it: sideways wheel over the tab bar, which scrolls it without changing the selected tab (the bar's "##<" / "##>"
+            // arrows would select the neighbour tab one click at a time). The mouse rests on the visible tabs, just left of the arrows.
+            const float cx = hid->rect.GetCenter().x;
+            if (cx > hid->clip.Max.x || cx < hid->clip.Min.x) {
+                const ItemRec* arrow = find("##<", hid->window);
+                if (!arrow) return nullptr;
+                ImGuiIO& io = ImGui::GetIO();
+                io.AddMousePosEvent(arrow->rect.Min.x - 40.0f, arrow->rect.GetCenter().y);
+                frame();
+                io.AddMouseWheelEvent(cx > hid->clip.Max.x ? -1.0f : 1.0f, 0.0f);
+                frames(30);  // the bar animates towards its target in about a third of a second
+                if (const ItemRec* r = find(label, win, scope)) return r;
+                continue;
+            }
+            if (hid->clip.GetWidth() <= 0 || hid->clip.GetHeight() <= 0) return nullptr;
             const float dir = hid->rect.GetCenter().y > hid->clip.Max.y ? -1.0f : hid->rect.GetCenter().y < hid->clip.Min.y ? 1.0f : 0.0f;
             if (dir == 0.0f) return nullptr;
             ImGuiIO& io = ImGui::GetIO();
@@ -3172,13 +3190,26 @@ public:
         frames(2);
         return true;
     }
+    // 3.0.1: the cases that change the UI size scale the window with it (app.cpp:2001) and leave it small (1280x720, 767x431); the 3.0 pages need the large window the suite starts with
+    void big_window() {
+        app.prefs.window.maximized = false;
+        app.prefs.window.has_rect = true;
+        app.prefs.window.rect = turbo::WindowRect{20.0f, 20.0f, 1880.0f, 1040.0f};
+        app.prefs.window_rt.apply_pending = true;
+        frames(3);
+    }
     void dump(const std::string& why) {
         if (!std::getenv("TURBO_TEST_DEBUG")) return;
         std::printf("    DEBUG %s; items in frame %d:\n", why.c_str(), g_frame);
+        if (ImGuiWindow* mw = ImGui::FindWindowByName("FC 27 LE Turbo"))
+            std::printf("    DEBUG main window pos=(%.0f,%.0f) size=(%.0f,%.0f) display=(%.0f,%.0f) maximized=%d has_rect=%d rect=(%.0f,%.0f,%.0f,%.0f) apply_pending=%d\n", mw->Pos.x, mw->Pos.y,
+                        mw->Size.x, mw->Size.y, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, (int)app.prefs.window.maximized, (int)app.prefs.window.has_rect,
+                        app.prefs.window.rect.x, app.prefs.window.rect.y, app.prefs.window.rect.w, app.prefs.window.rect.h, (int)app.prefs.window_rt.apply_pending);
         for (const auto& kv : g_items)
             if (kv.second.frame == g_frame)
-                std::printf("      '%s' win='%s' rect=(%.0f,%.0f)-(%.0f,%.0f)\n", kv.second.label.c_str(), kv.second.window.c_str(),
-                            kv.second.rect.Min.x, kv.second.rect.Min.y, kv.second.rect.Max.x, kv.second.rect.Max.y);
+                std::printf("      '%s' win='%s' rect=(%.0f,%.0f)-(%.0f,%.0f) clip=(%.0f,%.0f)-(%.0f,%.0f)\n", kv.second.label.c_str(), kv.second.window.c_str(),
+                            kv.second.rect.Min.x, kv.second.rect.Min.y, kv.second.rect.Max.x, kv.second.rect.Max.y,
+                            kv.second.clip.Min.x, kv.second.clip.Min.y, kv.second.clip.Max.x, kv.second.clip.Max.y);
     }
     void key(ImGuiKey k, bool ctrl = false) {
         ImGuiIO& io = ImGui::GetIO();
@@ -4073,7 +4104,17 @@ static void test_ui() {
         // the 1920x1080 test display), so they keep it through a stored rectangle. The maximized default has its own cases (test_window_settings.h)
         app.prefs.window.maximized = false;
         app.prefs.window.has_rect = true;
-        app.prefs.window.rect = turbo::WindowRect{60.0f, 54.0f, 1180.0f, 760.0f};
+        app.prefs.window.rect = turbo::WindowRect{20.0f, 20.0f, 1880.0f, 1040.0f};  // 3.0.1: was 1180x760; the 3.0 rail (156 px) and its page header take room from the old pages, which no longer fit the old first-use window (c497923a)
+        if (std::getenv("TURBO_TEST_DEBUG_WIN"))
+            g_case_probe = [&app]() {
+                ImGuiWindow* w = ImGui::FindWindowByName("FC 27 LE Turbo");
+                char b[200];
+                std::snprintf(b, sizeof b, "size=(%.0f,%.0f) max=%d rect=(%.0f,%.0f,%.0f,%.0f) scale=%.2f", w ? w->Size.x : -1.0f, w ? w->Size.y : -1.0f,
+                              (int)app.prefs.window.maximized, app.prefs.window.rect.x, app.prefs.window.rect.y, app.prefs.window.rect.w, app.prefs.window.rect.h,
+                              app.ui_scale_applied);
+                return std::string(b);
+            };
+        app.prefs.window_rt.apply_pending = true;  // 3.0.1: the rectangle above is placed on the next frame (it is only applied when the tracker asks: earlier cases had already drawn frames, so the old 1180x760 stayed)
         app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
         app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
@@ -5859,6 +5900,7 @@ static void test_ui() {
             app.ui_scale_user = 1.0f;
             ui.frames(2);
             CHECK(app.save_gui_settings(), "reset saved");
+            ui.big_window();  // 3.0.1: the window followed the UI size down to 1280x720
         });
 
         run_case("UI: database reload (another save) invalidates rows safely", [&] {
@@ -9877,6 +9919,7 @@ static void test_ui() {
             CHECK(true, "rendered");
         });
     }
+    g_case_probe = nullptr;
     ImGui_ImplNull_Shutdown();
     ImGui::DestroyContext();
 }

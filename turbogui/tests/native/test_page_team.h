@@ -371,6 +371,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
             const int64_t before = app.db.get_int(*pt, ten->rec, "contractvaliduntil", 0);
             CHECK(before >= 2028, fmt("the player's contract ends in %lld", static_cast<long long>(before)));
             in.extend_pick = 2;  // 3 years
+            scroll_bottom(ui, true);  // 3.0.1: the 3.0 theme (3db038b7) made the page taller; the Extend rows are below the first screen, as the whole-squad button already was (39d9254f)
             ui.frames(3);
             CHECK(ui.click("Extend###tpext1005", "##tt_extend_"), "Extend, 3 years");
             ui.frames(3);

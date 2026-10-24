@@ -170,6 +170,7 @@ static void playtest_fix_cases(App& app, Ui& ui, const fs::path& le) {
         }
         CHECK(st.ScrollbarSize == sb0 && st.ScrollbarRounding == rd0 && st.GrabMinSize == gm0 && st.WindowPadding.x == wp0,
               fmt("back at %.2fx: the same sizes as before (scrollbar %.1f, was %.1f)", app.ui_scale_applied, st.ScrollbarSize, sb0));
+        ui.big_window();  // 3.0.1: the window followed the UI size down (767x431)
     });
 
     run_case("UI 1.1.1: Ctrl + mouse wheel zooms, Ctrl + 0 resets, the size is saved", [&] {
@@ -269,5 +270,6 @@ static void playtest_fix_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.ui_scale_user == 1.0f && app.zoom.wheel == 0.0f, "no zoom while hidden");
         App again(app.mem, le, 0, "zoom reload");
         CHECK(std::fabs(again.ui_scale_user - 1.0f) < 0.001f, "loaded at start");
+        ui.big_window();  // 3.0.1: the window followed the UI size down (756x416)
     });
 }

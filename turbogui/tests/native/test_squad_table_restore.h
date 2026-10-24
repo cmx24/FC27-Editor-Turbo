@@ -131,6 +131,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: Players > My squad opens on the Squad tab; Age sorts, reverses, resets; OVR sorts high to low", [&] {
+        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
         CHECK(mine > 0 && app.model.links_of_team(mine).size() >= 5, "the test world has my club with a squad");
         CHECK(ui.open_page("Lab", "My squad (old page)") && app.place() == shell::place_of(Page::Squad), "Players > My squad opens");
         ui.frames(3);
@@ -161,6 +162,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: a click on a name opens Players > Edit a player with that player (the page route, not request_tab)", [&] {
+        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
         app.request_tab = -1;
         CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
@@ -191,6 +193,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: a Jersey edit writes teamplayerlinks.jerseynumber of that player's row only, through App::edit", [&] {
+        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
         CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         const Table* lt = app.db.table("teamplayerlinks");
@@ -243,6 +246,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: outside a career My squad shows the club picker and the table of the picked club", [&] {
+        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
         json st = original_state;
         st["user_team"] = 0;
         st["in_cm"] = false;
@@ -263,6 +267,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: the Career tools tab keeps the five cards", [&] {
+        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
         CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         CHECK(ui.click("###sqtabtools", "FC 27 LE Turbo"), "the Career tools tab");
@@ -280,6 +285,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: four more v2.14 capabilities are on the default route (All clubs, More tools, All managers, kept player edits)", [&] {
+        app.prefs.advanced_mode = false;  // 3.0.1: back to the Simple view (the My squad cases above need the Lab)
         const ImVec2 old_display = ImGui::GetIO().DisplaySize;
         ImGui::GetIO().DisplaySize = ImVec2(1280.0f, 3400.0f);  // a whole page fits
         ui.frames(3);

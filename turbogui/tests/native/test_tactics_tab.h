@@ -87,6 +87,12 @@ static const TacticsTabState::Row* row_of(const char* key) {
     return nullptr;
 }
 
+// 3.0.1: the read-back for a CHECK message, safe when the row is not drawn (a message is built before the check runs: a null row crashed the whole binary and left every later case unrun)
+static std::string readback_of(const char* key) {
+    const TacticsTabState::Row* r = row_of(key);
+    return r ? r->readback : std::string("(row not drawn)");
+}
+
 // The slider cards scroll: bring the row of `key` into view (the card list's scroll is set from where the item was last laid out) and
 // return its item. The item is looked up without the clip test, the way a person scrolls to it.
 static ImGuiWindow* cards_window() {
@@ -470,7 +476,7 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         CHECK(row_of("match.difficulty") && row_of("match.difficulty")->seen == "no effect seen 2026-10-07" && row_of("match.difficulty")->untested, "difficulty: no effect seen, counts as untested");
         CHECK(row_of("match.time_of_day") && row_of("match.time_of_day")->seen == "no effect seen 2026-10-07", "time of day: no effect seen");
         CHECK(row_of("match.never_injure") && row_of("match.never_injure")->seen == "untested", "NEVER_INJURE: untested");
-        CHECK(row_of("match.foul_strictness") && row_of("match.foul_strictness")->readback.find("no read-back:") == 0, "referee read-back in a save without the table: " + row_of("match.foul_strictness")->readback);
+        CHECK(row_of("match.foul_strictness") && row_of("match.foul_strictness")->readback.find("no read-back:") == 0, "referee read-back in a save without the table: " + readback_of("match.foul_strictness"));
         // move a slider by typing: injury frequency (your team)
         const ItemRec* typed = ui.find("##typed", "##tacsliders", "match.injury_frequency_user");
         if (!typed) ui.dump("typed box of injury frequency");
@@ -852,7 +858,7 @@ static void cases_panel(App& app, Ui& ui, const fs::path& le) {
         for (const auto& r : tactics_tab_state().rows)
             if (r.status == "DB") CHECK(r.written == "database row" && r.seen == "untested" && r.tag.find("database row, untested") == 0, "DB badges on " + r.key + ": " + r.tag);
         CHECK(row_of("pos.role1") && row_of("pos.role1")->label == "Role familiarity 1 (Role+ / Role++)", "the role editor is named as the player's familiarity");
-        CHECK(row_of("pos.role1") && row_of("pos.role1")->readback.find("no read-back:") == 0, "players.role1 is not in the simulated save: an honest 'no read-back': " + row_of("pos.role1")->readback);
+        CHECK(row_of("pos.role1") && row_of("pos.role1")->readback.find("no read-back:") == 0, "players.role1 is not in the simulated save: an honest 'no read-back': " + readback_of("pos.role1"));
         CHECK(ui.click("Match (both teams)##scope"), "back to the Match scope");
     });
 }
@@ -893,7 +899,7 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         CHECK(!saw_mentality_table && saw_teams && !saw_preview, "the receive list names the teams row, never a mentality table and no preview slider");
         CHECK(!has_part(tactics_tab_state().not_written, "mentalities"), "no mentality table is even listed as not written: no slider names one");
         // the read-back shows the row as it is now
-        CHECK(row_of("team.line_depth") && row_of("team.line_depth")->readback.find("teams.defensivedepth now: 50") == 0, "teams read-back: " + row_of("team.line_depth")->readback);
+        CHECK(row_of("team.line_depth") && row_of("team.line_depth")->readback.find("teams.defensivedepth now: 50") == 0, "teams read-back: " + readback_of("team.line_depth"));
         const Table* cm = app.db.table("cm_mentalities");
         const Table* m = app.db.table("mentalities");
         const Table* teams = app.db.table("teams");
@@ -947,7 +953,7 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
             CHECK(snaps.find("teams.defensivedepth", "team:1") == nullptr, "never without the club");
         }
         CHECK(row_of("team.line_depth") && row_of("team.line_depth")->readback == "teams.defensivedepth now: 62 (before Turbo: " + std::to_string(keep_ars) + ")",
-              "read-back after the write: " + row_of("team.line_depth")->readback);
+              "read-back after the write: " + readback_of("team.line_depth"));
         // Apply again with the same values: written again, and the kept value stays the one from before Turbo's FIRST write
         CHECK(apply_confirmed(ui), "Apply again");
         ui.frames(2);
@@ -978,7 +984,7 @@ static void cases_mentality(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.db.get_int(*teams, app.model.team(241)->rec, "defensivedepth") == keep_inter, fmt("Inter's row is back to %lld", (long long)keep_inter));
         CHECK(ui.toast_contains("1 row(s) restored to the value before Turbo's first write"), "the toast says what was restored");
         CHECK(row_of("team.line_depth") && !row_of("team.line_depth")->enabled && row_of("team.line_depth")->readback == "teams.defensivedepth now: " + std::to_string(keep_inter),
-              "the row is off and reads the original back: " + row_of("team.line_depth")->readback);
+              "the row is off and reads the original back: " + readback_of("team.line_depth"));
         {
             TacticSnapshots snaps;
             std::string err;
@@ -1133,7 +1139,7 @@ static void cases_presets(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         CHECK(tactics_tab_state().compare_lines.size() == held + 3, fmt("three differences plus the held-off lines: %zu", tactics_tab_state().compare_lines.size()));
         CHECK(has(tactics_tab_state().compare_lines, "Cross frequency: was the game decides, now 40"), "a slider the preset leaves to the game");
-        CHECK(row_of("team.cross_freq")->was == "was: game decides", "its row says so");
+        CHECK(row_of("team.cross_freq") && row_of("team.cross_freq")->was == "was: game decides", "its row says so");
         CHECK(ui.click("Compare with the loaded preset##taccmp", "##tacleft"), "compare off");
         ui.frames(2);
         CHECK(!tactics_tab_state().compare && tactics_tab_state().compare_lines.empty(), "compare off");

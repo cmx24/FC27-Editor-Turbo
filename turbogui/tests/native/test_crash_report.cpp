@@ -25,12 +25,35 @@ LPTOP_LEVEL_EXCEPTION_FILTER g_prev_filter = nullptr;
 // is how a native run once "exited 67 with no output".
 constexpr unsigned long kGccCxxException = 0x20474343ul;
 
+// The faulting instruction and the stack, as offsets into the image: addr2line -f -C -i -e turbo_native_tests.exe <0x140000000 + offset>
+// (the image is linked with -g; MinGW's addr2line wants the preferred base 0x140000000). Added 3.0.1: a native run once ended with a bare
+// 0xC0000005 and no gdb on the machine to say where.
+void print_stack(EXCEPTION_POINTERS* ep) {
+    const unsigned long long base = reinterpret_cast<unsigned long long>(GetModuleHandleW(nullptr));
+    if (ep && ep->ContextRecord && ep->ExceptionRecord) {
+        std::fprintf(stdout, "CRASH: image base 0x%llx, fault address 0x%llx", base,
+                     static_cast<unsigned long long>(reinterpret_cast<ULONG_PTR>(ep->ExceptionRecord->ExceptionAddress)));
+        if (ep->ExceptionRecord->NumberParameters >= 2 && ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
+            std::fprintf(stdout, " (%s address 0x%llx)", ep->ExceptionRecord->ExceptionInformation[0] ? "write to" : "read of",
+                         static_cast<unsigned long long>(ep->ExceptionRecord->ExceptionInformation[1]));
+        std::fprintf(stdout, "\n");
+        std::fprintf(stdout, "CRASH: at offset 0x%llx\n", static_cast<unsigned long long>(ep->ContextRecord->Rip) - base);
+    }
+    void* frames[48];
+    const USHORT n = CaptureStackBackTrace(0, 48, frames, nullptr);
+    for (USHORT i = 0; i < n; ++i) {
+        const unsigned long long a = reinterpret_cast<unsigned long long>(frames[i]);
+        if (a >= base && a < base + 0x40000000ull) std::fprintf(stdout, "CRASH:   #%u offset 0x%llx\n", static_cast<unsigned>(i), a - base);
+    }
+}
+
 LONG WINAPI on_unhandled_exception(EXCEPTION_POINTERS* ep) {
     const unsigned long code = ep && ep->ExceptionRecord ? static_cast<unsigned long>(ep->ExceptionRecord->ExceptionCode) : 0ul;
     if (code == kGccCxxException)
         std::fprintf(stdout, "CRASH: a C++ exception nobody caught (code 0x20474343, MSYS exit code 67) in case [%s]\n", case_name());
     else
         std::fprintf(stdout, "CRASH: Windows exception 0x%08lX in case [%s]\n", code, case_name());
+    print_stack(ep);
     std::fflush(stdout);
     return g_prev_filter ? g_prev_filter(ep) : EXCEPTION_CONTINUE_SEARCH;  // then whatever happened before
 }

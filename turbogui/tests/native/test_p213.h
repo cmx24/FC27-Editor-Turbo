@@ -80,12 +80,15 @@ static void ui_cases(App& app, Ui& ui) {
                 if (kv.second.frame == g_frame && kv.second.label == label) return true;
             return false;
         };
+        const bool was_legacy_nav = app.legacy_pages;
+        app.legacy_pages = false;  // 3.0.1: with the old pages on the Lab is always shown (b153e489); this case is the Simple view
         app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(3);
-        for (const char* area : {"Players", "Appearance Editor", "Team", "Tactics", "Career", "Settings"})
+        for (const char* area : {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings"})  // 3.0 rail names (ui_shell.cpp area_label): Appearance Editor is now Looks, Team is Club
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
+        app.legacy_pages = was_legacy_nav;  // 3.0.1: the rest of the case is about the old pages (signpost, Transfers & money sections), which only the old panels draw
         // 2.22 (G-ia): Commentary names is a real page (a player list and the callname editor), no longer a signpost to Edit a player
         CHECK(ui.open_page("Players", "Callnames") && app.place() == shell::place_of(Page::CommentaryNames), "opens: Players > Commentary names");
         CHECK(ui.find("###navgo") == nullptr && ui.find("##cnsearch") != nullptr, "Commentary names is a page, not a signpost");
@@ -109,6 +112,7 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(3);
+        app.legacy_pages = was_legacy_nav;
     });
 
     run_case("wiring (2.16): every page registered as a new page draws in its place; legacy_pages brings the old panels back", [&] {
@@ -186,11 +190,18 @@ static void ui_cases(App& app, Ui& ui) {
         ui.frames(2);
         CHECK(app.place() == shell::place_of(Page::Standings) && (ui.find("Try again") || ui.find("Reload")), "the link lands on the live view");
         // Job offer: until the Squad track exports its panel, the page says where it is and opens it
+        const bool was_leg_jobs = app.legacy_pages;
+        app.legacy_pages = false;  // 3.0.1: with the old pages on, Club > Squad is the signpost "Open My squad" (ui_nav_pages.cpp page_team_players); the real page has the All clubs tab
         CHECK(ui.open_page("Career", "Manager jobs"), "Career > Manager jobs");
         CHECK(ui.click("###squadgo"), "Manager jobs: the way to the club panel");
         ui.frames(2);
-        CHECK(app.place() == shell::place_of(Page::Squad) && ui.find("Job offer") != nullptr && ui.find("Mass actions") != nullptr,
-              "Manager jobs: Players > My squad, the club panel with its Job offer / Transfers / Mass actions tabs");
+        // 3.0 (b1439e25, ui_tools.cpp:715): the way goes to Club > Squad; its "All clubs" tab (2.22 G-squad, ui_team_players.cpp:302) holds the club panel with Job offer / Mass actions
+        CHECK(app.place() == shell::place_of(Page::TeamPlayers), "Manager jobs: Club > Squad");
+        CHECK(ui.click("All clubs###tptabclubs"), "Club > Squad: the All clubs tab");
+        ui.frames(3);
+        CHECK(ui.find("Job offer") != nullptr && ui.find("Mass actions") != nullptr,
+              "Manager jobs: Club > Squad > All clubs, the club panel with its Job offer / Transfers / Mass actions tabs");
+        app.legacy_pages = was_leg_jobs;
         // Transfers: until then the old Turbo Tools panel (integration 721bf59), not a dead end
         CHECK(ui.open_page("Career", "Money & transfers") && ui.find("Your squad") != nullptr, "Career > Transfers & money: the old Turbo Tools panel");
         // the other proven panels, each by its own primary control

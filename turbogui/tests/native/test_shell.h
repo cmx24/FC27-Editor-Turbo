@@ -239,8 +239,16 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
     using namespace turbo::shell;
     const bool was_advanced = app.prefs.advanced_mode;
     auto settle = [&](int n = 6) { ui.frames(n); };
+    // 3.0.1 (3.0 b153e489: the Lab is shown when advanced_mode || legacy_pages): the Simple-view cases below need the old pages off
+    struct LegacyOff {
+        turbo::App& a;
+        bool was;
+        explicit LegacyOff(turbo::App& x) : a(x), was(x.legacy_pages) { a.legacy_pages = false; }
+        ~LegacyOff() { a.legacy_pages = was; }
+    };
 
     run_case("shell UI: area tabs and the page strip (Simple has no Advanced tab); legacy request_tab lands on area_for", [&] {
+        LegacyOff legacy_off(app);  // 3.0.1: the harness runs with the old pages on (the Lab is then always shown); this case is about the Simple view without them
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
@@ -271,6 +279,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
     });
 
     run_case("shell UI: go(Area, Page) for every visible page; Advanced pages need the Advanced view", [&] {
+        LegacyOff legacy_off(app);  // 3.0.1: the harness runs with the old pages on (the Lab is then always shown); this case is about the Simple view without them
         app.prefs.advanced_mode = false;
         for (int a = 0; a < kAreaCount; ++a)
             for (Page p : pages_of(static_cast<Area>(a))) {
@@ -385,8 +394,12 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
     });
 
     run_case("shell UI 3.0: a rail click changes the area; the narrow rail keeps working and is saved; the search opens a player", [&] {
+        LegacyOff legacy_off(app);  // 3.0.1: the harness runs with the old pages on (the Lab is then always shown); this case is about the Simple view without them
         app.prefs.advanced_mode = false;
         app.prefs.rail_collapsed = false;
+        // 3.0.1: a rail click opens the page the area showed last (area_page_); earlier cases visit every Tactics page, so this one starts from the first
+        app.go(default_page(Area::Tactics));
+        settle(2);  // one drawn frame stores the page in area_page_ (app.cpp:1845); go() alone does not
         app.go(Page::Home);
         settle();
         CHECK(ui.click("Tactics", "##rail", "##shell"), "click Tactics in the rail");
@@ -401,7 +414,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(ui.click("Home", "##rail", "##shell") && (settle(2), app.place() == place_of(Page::Home)), "back to Home");
         CHECK(ui.click("Club", "##rail", "##shell") && (settle(2), app.place() == place_of(Page::TeamPlayers)), "Club remembers its page");
         CHECK(ui.open_page("Players", "Callnames") && app.place() == place_of(Page::CommentaryNames), "Ui::open_page still works on the rail");
-        CHECK(ui.click("###railtoggle"), "narrow the rail");
+        CHECK(ui.click("###railnarrow"), "narrow the rail");
         settle(2);
         CHECK(app.prefs.rail_collapsed && ui.find("Tactics", "##rail", "##shell") == nullptr && ui.find("###rail_Tactics") != nullptr,
               "narrow rail: first letters, stable ids");
@@ -413,7 +426,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(ui.click("###rail_Tactics"), "click T");
         settle(2);
         CHECK(app.place().area == Area::Tactics, "the narrow rail changes the area");
-        CHECK(ui.click("###railtoggle") && (settle(2), !app.prefs.rail_collapsed) && ui.find("Tactics", "##rail", "##shell") != nullptr, "wide again");
+        CHECK(ui.click("###railwiden") && (settle(2), !app.prefs.rail_collapsed) && ui.find("Tactics", "##rail", "##shell") != nullptr, "wide again");
         // the global search: a player's name (Enter takes the first match) -> Players > Player with him selected
         const turbo::PlayerRow* pick = nullptr;
         for (const turbo::PlayerRow& p : app.model.players())
@@ -433,6 +446,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
     });
 
     run_case("shell UI 3.0: the Lab is hidden with advanced_mode = false; the first 3.0 start hides it once", [&] {
+        LegacyOff legacy_off(app);  // 3.0.1: the harness runs with the old pages on (the Lab is then always shown); this case is about the Simple view without them
         app.prefs.advanced_mode = false;
         app.go(Page::Home);
         settle();
