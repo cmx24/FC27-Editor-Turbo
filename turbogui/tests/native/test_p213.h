@@ -197,7 +197,8 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.open_page("Players", "Player") && ui.find("##psearch") != nullptr, "Squad & Players > Player edit: the players list");
         CHECK(ui.open_page("Club", "Kits") && ui.find("Apply kit") != nullptr, "Club & Kits > Kits");
         CHECK(ui.open_page("Tactics", "Presets") && ui.find("Apply preset##tpload") != nullptr, "Tactics & Gameplay > Tactic presets");
-        CHECK(ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") != nullptr, "Tactics & Gameplay > Gameplay presets");
+        // 3.0.1 GUI30K: the Tactics strip has no Game sliders button (the offline slider file is in Lab > Tactics (experimental))
+        CHECK(!ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") == nullptr, "Tactics: no Game sliders page in the strip");
         CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");
         CHECK(ui.open_page("Career", "Season pack") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
         CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Look and feel") != nullptr, "Settings (one page, no strip)");
@@ -216,7 +217,9 @@ static void ui_cases(App& app, Ui& ui) {
                 for (Page p : strip) {
                     const std::string where = std::string(adv ? "Advanced view, " : "Simple view, ") + shell::area_label(area) + " > " + shell::page_label(p);
                     // the window is the default 1180 px wide here: a long strip wraps instead of running off the right edge
-                    if (strip.size() > 1) CHECK(ui.find(shell::page_label(p), "FC 27 LE Turbo", "##pages") != nullptr, where + ": its button is on screen");
+                    // 3.0.1 GUI30K: Game sliders is left out of the Tactics strip (the page stays: Home and Changes & undo open it, it points at the Lab)
+                    if (p == Page::GameplayPresets) CHECK(ui.find(shell::page_label(p), "FC 27 LE Turbo", "##pages") == nullptr, where + ": no button in the strip");
+                    else if (strip.size() > 1) CHECK(ui.find(shell::page_label(p), "FC 27 LE Turbo", "##pages") != nullptr, where + ": its button is on screen");
                     app.go(area, p);
                     ui.frames(2);
                     const std::string txt = logged_frame(ui);

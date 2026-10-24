@@ -1894,6 +1894,7 @@ void App::draw_pages() {
         ImGui::PushID("##pages");
         bool pfirst = true;
         for (Page p : strip) {
+            if (p == Page::GameplayPresets) continue;  // 3.0.1 GUI30K: no slider staging on the Tactics strip (Lab > Tactics (experimental))
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
                 place_.page = p;
                 area_page_[static_cast<int>(place_.area)] = p;

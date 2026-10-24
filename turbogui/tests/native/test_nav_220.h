@@ -15,6 +15,7 @@
 
 #include "ui/ui_player_profile.h"
 #include "ui/ui_shell.h"
+#include "ui/ui_tactics_page.h"
 
 namespace nav220_test {
 
@@ -26,7 +27,8 @@ using turbo::shell::Page;
 // old pages is on; anything else registered twice is a mistake to look at.
 static const Page kBoth[] = {Page::Kits,      Page::Identity, Page::TacticPresets, Page::TeamSheet, Page::GameplayPresets,
                              Page::Transfers, Page::JobOffer, Page::ChangesUndo,   Page::AdvExport,  Page::CreatePlayer,
-                             Page::BulkEdit,  Page::TeamPlayers, Page::TeamTransfers};
+                             Page::BulkEdit,  Page::TeamPlayers, Page::TeamTransfers,
+                             Page::AdvTactics};  // 3.0.1 GUI30K: Lab > Tactics (experimental) + the offline slider file section (ui_tactics_page.cpp)
 
 static void run() {
     using namespace turbo::shell;
@@ -140,6 +142,65 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         player_edit_tab() = was_tab;
         turbo::profile_team_players_page() = was_link;  // the Profile's own test expects its default
         app.legacy_pages = was_legacy;
+        app.go(Page::PlayerEdit);
+        ui.frames(3);
+    });
+
+    // 3.0.1 GUI30K (coordinator 16:55): the Settings-file slider route had no effect in game on 2026-10-24 (the game rewrote its Settings
+    // file at boot), so the Tactics area shows no slider staging; the list, Prepare / Discard and the steps are in the Lab only, on
+    // Tactics (experimental), under "Offline slider file (experimental)" with the label below. Fails on b153e48 (the strip has Game sliders,
+    // the Lab page has no such section). Both page sets: the new pages and Settings > Use the old pages.
+    run_case("3.0.1 GUI30K: Game sliders moved to the Lab - no slider staging on the Tactics pages; Lab > Tactics (experimental) has the offline slider file", [&] {
+        const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode;
+        const std::string heading = "Offline slider file (experimental)";
+        const std::string label =
+            "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
+        for (bool legacy : {false, true}) {
+            const std::string how = legacy ? " (old pages)" : " (new pages)";
+            app.legacy_pages = legacy;
+            // the Lab flag off (Settings > Show advanced tools off)
+            app.prefs.advanced_mode = false;
+            app.go(Page::TacticPresets);
+            ui.frames(4);
+            CHECK(ui.find("Presets", "##content", "##pages") != nullptr, "the Tactics strip is drawn (Presets)" + how);
+            CHECK(ui.find("Game sliders", "##content", "##pages") == nullptr, "Lab off: no Game sliders entry in the Tactics strip" + how);
+            for (Page p : pages_of(Area::Tactics)) {
+                if (p == Page::GameplayPresets) continue;  // a pointer page now; checked below (new pages)
+                app.go(p);
+                ui.frames(3);
+                CHECK(ui.find("Prepare###gsprepare") == nullptr && ui.find("###gsdiscard") == nullptr,
+                      std::string("Lab off: no slider staging on Tactics > ") + page_label(p) + how);
+            }
+            // the Lab flag on: Lab > Tactics (experimental), below the live-slider block
+            app.prefs.advanced_mode = true;
+            app.go(Page::TacticPresets);
+            ui.frames(3);
+            CHECK(ui.find("Game sliders", "##content", "##pages") == nullptr, "Lab on: still no Game sliders entry in the Tactics strip" + how);
+            app.go(Page::AdvTactics);
+            ui.frames(4);
+            const std::string txt = logged_frame(ui);
+            CHECK(app.place() == place_of(Page::AdvTactics), "Lab > Tactics (experimental) opened" + how);
+            if (!legacy) {
+                const turbo::GameSlidersPageState& s = turbo::game_sliders_page_state();
+                CHECK(s.lab_heading == heading && s.lab_label == label, "the Lab page drew the section heading and the label verbatim" + how);
+                CHECK(txt.find(heading) != std::string::npos && txt.find(label) != std::string::npos, "the heading and the label are on screen" + how);
+                CHECK(ui.find("Prepare###gsprepare") != nullptr && ui.find("###gsrefresh") != nullptr, "the list's Refresh and Prepare are in the Lab section" + how);
+                CHECK(txt.find("Save one on Tactic presets") != std::string::npos || !s.names.empty(), "the hint or the list is there" + how);
+            }
+        }
+        // the Game sliders page itself (Home and Changes & undo still open it): a pointer to the Lab, no list, no Prepare
+        app.legacy_pages = false;
+        for (bool adv : {false, true}) {
+            app.prefs.advanced_mode = adv;
+            app.go(Page::GameplayPresets);
+            ui.frames(4);
+            const std::string txt = logged_frame(ui);
+            CHECK(turbo::game_sliders_page_state().moved_note && ui.find("Prepare###gsprepare") == nullptr && ui.find("###gsel0") == nullptr,
+                  std::string("Game sliders is a pointer, no list or Prepare (Lab ") + (adv ? "on)" : "off)"));
+            CHECK(txt.find(label) != std::string::npos && ui.find("###gsmoved") != nullptr, "the pointer says why and links on");
+        }
+        app.legacy_pages = was_legacy;
+        app.prefs.advanced_mode = was_adv;
         app.go(Page::PlayerEdit);
         ui.frames(3);
     });
