@@ -180,10 +180,11 @@ static void ui_cases(turbo::App& app, Ui& ui) {
             CHECK(ui.find("Game sliders", "##content", "##pages") == nullptr, "Lab on: still no Game sliders entry in the Tactics strip" + how);
             app.go(Page::AdvTactics);
             ui.frames(4);
-            // the section sits below the live-slider block: scroll the page's child to its end, as a user does (find skips items out of view)
+            // the section sits below the live-slider block, in the page's bottom region (##labtacoff): scroll the page's regions to their
+            // end, as a user does (find skips items out of view)
             for (int k = 0; k < 2; ++k) {
                 for (ImGuiWindow* w : GImGui->Windows)
-                    if (std::string(w->Name).find("##ttac") != std::string::npos) ImGui::SetScrollY(w, w->ScrollMax.y);
+                    if (std::string(w->Name).find("##labtac") != std::string::npos) ImGui::SetScrollY(w, w->ScrollMax.y);
                 ui.frames(2);
             }
             const std::string txt = logged_frame(ui);
