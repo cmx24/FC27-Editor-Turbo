@@ -163,6 +163,21 @@ fs::path find_resources(const fs::path& turbo_output) {
     return resources_dir(s.empty() ? fs::path(kDefaultRoot) : fs::u8path(s));
 }
 
+FolderInfo folder_info(const fs::path& root) {
+    FolderInfo fi;
+    fi.root = root;
+    if (root.empty()) return fi;
+    fi.resources = resources_dir(root);
+    if (!fi.resources.empty()) fi.state = FolderState::Found;
+    else if (is_dir(root)) fi.state = FolderState::FoundNoSets;
+    return fi;
+}
+
+FolderInfo find_folder_info(const fs::path& turbo_output) {
+    const std::string s = load_folder_setting(turbo_output);
+    return folder_info(s.empty() ? fs::path(kDefaultRoot) : fs::u8path(s));
+}
+
 bool FolderIndex::has(const fs::path& dir, const std::string& file) {
     const std::string key = lower(dir.u8string());
     auto it = dirs_.find(key);

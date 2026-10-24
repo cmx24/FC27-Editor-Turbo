@@ -432,6 +432,37 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         }
     });
 
+    // 3.1 N1 (Defect 3, navigation loops): go() keeps the place it leaves; the page shows "< Back to <page>" and one click returns, once
+    run_case("shell UI 3.1 N1: go(PlayerEdit), go(LooksStudio) -> back_place() is PlayerEdit, the button returns there, and only once", [&] {
+        app.prefs.advanced_mode = false;
+        app.go(Page::Home);
+        settle(2);
+        CHECK(app.place() == place_of(Page::Home), "start on Home");
+        app.go(Page::PlayerEdit);
+        settle(2);
+        CHECK(app.place() == place_of(Page::PlayerEdit) && back_place() == place_of(Page::Home), "Home -> Player: back is Home");
+        CHECK(ui.find("###nav_back") != nullptr, "the Player page shows the back button");
+        app.go(Page::LooksStudio);
+        settle(2);
+        CHECK(app.place() == place_of(Page::LooksStudio), "on the Appearance Editor");
+        CHECK(back_place() == place_of(Page::PlayerEdit), "back_place() is the Player page");
+        CHECK(ui.find("###nav_back") != nullptr, "the Looks page (no page strip) draws the back button");
+        CHECK(ui.click("###nav_back"), "click < Back to Player");
+        settle(2);
+        CHECK(app.place() == place_of(Page::PlayerEdit), "back landed on the Player page");
+        CHECK(!back_place().valid() && ui.find("###nav_back") == nullptr, "going back does not bounce: nothing to go back to now");
+        CHECK(!app.back(), "back() with nothing to go back to is refused");
+        // a page-strip click and a rail click leave a place too
+        app.go(Page::Kits);
+        settle(2);
+        CHECK(ui.click(page_label(Page::Identity), "##content", "##pages"), "strip click Kits -> Name, colours & crest");
+        settle(2);
+        CHECK(app.place() == place_of(Page::Identity) && back_place() == place_of(Page::Kits), "a strip click keeps Kits as the back place");
+        CHECK(app.back(), "App::back()");
+        settle(2);
+        CHECK(app.place() == place_of(Page::Kits) && !back_place().valid(), "App::back() lands on Kits, once");
+    });
+
     run_case("shell UI 3.0: the Lab is hidden with advanced_mode = false; the first 3.0 start hides it once", [&] {
         app.prefs.advanced_mode = false;
         app.go(Page::Home);

@@ -6,6 +6,10 @@
 #include "ui/ui_player_page.h"
 #include "ui/ui_shell.h"
 
+namespace turbo {
+bool manager_chooser_on_manager_heads();  // ui_faces.cpp (3.1 N3)
+}
+
 namespace player_page_test {
 
 using namespace turbo;
@@ -171,6 +175,55 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             }
         }
         hide(ui);
+    });
+    // 3.1 N2 (Defect 3, navigation loops): the top-bar search lands on Attributes & roles (CHANGE-4), whatever Player tab was open before
+    run_case("Shell 3.1 N2: a player found with the top-bar search opens on tab 1 (Attributes & roles), not the tab left open", [&] {
+        hide(ui);
+        app.go(shell::Page::Home);
+        ui.frames(3);
+        shell::player_edit_tab() = 3;  // the Callname tab was left open
+        const PlayerRow* pick = nullptr;
+        for (const PlayerRow& p : app.model.players())
+            if (p.name.size() >= 4) { pick = &p; break; }
+        CHECK(pick != nullptr, "a player with a name to search");
+        if (!pick) return;
+        std::string q = pick->name;
+        for (char& c : q) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+        const std::string want_name = pick->name;
+        app.sel_player = 0;
+        CHECK(ui.type_into(ui.find("##gsearch"), q), "type into the search");
+        ui.frames(3);
+        const PlayerRow* got = app.model.player(app.sel_player);
+        CHECK(app.place() == shell::place_of(shell::Page::PlayerEdit) && got != nullptr, "the search opened Players > Player with " + want_name);
+        CHECK(shell::player_edit_tab() == 1, "the tab is Attributes & roles: " + std::to_string(shell::player_edit_tab()));
+        shell::player_edit_tab() = 0;
+        app.go(shell::Page::Home);
+        ui.frames(3);
+    });
+
+    // 3.1 N3: the chooser opened for a manager starts on the managers' heads (the radio "Manager heads" was a click away)
+    run_case("Shell 3.1 N3: Looks > Managers > Choose a real face opens the chooser on Manager heads", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        app.sel_manager = 0;
+        app.go(shell::Page::LooksStudio);
+        ui.frames(3);
+        CHECK(ui.click("Managers###lsmanagers"), "Managers");
+        ui.frames(3);
+        CHECK(ui.click("###lsface"), "Choose a real face...");
+        ui.frames(2);
+        CHECK(ui.click("###lsaskok"), "Choose a face");
+        ui.frames(3);
+        CHECK(ui.find("Close##mfaces") != nullptr, "the manager chooser is open");
+        CHECK(manager_chooser_on_manager_heads(), "the chooser shows Manager heads");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(2);
+        ui.click("Players###lsplayers");
+        app.go(shell::Page::Home);
+        ui.frames(3);
     });
     app.sel_player = saved_sel;
     app.lua_queue.clear();

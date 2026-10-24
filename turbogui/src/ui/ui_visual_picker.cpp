@@ -101,6 +101,7 @@ struct State {
     bool overridden = false;
     std::string override_dir;
     fs::path res;
+    vis::FolderInfo info;  // 3.1 G2b: not found / found with no picture sets / found (res is the folder holding the sets)
     std::unordered_map<std::string, fs::path> set_dirs;  // set id -> its folder in res (empty: none)
     vis::FolderIndex index;                              // directory listings of the sets (per-file lookups)
     std::unordered_map<std::string, uint32_t> colours;   // colour file -> IM_COL32 (decoded once)
@@ -142,7 +143,8 @@ const fs::path& resources(App& app) {
     State& s = st();
     if (!s.folder_checked) {
         s.folder_checked = true;
-        s.res = s.overridden ? vis::resources_dir(fs::u8path(s.override_dir)) : vis::find_resources(app.turbo_output());
+        s.info = s.overridden ? vis::folder_info(fs::u8path(s.override_dir)) : vis::find_folder_info(app.turbo_output());
+        s.res = s.info.resources;
         s.set_dirs.clear();
         s.index.reset();
         s.colours.clear();
@@ -566,11 +568,25 @@ void close_picker() {
     if (store_ptr()) store().cancel_queued();
 }
 
-void where_pictures_line(const Source& src) {
-    if (src.gallery)
-        ImGui::TextDisabled("RDBM26 pictures come from your RDBM26 folder (Settings > Preferences > Pictures for the pickers); without it the game's own previews and names are shown.");
-    else
-        ImGui::TextDisabled("Pictures come from your RDBM26 folder (Settings > Preferences > Pictures for the pickers). Without it you pick by name.");
+// 3.1 G2b: the one line that says where the pictures come from and WHY there are none: the folder is missing, or it is there
+// and holds no picture sets (runstyle, hairstyle, fkanim). Empty when the sets are found.
+std::string pictures_line(App& app, bool gallery) {
+    resources(app);
+    const vis::FolderInfo& fi = st().info;
+    if (fi.state == vis::FolderState::Found) return "";
+    if (fi.state == vis::FolderState::FoundNoSets)
+        return "Found " + fi.root.u8string() + ", but no picture sets inside (" + vis::kSetFolders + "): the pickers show " +
+               (gallery ? "the game's own previews and names." : "names.") +
+               " Point Settings > Preferences > Pictures for the pickers at your RDBM26 install.";
+    if (gallery)
+        return "RDBM26 pictures come from your RDBM26 folder (Settings > Preferences > Pictures for the pickers); without it the game's own previews and names are shown.";
+    return "Pictures come from your RDBM26 folder (Settings > Preferences > Pictures for the pickers). Without it you pick by name.";
+}
+
+void where_pictures_line(App& app, const Source& src) {
+    const std::string line = pictures_line(app, src.gallery);
+    st().ui.pictures_line = line;
+    if (!line.empty()) ImGui::TextDisabled("%s", line.c_str());
 }
 
 // A small label in the top-left corner of a tile
@@ -694,6 +710,7 @@ bool facet_combo(const char* label, int& value, int n, const char* (*name)(int),
 void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     State& s = st();
     s.ui.tiles_drawn = s.ui.pictures_shown = 0;
+    s.ui.pictures_line.clear();  // 3.1 G2b: set again below when the grid shows the "where are the pictures" line
     s.ui.current = app.db.get_int(t, rec, s.src.field, 0);
     ImGui::SetNextItemWidth(S(260.0f));
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -734,7 +751,7 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
             if (ImGui::SmallButton("Clear##vphairclear")) s.hair = HairFacets();
         }
     }
-    if ((s.ui.names_only || (!s.src.body && resources(app).empty())) && s.src.kind != vis::data::kNone) where_pictures_line(s.src);
+    if ((s.ui.names_only || (!s.src.body && resources(app).empty())) && s.src.kind != vis::data::kNone) where_pictures_line(app, s.src);
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
     filter(app, s);
     if (s.src.field == "hairtypecode") ImGui::TextDisabled("%zu of %zu styles match", s.shown.size(), s.src.codes.size());
@@ -1066,7 +1083,7 @@ void visual_pickers_section(App& app, const Table& t, uint64_t rec, bool manager
         {"Tattoos", {"tattoohead", "tattoofront", "tattooback", "tattooleftarm", "tattoorightarm", "tattooleftleg", "tattoorightleg"}},
     };
     ImGui::PushID("vispickers");
-    if (resources(app).empty()) ImGui::TextDisabled("Pictures come from your RDBM26 folder (Settings > Preferences > Pictures for the pickers). Without it you pick by name.");
+    if (resources(app).empty()) ImGui::TextDisabled("%s", pictures_line(app, false).c_str());
     for (const auto& g : groups) {
         bool any = false;
         for (const std::string& f : g.second) any = any || t.has(f);
@@ -1324,7 +1341,10 @@ void visual_pictures_setting(App& app) {
         std::string err;
         if (vis::save_folder_setting(app.turbo_output(), s.folder_edit, &err)) {
             visual_pictures_refresh(app);
-            app.notify(resources(app).empty() ? "No pictures in that folder: the pickers show names" : "Pictures found");
+            const vis::FolderState fs_now = visual_pictures_state(app);
+            if (fs_now == vis::FolderState::Found) app.notify("Pictures found");
+            else if (fs_now == vis::FolderState::FoundNoSets) app.notify(std::string("Folder found, but no picture sets inside (") + vis::kSetFolders + "): the pickers show names");
+            else app.notify("No pictures in that folder: the pickers show names");
         } else {
             app.notify("The setting could not be saved: " + err, true);
         }
@@ -1335,11 +1355,21 @@ void visual_pictures_setting(App& app) {
         vis::save_folder_setting(app.turbo_output(), "");
         visual_pictures_refresh(app);
     }
-    const fs::path& res = resources(app);
-    if (res.empty())
-        ImGui::TextDisabled("Not found. Turbo shows the animations and pictures of your own RDBM26 install; without it the pickers list names.");
-    else
+    const vis::FolderState fstate = visual_pictures_state(app);
+    if (fstate == vis::FolderState::Found)
         ImGui::TextDisabled("Found: run styles, free kicks and appearance pictures are read from your RDBM26 install (never copied).");
+    else if (fstate == vis::FolderState::FoundNoSets)
+        ImGui::TextDisabled("%s", visual_pictures_note(app).c_str());  // "Found <path>, but no picture sets inside (runstyle, hairstyle, fkanim)..."
+    else
+        ImGui::TextDisabled("Not found. Turbo shows the animations and pictures of your own RDBM26 install; without it the pickers list names.");
 }
+
+// 3.1 G2b: the state of the pictures folder, and the line that says why there are no pictures ("" when the sets are found)
+vis::FolderState visual_pictures_state(App& app) {
+    resources(app);
+    return st().info.state;
+}
+
+std::string visual_pictures_note(App& app) { return pictures_line(app, false); }
 
 }  // namespace turbo

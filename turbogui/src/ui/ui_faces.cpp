@@ -2198,9 +2198,17 @@ void real_face_picker(App& app, int64_t target_pid) {
     ImGui::EndPopup();
 }
 
+// 3.1 N3: what the manager chooser shows now (tests read it; declared where they use it, not in ui_faces.h)
+bool manager_chooser_on_manager_heads() { return g_manager_ch.manager_heads; }
+
 void manager_real_face_picker(App& app, int64_t managerid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    // 3.1 N3: opened for a manager, the chooser starts on the managers' heads (it started on the players' heads, a radio away)
+    if (ImGui::IsWindowAppearing() && !g_manager_ch.manager_heads) {
+        g_manager_ch.manager_heads = true;
+        g_manager_ch.filter.clear();
+    }
     if (const Face* f = chooser_body(app, g_manager_ch, true)) {
         if (f->game_head) {
             g_manager_ch.pending_game_head = f->id;  // asks first (game_head_confirm)

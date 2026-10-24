@@ -57,6 +57,17 @@ std::string load_folder_setting(const std::filesystem::path& turbo_output);
 bool save_folder_setting(const std::filesystem::path& turbo_output, const std::string& folder, std::string* err = nullptr);
 // The folder to use: the setting when set, else the default; then resources_dir() of it
 std::filesystem::path find_resources(const std::filesystem::path& turbo_output);
+// 3.1 G2b: the folder has THREE states, not two. A folder that exists but holds none of the three set folders used to read as
+// "not found" (C:\FC_Tools\RDBM26\Resources exists with 59 files and no runstyle / hairstyle / fkanim folder).
+enum class FolderState : uint8_t { NotFound, FoundNoSets, Found };
+constexpr const char* kSetFolders = "runstyle, hairstyle, fkanim";
+struct FolderInfo {
+    FolderState state = FolderState::NotFound;
+    std::filesystem::path root;       // the folder asked about (the setting, the default, or a test's)
+    std::filesystem::path resources;  // Found: the folder holding the sets (resources_dir of root); else empty
+};
+FolderInfo folder_info(const std::filesystem::path& root);
+FolderInfo find_folder_info(const std::filesystem::path& turbo_output);  // the setting when set, else the default
 // Directory listings kept in memory, so a picker asking for 1,400 pictures reads each folder once, not 1,400 file entries.
 // File names are compared in lower case (Windows). reset() after the folder setting changed.
 class FolderIndex {

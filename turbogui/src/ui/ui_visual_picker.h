@@ -15,6 +15,9 @@
 namespace turbo {
 
 class App;
+namespace visual {
+enum class FolderState : uint8_t;  // core/rdbm_resources.h: NotFound, FoundNoSets, Found
+}
 
 // The pickers of every mapped field the table has, grouped (Movement, Hair and face, Kit and boots, Tattoos), plus the body
 // type grid; one row per field: its picture, its in-game name, "Choose...". Draws the picker window when one is open.
@@ -23,6 +26,10 @@ void visual_pickers_section(App& app, const Table& t, uint64_t rec, bool manager
 void visual_field_row(App& app, const Table& t, uint64_t rec, const char* field, bool manager = false);
 // Settings > Preferences: the RDBM26 folder line (set, default, what was found)
 void visual_pictures_setting(App& app);
+// 3.1 G2b: what the pictures folder is (NotFound / FoundNoSets = the folder exists but has no runstyle, hairstyle or fkanim folder /
+// Found), and the one line that says why there are no pictures ("" when the sets are found; names the path and the three folders)
+visual::FolderState visual_pictures_state(App& app);
+std::string visual_pictures_note(App& app);
 
 // Write `code` into `field` of the record through App::edit (bodytypecode: apply_bodytype). false with *msg when refused.
 bool visual_apply(App& app, const Table& t, uint64_t rec, const std::string& field, int64_t code, std::string* msg = nullptr);
@@ -71,6 +78,7 @@ struct VisualPickerUi {
     bool names_only = false;    // no pictures folder: the list of names
     int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0;  // the whole list, by where each tile's picture comes from
     std::string last_result;    // "Run style set to Medalist", or the refusal
+    std::string pictures_line;  // 3.1 G2b: the "where are the pictures / why none" line the open grid shows in its note ("" when it shows none)
 };
 const VisualPickerUi& visual_picker_ui();
 // Open the picker of `field` for the record on the next frame (what "Choose..." does)
