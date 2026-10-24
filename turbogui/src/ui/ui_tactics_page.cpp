@@ -608,13 +608,17 @@ void draw_offline_slider_section(App& app) {
     ImGui::PopID();
 }
 
-// Lab > Tactics (experimental): draw_tactics_page's body (ui_tactics.cpp, the old registry; it still answers with the old pages on), then
-// the offline slider file section inside the same child, below the live-slider block
+// Lab > Tactics (experimental): the old page draw_tactics_page (ui_tactics.cpp: amber line, ##ttac child, draw_tactics) called as it is,
+// in a region that leaves the bottom part of the page free, then the offline slider file section in that bottom part, below the
+// live-slider block. Calling draw_tactics_page itself (not a copy of its body) keeps it reached by the default navigation (NAVCAP,
+// tools/nav_capability_check.py: "Advanced > Tactics (experimental): draw_tactics_page"); with the old pages on it still answers alone.
 void draw_lab_tactics_page(App& app) {
-    draw_unproven_line("docs/TACTICS_OVERHAUL_DECISION.md");
-    ImGui::BeginChild("##ttac");
-    draw_tactics(app);
-    ImGui::Spacing();
+    const float avail = ImGui::GetContentRegionAvail().y;
+    const float off_h = std::max(1.0f, std::min(S(320.0f), avail * 0.4f));
+    ImGui::BeginChild("##labtaclive", ImVec2(0, -off_h), ImGuiChildFlags_None);  // negative height: all but the bottom off_h
+    draw_tactics_page(app);
+    ImGui::EndChild();
+    ImGui::BeginChild("##labtacoff", ImVec2(0, 0), ImGuiChildFlags_None);
     draw_offline_slider_section(app);
     ImGui::EndChild();
 }
