@@ -262,10 +262,17 @@ bool file_browser_modal(const char* id, fs::path& cur_dir, fs::path& out) {
         fp.exts = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds"};
         fp.key = std::string("pictures") + id;
     }
+    // 3.0.1: the shortcut folders are probed once when the picker opens, not on every frame the picker is closed (browser_shortcuts() is
+    // five to seven directory probes; Looks > Appearance Editor and the crest page drew it 120 times in 120 frames, 7 file-system calls a frame)
+    static std::map<std::string, bool> places_built;
+    bool& built = places_built[id];
     if (!ImGui::IsPopupOpen(id)) {
         fp.start = cur_dir;
         fp.dir = cur_dir;
+        built = false;
+    } else if (!built) {
         fp.places = browser_shortcuts();
+        built = true;
     }
     bool chosen = file_picker_modal(id, fp, out);
     if (!fp.dir.empty()) cur_dir = fp.dir;

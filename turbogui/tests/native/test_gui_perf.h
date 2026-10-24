@@ -401,13 +401,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // kit import record's files every frame (LegacyImages::locate + TextureCache::file: about 6 calls per picture drawn;
         // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
         // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
-        // 3.0.1: Looks > Appearance Editor joins them. Since 2.22 (G-ia) the page carries the whole miniface editor card
-        // (ui_looks_studio.cpp miniface_card -> ui_images.cpp: textures.file at :97, legacy.locate at :131 and :453), the same
-        // per-picture look as Kits. The page measured 2.04 calls a frame only while the 3.0 shell's small window left that card
-        // below the fold (runs 5 and 8: the card was not drawn); in the 1880x1040 window it is 7.23, under the ceiling of 30.
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics",
-                                  "Looks > Appearance Editor"})
+            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics"})
                 if (what == p) return true;
             return false;
         };
