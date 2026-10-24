@@ -291,7 +291,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (all && ui.click(all)) {
             ui.frames(2);
             CHECK(app.db.get_int(*t, pr->rec, "trait1", 0) == f->max(), "All sets every bit");
-            ui.click("###ab_undo", W);
+            to_top(ui);  // All scrolled the page down; the header's Undo is at the top
+            CHECK(ui.click("###ab_undo", W), "click Undo again");
             ui.frames(2);
             CHECK(app.db.get_int(*t, pr->rec, "trait1", 0) == before, "Undo put the field back again");
         }
