@@ -225,6 +225,49 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.go(shell::Page::Home);
         ui.frames(3);
     });
+
+    // 3.1 N3b: Looks > Managers (3.1 R4) begins the chooser's window itself first in the frame, for the warning line, and manager_real_face_picker
+    // appends to it. ImGui recomputes IsWindowAppearing() on every Begin, so the second Begin reads false: the chooser must open on Manager heads
+    // anyway, and again after it was closed with Player heads picked. Drawn here in that order, after the app's own frame.
+    run_case("Shell 3.1 N3b: a chooser whose window the page begins first in the frame opens on Manager heads, and again after Player heads + Close", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        const int64_t mid = app.model.managers()[0].managerid;
+        bool open_it = false;
+        ui.extra_draw = [&] {
+            if (open_it) {
+                ImGui::OpenPopup(kManagerFacePopup);
+                open_it = false;
+            }
+            ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+            if (ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+                ImGui::TextUnformatted("the page's warning line");
+                ImGui::EndPopup();
+            }
+            manager_real_face_picker(app, mid);
+        };
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (first time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
+        CHECK(ui.click("Player heads"), "Player heads");
+        ui.frames(2);
+        CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        CHECK(ui.click("Close##mfaces"), "Close");
+        ui.frames(3);
+        CHECK(ui.find("Close##mfaces") == nullptr, "the chooser is closed");
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (second time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the second time");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(3);
+        ui.extra_draw = nullptr;
+        ui.frames(2);
+    });
     app.sel_player = saved_sel;
     app.lua_queue.clear();
 }

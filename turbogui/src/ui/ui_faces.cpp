@@ -2204,8 +2204,14 @@ bool manager_chooser_on_manager_heads() { return g_manager_ch.manager_heads; }
 void manager_real_face_picker(App& app, int64_t managerid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
-    // 3.1 N3: opened for a manager, the chooser starts on the managers' heads (it started on the players' heads, a radio away)
-    if (ImGui::IsWindowAppearing() && !g_manager_ch.manager_heads) {
+    // 3.1 N3: opened for a manager, the chooser starts on the managers' heads (it started on the players' heads, a radio away).
+    // Not IsWindowAppearing(): Looks > Managers begins this same popup earlier in the frame (its warning line, 3.1 R4) and ImGui
+    // recomputes Appearing on every Begin (imgui.cpp:7559), so this second Begin reads false. "The chooser was not drawn last frame" holds for both.
+    static int s_last_frame = -2;
+    const int frame = ImGui::GetFrameCount();
+    const bool opened = s_last_frame < frame - 1;
+    s_last_frame = frame;
+    if (opened && !g_manager_ch.manager_heads) {
         g_manager_ch.manager_heads = true;
         g_manager_ch.filter.clear();
     }
