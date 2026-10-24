@@ -37,6 +37,7 @@
 #include "ui_career_page.h"
 #include "ui_changes.h"
 #include "ui_tuning.h"
+#include "ui_style.h"
 #include "ui_game_settings.h"
 
 namespace turbo {
@@ -70,34 +71,7 @@ float auto_ui_scale(float display_height) {
 
 // Readable over a bright game picture: near-opaque window, light text, clearer greys (Dear ImGui's dark style is made for
 // a desktop background)
-static void turbo_theme(ImGuiStyle& st) {
-    ImGui::StyleColorsDark(&st);
-    st.WindowRounding = 6.0f;
-    st.FrameRounding = 4.0f;
-    st.TabRounding = 4.0f;
-    st.WindowBorderSize = 1.0f;
-    st.FramePadding = ImVec2(6.0f, 4.0f);
-    st.ItemSpacing = ImVec2(8.0f, 5.0f);
-    ImVec4* c = st.Colors;
-    c[ImGuiCol_Text] = ImVec4(0.96f, 0.96f, 0.97f, 1.0f);
-    c[ImGuiCol_TextDisabled] = ImVec4(0.70f, 0.72f, 0.76f, 1.0f);
-    c[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 0.97f);
-    c[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    c[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.09f, 0.11f, 0.98f);
-    c[ImGuiCol_Border] = ImVec4(0.32f, 0.36f, 0.44f, 0.80f);
-    c[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.19f, 0.25f, 1.0f);
-    c[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.28f, 0.38f, 1.0f);
-    c[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.34f, 0.48f, 1.0f);
-    c[ImGuiCol_TitleBg] = ImVec4(0.09f, 0.12f, 0.20f, 1.0f);
-    c[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.20f, 0.36f, 1.0f);
-    c[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.05f);
-    c[ImGuiCol_TableHeaderBg] = ImVec4(0.14f, 0.17f, 0.24f, 1.0f);
-    // Thin bars with a small rounding (Dear ImGui's default rounding 9 turns a short grab into an oval)
-    st.ScrollbarSize = 12.0f;
-    st.ScrollbarRounding = 3.0f;
-    st.GrabMinSize = 12.0f;
-    st.GrabRounding = 3.0f;
-}
+static void turbo_theme(ImGuiStyle& st) { theme::apply_turbo_theme(st); }  // 3.0: ui_style.cpp (palette, rounding, spacing)
 
 void App::update_style() {
     if (!ImGui::GetCurrentContext()) return;

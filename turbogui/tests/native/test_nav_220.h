@@ -125,9 +125,9 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         CHECK(ui.find("Profile###pe_profile") != nullptr || ui.find("###pe_profile") != nullptr, "Profile tab");
         CHECK(ui.find("###pe_ability") != nullptr, "Positions, attributes & PlayStyles tab");
         CHECK(ui.find("###pe_appearance") != nullptr, "Appearance tab");
-        CHECK(ui.find("###pe_allfields") != nullptr, "All fields tab (last)");
+        CHECK(ui.find("###pe_allfields") != nullptr, "Everything (classic) tab (last)");
         CHECK(turbo::profile_team_players_page() == Page::TeamPlayers, "the Profile's Open Team > Players button is pointed at Team > Players");
-        CHECK(ui.click("###pe_allfields"), "click All fields");
+        CHECK(ui.click("###pe_allfields"), "click Everything (classic)");
         ui.frames(4);
         CHECK(player_edit_tab() >= 3 && ui.find("Card view (beta)###pcardview") != nullptr, "All fields shows the full editor and remembers its tab");
         CHECK(ui.click("###pe_profile"), "back to Profile");
