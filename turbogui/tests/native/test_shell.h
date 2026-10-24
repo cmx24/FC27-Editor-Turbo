@@ -434,6 +434,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
 
     // 3.1 N1 (Defect 3, navigation loops): go() keeps the place it leaves; the page shows "< Back to <page>" and one click returns, once
     run_case("shell UI 3.1 N1: go(PlayerEdit), go(LooksStudio) -> back_place() is PlayerEdit, the button returns there, and only once", [&] {
+        const int was_tab = player_edit_tab();
         app.prefs.advanced_mode = false;
         app.go(Page::Home);
         settle(2);
@@ -442,6 +443,9 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         settle(2);
         CHECK(app.place() == place_of(Page::PlayerEdit) && back_place() == place_of(Page::Home), "Home -> Player: back is Home");
         CHECK(ui.find("###nav_back") != nullptr, "the Player page shows the back button");
+        player_edit_tab() = 3;  // the tab the user is working on when he leaves
+        settle(2);
+        CHECK(player_edit_tab() == 3, "the Player page shows its Callname tab (3)");
         app.go(Page::LooksStudio);
         settle(2);
         CHECK(app.place() == place_of(Page::LooksStudio), "on the Appearance Editor");
@@ -450,6 +454,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(ui.click("###nav_back"), "click < Back to Player");
         settle(2);
         CHECK(app.place() == place_of(Page::PlayerEdit), "back landed on the Player page");
+        CHECK(player_edit_tab() == 3, "Back returns to the same tab it left (Callname, 3), not to the first tab");
         CHECK(!back_place().valid() && ui.find("###nav_back") == nullptr, "going back does not bounce: nothing to go back to now");
         CHECK(!app.back(), "back() with nothing to go back to is refused");
         // a page-strip click and a rail click leave a place too
@@ -461,6 +466,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(app.back(), "App::back()");
         settle(2);
         CHECK(app.place() == place_of(Page::Kits) && !back_place().valid(), "App::back() lands on Kits, once");
+        player_edit_tab() = was_tab;
     });
 
     run_case("shell UI 3.0: the Lab is hidden with advanced_mode = false; the first 3.0 start hides it once", [&] {
