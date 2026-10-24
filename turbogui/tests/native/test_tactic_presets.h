@@ -279,14 +279,50 @@ static void run() {
         CHECK(tp::request_for(agg, live, r, notes).empty() && r.line_height == -1 && r.approach == -1 && r.build_up == 1 && has_line(notes, "Line Height 95"),
               "line height and approach kept together");
         tp::TacticBlock band = b;
-        band.approach = 1;  // line 90 is High's band, not Balanced's
-        CHECK(tp::request_for(band, live, r, notes).empty() && r.line_height == -1 && r.approach == -1, "inconsistent band kept");
+        band.approach = 1;  // line 90 is High's band, not Balanced's: 3.0.1 (GUI30H) the Line Height is written and the approach follows its band
+        CHECK(tp::request_for(band, live, r, notes).empty() && r.line_height == 90 && r.approach == 2 &&
+                  has_line(notes, "Defensive Approach Balanced (1) -> High (2) to match Line Height 90"),
+              "inconsistent band: the line wins, the approach follows (" + (notes.empty() ? std::string("no note") : notes[0]) + ")");
         // a role group that differs is left alone, with a note
         tp::TacticBlock g2 = b;
         g2.slots[2].role_group = 5;
         CHECK(tp::request_for(g2, live, r, notes).empty() && r.slots.size() == 10 && has_line(notes, "slot 2: the role group differs"), "group");
         tp::TacticBlock none;
         CHECK(part(tp::request_for(none, live, r, notes), "no tactic part"), "no tactic block");
+    });
+
+    run_case("tactic presets 3.0.1 (GUI30H): a preset's Line Height is written, the approach follows its band; values not written are listed, never hidden", [] {
+        const tsheet::LiveTactic live = fake_live();  // Line Height 25, Deep (0)
+        tsheet::Request r;
+        std::vector<std::string> notes;
+        // GUI30H_B: GUI30G_A with only line_height 25 -> 60 (approach still Deep): b153e48 dropped both values and diff_lines was empty
+        tp::TacticBlock h = tp::block_from_live(live);
+        h.line_height = 60;
+        CHECK(tp::request_for(h, live, r, notes).empty() && r.line_height == 60 && r.approach == 1, "GUI30H_B: line 60 + Balanced (1) requested, got line " +
+                                                                                                        std::to_string(r.line_height) + " approach " + std::to_string(r.approach));
+        CHECK(has_line(notes, "Defensive Approach Deep (0) -> Balanced (1) to match Line Height 60"), "GUI30H_B: the note says why the approach changes");
+        const auto d = tp::diff_lines(h, live);
+        CHECK(has_line(d, "Line Height 25 -> 60") && has_line(d, "Defensive Approach Deep (0) -> Balanced (1)"), "GUI30H_B diff: " + (d.empty() ? std::string("none") : d[0]));
+        // each band edge
+        for (auto [line, band] : {std::pair<int, int>{1, 0}, {30, 0}, {31, 1}, {61, 2}, {90, 2}}) {
+            tp::TacticBlock e = tp::block_from_live(live);
+            e.line_height = line;
+            CHECK(tp::request_for(e, live, r, notes).empty() && r.line_height == line && r.approach == band, "line " + std::to_string(line));
+        }
+        // Aggressive's band (91..100): not written by design (team_sheet.cpp: Aggressive writable=false); the difference is listed as not written
+        tp::TacticBlock a = tp::block_from_live(live);
+        a.line_height = 95;
+        a.approach = 3;
+        CHECK(tp::request_for(a, live, r, notes).empty() && r.line_height == -1 && r.approach == -1 && has_line(notes, "Line Height 95"), "95 refused");
+        const auto da = tp::diff_lines(a, live);
+        CHECK(has_line(da, "Line Height 25 -> 95: not written") && has_line(da, "Defensive Approach Deep (0) -> Aggressive (3): not written"),
+              "95: the differences are listed as not written: " + (da.empty() ? std::string("none") : da[0]));
+        // out of range: never written
+        tp::TacticBlock o = tp::block_from_live(live);
+        o.line_height = 0;
+        CHECK(tp::request_for(o, live, r, notes).empty() && r.line_height == -1 && has_line(notes, "outside 1..100"), "0 refused");
+        // the same values: nothing listed (the dialog may say the tactic already holds them)
+        CHECK(tp::diff_lines(tp::block_from_live(live), live).empty(), "equal: no lines");
     });
 
     run_case("tactic presets: the presets folder - write, list, skip bad files, unique names, delete; nothing outside the folder", [] {
@@ -652,6 +688,96 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Dismiss##tpdismiss", "##tpresets"), "dismissed");
         ui.frames(100);
         CHECK(s.reapply.empty() && live_is(25, 0, 0, 38213, 5) && tp::load_last(tp::last_load_path(out), ll, &err) && ll.state == "dismissed", "no more asking");
+        // 3.0.1 (GUI30H): the line height wins over an approach of another band; Undo keeps a staging that was there before the load;
+        // a load whose tactic part writes nothing never says "already holds" or "Loaded" alone
+        CHECK(part(s.sliders_line, "from the Settings file the game saved last, not from the running game"), "the sliders line says where it is read from: " + s.sliders_line);
+        auto pending_of = [&](gsettings::Pending& pd) {
+            std::ifstream f(out / gsettings::pending_file(), std::ios::binary);
+            if (!f) return false;
+            std::stringstream ss;
+            ss << f.rdbuf();
+            std::string e;
+            return gsettings::Pending::parse(ss.str(), pd, &e);
+        };
+        {
+            std::string smsg;
+            int staged_n = 0;
+            std::vector<std::string> skipped_n;
+            CHECK(game_settings_stage(app, "KEEP", {{"cpu.sprint_speed", 41}, {"user.sprint_speed", 42}}, smsg, staged_n, skipped_n, false), "an earlier staging: " + smsg);
+        }
+        tp::Preset h60 = base;
+        h60.name = "H60";
+        h60.tactic.line_height = 60;  // the approach stays Deep (0): GUI30H_B
+        h60.settings.values["cpu.sprint_speed"] = 34;
+        h60.tactic.build_up = 2;  // a Build-Up Style Turbo does not write (no decoded label): listed as not written, never -1 in the last-load file
+        CHECK(tp::write_preset(tp::presets_dir(out), h60, &err), err);
+        tp::Preset a95 = base;
+        a95.name = "A95";
+        a95.tactic.line_height = 95;  // Aggressive's band: not written by design
+        a95.tactic.approach = 3;
+        tp::Preset a95t = a95;  // the same without sliders: nothing at all to load
+        a95t.name = "A95T";
+        a95t.settings = tp::SettingsBlock();
+        CHECK(tp::write_preset(tp::presets_dir(out), a95, &err) && tp::write_preset(tp::presets_dir(out), a95t, &err), err);
+        CHECK(ui.click("Refresh##tprefresh", "##tpresets"), "Refresh");
+        ui.frames(3);
+        ui.frames(70);
+        pick("H60");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load H60");
+        ui.frames(3);
+        CHECK(s.confirm_open && has_line(s.confirm_lines, "Line Height 25 -> 60") && has_line(s.confirm_lines, "Defensive Approach Deep (0) -> Balanced (1)") &&
+                  !has_line(s.confirm_lines, "already holds"),
+              "H60 asks with the line and the band's approach: " + (s.confirm_lines.empty() ? std::string("no dialog: ") + s.status : s.confirm_lines[0]));
+        if (s.confirm_open) {
+            CHECK(ui.click("Load##tpyes", "Load tactic preset"), "H60 confirmed");
+            ui.frames(6);
+        }
+        CHECK(live_is(60, 1, 0, 38213, 5), "the live tactic holds Line Height 60 / Balanced (1)");
+        CHECK(s.status.find("Loaded \"H60\": written into your live tactic and read back.") == 0, "status: " + s.status);
+        CHECK(s.status.find(" Not written: Build-Up Style") != std::string::npos, "the status names what was not written: " + s.status);
+        {
+            tp::LastLoad hl;
+            std::string le;
+            CHECK(tp::load_last(tp::last_load_path(out), hl, &le) && hl.after.line_height == 60 && hl.after.approach == 1 && hl.after.build_up == 0,
+                  "the last-load file parses and keeps the live Build-Up Style (b153e48 wrote -1 there for an unwritten field): " + le);
+        }
+        gsettings::Pending pk;
+        CHECK(pending_of(pk) && pk.preset == "H60" && pk.values["cpu.sprint_speed"] == 34, "H60's sliders are staged");
+        CHECK(ui.click("Undo last load##tpundo", "##tpresets"), "Undo H60");
+        ui.frames(3);
+        if (s.confirm_open) {
+            CHECK(ui.click("Undo##tpyes", "Undo the last preset load"), "undo confirmed");
+            ui.frames(6);
+        }
+        CHECK(live_is(25, 0, 0, 38213, 5), "Undo puts Line Height 25 / Deep back");
+        pk = gsettings::Pending();
+        CHECK(pending_of(pk) && pk.preset == "KEEP" && pk.values["cpu.sprint_speed"] == 41 && pk.values["user.sprint_speed"] == 42,
+              "Undo restored the staging that was there before the load (b153e48 deleted it)");
+        // A95 with sliders: the sliders load, the tactic is not changed and the dialog and the status say so
+        pick("A95");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load A95");
+        ui.frames(3);
+        CHECK(s.confirm_open && !has_line(s.confirm_lines, "already holds") && has_line(s.confirm_lines, "the tactic is NOT changed") &&
+                  has_line(s.confirm_lines, "Line Height 25 -> 95: not written"),
+              "A95 dialog: " + (s.confirm_lines.empty() ? std::string("none") : s.confirm_lines[0]));
+        if (s.confirm_open) {
+            CHECK(ui.click("Load##tpyes", "Load tactic preset"), "A95 confirmed");
+            ui.frames(6);
+        }
+        CHECK(live_is(25, 0, 0, 38213, 5) && s.status.find("the tactic is NOT changed") != std::string::npos && s.status.find("Loaded \"A95\".") != 0,
+              "A95 status: " + s.status);
+        // A95T: nothing to load, and the reason is the unwritten line height, not "already holds"
+        pick("A95T");
+        CHECK(ui.click("Apply preset##tpload", "##tpresets"), "Load A95T");
+        ui.frames(3);
+        CHECK(!s.confirm_open && s.status.find("Nothing to load") == 0 && s.status.find("already holds") == std::string::npos &&
+                  s.status.find("Line Height 25 -> 95: not written") != std::string::npos,
+              "A95T: " + s.status);
+        if (s.confirm_open) ui.click("Cancel##tpno", "Load tactic preset");
+        fs::remove(out / gsettings::pending_file(), ec);
+        for (const char* n : {"H60", "A95", "A95T"}) fs::remove(tp::presets_dir(out) / (std::string(n) + ".json"), ec);
+        CHECK(ui.click("Refresh##tprefresh", "##tpresets"), "Refresh");
+        ui.frames(3);
         // Delete: two clicks
         pick("OTHER");
         CHECK(ui.click("More##tpmore", "##tpresets"), "More (destructive actions live there)");

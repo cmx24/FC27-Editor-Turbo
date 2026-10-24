@@ -834,6 +834,85 @@ static void run_custom() {
         CHECK(b[kPayloadOff + 0xB8976 + 0x50] == 12 && b[kPayloadOff + 0xB8976 + 0x25] == 50, "verified written, unverified (cpu.acceleration) not");
     });
 
+    run_case("game settings 3.0.1 (GUI30J): a refused --apply says the sliders were NOT applied, names the bytes, writes nothing, keeps the staging", [] {
+        // 8F10EEB9 (Cassio's file, GUI30J) holds 01 00 00 00 00 before the Custom block; --apply refused it with a message that did not say
+        // the sliders were not applied. The fixture gets the same prefix.
+        auto f = fixture();
+        f[kPayloadOff + 0xB8976 - 1] = 0;
+        fix_crc(f);
+        Rig r("custom_prefix00", f);
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), m, &err), err);
+        Preset p;
+        p.name = "t";
+        p.values = {{"user.sprint_speed", 33}, {"user.acceleration", 46}, {"cpu.sprint_speed", 34}};
+        std::string msg;
+        CHECK(stage_pending(r.out, p, m, "20261024-170000-000", &msg), msg);
+        CHECK(msg.find("Not proven in game yet") != std::string::npos, "the staging line says the apply is not proven in game: " + msg);
+        const std::string md5 = md5_of(r.settings / kName);
+        const std::string others = r.others();
+        const Outcome o = apply_pending(r.env, m);
+        std::error_code ec;
+        CHECK(!o.ok, "refused: " + o.message);
+        CHECK(o.message.rfind("The sliders were NOT applied", 0) == 0, "the text starts by saying the sliders were not applied: " + o.message);
+        CHECK(o.message.find("01 00 00 00 00") != std::string::npos && o.message.find("layout moved") != std::string::npos &&
+                  o.message.find("nothing was written") != std::string::npos,
+              "it names the bytes found and why: " + o.message);
+        CHECK(md5_of(r.settings / kName) == md5 && r.bytes() == f && r.others() == others, "the settings folder is unchanged");
+        CHECK(fs::exists(r.out / pending_file(), ec), "the staging stays for a later apply");
+        // --status shows the same thing before anyone runs --apply
+        const auto snap = read_current(r.settings, m);
+        CHECK(snap.ok, snap.why);
+        bool refuses = false;
+        for (const std::string& l : status_lines(snap, m))
+            refuses = refuses || (l.find("01 00 00 00 00") != std::string::npos && l.find("REFUSES") != std::string::npos);
+        CHECK(refuses, "--status names the prefix bytes and says --apply refuses the file");
+    });
+
+    run_case("game settings 3.0.1 (GUI30H replay): the 10-24 apply on 4e8e8dff gives 54c0099a, and --status shows the Custom values", [] {
+        // Read-only evidence: the backup the GUI30H apply made (md5 4e8e8dff, backup.json md5_after 54c0099a). A missing file is a loud SKIP.
+        const char* e = std::getenv("TURBO_GUI30H_BACKUP");
+        const fs::path src = e ? fs::path(e)
+                               : fs::path("C:/FC 27 Live Editor/turbo_dev/evidence/2026-10-24/GUI30H/settings_backup_added_by_apply/Settings20261024153356272");
+        std::vector<uint8_t> before;
+        if (!read_bytes(src, before, 1u << 20)) {
+            std::printf("    SKIP (NOT A PASS): %s is not readable\n", src.u8string().c_str());
+            return;
+        }
+        CHECK(md5_hex(before) == "4e8e8dff31b2f01bef9bdc5191d9c1a1", "the evidence file is the GUI30H before file: " + md5_hex(before));
+        Rig r("gui30h_replay", before);
+        std::string err;
+        CHECK(SliderMap::parse(custom_map(true), r.map, &err), err);
+        const SliderMap& m = r.map;
+        // before: --status shows 50 for the three and that --apply accepts the file (prefix 01 00 00 00 01)
+        const auto s0 = read_current(r.settings, m);
+        CHECK(s0.ok, s0.why);
+        auto has = [](const std::vector<std::string>& v, const std::string& t) {
+            for (const std::string& l : v)
+                if (l.find(t) != std::string::npos) return true;
+            return false;
+        };
+        const std::vector<std::string> l0 = status_lines(s0, m);
+        CHECK(has(l0, "custom user.sprint_speed (0x50): 50") && has(l0, "01 00 00 00 01 (--apply accepts this file)"), "before: 50 and the prefix shown");
+        std::vector<Write> w;
+        for (auto [id, v] : {std::pair<const char*, int>{"cpu.sprint_speed", 34}, {"user.acceleration", 46}, {"user.sprint_speed", 33}}) {
+            Write x;
+            x.custom = true;
+            x.index = m.entry(id)->custom_index;
+            x.value = uint32_t(v);
+            x.what = id;
+            w.push_back(x);
+        }
+        const Outcome o = patch(r.env, m, w, "preset replay");
+        CHECK(o.ok, o.message);
+        CHECK(md5_of(r.settings / kName) == "54c0099aba8ee6975e757a718f19b491", "the replay gives the md5 the GUI30H apply wrote: " + md5_of(r.settings / kName));
+        const std::vector<std::string> l1 = status_lines(read_current(r.settings, m), m);
+        CHECK(has(l1, "custom cpu.sprint_speed (0x24): 34") && has(l1, "custom user.sprint_speed (0x50): 33") && has(l1, "custom user.acceleration (0x51): 46"),
+              "--status prints the Custom values the apply wrote (b153e48 printed the u32 regions only)");
+        CHECK(has(l1, kSlidersSource), "--status says the values come from the file, not the running game");
+    });
+
     run_case("game settings custom: G-S1 real files (game CRC reproduced; byte-identical to the game's file)", [] {
         std::vector<uint8_t> before, after;
         if (!gs1_load(before, after)) {

@@ -121,12 +121,18 @@ Preset make_preset(const std::string& name, const std::string& note, const std::
 // ---- loading: the request channel E understands
 // The Request that puts `want` into the live tactic `now`: the formation is never written, so another formation (another source formation or
 // other positions in the slots) is REFUSED whole ("pick the preset's formation in Edit Tactic first"). Same formation: Line Height + Defensive
-// Approach (together: the approach is the line's band) when both are values Turbo writes, Build-Up Style when it writes it, the role id and focus
+// Approach (together, band-consistent: 3.0.1 the Line Height wins and the approach follows its band, with a note; a line of Aggressive's band
+// 91..100 or outside 1..100 writes neither), Build-Up Style when it writes it, the role id and focus
 // of every slot whose role group is unchanged. A value Turbo does not write stays as the live tactic has it, and `notes` says so (the rest loads).
 // "" and the request, or why nothing can be requested.
 std::string request_for(const TacticBlock& want, const tsheet::LiveTactic& now, tsheet::Request& out, std::vector<std::string>& notes);
-// One line per value that differs (live -> preset): "Line Height 25 -> 90", "slot 9 role 21 / focus 5 -> role 22 / focus 6"
+// One line per value that differs (live -> preset): "Line Height 25 -> 90", "slot 9 role 21 / focus 5 -> role 22 / focus 6". 3.0.1 (GUI30H):
+// a difference the request does not write is listed too, ending ": not written" ("Line Height 25 -> 95: not written"), never hidden
 std::vector<std::string> diff_lines(const TacticBlock& want, const tsheet::LiveTactic& now);
+// The written differences only (what the request changes); Re-apply's "your live tactic does not hold it now" uses these
+std::vector<std::string> written_diff_lines(const TacticBlock& want, const tsheet::LiveTactic& now);
+// The lines of a diff_lines result that end ": not written"
+std::vector<std::string> unwritten_lines(const std::vector<std::string>& diff);
 // "formation: preset 433 (source 10) / live 442 (source 12)" when the formations differ, else ""
 std::string formation_note(const TacticBlock& want, const tsheet::LiveTactic& now);
 // One line for the list: "433, Defensive Approach High (2), Line Height 90, Build-Up Style Counter (1); 11 roles; 3 sliders"
@@ -161,6 +167,8 @@ struct LastLoad {
     bool settings_staged = false;    // the settings block was staged (turbo_output\settings_pending.json)
     std::string settings_preset;     // the staged preset's name
     std::vector<std::string> settings_skipped;  // sliders left out (not verified)
+    std::string settings_previous;   // 3.0.1: turbo_output\settings_pending.json as it was before this load staged its sliders ("" = none);
+                                     // Undo puts it back (b153e48 deleted an earlier staging along with the load's own)
     bool setpieces_sent = false;                // the set-piece block was sent to Lua (mode set); Undo sends mode undo
     std::string to_json() const;
     static bool parse(const std::string& text, LastLoad& out, std::string* err);

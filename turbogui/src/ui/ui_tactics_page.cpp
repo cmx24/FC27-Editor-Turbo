@@ -25,6 +25,7 @@
 #include "ui_live_tactic.h"
 #include "ui_shell.h"
 #include "ui_tactic_presets.h"
+#include "ui_tactics_pages.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -322,7 +323,7 @@ std::string sliders_now_line() {
         return it == sl.sliders.end() ? std::string("?") : std::to_string(it->second);
     };
     return "Custom sliders now: " + std::to_string(sl.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
-           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ")";
+           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ") - " + gsettings::kSlidersSource;
 }
 
 void load_presets_now(App& app) {
@@ -554,8 +555,43 @@ void draw_team_sheet_page(App& app) {
     }
 }
 
+const char* const kOfflineSlidersHeading = "Offline slider file (experimental)";
+const char* const kOfflineSlidersLabel =
+    "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
+
+// 3.0.1 (GUI30K): the Tactics area shows no slider staging. The page stays registered (Home's Game sliders button and Changes & undo
+// open it) and says where the section went; nothing on it stages.
 void draw_game_sliders_page(App& app) {
     s3.drawn = true;
+    s3.moved_note = true;
+    try {
+        const bool adv = app.prefs.advanced_mode;
+        ImGui::TextWrapped("Game sliders moved to the Lab: Tactics (experimental), section \"%s\".", kOfflineSlidersHeading);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
+        ImGui::TextWrapped("%s", kOfflineSlidersLabel);
+        ImGui::PopStyleColor();
+        if (!adv) theme::muted_text("Settings > \"Show the Lab (tools not proven in game)\" adds the Lab to the left menu.");
+        const std::string go = std::string(adv ? "Open Lab > Tactics (experimental)" : "Open Settings") + "###gsmoved";
+        if (ImGui::Button(go.c_str())) app.go(adv ? shell::Page::AdvTactics : shell::Page::Settings);
+    } catch (const std::exception& e) {
+        theme::err_text("Game sliders error: %s", e.what());
+    } catch (...) {
+        theme::err_text("Game sliders error");
+    }
+}
+
+// The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,
+// under its heading and label. Its own ID scope and a fixed height: it is drawn below the Lab's live-slider block, inside its child.
+void draw_offline_slider_section(App& app) {
+    s3.drawn = true;
+    s3.lab_heading = kOfflineSlidersHeading;
+    s3.lab_label = kOfflineSlidersLabel;
+    ImGui::PushID("##offsl");
+    ImGui::SeparatorText(kOfflineSlidersHeading);
+    ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
+    ImGui::TextWrapped("%s", kOfflineSlidersLabel);
+    ImGui::PopStyleColor();
+    ImGui::BeginChild("##offslbody", ImVec2(0, S(480.0f)), ImGuiChildFlags_None);
     try {
         update_sliders_state(app);
         shell::page::Primary primary;
@@ -568,6 +604,20 @@ void draw_game_sliders_page(App& app) {
     } catch (...) {
         theme::err_text("Game sliders error");
     }
+    ImGui::EndChild();
+    ImGui::PopID();
 }
+
+// Lab > Tactics (experimental): draw_tactics_page's body (ui_tactics.cpp, the old registry; it still answers with the old pages on), then
+// the offline slider file section inside the same child, below the live-slider block
+void draw_lab_tactics_page(App& app) {
+    draw_unproven_line("docs/TACTICS_OVERHAUL_DECISION.md");
+    ImGui::BeginChild("##ttac");
+    draw_tactics(app);
+    ImGui::Spacing();
+    draw_offline_slider_section(app);
+    ImGui::EndChild();
+}
+TURBO_REGISTER_NEW_PAGE(shell::Page::AdvTactics, draw_lab_tactics_page);
 
 }  // namespace turbo

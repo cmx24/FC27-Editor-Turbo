@@ -86,7 +86,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const bool was_advanced = app.prefs.advanced_mode;
         app.prefs.advanced_mode = false;
         ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));
-        show(ui, draw_game_sliders_page);
+        show(ui, draw_offline_slider_section);  // 3.0.1 GUI30K: the list and Prepare live in the Lab section now
         ui.frames(4);
         const GameSlidersPageState& s = game_sliders_page_state();
         CHECK(s.drawn && s.names == std::vector<std::string>({"SLIDERS"}), "the list holds the presets with sliders only (the tactic-only one stays out)");

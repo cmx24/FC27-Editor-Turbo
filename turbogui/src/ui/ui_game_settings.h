@@ -53,7 +53,8 @@ bool game_settings_plan(App& app, const std::map<std::string, int>& values, int&
 // `staged` gets the count, `skipped` the sliders left out; false (with msg) when nothing could be staged
 bool game_settings_stage(App& app, const std::string& name, const std::map<std::string, int>& values, std::string& msg, int& staged,
                          std::vector<std::string>& skipped, bool include_unverified = false);
-// Removes turbo_output\settings_pending.json when it is the staged preset `name`'s (before the apply tool ran); msg says what happened
-bool game_settings_unstage(App& app, const std::string& name, std::string& msg);
+// Removes turbo_output\settings_pending.json when it is the staged preset `name`'s (before the apply tool ran); msg says what happened.
+// 3.0.1: `previous` (the file's text before `name` was staged, "" = none) is written back after the removal when it is a staging file
+bool game_settings_unstage(App& app, const std::string& name, std::string& msg, const std::string& previous = std::string());
 
 }  // namespace turbo

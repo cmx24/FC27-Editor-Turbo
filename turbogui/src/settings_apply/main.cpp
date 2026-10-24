@@ -238,12 +238,7 @@ int wmain(int argc, wchar_t** argv) {
             return 1;
         }
         std::printf("%s: %s, layout %s, CRC ok, md5 %s\n", s.name.c_str(), s.profile.c_str(), s.layout.c_str(), s.md5.c_str());
-        for (const Region& r : m.regions) {
-            std::printf("%-8s", r.id.c_str());
-            for (const auto& v : s.slots)
-                if (v.first >= r.first && v.first < r.first + r.count) std::printf(" %u", v.second);
-            std::printf("\n");
-        }
+        for (const std::string& l : status_lines(s, m)) std::printf("%s\n", l.c_str());  // 3.0.1: the Custom block too (GUI30H)
         int verified = 0;
         for (const Entry& e : m.entries) verified += e.writable() ? 1 : 0;
         std::printf("slider map: %zu entries, %d verified in game\n", m.entries.size(), verified);

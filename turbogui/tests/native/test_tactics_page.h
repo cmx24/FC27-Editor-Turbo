@@ -268,7 +268,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(s.names.size() == 5 && s.selected == 0, "the list and the pick survive Refresh");
 
         // ---- Game sliders (the page the navigation draws)
-        show(ui, draw_game_sliders_page);
+        show(ui, draw_offline_slider_section);  // 3.0.1 GUI30K: the Lab section (Lab > Tactics (experimental))
         ui.frames(4);
         const GameSlidersPageState& g3 = game_sliders_page_state();
         CHECK(g3.drawn && g3.names.size() == 5 && g3.skipped.empty(), "Game sliders lists the five: " + std::to_string(g3.names.size()));
