@@ -268,6 +268,49 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.extra_draw = nullptr;
         ui.frames(2);
     });
+
+    // 3.1 N3c: closed in frame F and opened again in frame F+1. The 57d9f9f counter ("the chooser was not drawn last frame") read that as still open
+    // and left the chooser on Player heads; the open itself (OpenPopup, ImGuiPopupData::OpenFrameCount) is what counts. One Begin here (no R4 double
+    // Begin), so the consecutive-frame reopen is the only variable.
+    run_case("Shell 3.1 N3c: a chooser closed and opened again on the very next frame opens on Manager heads again", [&] {
+        hide(ui);
+        if (app.model.managers().empty()) {
+            CHECK(false, "the test world has a manager");
+            return;
+        }
+        const int64_t mid = app.model.managers()[0].managerid;
+        bool open_it = false, was_open = false, reopen_on_close = false;
+        ui.extra_draw = [&] {
+            if (open_it) {
+                ImGui::OpenPopup(kManagerFacePopup);
+                open_it = false;
+            }
+            manager_real_face_picker(app, mid);
+            const bool is_open = ImGui::IsPopupOpen(kManagerFacePopup);
+            if (was_open && !is_open && reopen_on_close) {  // closed in this very frame: OpenPopup in the next one
+                open_it = true;
+                reopen_on_close = false;
+            }
+            was_open = is_open;
+        };
+        open_it = true;
+        ui.frames(3);
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (first time)");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
+        CHECK(ui.click("Player heads"), "Player heads");
+        ui.frames(2);
+        CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        reopen_on_close = true;
+        CHECK(ui.click("Close##mfaces"), "Close");
+        ui.frames(3);
+        CHECK(!reopen_on_close, "the chooser was closed and reopened on consecutive frames");
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open again");
+        CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads again after a reopen on the very next frame");
+        if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
+        ui.frames(3);
+        ui.extra_draw = nullptr;
+        ui.frames(2);
+    });
     app.sel_player = saved_sel;
     app.lua_queue.clear();
 }

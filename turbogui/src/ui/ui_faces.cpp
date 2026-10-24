@@ -19,6 +19,7 @@
 #include "core/image.h"
 #include "core/player_capture.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
@@ -2205,12 +2206,14 @@ void manager_real_face_picker(App& app, int64_t managerid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
     // 3.1 N3: opened for a manager, the chooser starts on the managers' heads (it started on the players' heads, a radio away).
-    // Not IsWindowAppearing(): Looks > Managers begins this same popup earlier in the frame (its warning line, 3.1 R4) and ImGui
-    // recomputes Appearing on every Begin (imgui.cpp:7559), so this second Begin reads false. "The chooser was not drawn last frame" holds for both.
-    static int s_last_frame = -2;
-    const int frame = ImGui::GetFrameCount();
-    const bool opened = s_last_frame < frame - 1;
-    s_last_frame = frame;
+    // "Opened" = OpenPopup() ran since this popup was last drawn here: ImGuiPopupData::OpenFrameCount of the popup being begun is the frame of
+    // its OpenPopup(), a new value at every open, also a close and reopen on consecutive frames (the 57d9f9f frame counter "not drawn last
+    // frame" read that as still open). Not IsWindowAppearing(): Looks > Managers begins this same popup earlier in the frame (its warning
+    // line, 3.1 R4) and ImGui recomputes Appearing on every Begin (imgui.cpp:7559), so this second Begin reads false.
+    static int s_open_frame = -2;
+    const int open_frame = ImGui::GetCurrentContext()->BeginPopupStack.back().OpenFrameCount;
+    const bool opened = open_frame != s_open_frame;
+    s_open_frame = open_frame;
     if (opened && !g_manager_ch.manager_heads) {
         g_manager_ch.manager_heads = true;
         g_manager_ch.filter.clear();

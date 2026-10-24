@@ -6554,6 +6554,10 @@ static void test_ui() {
             CHECK(ui.click("Appearance", "##medit"), "manager Appearance tab");
             CHECK(ui.click("Choose a real face...", "##mapp"), "open the manager chooser");
             ui.frames(3);
+            // 3.1 N3: a manager's chooser opens on Manager heads; giving a manager a PLAYER's head (2.20) is the Player heads radio, one click away
+            CHECK(ui.find("mface501", "Choose a real face##mgr") != nullptr, "3.1 N3: the manager chooser opens on Manager heads");
+            CHECK(ui.click("Player heads", "Choose a real face##mgr"), "Player heads radio");
+            ui.frames(2);
             CHECK(ui.find("face1004", "Choose a real face##mgr") != nullptr, "player heads listed for managers");
             const Table* mt = app.db.table("manager");
             const uint64_t mrec = app.db.find(*mt, "managerid", 503);
