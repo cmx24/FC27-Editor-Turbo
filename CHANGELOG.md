@@ -3,6 +3,21 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## 3.1.0 (built 2026-10-24) - crisp full-body pictures, fewer clicks
+
+Offline-green only (check_all); the G3 record says what was seen in game. Base: 3.0.1 (3.0.1/integration c0b03c4). Brief: `turbo_dev\PITWALL\briefs\3.1-gui.md`, merge log: `turbo_dev\PITWALL\reviews\merge_31.md`.
+
+- Looks > Full body: Turbo asks the game for the full-body picture with its larger camera (mode 1, 1024x1024) instead of the 256 one. When the game gives no picture that way, Turbo asks once more with the old camera and writes "full body: mode 1 gave nothing, drew at 256" in turbo_gui.log. The body-type generator keeps the small camera. A `turbo_output\looks\body_camera.txt` with `mode = 0` brings back the 3.0 behaviour without a rebuild. Not seen in game yet: that the larger camera frames a player head to boots.
+- Looks > Full body: the picture is cropped to the player with a small margin, keeps its shape and fills the pane's height. The caption now also gives the size the game drew, for example "drawn by the game at 18:30 (1024x1024)".
+- Looks > Full body: selecting a player who has no picture yet draws him at once, with no "Draw him" click. A manager still needs Draw him.
+- Looks > Managers > Choose a real face...: one click opens the chooser, and the "can't be undone" warning is its first line (the separate question is gone). Close changes nothing.
+- The manager real-face chooser opens on Manager heads, from Looks > Managers and from the Appearance Editor alike.
+- A "< Back to <page>" button above the page strip (also on the Looks page) returns to the page you came from, on the same tab.
+- Top-bar search: a player hit opens the Player page on Attributes & roles every time.
+- Top-bar search: a club hit keeps you on the current page when that page is a Club page; otherwise it opens Team players.
+- Pickers with pictures (added in 2.20): run styles, free-kick run-ups, hair, beard and the other picture grids show the pictures from your own RDBM26 install (default `C:\FC_Tools\RDBM26`, its Resources folder). New in 3.1: when that folder is found but holds none of the picture sets (runstyle, hairstyle, fkanim), Settings > Preferences and the grids say so and name the folder; it used to read as "not found". Not checked on this PC yet: that the grids show the pictures from `C:\FC_Tools\RDBM26\Resources`, which holds the hairstyle, runstyle and fkanim folders today.
+- Also in this build, every 3.0.1 fix (3.0.1 block below): Tactics > Game sliders gives the exact installer command, `turbo\turbo_settings_apply.exe --apply`; the Appearance Editor picture picker no longer checks folders on disk on every redraw; a click on one of the left rail's narrow / widen arrows can no longer be taken by the other.
+
 ## 3.0.1 (built 2026-10-24) - fixes after the 3.0 shell
 
 Offline-green only (check_all); the G3 record says what was seen in game. Base: 3.0.0 (b153e489). Brief: `turbo_dev\PITWALL\briefs\3.0.1-tests.md`, classification of every failing native case: `turbo_dev\PITWALL\reviews\3.0.1_native_classification.md`.
