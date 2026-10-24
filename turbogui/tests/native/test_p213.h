@@ -140,7 +140,7 @@ static void ui_cases(App& app, Ui& ui) {
     run_case("Edit a player (2.19): the full editor (filters, resizable list) in Simple and Advanced without the old-pages switch; the card page only as an opt-in", [&] {
         const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode, was_card = app.player_card_view;
         const int was_tab = shell::player_edit_tab();
-        shell::player_edit_tab() = 3;  // 2.20: the full editor is the All fields tab of Edit a player
+        shell::player_edit_tab() = 4;  // 3.0: the full editor is the Everything (classic) tab of Players > Player (index 4)
         app.legacy_pages = false;
         app.player_card_view = false;
         for (bool adv : {false, true}) {

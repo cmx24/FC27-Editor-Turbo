@@ -175,11 +175,11 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
     });
 
     run_case("G-ia: the outer tab is Classic editor (was All fields); the Classic editor keeps its own tabs and its own player type bar", [&] {
-        shell::player_edit_tab() = 3;
+        shell::player_edit_tab() = 4;
         app.sel_player = 1001;
         app.go(Page::PlayerEdit);
         ui.frames(4);
-        CHECK(ui.find("Classic editor###pe_allfields") != nullptr, "the tab is called Classic editor");
+        CHECK(ui.find("Everything (classic)###pe_allfields") != nullptr, "the tab is called Everything (classic)");
         CHECK(ui.find("All fields###pe_allfields") == nullptr, "no outer tab called All fields");
         CHECK(ui.find("Card view (beta)###pcardview") != nullptr, "it holds the full editor and the Card view switch");
         shell::player_edit_tab() = 0;
@@ -189,7 +189,7 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
 
     run_case("G-ia: Create player dialog: Player type & tier first, Potential / Birth date / Nationality / Foot under Profile, one Player type picker", [&] {
         if (app.busy()) ui.click("Cancel");
-        shell::player_edit_tab() = 3;
+        shell::player_edit_tab() = 4;
         app.sel_player = 1002;
         app.go(Page::PlayerEdit);
         ui.frames(4);
