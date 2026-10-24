@@ -43,6 +43,24 @@ Rgba fit_image(const Rgba& src, int max_side);
 // flood fill from the edges, with a soft edge. `tolerance` 0..255 (colour distance). Returns pixels made transparent.
 size_t remove_plain_background(Rgba& img, int tolerance = 40);
 
+// 3.1 R2 (the looks studio's full body): the box of what stands on a plain background, to crop the game's square picture to him.
+// x1 / y1 exclusive. Background = the border: a transparent border (most border pixels alpha < 128) -> the box of the opaque
+// pixels; an opaque plain border (at least 90 % of its pixels within `tolerance` of its per-channel median, the same colour test
+// as remove_plain_background) -> the box of the pixels farther than `tolerance` from that colour. false = no plain border, or
+// nothing on it (the caller keeps the whole picture).
+struct Box {
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    int w() const { return x1 - x0; }
+    int h() const { return y1 - y0; }
+};
+bool content_box(const Rgba& img, Box& out, int tolerance = 40);
+// The box grown by `margin` of its own width / height on each side (per axis, so the aspect stays), clamped to w x h
+Box grow_box(const Box& b, float margin, int w, int h);
+// The pixels inside the box (clamped to the picture); an empty box gives an empty picture
+Rgba crop_image(const Rgba& src, const Box& b);
+// Scale to exactly `height` rows, the width keeping the aspect ratio; upscales too (bilinear), shrinks box-filtered like fit_image
+Rgba fit_height(const Rgba& src, int height);
+
 // DDS file with one DXT5 surface (no mipmaps, like FC 27's own minifaces). Width and height must be multiples of 4.
 std::vector<uint8_t> encode_dds_dxt5(const Rgba& img);
 

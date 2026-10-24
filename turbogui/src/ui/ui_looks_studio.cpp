@@ -108,7 +108,9 @@ void centred_text(const char* text, float w) {
 
 // ---------------------------------------------------------------- CapturePreview
 // The faces card's pattern (ui_faces3d_gate.cpp request_capture / tick_faces3d_preview / draw_picture), one object per camera:
-//   kCameraBodyFull  "Full body": track C's full-body request (W2228: 256 x 256, head to boots in kit), the page's default
+//   kCameraBodyFull  "Full body": track C's full-body request, the page's default. W2228 drew it at mode 0 (256 x 256, head to boots in
+//                    kit); since 3.1 R1 the built-in camera is mode 1 (1024 x 1024, unproven in game): when mode 1 gives no picture the
+//                    preview asks ONCE more at mode 0 (mode_override 0) and logs "full body: mode 1 gave nothing, drew at 256"
 //   kCameraBody      "Head and shoulders": mode 1, a 1024 x 1024 head-and-shoulders picture (W2202)
 // The request is track C's capture::body_request (default descriptor, never the learned one). One request at a time for the whole
 // game: refused while the service is busy (the other camera's picture, the faces card, the chooser's 3D heads, a miniface), polled
@@ -153,6 +155,12 @@ public:
     }
 
     bool refresh(App& app, const Subject& s, std::string* why) override {
+        retry_ = Subject();  // a new ask replaces a mode-0 retry still held
+        return send(app, s, -1, why);
+    }
+
+    // One request: mode_override -1 = the camera's own mode, 0 = the R1 retry of the full body at W2228's mode 0
+    bool send(App& app, const Subject& s, int mode_override, std::string* why) {
         if (!s.valid()) return false;
         const int64_t req = s.manager ? s.head : s.id;
         if (req <= 0) {
@@ -164,6 +172,7 @@ public:
         capture::Request r = capture::body_request(static_cast<int32_t>(req), s.club > 0 ? static_cast<int32_t>(s.club) : -1, camera_,
                                                    "Looks studio " + s.name);
         r.manager = s.manager;  // a manager by his head id (his full body is not tested yet)
+        r.mode_override = mode_override;
         std::string err;
         if (!app.capture->request(r, &err)) {
             if (why) *why = "The game did not take the request: " + err;
@@ -171,16 +180,37 @@ public:
         }
         pending_ = s;
         pending_req_ = req;
+        pending_retry_ = mode_override == 0;
         sent_at_ = app.now;
         ++requests_;
         note_.clear();
         app.log("looks studio: picture asked for " + s.name + " (id " + std::to_string(req) + ", camera " + std::to_string(camera_) +
-                (s.manager ? ", manager" : "") + ")");
+                (mode_override >= 0 ? ", mode " + std::to_string(mode_override) : std::string()) + (s.manager ? ", manager" : "") + ")");
         return true;
     }
 
+    // R1: the mode-0 retry goes out as soon as the service can take it (the game may still be settling the failed mode-1 request)
+    void send_retry(App& app) {
+        if (!retry_.valid()) return;
+        std::string why;
+        if (!can_request(app, &why)) {
+            if (app.now - retry_since_ > g_timeout) {
+                note_ = "The game did not draw him (no picture at mode 1, and no room to ask at 256: " + why + ")";
+                retry_ = Subject();
+            }
+            return;
+        }
+        const Subject who = retry_;
+        retry_ = Subject();
+        if (!send(app, who, 0, &why)) note_ = "The game did not draw him (no picture at mode 1): " + why;
+    }
+
     void tick(App& app) override {
-        if (!pending_req_ || !app.capture) return;
+        if (!app.capture) return;
+        if (!pending_req_) {
+            send_retry(app);
+            return;
+        }
         capture::Result r;
         if (app.capture->poll(r)) {
             if (r.id != pending_req_) {
@@ -189,18 +219,43 @@ public:
             }
             const int64_t req = pending_req_;
             const Subject who = pending_;
+            const bool was_retry = pending_retry_;
             pending_req_ = 0;
+            pending_retry_ = false;
             pending_ = Subject();
             if (!r.ok) {
-                note_ = "The game did not draw him: " + r.error;
                 app.log("looks studio: no picture for id " + std::to_string(req) + ": " + r.error);
+                if (camera_ == capture::kCameraBodyFull && !was_retry) {
+                    // R1: no picture at mode 1 (the 1024 stride, H1 unproven): ask ONCE more at W2228's mode 0
+                    retry_ = who;
+                    retry_since_ = app.now;
+                    note_ = "No picture at 1024; asking again at 256...";
+                    log_both(app, "looks studio: full body: mode 1 gave nothing for id " + std::to_string(req) + " (" + r.error + "); asking at mode 0");
+                    send_retry(app);
+                    return;
+                }
+                note_ = "The game did not draw him: " + r.error;
                 return;
             }
             shown_ = who;
-            image_ = fit_image(r.image, std::max(256, static_cast<int>(S(640.0f))));  // core/image.h: the pane's size, before textures.pixels
+            const int side = std::max(256, static_cast<int>(S(640.0f)));  // the pane's size, before textures.pixels
+            if (camera_ == capture::kCameraBodyFull) {
+                // R2: the game's square picture cropped to him (his box on its plain background + 4 % per side), fitted to the pane's
+                // height (upscaled too); no plain background = the whole picture, fitted to the height
+                Box box;
+                Rgba him;
+                if (content_box(r.image, box)) him = crop_image(r.image, grow_box(box, 0.04f, r.image.w, r.image.h));
+                image_ = fit_height(him.empty() ? r.image : him, side);
+            } else {
+                image_ = fit_image(r.image, side);  // core/image.h
+            }
             ++version_;
-            caption_ = std::string(title_) + ", drawn by the game at " + clock_text();
-            app.log("looks studio: picture of id " + std::to_string(req) + " (" + r.format + ")");
+            char size[32];
+            std::snprintf(size, sizeof(size), " (%dx%d)", r.image.w, r.image.h);
+            caption_ = std::string(title_) + ", drawn by the game at " + clock_text() + size;
+            // turbo_gui.log too: the Tester reads the size the game drew ("DDS DXT5 1024x1024" at mode 1)
+            log_both(app, "looks studio: picture of id " + std::to_string(req) + " (" + r.format + ")");
+            if (was_retry) log_both(app, "looks studio: full body: mode 1 gave nothing, drew at 256 (id " + std::to_string(req) + ")");
             return;
         }
         if (app.now - sent_at_ > g_timeout) {
@@ -237,13 +292,14 @@ public:
         return note_;
     }
     static bool same(const Subject& a, const Subject& b) { return a.valid() && a.manager == b.manager && a.id == b.id; }
-    bool waiting_for(const Subject& s) const { return pending_req_ != 0 && same(pending_, s); }
-    bool pending() const { return pending_req_ != 0; }
+    bool waiting_for(const Subject& s) const { return (pending_req_ != 0 && same(pending_, s)) || same(retry_, s); }
+    bool pending() const { return pending_req_ != 0 || retry_.valid(); }
     bool drew() const { return drew_; }
     int requests() const { return requests_; }
     void reset() {
-        pending_ = shown_ = Subject();
+        pending_ = shown_ = retry_ = Subject();
         pending_req_ = 0;
+        pending_retry_ = false;
         image_ = Rgba();
         caption_.clear();
         note_.clear();
@@ -256,7 +312,15 @@ private:
     int camera_;
     const char* title_;
     const char* key_;
+    static void log_both(App& app, const std::string& line) {  // the in-app Log and turbo_gui.log (as host_log below)
+        app.log(line);
+        if (app.log_hook) app.log_hook(line);
+    }
+
     Subject pending_, shown_;
+    Subject retry_;               // R1: the person whose full body comes again at mode 0 once the service can take it
+    double retry_since_ = 0.0;
+    bool pending_retry_ = false;  // the request in flight is that mode-0 retry
     int64_t pending_req_ = 0;  // the id the request carries (player id, a manager's head id)
     double sent_at_ = 0.0;
     Rgba image_;
@@ -333,8 +397,6 @@ struct Studio {
     // the page's own Undo for managers
     std::vector<ManagerUndo> manager_undo;
     // the question before a manager's real face
-    bool open_ask = false;
-    bool open_chooser = false;
     StudioState st;
 };
 
@@ -609,8 +671,11 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
     s.st.source = src->title();
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float w = std::max(S(120.0f), avail.x);
-    const float h = std::max(S(160.0f), std::min(avail.y - S(130.0f), w));  // the picture is square
+    const float full_w = std::max(S(120.0f), avail.x);
+    const float h = std::max(S(160.0f), std::min(avail.y - S(130.0f), full_w));
+    // R2: the full body is a standing man (his picture is cropped to him): a narrow pane, centred; head and shoulders stay square
+    const float w = s.view_full ? std::min(full_w, h * 0.6f) : full_w;
+    if (w < full_w) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (full_w - w) * 0.5f);
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ImGui::GetColorU32(ImGuiCol_FrameBg), S(4.0f));
     src->draw(app, who, w, h);
@@ -654,15 +719,16 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
 }
 
 // His look changed while the page is shown (a card here, Undo, the face chooser, another page): ask the game for his picture once it
-// can draw (players and managers; never by itself for a player's body made for another head). Picking a person asks nothing: "Draw him" does, so the
-// game's one capture at a time is never taken just by browsing the list.
+// can draw (players and managers; never by itself for a player's body made for another head). 3.1 R3: picking a PLAYER with no
+// picture of him in the current view asks for one too (no "Draw him" click; the retry loop waits while the game cannot draw). Picking
+// a manager still asks nothing (his full body is not tested): "Draw him" does.
 void auto_picture(App& app, Studio& s, const Subject& who, const Table* t, uint64_t rec) {
     const bool same = who.manager == s.last.manager && who.id == s.last.id;
     if (!same) {
         s.last = who;
         s.baseline = true;
         s.signature_dirty = true;
-        s.want_picture = false;
+        s.want_picture = who.valid() && !who.manager && app.capture && !s.view().ready(app, who, nullptr);  // R3
         s.next_try = 0.0;
         s.preview_why.clear();
         s.body_result.clear();
@@ -767,28 +833,17 @@ void face_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         if (choose) ImGui::OpenPopup("Choose a real face");
         real_face_picker(app, who.id);  // ui_faces.cpp: the head and his picture together, one step of his Undo
     } else {
-        if (choose) s.open_ask = true;  // a manager's new face cannot be undone: ask first
-        if (s.open_ask) {
-            ImGui::OpenPopup("Give him a real face?###lsask");
-            s.open_ask = false;
-        }
-        ImGui::SetNextWindowSize(ImVec2(S(420.0f), 0.0f), ImGuiCond_Appearing);
-        if (ImGui::BeginPopupModal("Give him a real face?###lsask", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-            s.st.asking = true;
-            ImGui::PushTextWrapPos(S(400.0f));
-            ImGui::TextUnformatted("His head and his picture change as soon as you pick a face. The Undo button can't bring them back.");
+        // 3.1 R4: one click opens the chooser; the "can't be undone" warning is its first line (no question before it). The page
+        // begins the chooser's window first in the frame (same name, same size as ui_faces.cpp sets) for that line, then
+        // manager_real_face_picker appends the chooser itself to the same window (ImGui's Begin appends on a second call).
+        if (choose) ImGui::OpenPopup(kManagerFacePopup);
+        ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+        if (ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+            s.st.asking = true;  // the warning is shown
+            ImGui::PushTextWrapPos(0.0f);
+            theme::warn_text("%s", "His head and his picture change as soon as you pick a face. The Undo button can't bring them back.");
             ImGui::PopTextWrapPos();
-            if (ImGui::Button("Choose a face###lsaskok")) {
-                s.open_chooser = true;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel###lsaskno")) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
-        }
-        if (s.open_chooser) {
-            ImGui::OpenPopup(kManagerFacePopup);
-            s.open_chooser = false;
         }
         manager_real_face_picker(app, who.id);  // ui_faces.cpp
     }
@@ -1145,7 +1200,6 @@ void looks_studio_reset_for_tests() {
     s.manifest_at = -1.0;
     s.manifest_stamp = 0;
     s.manager_undo.clear();
-    s.open_ask = s.open_chooser = false;
     s.st = StudioState();
     g_timeout = 25.0;
 }

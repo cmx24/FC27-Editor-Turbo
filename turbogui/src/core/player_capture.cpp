@@ -470,7 +470,10 @@ BodyCamera body_camera_builtin() {
     BodyCamera b;
     b.ok = true;
     b.type = -1;  // Request_B sets 0, as in LE's request
-    b.mode = 0;
+    // 3.1 R1: mode 1 (the 1024x1024 stride) with the W2228 descriptor. W2228 proved the descriptor at mode 0 (256x256); mode 1 framing
+    // the full body is H1 of brief 3.1-gui, unobserved until the Tester's boot. The looks studio retries ONCE at mode 0 when mode 1
+    // gives no picture, and the Sequence keeps mode 0 (CHANGE-3), so a false H1 still draws at 256.
+    b.mode = 1;
     b.extra = 0;
     BodyDword team;
     team.off = 0x0C;
@@ -486,7 +489,7 @@ BodyCamera body_camera_builtin() {
     d5c.off = 0x5C;
     d5c.value = -1;
     b.desc = {team, cam, d58, d5c};
-    b.source = "built in (W2228: full body, 256x256)";
+    b.source = "built in (W2228 descriptor, mode 1: full body, 1024x1024)";
     return b;
 }
 
@@ -828,7 +831,9 @@ void Sequence::tick() {
             }
             return;
         }
-        const Request rq = body_request(opt_.player, opt_.team, opt_.camera, cur().label.empty() ? std::string() : "player " + std::to_string(opt_.player) + " as " + cur().label);
+        Request rq = body_request(opt_.player, opt_.team, opt_.camera, cur().label.empty() ? std::string() : "player " + std::to_string(opt_.player) + " as " + cur().label);
+        // 3.1 CHANGE-3: the Sequence stays on the camera W2228 proved (mode 0, 256x256) while the built-in full body moved to mode 1
+        if (opt_.camera == kCameraBodyFull) rq.mode_override = 0;
         if (!svc_.request(rq, &err)) {
             step_failed("the picture was refused" + (err.empty() ? std::string() : ": " + err));
             return;

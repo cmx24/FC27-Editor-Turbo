@@ -8,8 +8,10 @@
 // picture is asked from the game's capture service with the full-body camera and the learned descriptor off, never while the service
 // is busy, again after a change of his look, and given up (cancelled) after the timeout; a body made for another head asks nothing by
 // itself; a body-type tile writes through the edit path and the page's Undo puts it back (App's Undo for players, the page's own for
-// managers); a manager gets no picture request and his real face asks first (Cancel opens nothing). Cases are named "Looks studio: ..."
-// so TURBO_TEST_ONLY="looks studio" runs them alone.
+// managers); a manager gets no picture request by himself and his real face opens the chooser in one click, with the warning in it.
+// 3.1 (brief 3.1-gui, track render): picking a player asks his picture by itself (R3); a failed full body at mode 1 is asked once
+// more at mode 0 and both lines reach turbo_gui.log (R1); the caption names the size the game drew (R2). Cases are named
+// "Looks studio: ..." so TURBO_TEST_ONLY="looks studio" runs them alone.
 #pragma once
 #include "core/bodytype_catalog.h"
 #include "core/bodytype_thumbs.h"
@@ -182,15 +184,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click(name + "##lsp3001", "##looksstudio_test") && app.sel_player == 3001, "picked from the list");
         CHECK(looks::studio_state().listed >= 1 && looks::studio_state().subject.id == 3001, "he is the person shown");
         ui.frames(30);
-        CHECK(fake->requests.empty(), "picking him asks nothing (browsing never takes the game's one capture)");
-        CHECK(looks::studio_state().source == "On the game's screen", "until then the pane points at the game's screen");
-        CHECK(ui.click("Draw him###lsdraw", "##looksstudio_test"), "Draw him");
-        ui.frames(2);
-        CHECK(fake->requests.size() == 1, "one picture asked: " + std::to_string(fake->requests.size()));
+        // 3.1 R3: picking a player with no picture of him asks the idle service for one by itself (no "Draw him" click)
+        CHECK(fake->requests.size() == 1, "picking him asks for his picture by itself (R3): " + std::to_string(fake->requests.size()));
+        CHECK(ui.find("Draw again###lsdraw", "##looksstudio_test") != nullptr, "while it draws, the button says Draw again");
         if (!fake->requests.empty()) {
             const capture::Request& r = fake->requests.back();
             CHECK(r.id == 3001 && !r.manager && r.camera == capture::kCameraBodyFull && !r.use_template, "full-body camera (the default view), learned descriptor off");
             CHECK(r.second_id == (p->club > 0 ? p->club : -1), "his club as the second id");
+            CHECK(r.mode_override == -1, "the camera's own mode (the built-in full body: mode 1)");
         }
         CHECK(looks::studio_state().waiting, "the pane says it is drawing");
         fake->next = capture::Result();
@@ -199,6 +200,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         fake->next.image = solid(64, 80, 30, 120, 200);
         fake->deliver = true;
         ui.frames(3);
+        CHECK(looks::studio_state().preview_line.find("(64x80)") != std::string::npos, "the caption names the size the game drew: " + looks::studio_state().preview_line);
         CHECK(!fake->pending && looks::studio_state().picture && looks::studio_state().source == "Full body" && looks::studio_state().full_view,
               "the full-body picture is drawn in the pane");
         CHECK(ui.find("Draw again###lsdraw", "##looksstudio_test") != nullptr, "the button now says Draw again");
@@ -289,7 +291,75 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.db.set_int(*t, rec, "bodytypecode", body0);
     });
 
-    run_case("Looks studio: a manager's picture (his head id, full body tried), the page's own Undo, and his real face asks first", [&] {
+    run_case("Looks studio: no full-body picture at mode 1 -> ONE retry at mode 0, logged to turbo_gui.log (3.1 R1)", [&] {
+        const PlayerRow* p = app.model.player(3001);
+        if (!p) {
+            CHECK(false, "the test world has player 3001");
+            return;
+        }
+        const Table* t = app.db.table("players");
+        const int64_t hc0 = t && t->has("headclasscode") ? app.db.get_int(*t, p->rec, "headclasscode", 0) : -1;
+        if (t && t->has("headclasscode")) app.db.set_int(*t, p->rec, "headclasscode", 0);  // a real face: no body is risky on it
+        looks::looks_studio_reset_for_tests();
+        auto fake = std::make_shared<FakeCapture>();
+        fake->st.installed = fake->st.available = true;
+        app.capture = fake;
+        std::vector<std::string> host;
+        const auto old_hook = app.log_hook;
+        app.log_hook = [&host](const std::string& l) { host.push_back(l); };
+        auto host_has = [&](const std::string& what) {
+            return std::any_of(host.begin(), host.end(), [&](const std::string& l) { return l.find(what) != std::string::npos; });
+        };
+        app.sel_player = 0;
+        show(ui);
+        CHECK(ui.type_into(ui.find("##lsq", "##looksstudio_test"), p->name), "search box");
+        CHECK(ui.click(p->name + "##lsp3001", "##looksstudio_test") && app.sel_player == 3001, "picked from the list");
+        ui.frames(5);
+        if (fake->requests.empty()) {  // before R3 the pick asks nothing: ask by hand, so the retry is still tested
+            ui.click("Draw him###lsdraw", "##looksstudio_test");
+            ui.frames(2);
+        }
+        CHECK(fake->requests.size() == 1 && fake->requests[0].mode_override == -1, "first ask: the camera's own mode (1)");
+        fake->next = capture::Result();
+        fake->next.ok = false;
+        fake->next.error = "no picture within the Settle";
+        fake->deliver = true;
+        ui.frames(3);
+        CHECK(fake->requests.size() == 2, "one retry: " + std::to_string(fake->requests.size()));
+        if (fake->requests.size() >= 2) {
+            const capture::Request& r = fake->requests[1];
+            CHECK(r.mode_override == 0 && r.camera == capture::kCameraBodyFull && r.id == 3001 && !r.use_template, "the retry: full body at mode 0");
+        }
+        CHECK(looks::studio_state().waiting, "the pane is still drawing");
+        fake->next = capture::Result();
+        fake->next.ok = true;
+        fake->next.format = "PNG 256x256";
+        fake->next.image = solid(256, 256, 30, 120, 200);
+        fake->deliver = true;
+        ui.frames(3);
+        CHECK(looks::studio_state().picture && looks::studio_state().source == "Full body", "the mode-0 picture is drawn");
+        CHECK(host_has("full body: mode 1 gave nothing, drew at 256"), "turbo_gui.log: full body: mode 1 gave nothing, drew at 256");
+        CHECK(host_has("picture of id 3001 (PNG 256x256)"), "turbo_gui.log names the size the game drew");
+        // a manual ask starts over at the camera's own mode; a failed retry is not retried again
+        fake->next = capture::Result();
+        fake->next.ok = false;
+        fake->next.error = "nothing";
+        CHECK(ui.click("Draw again###lsdraw", "##looksstudio_test"), "Draw again");
+        ui.frames(2);
+        CHECK(fake->requests.size() == 3 && fake->requests[2].mode_override == -1, "Draw again: mode 1 again");
+        fake->deliver = true;
+        ui.frames(3);
+        CHECK(fake->requests.size() == 4 && fake->requests[3].mode_override == 0, "its one retry at mode 0");
+        fake->deliver = true;
+        ui.frames(5);
+        CHECK(fake->requests.size() == 4 && !fake->pending, "a failed retry is not retried: " + std::to_string(fake->requests.size()));
+        CHECK(looks::studio_state().preview_line.find("did not draw him") != std::string::npos, "it says so: " + looks::studio_state().preview_line);
+        hide(ui);
+        app.log_hook = old_hook;
+        if (t && t->has("headclasscode")) app.db.set_int(*t, p->rec, "headclasscode", hc0);
+    });
+
+    run_case("Looks studio: a manager's picture (his head id, full body tried), the page's own Undo, and his real face in one click", [&] {
         const Table* t = app.db.table("manager");
         const auto& mgrs = app.model.managers();
         if (!t || mgrs.empty() || !t->has("bodytypecode")) {
@@ -348,20 +418,21 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("###lsundo", "##looksstudio_test"), "Undo");
         ui.frames(2);
         CHECK(app.db.get_int(*t, rec, "bodytypecode", 0) == body0 && looks::studio_state().undo_label.empty(), "his body type is back, nothing left to undo");
-        // his real face: asked first; Cancel opens nothing, Choose a face opens the chooser
+        // 3.1 R4: his real face in ONE click: the chooser opens with the "can't be undone" warning in it, no question first;
+        // Close changes nothing
+        const int64_t mhead = t->has("headassetid") ? app.db.get_int(*t, rec, "headassetid", 0) : 0;
+        const int64_t mclass = t->has("headclasscode") ? app.db.get_int(*t, rec, "headclasscode", 0) : 0;
         CHECK(ui.click("###lsface", "##looksstudio_test"), "Choose a real face...");
-        ui.frames(2);
-        CHECK(looks::studio_state().asking, "the question is open");
-        CHECK(ui.click("###lsaskno"), "Cancel");
-        ui.frames(2);
-        CHECK(!looks::studio_state().asking && ui.find("Close##mfaces") == nullptr, "Cancel: no chooser");
-        CHECK(ui.click("###lsface", "##looksstudio_test"), "Choose a real face... again");
-        ui.frames(2);
-        CHECK(ui.click("###lsaskok"), "Choose a face");
         ui.frames(3);
-        CHECK(ui.find("Close##mfaces") != nullptr, "the manager chooser is open");
+        CHECK(ui.find("###lsaskok") == nullptr && ui.find("###lsaskno") == nullptr, "no question before the chooser");
+        CHECK(ui.find("Close##mfaces") != nullptr, "one click: the manager chooser is open");
+        CHECK(looks::studio_state().asking, "the chooser shows the warning line");
         if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
         ui.frames(2);
+        CHECK(ui.find("Close##mfaces") == nullptr && !looks::studio_state().asking, "Close: the chooser and its warning are gone");
+        CHECK((!t->has("headassetid") || app.db.get_int(*t, rec, "headassetid", 0) == mhead) &&
+                  (!t->has("headclasscode") || app.db.get_int(*t, rec, "headclasscode", 0) == mclass),
+              "Close changes nothing (his head is the same)");
         CHECK(studio_requests() == 3 && looks::studio_state().requests == 3, "the page asked three pictures: Draw him, the change, the Undo");
         hide(ui);
         looks::looks_studio_show_managers(false);
