@@ -322,7 +322,7 @@ std::string sliders_now_line() {
         return it == sl.sliders.end() ? std::string("?") : std::to_string(it->second);
     };
     return "Custom sliders now: " + std::to_string(sl.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
-           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ")";
+           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ") - " + gsettings::kSlidersSource;
 }
 
 void load_presets_now(App& app) {

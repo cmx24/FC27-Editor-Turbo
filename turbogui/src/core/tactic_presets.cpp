@@ -455,17 +455,23 @@ std::string request_for(const TacticBlock& want, const tsheet::LiveTactic& now, 
         if (want.slots[size_t(s)].position != now.slots[size_t(s)].position)
             return "the slots hold other positions than the preset's (slot " + std::to_string(s) + ": preset " + std::to_string(want.slots[size_t(s)].position) +
                    ", live " + std::to_string(now.slots[size_t(s)].position) + "): pick the preset's formation in Edit Tactic first, then Load";
-    // Line Height and Defensive Approach go together (the approach is the line's band, team_sheet.h make_plan); a value Turbo does not write is
-    // kept as it is, with a note (the rest of the preset still loads)
-    const bool lh_ok = want.line_height <= tsheet::max_writable_line() && tsheet::approach_writable(want.approach) &&
-                       tsheet::line_band(want.line_height) == want.approach;
-    if (lh_ok) {
-        out.line_height = want.line_height;
-        out.approach = want.approach;
+    // Line Height and Defensive Approach go together: Turbo writes them band-consistent (the approach is the line's band, team_sheet.h make_plan
+    // refuses any other pair). 3.0.1 (GUI30H): the Line Height wins and the approach follows its band (b153e48 dropped BOTH when the preset's
+    // approach was of another band, e.g. GUI30H_B line 60 / Deep, and nothing said so). Only a line in Aggressive's band (91..100, the approach
+    // Turbo does not write: team_sheet.cpp approach table) or outside 1..100 stays as it is, with a note.
+    if (want.line_height < 1 || want.line_height > 100) {
+        notes.push_back("Line Height " + std::to_string(want.line_height) + " is outside 1..100: Line Height and Defensive Approach stay as they are");
+    } else if (want.line_height > tsheet::max_writable_line()) {
+        notes.push_back("Line Height " + std::to_string(want.line_height) + " lies in the band of Defensive Approach " +
+                        approach_text(tsheet::line_band(want.line_height)) + ", which Turbo does not write (Line Height 1.." +
+                        std::to_string(tsheet::max_writable_line()) + " only): Line Height and Defensive Approach stay as they are");
     } else {
-        notes.push_back("Line Height " + std::to_string(want.line_height) + " / Defensive Approach " + approach_text(want.approach) +
-                        " are not written (the approach is not a written value, or not the line's band, or the line is above " +
-                        std::to_string(tsheet::max_writable_line()) + "): both stay as they are");
+        const int band = tsheet::line_band(want.line_height);
+        out.line_height = want.line_height;
+        out.approach = band;
+        if (want.approach != band)
+            notes.push_back("Defensive Approach " + approach_text(want.approach) + " -> " + approach_text(band) + " to match Line Height " +
+                            std::to_string(want.line_height) + " (Turbo writes the two band-consistent)");
     }
     if (tsheet::build_up_writable(want.build_up)) out.build_up = want.build_up;
     else notes.push_back("Build-Up Style " + build_up_text(want.build_up) + " is not written (not decoded yet): it stays as it is");
@@ -481,20 +487,49 @@ std::string request_for(const TacticBlock& want, const tsheet::LiveTactic& now, 
     return "";
 }
 
-std::vector<std::string> diff_lines(const TacticBlock& want, const tsheet::LiveTactic& now) {
+static std::vector<std::string> diff_impl(const TacticBlock& want, const tsheet::LiveTactic& now, bool unwritten) {
     std::vector<std::string> v;
     tsheet::Request r;
     std::vector<std::string> notes;
     if (!request_for(want, now, r, notes).empty()) return v;  // another formation: nothing is comparable
+    const char* nw = ": not written";
     if (r.approach >= 0 && r.approach != now.approach) v.push_back("Defensive Approach " + approach_text(now.approach) + " -> " + approach_text(r.approach));
+    else if (unwritten && r.approach < 0 && want.approach != now.approach)
+        v.push_back("Defensive Approach " + approach_text(now.approach) + " -> " + approach_text(want.approach) + nw);
     if (r.line_height >= 0 && r.line_height != now.line_height) v.push_back("Line Height " + std::to_string(now.line_height) + " -> " + std::to_string(r.line_height));
+    else if (unwritten && r.line_height < 0 && want.line_height != now.line_height)
+        v.push_back("Line Height " + std::to_string(now.line_height) + " -> " + std::to_string(want.line_height) + nw);
     if (r.build_up >= 0 && r.build_up != now.build_up) v.push_back("Build-Up Style " + build_up_text(now.build_up) + " -> " + build_up_text(r.build_up));
+    else if (unwritten && r.build_up < 0 && want.build_up != now.build_up)
+        v.push_back("Build-Up Style " + build_up_text(now.build_up) + " -> " + build_up_text(want.build_up) + nw);
+    std::vector<bool> sent(size_t(kSlots), false);
     for (const tsheet::SlotChange& c : r.slots) {
+        if (c.slot >= 0 && c.slot < kSlots) sent[size_t(c.slot)] = true;
         const tsheet::SlotView& l = now.slots[size_t(c.slot)];
         if (c.role_id != l.role_id || c.focus != l.focus)
             v.push_back("slot " + std::to_string(c.slot) + " role " + std::to_string(l.role_id) + " / focus " + std::to_string(l.focus) + " -> role " +
                         std::to_string(c.role_id) + " / focus " + std::to_string(c.focus));
     }
+    if (unwritten)
+        for (int s = 0; s < kSlots; ++s) {
+            const SlotRec& w = want.slots[size_t(s)];
+            const tsheet::SlotView& l = now.slots[size_t(s)];
+            if (!sent[size_t(s)] && (w.role_id != l.role_id || w.focus != l.focus))
+                v.push_back("slot " + std::to_string(s) + " role " + std::to_string(l.role_id) + " / focus " + std::to_string(l.focus) + " -> role " +
+                            std::to_string(w.role_id) + " / focus " + std::to_string(w.focus) + nw);
+        }
+    return v;
+}
+
+std::vector<std::string> diff_lines(const TacticBlock& want, const tsheet::LiveTactic& now) { return diff_impl(want, now, true); }
+
+std::vector<std::string> written_diff_lines(const TacticBlock& want, const tsheet::LiveTactic& now) { return diff_impl(want, now, false); }
+
+std::vector<std::string> unwritten_lines(const std::vector<std::string>& diff) {
+    std::vector<std::string> v;
+    const std::string nw = ": not written";
+    for (const std::string& d : diff)
+        if (d.size() >= nw.size() && d.compare(d.size() - nw.size(), nw.size(), nw) == 0) v.push_back(d);
     return v;
 }
 
@@ -625,6 +660,7 @@ std::string LastLoad::to_json() const {
     s["staged"] = settings_staged;
     s["preset"] = settings_preset;
     s["skipped"] = settings_skipped;
+    if (!settings_previous.empty()) s["previous"] = settings_previous;
     j["settings"] = s;
     j["setpieces_sent"] = setpieces_sent;
     return j.dump(2, ' ', false, ojson::error_handler_t::replace) + "\n";
@@ -673,6 +709,8 @@ bool LastLoad::parse(const std::string& text, LastLoad& out, std::string* err) {
         if (sk != s->end() && sk->is_array())
             for (const auto& x : *sk)
                 if (x.is_string()) l.settings_skipped.push_back(x.get<std::string>());
+        auto pv = s->find("previous");
+        if (pv != s->end() && pv->is_string()) l.settings_previous = pv->get<std::string>();
     }
     auto ss = j.find("setpieces_sent");
     if (ss != j.end() && ss->is_boolean()) l.setpieces_sent = ss->get<bool>();
@@ -701,7 +739,7 @@ std::string undo_request(const LastLoad& l, const tsheet::LiveTactic& now, tshee
 
 std::string reapply_prompt(const LastLoad& l, const tsheet::LiveTactic& now, const std::string& session, long long load_gen) {
     if (l.state != "loaded" || !l.after.present || l.team != now.at.user) return "";
-    const std::vector<std::string> d = diff_lines(l.after, now);
+    const std::vector<std::string> d = written_diff_lines(l.after, now);  // 3.0.1: a value the load did not write is never "not held now"
     if (d.empty()) return "";
     const bool earlier = l.session != session || l.load_gen != load_gen;
     std::string s = std::string("Preset \"") + l.preset + "\" was loaded " + (earlier ? "in an earlier career load" : "in this career load") +

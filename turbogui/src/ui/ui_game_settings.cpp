@@ -525,12 +525,16 @@ bool game_settings_stage(App& app, const std::string& name, const std::map<std::
     return ok;
 }
 
-bool game_settings_unstage(App& app, const std::string& name, std::string& msg) {
+bool game_settings_unstage(App& app, const std::string& name, std::string& msg, const std::string& previous) {
     first_look(app);
     read_pending(app);
+    Pending prev;
+    std::string perr;
+    const bool have_prev = !previous.empty() && Pending::parse(previous, prev, &perr);
     if (!g.have_pending) {
         msg = "Nothing staged any more (the apply tool already ran, or the staged file was discarded): the settings file is changed back only by "
               "turbo_settings_apply.exe --undo";
+        if (have_prev) msg += " (the staging that was there before the load, \"" + prev.preset + "\", is not put back)";
         return false;
     }
     if (g.pending.preset != name) {
@@ -543,7 +547,16 @@ bool game_settings_unstage(App& app, const std::string& name, std::string& msg) 
         msg = "The staged file could not be removed: " + ec.message();
         return false;
     }
-    msg = "The staged settings of \"" + name + "\" were discarded (nothing will be applied)";
+    msg = "The staged settings of \"" + name + "\" were discarded";
+    if (have_prev) {
+        std::string err;
+        if (write_text(out_dir(app) / pending_file(), previous, &err))
+            msg += "; the staging that was there before the load (\"" + prev.preset + "\", " + std::to_string(prev.values.size()) + " slider(s)) is back";
+        else
+            msg += "; the staging that was there before the load (\"" + prev.preset + "\") could not be put back: " + err;
+    } else {
+        msg += " (nothing will be applied)";
+    }
     log_line(app, "game settings: " + msg);
     read_pending(app);
     return true;

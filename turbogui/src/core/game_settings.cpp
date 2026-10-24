@@ -449,8 +449,11 @@ Snapshot read_current(const fs::path& settings_dir, const SliderMap& m) {
             uint32_t v = 0;
             if (get_u32(b, m.offset_of(i), v)) s.slots.push_back({i, v});
         }
-    if (m.custom_count > 0)
+    if (m.custom_count > 0) {
         for (int i = 0; i < m.custom_count; ++i) s.custom_slots.push_back({i, b[kPayloadOff + m.custom_offset_of(i)]});
+        const size_t pre = kPayloadOff + m.custom_base - sizeof(kCustomPrefix);
+        s.custom_prefix.assign(b.begin() + std::ptrdiff_t(pre), b.begin() + std::ptrdiff_t(pre + sizeof(kCustomPrefix)));
+    }
     for (const Entry& e : m.entries) {
         uint32_t v = 0;
         if (e.custom_index >= 0 && m.custom_count > 0) {
@@ -461,6 +464,48 @@ Snapshot read_current(const fs::path& settings_dir, const SliderMap& m) {
     }
     s.ok = true;
     return s;
+}
+
+static std::string hex_bytes(const uint8_t* p, size_t n) {
+    std::string out;
+    char t[4];
+    for (size_t i = 0; i < n; ++i) {
+        std::snprintf(t, sizeof(t), "%02X", p[i]);
+        if (i) out += ' ';
+        out += t;
+    }
+    return out;
+}
+
+std::vector<std::string> status_lines(const Snapshot& s, const SliderMap& m) {
+    std::vector<std::string> v;
+    for (const Region& r : m.regions) {
+        std::string l = r.id;
+        while (l.size() < 8) l += ' ';
+        for (const auto& x : s.slots)
+            if (x.first >= r.first && x.first < r.first + r.count) l += " " + std::to_string(x.second);
+        v.push_back(l);
+    }
+    if (m.custom_count <= 0 || s.custom_prefix.size() != sizeof(kCustomPrefix)) {
+        v.push_back("custom block: not in the slider map");
+        return v;
+    }
+    const bool pre_ok = std::memcmp(s.custom_prefix.data(), kCustomPrefix, sizeof(kCustomPrefix)) == 0;
+    v.push_back("custom block (" + std::to_string(m.custom_count) + " bytes at payload " + hexs(m.custom_base) + "), the 5 bytes before it: " +
+                hex_bytes(s.custom_prefix.data(), s.custom_prefix.size()) +
+                (pre_ok ? std::string(" (--apply accepts this file)")
+                        : " (--apply REFUSES this file: it needs " + hex_bytes(kCustomPrefix, sizeof(kCustomPrefix)) + "; nothing will be written)"));
+    for (const Entry& e : m.entries) {
+        if (e.custom_index < 0) continue;
+        const auto it = s.values.find(e.id);
+        v.push_back("custom " + e.id + " (" + hexs(uint64_t(e.custom_index)) + "): " + (it == s.values.end() ? std::string("?") : std::to_string(it->second)) +
+                    (e.writable() ? std::string() : " (not verified in game)"));
+    }
+    std::string all = "custom bytes:";
+    for (const auto& x : s.custom_slots) all += " " + std::to_string(x.second);
+    v.push_back(all);
+    v.push_back(std::string("these values are ") + kSlidersSource);
+    return v;
 }
 
 // ------------------------------------------------------------------------------------------------ presets
@@ -720,7 +765,9 @@ bool stage_pending(const fs::path& out_dir, const Preset& p, const SliderMap& m,
     if (msg) {
         *msg = "Staged \"" + p.name + "\": " + std::to_string(plan.values.size()) + " slider(s)" +
                (plan.unverified.empty() ? std::string() : " (" + std::to_string(plan.unverified.size()) + " of them mapped from the game's table, not yet seen on the EA screen)") +
-               " in turbo_output\\" + pending_file() + ". Close FC 27, run turbo\\turbo_settings_apply.exe --apply, then start the game.";
+               " in turbo_output\\" + pending_file() + ". Close FC 27, run turbo\\turbo_settings_apply.exe --apply, then start the game." +
+               " Not proven in game yet: on 10-24 the game showed 50 after an apply, and --apply refuses a Settings file whose bytes before the" +
+               " Custom block are not 01 00 00 00 01.";
         if (!plan.skipped.empty()) *msg += " Not staged: " + std::to_string(plan.skipped.size()) + " (not verified / not mapped).";
     }
     return true;
@@ -855,7 +902,9 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
             }
             const size_t pre = kPayloadOff + m.custom_base - sizeof(kCustomPrefix);
             if (std::memcmp(after.data() + pre, kCustomPrefix, sizeof(kCustomPrefix)) != 0) {
-                o.message = "Refused: " + w.what + ": the bytes before the custom block are not 01 00 00 00 01 (the layout moved)";
+                o.message = "Refused: " + w.what + ": the bytes before the custom block are " + hex_bytes(after.data() + pre, sizeof(kCustomPrefix)) +
+                            ", not 01 00 00 00 01 (the layout moved, or the game keeps this file in a state Turbo does not know yet):" +
+                            " the sliders were NOT applied, nothing was written";
                 return o;
             }
             const size_t at = kPayloadOff + m.custom_offset_of(w.index);
@@ -936,7 +985,7 @@ Outcome apply_pending(const Env& env, const SliderMap& m) {
         return o;
     }
     if (!Pending::parse(std::string(b.begin(), b.end()), pd, &err)) {
-        o.message = "Refused: " + std::string(pending_file()) + ": " + err;
+        o.message = "The sliders were NOT applied (nothing written): Refused: " + std::string(pending_file()) + ": " + err;
         return o;
     }
     std::vector<Write> writes;
@@ -956,10 +1005,13 @@ Outcome apply_pending(const Env& env, const SliderMap& m) {
         writes.push_back(w);
     }
     if (writes.empty()) {
-        o.message = "Refused: none of the staged values is a slider verified in game";
+        o.message = "The sliders were NOT applied (nothing written; turbo_output\\" + std::string(pending_file()) +
+                    " stays): Refused: none of the staged values is a slider verified in game";
         return o;
     }
     o = patch(env, m, writes, "preset " + pd.preset);
+    if (!o.ok)  // 3.0.1 (GUI30J): the user-facing text says plainly that nothing was applied, and why
+        o.message = "The sliders were NOT applied (nothing written; turbo_output\\" + std::string(pending_file()) + " stays): " + o.message;
     for (const std::string& s : skipped) o.lines.push_back(s + ": not written (not verified in game)");
     if (o.ok && !env.dry_run) {
         std::error_code ec;

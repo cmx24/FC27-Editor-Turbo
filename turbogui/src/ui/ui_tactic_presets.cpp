@@ -11,7 +11,9 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include "app.h"
@@ -78,6 +80,9 @@ struct Pv {
     bool confirm_tactic = false, confirm_settings = false, confirm_card_undo = false;
     tpreset::LastLoad confirm_last;     // what the Yes will write
     tpreset::Preset confirm_preset;     // the preset being loaded (its settings block)
+    // 3.0.1 (GUI30H): the preset's values the load does not write, and why its tactic part is not written ("" = it is)
+    std::vector<std::string> confirm_unwritten, job_unwritten;
+    std::string confirm_tactic_why, job_tactic_why;
     // 2.20: the Custom sliders block the game saved last (game_settings_current), read at the first look and at Refresh
     bool sliders_ok = false;
     std::map<std::string, int> sliders;
@@ -313,18 +318,31 @@ void start_load(App& app) {
     std::vector<std::string> notes;
     bool tactic = false;
     std::vector<std::string> lines;
+    std::vector<std::string> unwritten;  // 3.0.1 (GUI30H): the preset's values this load does not write: listed, never hidden
+    std::string tactic_why;              // why the tactic part is not written ("" = it is written, or the preset has none)
     if (p->tactic.present) {
         const std::string why = tpreset::request_for(p->tactic, g.live, req, notes);
         if (!why.empty()) {
             say(app, "Not loaded: " + why, true);
             return;
         }
+        const std::vector<std::string> diff = tpreset::diff_lines(p->tactic, g.live);
+        unwritten = tpreset::unwritten_lines(diff);
         const std::string gate = live_tactic_gate(app, req);
         if (gate.empty()) {
             tactic = true;
-            for (const std::string& d : tpreset::diff_lines(p->tactic, g.live)) lines.push_back(d);
+            for (const std::string& d : diff) lines.push_back(d);
         } else if (gate.find("G6 values: nothing changed") == 0) {
-            lines.push_back("the tactic already holds the preset's values: nothing to write there");
+            if (unwritten.empty()) {
+                tactic_why = "the tactic already holds the preset's values";
+                lines.push_back("the tactic already holds the preset's values: nothing to write there");
+            } else {
+                // b153e48 said "already holds" here although the preset's values differ: they are values Turbo does not write
+                std::string j;
+                for (const std::string& u : unwritten) j += (j.empty() ? "" : "; ") + u;
+                tactic_why = "the values Turbo writes are already there; Turbo does not write the rest: " + j;
+                lines.push_back("the tactic is NOT changed: " + tactic_why);
+            }
         } else {
             say(app, "Not loaded: " + gate, true);
             return;
@@ -347,7 +365,7 @@ void start_load(App& app) {
             lines.push_back("sliders: " + std::to_string(writable - unverified) + " screen-proven + " + std::to_string(unverified) +
                             " table-mapped (UNVERIFIED: not seen on the EA Custom screen yet) slider(s) are staged in turbo_output\\" + gsettings::pending_file() + ", " +
                             std::to_string(skipped.size()) + " left out; they take effect only after you close FC 27, run turbo\\turbo_settings_apply.exe "
-                            "--apply and start the game with Gameplay Type CUSTOM");
+                            "--apply and start the game with Gameplay Type CUSTOM (NOT proven in game yet: in the 10-24 test the game showed 50 after an apply)");
         }
     }
     bool setpieces = false;
@@ -376,6 +394,8 @@ void start_load(App& app) {
     g.confirm_settings = settings;
     g.confirm_setpieces = setpieces;
     g.confirm_preset = *p;
+    g.confirm_unwritten = unwritten;
+    g.confirm_tactic_why = tactic_why;
     // what the Yes records: the values before, and the values the load asks for
     tpreset::LastLoad l;
     l.preset = p->name;
@@ -389,9 +409,10 @@ void start_load(App& app) {
         l.before = tpreset::block_from_live(g.live);
         l.after = l.before;
         if (tactic) {
-            l.after.line_height = req.line_height;
-            l.after.build_up = req.build_up;
-            l.after.approach = req.approach;
+            // only the values the load writes (b153e48 copied -1 for a value not written, and the last-load file then failed to parse)
+            if (req.line_height >= 0) l.after.line_height = req.line_height;
+            if (req.build_up >= 0) l.after.build_up = req.build_up;
+            if (req.approach >= 0) l.after.approach = req.approach;
             for (const tsheet::SlotChange& c : req.slots) {
                 l.after.slots[size_t(c.slot)].role_id = c.role_id;
                 l.after.slots[size_t(c.slot)].focus = c.focus;
@@ -490,6 +511,8 @@ void confirmed(App& app) {
     g.job_settings = g.confirm_settings;
     g.job_setpieces = g.confirm_setpieces;
     g.job_tactic = g.confirm_tactic;
+    g.job_unwritten = kind == JobKind::Load ? g.confirm_unwritten : std::vector<std::string>();
+    g.job_tactic_why = kind == JobKind::Load ? g.confirm_tactic_why : std::string();
     g.job_t0 = app.now;
     if (g.confirm_tactic) {
         std::string why;
@@ -536,10 +559,21 @@ void finish(App& app) {
             std::string msg;
             int staged = 0;
             std::vector<std::string> skipped;
+            // 3.0.1: a staging that is there before this load is kept for Undo (b153e48 overwrote it, and Undo then deleted the file)
+            std::string previous;
+            {
+                std::ifstream f(out_dir(app) / gsettings::pending_file(), std::ios::binary);
+                if (f) {
+                    std::stringstream ss;
+                    ss << f.rdbuf();
+                    previous = ss.str();
+                }
+            }
             const bool ok = game_settings_stage(app, g.job_preset.name, g.job_preset.settings.values, msg, staged, skipped, g.job_preset.settings.include_unverified);
             l.settings_staged = ok;
             l.settings_preset = ok ? g.job_preset.name : "";
             l.settings_skipped = skipped;
+            l.settings_previous = ok ? previous : "";
             smsg = " Sliders: " + msg;
         }
         if (g.job_setpieces) {
@@ -552,8 +586,21 @@ void finish(App& app) {
         l.state = "loaded";
         l.when = stamp();
         save_last(app, l);
-        say(app, "Loaded \"" + l.preset + "\"" + (g.job_tactic ? ": written into your live tactic and read back" : "") + "." + smsg +
-                     " Takes effect at the next match; Edit Tactic may show other values until the game reloads its screen. " + kSafety);
+        // 3.0.1 (GUI30H): never "Loaded" alone when the preset's tactic part wrote nothing; the values not written are named
+        std::string head;
+        if (g.job_tactic) {
+            head = "Loaded \"" + l.preset + "\": written into your live tactic and read back.";
+            if (!g.job_unwritten.empty()) {
+                head += " Not written:";
+                for (size_t i = 0; i < g.job_unwritten.size(); ++i) head += (i ? "; " : " ") + g.job_unwritten[i];
+                head += ".";
+            }
+        } else if (g.job_preset.tactic.present) {
+            head = "\"" + l.preset + "\": the tactic is NOT changed (" + (g.job_tactic_why.empty() ? std::string("nothing to write") : g.job_tactic_why) + ").";
+        } else {
+            head = "Loaded \"" + l.preset + "\" (no tactic part).";
+        }
+        say(app, head + smsg + " Takes effect at the next match; Edit Tactic may show other values until the game reloads its screen. " + kSafety);
         if (g.job_tactic) app.notify("Preset loaded into your live tactic (read back)");
     } else if (kind == JobKind::Undo) {
         if (!tactic_ok) {
@@ -565,8 +612,9 @@ void finish(App& app) {
         std::string smsg;
         if (g.job_settings) {
             std::string msg;
-            game_settings_unstage(app, l.settings_preset, msg);
+            game_settings_unstage(app, l.settings_preset, msg, l.settings_previous);  // 3.0.1: an earlier staging comes back
             smsg = " Sliders: " + msg + ".";
+            l.settings_previous.clear();
             l.settings_staged = false;
         }
         if (g.job_setpieces) {
@@ -674,7 +722,7 @@ void update_state(App& app) {
             return it == g.sliders.end() ? std::string("?") : std::to_string(it->second);
         };
         g_state.sliders_line = "Custom sliders now: " + std::to_string(g.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
-                               val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ")";
+                               val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ") - " + gsettings::kSlidersSource;
     } else {
         g_state.sliders_line = "Custom sliders now: not read (" + g.sliders_why + ")";
     }

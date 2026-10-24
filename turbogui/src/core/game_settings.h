@@ -47,6 +47,9 @@ constexpr size_t kCrcLenAt = 0x30, kConstAt = 0x74;
 constexpr uint8_t kCustomPrefix[5] = {1, 0, 0, 0, 1};  // the bytes right before the Custom block
 constexpr uint32_t kConstWords[4] = {0x38943, 0x537, 0x2EE77, 0xF3};
 inline const char* layout_name() { return "fbchunks-454-bc650"; }
+// 3.0.1 (GUI30H): every slider value Turbo shows is read from the newest Settings FILE (read_current), never from the running game; the
+// labels say so (in GUI30H the file held the applied values while the game showed 50)
+constexpr const char* kSlidersSource = "from the Settings file the game saved last, not from the running game";
 
 uint32_t crc32(const uint8_t* p, size_t n);                  // zlib's crc32
 std::string md5_hex(const uint8_t* p, size_t n);             // 32 lower-case hex digits
@@ -127,8 +130,13 @@ struct Snapshot {
     std::map<std::string, int> values;               // entry id -> value (mapped entries)
     std::vector<std::pair<int, uint32_t>> slots;     // every region index -> value (the candidate view)
     std::vector<std::pair<int, uint32_t>> custom_slots;  // every Custom block byte index -> value (empty when the map has no block)
+    std::vector<uint8_t> custom_prefix;                  // 3.0.1: the 5 bytes before the Custom block as the file holds them (empty: no block)
 };
 Snapshot read_current(const std::filesystem::path& settings_dir, const SliderMap& m);
+// 3.0.1 (GUI30H): what turbo_settings_apply --status prints after the file line: the u32 regions, the Custom block's 5 prefix bytes (and
+// whether --apply accepts them), every mapped Custom entry "custom <id> (0x50): 33" and the 125 Custom bytes. b153e48 printed the regions
+// only, so the applied Custom values (54c0099a held 34/33/46) were not visible.
+std::vector<std::string> status_lines(const Snapshot& s, const SliderMap& m);
 
 // ------------------------------------------------------------------------------------------------ presets (turbo_output\settings_presets)
 inline const char* presets_dir() { return "settings_presets"; }
