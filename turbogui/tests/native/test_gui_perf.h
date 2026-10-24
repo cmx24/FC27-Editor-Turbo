@@ -249,8 +249,7 @@ static Cost measure(Ui& ui, const std::string& what, int frames) {
 #ifdef _WIN32
     g_trace_on = false;
     if (std::getenv("TURBO_TEST_DEBUG") && c.fs_per_frame() > 5.0)
-        for (int i = 0; i < g_trace_n; ++i) std::printf("    FSTRACE %s: %ld x %ls
-", what.c_str(), g_trace_hits[i], g_trace_path[i]);
+        for (int i = 0; i < g_trace_n; ++i) std::printf("    FSTRACE %s: %ld x %ls\n", what.c_str(), g_trace_hits[i], g_trace_path[i]);
 #endif
     std::string ops;
     for (int i = 0; i < kFsOps; ++i)
