@@ -1726,49 +1726,182 @@ static bool strip_button(const char* label, bool selected, bool first) {
     return hit;
 }
 
+// 3.0 top bar: the global search "##gsearch". Case-insensitive match on the players' and the clubs' names (model.players() / teams()); the
+// first 8 matches as Selectables in a small window under the box. Enter takes the first match. A player opens Players > Player with
+// app.sel_player set; a club opens Club > Squad with app.sel_team set (the page's club chooser reads it). The match list is rebuilt only
+// when the text or the model changes (never per frame).
+namespace {
+struct GlobalSearch {
+    char buf[96] = {};
+    std::string query;          // lower-case text the results are for
+    uint64_t model_version = ~0ull;
+    struct Hit { bool club; int64_t id; std::string text; };
+    std::vector<Hit> hits;
+};
+GlobalSearch& global_search() {
+    static GlobalSearch g;
+    return g;
+}
+std::string lower_ascii(const std::string& s) {
+    std::string o(s);
+    for (char& c : o)
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return o;
+}
+void global_search_refresh(App& app, GlobalSearch& g) {
+    std::string q = lower_ascii(g.buf);
+    while (!q.empty() && q.back() == ' ') q.pop_back();
+    while (!q.empty() && q.front() == ' ') q.erase(q.begin());
+    if (q == g.query && g.model_version == app.model.version()) return;
+    g.query = q;
+    g.model_version = app.model.version();
+    g.hits.clear();
+    if (q.size() < 2 || !app.model.built()) return;
+    for (const TeamRow& t : app.model.teams()) {
+        if (g.hits.size() >= 3) break;  // clubs first, at most three of the eight
+        if (lower_ascii(t.name).find(q) != std::string::npos) g.hits.push_back({true, t.teamid, t.name});
+    }
+    for (const PlayerRow& p : app.model.players()) {
+        if (g.hits.size() >= 8) break;
+        if (lower_ascii(p.name).find(q) != std::string::npos)
+            g.hits.push_back({false, p.playerid, p.name + (p.club_name.empty() ? std::string() : "  (" + p.club_name + ")")});
+    }
+}
+void global_search_pick(App& app, GlobalSearch& g, size_t i) {
+    if (i >= g.hits.size()) return;
+    const GlobalSearch::Hit h = g.hits[i];
+    if (h.club) {
+        app.sel_team = h.id;
+        app.go(shell::Page::TeamPlayers);
+    } else {
+        app.sel_player = h.id;
+        app.go(shell::Page::PlayerEdit);
+    }
+    g.buf[0] = '\0';
+    g.query.clear();
+    g.hits.clear();
+}
+}  // namespace
+
+static void draw_global_search(App& app) {
+    GlobalSearch& g = global_search();
+    ImGui::SetNextItemWidth(S(240.0f));
+    const bool enter = ImGui::InputTextWithHint("##gsearch", "Search players and clubs", g.buf, sizeof(g.buf), ImGuiInputTextFlags_EnterReturnsTrue);
+    const ImVec2 under(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + S(2.0f));
+    global_search_refresh(app, g);
+    if (enter && !g.hits.empty()) {
+        global_search_pick(app, g, 0);
+        return;
+    }
+    if (g.query.size() < 2) return;
+    ImGui::SetNextWindowPos(under, ImGuiCond_Always);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(S(240.0f), 0.0f), ImVec2(S(480.0f), S(400.0f)));
+    if (ImGui::Begin("##gsearch_results", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+        if (g.hits.empty()) theme::muted_text("No player or club matches");
+        for (size_t i = 0; i < g.hits.size(); ++i) {
+            const GlobalSearch::Hit& h = g.hits[i];
+            char lbl[200];
+            std::snprintf(lbl, sizeof(lbl), "%s%s###gsr%zu", h.club ? "Club: " : "", h.text.c_str(), i);
+            if (ImGui::Selectable(lbl, false)) {
+                global_search_pick(app, g, i);
+                break;
+            }
+        }
+        ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    }
+    ImGui::End();
+}
+
+// 3.0 shell: one button of the left rail (an area). Full width, the selected one filled with the accent; `label` is what the button shows
+// (the area name, or its first letter in the narrow rail). True when clicked.
+static bool rail_button(const char* label, bool selected, float width) {
+    const ImVec4 fill = selected ? theme::accent() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Button, fill);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+    const bool hit = ImGui::Button(label, ImVec2(width, ImGui::GetFrameHeight() + S(8.0f)));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+    return hit;
+}
+
 // Navigation happens in the frame it is asked for (a click, go(), request_tab): the page of the new place is drawn at once.
+// 3.0 layout: [##rail | ##content]. The rail lists the areas (Settings and Lab pinned at the bottom, "<" / ">" narrows it); the content child
+// holds the page strip (segmented buttons) and the page. The rail buttons sit under PushID("##shell") and the strip under PushID("##pages"),
+// as the area tabs and the strip did, so Ui::open_page and the tests' scoped clicks still find them by label.
 void App::draw_pages() {
     using namespace shell;
     const bool adv = prefs.advanced_mode;
     // Legacy request_tab = N (cross-links, tests) -> its new home. Taken before drawing: a panel may request another place
-    // for the next frame. A page the view hides (Simple: the Advanced area) is not opened, as the old hidden tabs were not.
+    // for the next frame. A page the view hides (the Lab is off) is not opened, as the old hidden tabs were not.
     if (request_tab >= 0) {
         const Place pl = area_for(request_tab);
         request_tab = -1;
         if (pl.valid() && page_visible(pl.page, adv)) go_to_ = pl;
     }
-    // A link inside the Club & Kits area (club-tools "Kits" link, ui_club_page.h): taken here, same frame
+    // A link inside the Club area (club-tools "Kits" link, ui_club_page.h): taken here, same frame
     if (const Page cp = club_take_page_request(); cp != Page::None) go(area_of(cp), cp);
     if (go_to_.valid() && page_visible(go_to_.page, adv)) place_ = go_to_;
     go_to_ = Place{};
-    // Where we are: the area must be visible in this view (Advanced turned off: back to Squad & Players), the page one of its own
+    // Where we are: the area must be visible in this view (Lab turned off: back to Home), the page one of its own
     if (!area_visible(place_.area, adv) || area_of(place_.page) != place_.area) {
-        const Area a = area_visible(place_.area, adv) ? place_.area : Area::Squad;
+        const Area a = area_visible(place_.area, adv) ? place_.area : Area::Home;
         place_ = Place{a, default_page(a)};
     }
     area_page_[static_cast<int>(place_.area)] = place_.page;
 
-    ImGui::PushID("##shell");
-    // the area strip
-    bool first = true;
-    for (int ai = 0; ai < kAreaCount; ++ai) {
-        const Area a = static_cast<Area>(ai);
-        if (!area_visible(a, adv)) continue;
-        if (strip_button(area_label(a), place_.area == a, first) && place_.area != a) {
-            const Page remembered = area_page_[ai];
-            place_ = Place{a, (remembered != Page::None && page_visible(remembered, adv)) ? remembered : default_page(a)};
-            area_page_[ai] = place_.page;
+    // ---- the rail
+    const bool narrow = prefs.rail_collapsed;
+    const float rail_w = narrow ? S(44.0f) : S(156.0f);
+    ImGui::BeginChild("##rail", ImVec2(rail_w, 0.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    {
+        const float bw = ImGui::GetContentRegionAvail().x;
+        if (ImGui::SmallButton(narrow ? ">###railtoggle" : "<###railtoggle")) {
+            prefs.rail_collapsed = !prefs.rail_collapsed;
+            if (!save_gui_settings()) notify("cannot save the settings", true);
         }
-        first = false;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", narrow ? "Show the area names" : "Make the menu narrow");
+        ImGui::Spacing();
+        ImGui::PushID("##shell");
+        auto area_button = [&](Area a) {
+            const int ai = static_cast<int>(a);
+            const char* name = area_label(a);
+            char small[48];
+            std::snprintf(small, sizeof(small), "%c###rail_%s", name[0], name);  // narrow rail: the first letter, a stable id per area
+            if (rail_button(narrow ? small : name, place_.area == a, bw) && place_.area != a) {
+                const Page remembered = area_page_[ai];
+                place_ = Place{a, (remembered != Page::None && page_visible(remembered, adv)) ? remembered : default_page(a)};
+                area_page_[ai] = place_.page;
+            }
+            if (narrow && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", name);
+        };
+        for (int ai = 0; ai < kAreaCount; ++ai) {
+            const Area a = static_cast<Area>(ai);
+            if (a == Area::Settings || a == Area::Advanced || !area_visible(a, adv)) continue;
+            area_button(a);
+        }
+        // Settings and Lab at the bottom
+        const int pinned = 1 + (area_visible(Area::Advanced, adv) ? 1 : 0);
+        const float bh = ImGui::GetFrameHeight() + S(8.0f), sp = ImGui::GetStyle().ItemSpacing.y;
+        const float bottom_y = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - pinned * bh - (pinned - 1) * sp;
+        if (bottom_y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(bottom_y);
+        area_button(Area::Settings);
+        if (area_visible(Area::Advanced, adv)) area_button(Area::Advanced);
+        ImGui::PopID();
     }
-    // the page strip of the area (an area with one page, Settings, has none)
+    ImGui::EndChild();
+    ImGui::SameLine();
+
+    // ---- the content: page strip + page
+    ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
     const auto& strip = pages_of(place_.area);
-    if (strip.size() > 1) {
-        // the page strip continues on the same row when it fits (one row of chrome, not two: the panels keep their height)
-        ImGui::SameLine(0.0f, S(14.0f));
-        ImGui::TextDisabled("|");
+    if (strip.size() > 1) {  // an area with one page (Home, Looks, Settings) has no strip
+        ImGui::PushID("##shell");
         ImGui::PushID("##pages");
-        bool pfirst = false;
+        bool pfirst = true;
         for (Page p : strip) {
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
                 place_.page = p;
@@ -1777,13 +1910,16 @@ void App::draw_pages() {
             pfirst = false;
         }
         ImGui::PopID();
+        ImGui::PopID();
+        ImGui::Separator();
     }
-    ImGui::PopID();
 
     const Page page = place_.page;
+    if (page_unproven(page)) theme::warn_text("%s", lab_banner_text());  // 3.0: the one amber line on every Lab page
     // 2.16 wiring: the new page of this id first (ui_pages_216.cpp), unless the old panels were asked for; then the page registered before 2.16;
     // then the legacy panel
     if (!(!legacy_pages && draw_new_page(*this, page, adv)) && !draw_page(*this, page, adv)) draw_legacy_page(*this, page);
+    ImGui::EndChild();
 }
 
 void App::draw() {
@@ -1976,6 +2112,8 @@ void App::draw() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Stop##faces3d")) faces3d_stop();
     }
+    ImGui::SameLine(0.0f, S(16.0f));
+    draw_global_search(*this);  // 3.0: "Search players and clubs" (Enter or a click on a result opens it)
     if (busy()) {
         ImGui::SameLine(ImGui::GetWindowWidth() - S(380.0f));
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Waiting: %s", usertext::pending_text(pending_label).c_str());
@@ -2008,7 +2146,7 @@ void App::draw() {
     }
     ImGui::Separator();
 
-    draw_pages();  // the area tabs, the page strip and the page (App::draw_pages below)
+    draw_pages();  // the left rail, the page strip and the page (App::draw_pages above)
     hotkey_popup(*this);  // hotkey_setting.h: waits for the new show/hide key after Change...
     // the capture window was not drawn this frame: stop waiting for a key (hotkey_setting.h)
     if (hotkey_capture && hotkey_capture_frame != ImGui::GetFrameCount()) hotkey_capture = false;

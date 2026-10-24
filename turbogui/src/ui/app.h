@@ -394,7 +394,7 @@ public:
     // hides the Advanced area) or invalid.
     void go(shell::Area a, shell::Page p);
     void go(shell::Page p) { go(shell::area_of(p), p); }
-    // Where the shell is now (set while drawing; PlayerEdit before the first frame)
+    // Where the shell is now (set while drawing; Home before the first frame)
     shell::Place place() const { return place_; }
     // The area tabs, the page strip and the page: the body of the window under the status line (called by draw())
     void draw_pages();
@@ -484,7 +484,7 @@ private:
     std::string career_faces_active_;    // the career career_faces_sync last ran for ("" = none)
     bool career_faces_ticked_ = false;   // the first tick (the start-up restore's log line goes to the host log there)
     std::string career_faces_start_line_;
-    shell::Place place_{shell::Area::Squad, shell::Page::PlayerEdit};
+    shell::Place place_{shell::Area::Home, shell::Page::Home};  // 3.0: the app opens on Home
     HookReport hook_report_cache_;      // hook_report_cached()
     double hook_report_cache_at_ = -1.0;  // App time of that report (< 0 = none)
     shell::Place go_to_;                                    // a go() waiting for the next draw_pages()
