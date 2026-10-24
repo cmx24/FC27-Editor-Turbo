@@ -2,6 +2,7 @@
 // Header-only. Colours are ImVec4 values; sizes are UNSCALED pixels: wrap them in S() at the use site (S(theme::kSelectWidth)).
 // Panels use the helpers below instead of ImGui::TextColored(ImVec4(...)) literals; the sweep of existing call sites is a later step.
 #pragma once
+#include <cfloat>
 #include <cstdarg>
 
 #include "imgui.h"
@@ -13,7 +14,12 @@ constexpr ImVec4 kAccent{0.26f, 0.52f, 0.96f, 1.0f};  // primary buttons, select
 constexpr ImVec4 kOk{0.45f, 0.85f, 0.50f, 1.0f};      // proven / applied status text
 constexpr ImVec4 kWarn{1.00f, 0.78f, 0.25f, 1.0f};    // "not proven" banner, pending jobs
 constexpr ImVec4 kErr{1.00f, 0.50f, 0.30f, 1.0f};     // errors: the existing orange-red, kept
-constexpr ImVec4 kMuted{0.70f, 0.72f, 0.76f, 1.0f};   // hints: equals the style's TextDisabled (app.cpp)
+constexpr ImVec4 kMuted{0.70f, 0.72f, 0.76f, 1.0f};   // hints: equals the style's TextDisabled (ui_style.cpp)
+// surfaces of the graphite/navy theme (ui_style.cpp uses the same values; helpers below use them for cards and rules)
+constexpr ImVec4 kCardBg{0.090f, 0.106f, 0.148f, 1.0f};   // a card sits one step above the window (0.055, 0.065, 0.090)
+constexpr ImVec4 kRule{0.24f, 0.28f, 0.36f, 0.55f};       // thin separator / divider line
+constexpr ImVec4 kRailHover{1.0f, 1.0f, 1.0f, 0.07f};     // hover wash on a transparent rail button
+constexpr ImVec4 kRailActive{1.0f, 1.0f, 1.0f, 0.12f};
 
 inline ImVec4 accent() { return kAccent; }
 inline ImVec4 accent_hover() { return ImVec4(kAccent.x * 1.15f, kAccent.y * 1.15f, kAccent.z * 1.05f, 1.0f); }
@@ -22,6 +28,9 @@ inline ImVec4 ok() { return kOk; }
 inline ImVec4 warn() { return kWarn; }
 inline ImVec4 err() { return kErr; }
 inline ImVec4 muted() { return kMuted; }
+inline ImVec4 card_bg() { return kCardBg; }
+inline ImVec4 rule() { return kRule; }
+inline ImVec4 accent_alpha(float a) { return ImVec4(kAccent.x, kAccent.y, kAccent.z, a); }
 
 // ---- spacing grid (unscaled px; 8 px grid)
 constexpr float kGrid = 8.0f;              // S(8)
@@ -74,6 +83,68 @@ inline bool primary_button(const char* label, const ImVec2& size = ImVec2(0, 0))
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_active());
     const bool hit = ImGui::Button(label, size);
     ImGui::PopStyleColor(3);
+    return hit;
+}
+
+// ---- layout helpers (3.0 theme). Sizes passed in are SCALED px, like primary_button's.
+
+// A card: a bordered, slightly lighter, rounded panel. height 0 = grows with its content (AutoResizeY), else a fixed scaled height.
+// Always pair with card_end(), whatever card_begin returns (it is BeginChild). The lighter ChildBg is pushed only around BeginChild
+// (the child reads its background there), so a child nested in the card keeps the plain transparent ChildBg.
+inline bool card_begin(const char* id, float height = 0.0f) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kCardBg);
+    const ImGuiChildFlags flags = ImGuiChildFlags_Borders | (height <= 0.0f ? ImGuiChildFlags_AutoResizeY : 0);
+    const bool open = ImGui::BeginChild(id, ImVec2(0.0f, height), flags, ImGuiWindowFlags_None);
+    ImGui::PopStyleColor();
+    return open;
+}
+inline void card_end() { ImGui::EndChild(); }
+
+// A section heading: title-size text, then a thin muted rule across the available width.
+inline void section_title(const char* text) {
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * kFontTitle);
+    ImGui::TextUnformatted(text);
+    ImGui::PopFont();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::GetWindowDrawList()->AddLine(p, ImVec2(p.x + w, p.y), ImGui::ColorConvertFloat4ToU32(kRule), 1.0f);
+    ImGui::Dummy(ImVec2(0.0f, 1.0f));
+}
+
+// A rounded filled pill with text (status chip). No interaction; takes the place of one item on the line (SameLine works).
+// Text is dark on a light `bg`, light on a dark one.
+inline void chip(const char* text, const ImVec4& bg) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float padx = st.FramePadding.x, pady = st.FramePadding.y * 0.4f;
+    const ImVec2 size(ts.x + padx * 2.0f, ts.y + pady * 2.0f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(size);
+    const float lum = 0.299f * bg.x + 0.587f * bg.y + 0.114f * bg.z;
+    const ImVec4 fg = lum > 0.60f ? ImVec4(0.05f, 0.06f, 0.08f, 1.0f) : ImVec4(0.96f, 0.96f, 0.97f, 1.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), ImGui::ColorConvertFloat4ToU32(bg), size.y * 0.5f);
+    dl->AddText(ImVec2(p.x + padx, p.y + pady), ImGui::ColorConvertFloat4ToU32(fg), text);
+}
+
+// A navigation-rail entry: full-width (width <= 0 = the whole line), left-aligned text. Selected = accent fill, white text;
+// otherwise transparent with a hover wash. Returns true when clicked. The label keeps its ImGui id, so ##/### suffixes work.
+inline bool rail_button(const char* label, bool selected, float width) {
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+    if (selected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, accent());
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, accent_hover());
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_active());
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kRailHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, kRailActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+    }
+    const bool hit = ImGui::Button(label, ImVec2(width > 0.0f ? width : -FLT_MIN, 0.0f));
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar();
     return hit;
 }
 
