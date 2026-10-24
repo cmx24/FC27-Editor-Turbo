@@ -63,9 +63,44 @@ name_guard "$STAGE" || { echo "package refused: remove those files first"; exit 
 knobs_guard "$STAGE" || { echo "package refused: a tuning knob is offered as a slider without its in-game proof"; exit 1; }
 find "$STAGE" -exec touch -d "2026-01-01 00:00:00" {} +
 mkdir -p "$ROOT/dist"; rm -f "$OUT"
-(cd "$STAGE" && find . -type f | LC_ALL=C sort | sed 's#^\./##' | zip -X -q "$OUT" -@)
+make_zip() {  # $1 = staged folder, $2 = output zip; `zip` when present, else python zipfile (same sorted order, 2026-01-01 stamp, deflate)
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$1" && find . -type f | LC_ALL=C sort | sed 's#^\./##' | zip -X -q "$2" -@)
+    return
+  fi
+  echo "zip not found: building the package with python zipfile"
+  local py="" c s="$1" o="$2"
+  for c in python3 python "py -3"; do $c -c "import zipfile" >/dev/null 2>&1 && { py="$c"; break; }; done
+  [ -n "$py" ] || { echo "no zip and no Python (python3 / python / py -3): cannot build the package"; return 1; }
+  if command -v cygpath >/dev/null 2>&1; then s="$(cygpath -w "$1")"; o="$(cygpath -w "$2")"; fi
+  $py -I - "$s" "$o" <<'PYZIP'
+import os, sys, zipfile
+src, out = sys.argv[1], sys.argv[2]
+names = []
+for d, _, fs in os.walk(src):
+    for f in fs:
+        names.append(os.path.relpath(os.path.join(d, f), src).replace(os.sep, "/"))
+names.sort(key=lambda n: n.encode("utf-8"))
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    for n in names:
+        zi = zipfile.ZipInfo(n, (2026, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zi.external_attr = 0o644 << 16
+        with open(os.path.join(src, n.replace("/", os.sep)), "rb") as fh:
+            z.writestr(zi, fh.read())
+PYZIP
+}
+unzip_to() {  # $1 = zip, $2 = target folder; `unzip` when present, else python zipfile
+  if command -v unzip >/dev/null 2>&1; then unzip -q "$1" -d "$2"; return; fi
+  local py="" c a="$1" b="$2"
+  for c in python3 python "py -3"; do $c -c "import zipfile" >/dev/null 2>&1 && { py="$c"; break; }; done
+  [ -n "$py" ] || { echo "no unzip and no Python: cannot verify the package"; return 1; }
+  if command -v cygpath >/dev/null 2>&1; then a="$(cygpath -w "$1")"; b="$(cygpath -w "$2")"; fi
+  $py -I -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$a" "$b"
+}
+make_zip "$STAGE" "$OUT"
 # verify: the zip holds exactly the staged files
 CHK="$(mktemp -d)"; trap 'rm -rf "$STAGE" "$CHK"' EXIT
-unzip -q "$OUT" -d "$CHK"; diff -r "$STAGE" "$CHK" >/dev/null && echo "zip content == staged files"
+unzip_to "$OUT" "$CHK"; diff -r "$STAGE" "$CHK" >/dev/null && echo "zip content == staged files"
 (cd "$ROOT/dist" && sha256sum "$(basename "$OUT")" > "$(basename "$OUT").sha256" && cat "$(basename "$OUT").sha256")
-unzip -l "$OUT" | tail -1
+if command -v unzip >/dev/null 2>&1; then unzip -l "$OUT" | tail -1; else ls -l "$OUT"; fi

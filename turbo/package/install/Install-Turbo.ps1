@@ -97,14 +97,17 @@ function Snapshot {
   }
   return $h
 }
-$snapBefore = Snapshot
+# a dry run reads and hashes ONLY the package files it would copy (and the files they would replace): the protected user data (turbo_output, kits,
+# callnames\masters: tens of thousands of files) is neither enumerated nor hashed; the real install snapshots it as before
+$snapBefore = @{}
+if (-not $DryRun) { $snapBefore = Snapshot }
 $Stamp = (Get-Date).ToString('yyyyMMdd_HHmmss')
 $BDir = Join-Path $LE ('turbo_backups\install_' + $Stamp)
 Write-Host ('Live Editor      : ' + $LE)
 Write-Host ('Package          : ' + $Source + ' (' + $plan.Count + ' files to install)')
 Write-Host ('Turbo.dll        : package ' + $dll[0].SrcMd5 + ', installed now ' + $dll[0].OldMd5)
 Write-Host ('Overwrites       : ' + $over.Count + ' existing files (backed up first); adds ' + $add.Count + ' new files')
-Write-Host ('Kept (user data) : ' + $kept.Count + ' package files not copied because they exist; ' + $snapBefore.Count + ' protected files snapshotted')
+Write-Host ('Kept (user data) : ' + $kept.Count + ' package files not copied because they exist; ' + $(if ($DryRun) { 'protected user data not scanned in a dry run' } else { [string]$snapBefore.Count + ' protected files snapshotted' }))
 if ($skipped.Count -gt 0) { Write-Host ('Skipped (blocked): ' + ($skipped -join ', ')) }
 Write-Host ('Backup / rollback: ' + $BDir)
 if (Has $BDir) { Cleanup; Fail ('backup folder exists: ' + $BDir) }
