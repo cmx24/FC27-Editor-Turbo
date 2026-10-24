@@ -3292,6 +3292,7 @@ struct FakeCapture : capture::CaptureService {
     const capture::Template* learned() override { return nullptr; }
 };
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
+#include "test_image_crop.h"  // 3.1 R2: the looks studio's full-body crop (content box, margin, fit to height)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
 #include "test_compdata_profile.h"  // 2.21: compdata guard (record, disk, seeded careers, decision) + launcher-hint rank

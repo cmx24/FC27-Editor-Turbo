@@ -463,6 +463,110 @@ size_t remove_plain_background(Rgba& img, int tolerance) {
     return n;
 }
 
+// ---------------------------------------------------------------- content box, crop, fit to height (3.1 R2)
+bool content_box(const Rgba& img, Box& out, int tolerance) {
+    out = Box();
+    if (img.empty() || img.w < 3 || img.h < 3) return false;
+    tolerance = std::clamp(tolerance, 1, 255);
+    size_t border = 0, clear = 0;
+    std::vector<int> ch[3];
+    auto add = [&](int x, int y) {
+        const uint8_t* p = img.at(x, y);
+        ++border;
+        if (p[3] < 128) {
+            ++clear;
+            return;
+        }
+        for (int c = 0; c < 3; ++c) ch[c].push_back(p[c]);
+    };
+    for (int x = 0; x < img.w; ++x) { add(x, 0); add(x, img.h - 1); }
+    for (int y = 1; y < img.h - 1; ++y) { add(0, y); add(img.w - 1, y); }
+    const bool transparent = clear * 2 > border;
+    int bg[3] = {0, 0, 0};
+    if (!transparent) {
+        for (int c = 0; c < 3; ++c) {
+            std::nth_element(ch[c].begin(), ch[c].begin() + long(ch[c].size() / 2), ch[c].end());
+            bg[c] = ch[c][ch[c].size() / 2];
+        }
+    }
+    auto off_bg = [&](const uint8_t* p) {  // part of him, not of the background
+        if (p[3] < 128) return false;
+        if (transparent) return true;
+        int d = 0;
+        for (int c = 0; c < 3; ++c) d = std::max(d, std::abs(int(p[c]) - bg[c]));
+        return d > tolerance;
+    };
+    if (!transparent) {
+        // a plain border: at least 90 % of it is the background colour (a scene or a gradient is not cropped)
+        size_t plain = 0;
+        auto count = [&](int x, int y) { plain += off_bg(img.at(x, y)) ? 0 : 1; };
+        for (int x = 0; x < img.w; ++x) { count(x, 0); count(x, img.h - 1); }
+        for (int y = 1; y < img.h - 1; ++y) { count(0, y); count(img.w - 1, y); }
+        if (plain * 10 < border * 9) return false;
+    }
+    Box b{img.w, img.h, 0, 0};
+    for (int y = 0; y < img.h; ++y) {
+        for (int x = 0; x < img.w; ++x) {
+            if (!off_bg(img.at(x, y))) continue;
+            b.x0 = std::min(b.x0, x);
+            b.y0 = std::min(b.y0, y);
+            b.x1 = std::max(b.x1, x + 1);
+            b.y1 = std::max(b.y1, y + 1);
+        }
+    }
+    if (b.x1 <= b.x0 || b.y1 <= b.y0) return false;
+    out = b;
+    return true;
+}
+
+Box grow_box(const Box& b, float margin, int w, int h) {
+    const int mx = int(std::lround(float(b.w()) * std::max(0.0f, margin)));
+    const int my = int(std::lround(float(b.h()) * std::max(0.0f, margin)));
+    Box o;
+    o.x0 = std::clamp(b.x0 - mx, 0, std::max(0, w));
+    o.y0 = std::clamp(b.y0 - my, 0, std::max(0, h));
+    o.x1 = std::clamp(b.x1 + mx, o.x0, std::max(0, w));
+    o.y1 = std::clamp(b.y1 + my, o.y0, std::max(0, h));
+    return o;
+}
+
+Rgba crop_image(const Rgba& src, const Box& b) {
+    Rgba out;
+    if (src.empty()) return out;
+    const int x0 = std::clamp(b.x0, 0, src.w), y0 = std::clamp(b.y0, 0, src.h);
+    const int x1 = std::clamp(b.x1, x0, src.w), y1 = std::clamp(b.y1, y0, src.h);
+    if (x1 <= x0 || y1 <= y0) return out;
+    out.w = x1 - x0;
+    out.h = y1 - y0;
+    out.px.resize(size_t(out.w) * size_t(out.h) * 4);
+    for (int y = 0; y < out.h; ++y) std::memcpy(out.at(0, y), src.at(x0, y0 + y), size_t(out.w) * 4);
+    return out;
+}
+
+Rgba fit_height(const Rgba& src, int height) {
+    if (src.empty() || height <= 0) return Rgba();
+    if (height == src.h) return src;
+    const float s = float(height) / float(src.h);
+    const int w = std::max(1, int(std::lround(src.w * s)));
+    Rgba small = s < 1.0f ? shrink_for(src, s) : src;
+    Rgba out;
+    out.w = w;
+    out.h = height;
+    out.px.assign(size_t(w) * size_t(height) * 4, 0);
+    const float sx = float(small.w) / float(w), sy = float(small.h) / float(height);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < w; ++x) {
+            float o[4];
+            sample(small, (x + 0.5f) * sx, (y + 0.5f) * sy, o);
+            uint8_t* p = out.at(x, y);
+            if (o[3] > 0.0f)
+                for (int c = 0; c < 3; ++c) p[c] = uint8_t(std::clamp(o[c] / o[3] + 0.5f, 0.0f, 255.0f));
+            p[3] = uint8_t(std::clamp(o[3] * 255.0f + 0.5f, 0.0f, 255.0f));
+        }
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------- DDS encode
 static void put32(std::vector<uint8_t>& v, size_t off, uint32_t x) {
     for (int i = 0; i < 4; ++i) v[off + size_t(i)] = uint8_t(x >> (8 * i));

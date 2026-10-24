@@ -159,6 +159,7 @@ inline const tc::ManifestEntry* seq_find(const std::vector<tc::ManifestEntry>& v
 
 static void test_capture_sequence() {
     using namespace capture_seq_test;
+    image_crop_test::run();  // test_image_crop.h (3.1 R2: the full-body crop)
 
     run_case("capture sequence: body request (mode 1 presets, default descriptor, his team)", [&] {
         CHECK(tc::cameras().size() > size_t(tc::kCameraBodyKit), "body tc::cameras exist");
@@ -237,15 +238,58 @@ static void test_capture_sequence() {
         want.set_i32(0x24, 2);
         CHECK(std::memcmp(p.desc.b, want.b, tc::kPlayerDescSize) == 0 && p.type == 2 && p.mode == 1 && p.extra == 5, "plan: " + tc::describe_desc(p.desc));
         CHECK(p.note.find("full-body camera (type 2, mode 1, extra 5, +24=2)") != std::string::npos, "note: " + p.note);
-        // the built-in camera is the one W2228 proved: the default player descriptor + 0C = team, +50 = 2, mode 0, extra 0
+        // the built-in camera: the descriptor W2228 proved (the default player descriptor + 0C = team, +50 = 2, +58 = 0, +5C = -1),
+        // at mode 1 since 3.1 R1 (the 1024x1024 stride; W2228 drew it at mode 0, 256x256), extra 0
         const tc::BodyCamera full = tc::body_camera_builtin();
-        CHECK(full.ok && full.mode == 0 && full.extra == 0 && full.type == -1 && full.source.find("W2228") != std::string::npos, "built in: mode 0, extra 0");
-        CHECK(tc::describe_body_camera(full) == "type -1, mode 0, extra 0, +0C=team, +50=2, +58=0, +5C=-1", "describe: " + tc::describe_body_camera(full));
+        CHECK(full.ok && full.mode == 1 && full.extra == 0 && full.type == -1 && full.source.find("W2228") != std::string::npos, "built in: mode 1, extra 0");
+        CHECK(tc::describe_body_camera(full) == "type -1, mode 1, extra 0, +0C=team, +50=2, +58=0, +5C=-1", "describe: " + tc::describe_body_camera(full));
         p = tc::plan_request(tc::body_request(254470, 95), nullptr, &full);
         // the W2228 log line of the request that drew the full body (22:31:35)
         CHECK(tc::describe_desc(p.desc) == "+00=254470 +04=-1 +08=95 +0C=95 +10=-1 +20=-1 +24=1 +4C=-1 +50=2 +54=-1 +5C=-1 +64=1",
               "W2228 descriptor: " + tc::describe_desc(p.desc));
-        CHECK(p.mode == 0 && p.extra == 0 && p.type == -1 && p.desc.flag64() && !p.desc.flag68(), "mode 0 / extra 0, player flags");
+        CHECK(p.mode == 1 && p.extra == 0 && p.type == -1 && p.desc.flag64() && !p.desc.flag68(), "mode 1 / extra 0, player flags");
+        {
+            // the looks studio's one retry (R1) and the Sequence (CHANGE-3) send mode_override = 0: same descriptor, mode 0 (W2228's)
+            tc::Request r0 = tc::body_request(254470, 95);
+            r0.mode_override = 0;
+            const tc::Plan p0 = tc::plan_request(r0, nullptr, &full);
+            CHECK(p0.mode == 0 && p0.extra == 0 && p0.type == -1 && std::memcmp(p0.desc.b, p.desc.b, tc::kPlayerDescSize) == 0,
+                  "mode_override 0: mode 0, the W2228 descriptor unchanged");
+        }
+        {
+            // CHANGE-1: the exact body_camera.txt texts the Tester copies (mode 1, and its mode-0 rollback). No type line: "type = -1"
+            // is refused (type must be 0..255) and a file of "mode = 0" alone is not configured, so either would be ignored.
+            const char* const texts[2] = {"mode = 1
+extra = 0
+desc 0x0C = team
+desc 0x50 = 2
+desc 0x58 = 0
+desc 0x5C = -1
+",
+                                          "mode = 0
+extra = 0
+desc 0x0C = team
+desc 0x50 = 2
+desc 0x58 = 0
+desc 0x5C = -1
+"};
+            for (int mode = 1; mode >= 0; --mode) {
+                tc::BodyCamera f;
+                std::string e;
+                CHECK(tc::parse_body_camera(texts[1 - mode], f, &e) && f.ok && e.empty(), "CHANGE-1 text mode " + std::to_string(mode) + " parses: " + e);
+                CHECK(tc::describe_body_camera(f) == "type -1, mode " + std::to_string(mode) + ", extra 0, +0C=team, +50=2, +58=0, +5C=-1",
+                      "CHANGE-1 text: " + tc::describe_body_camera(f));
+                const tc::Plan pf = tc::plan_request(tc::body_request(254470, 95), nullptr, &f);
+                CHECK(pf.mode == mode && std::memcmp(pf.desc.b, p.desc.b, tc::kPlayerDescSize) == 0, "CHANGE-1 text: the built-in descriptor at mode " + std::to_string(mode));
+            }
+            tc::BodyCamera f;
+            std::string e;
+            CHECK(!tc::parse_body_camera("type = -1
+mode = 1
+", f, &e) && !f.ok, "the brief's 'type = -1' line is refused: " + e);
+            CHECK(tc::parse_body_camera("mode = 0
+", f, &e) && !f.ok, "the brief's rollback 'mode = 0' alone is not configured");
+        }
         CHECK(tc::hex_bytes(p.desc.b, 0x10) == "06 E2 03 00 FF FF FF FF 5F 00 00 00 5F 00 00 00", "first 16 bytes as LE's (W2220 hex): " + tc::hex_bytes(p.desc.b, 0x10));
         p = tc::plan_request(tc::body_request(254470, -1), nullptr, &full);
         CHECK(p.desc.i32(0x0C) == -1 && p.desc.i32(0x50) == 2, "no team: +0C stays -1");
@@ -273,6 +317,9 @@ static void test_capture_sequence() {
         CHECK(s.start(&err), "start");
         rig.run(s);
         CHECK(s.count("done") == 1 && rig.svc.requests.size() == 1 && rig.svc.requests[0].camera == tc::kCameraBodyFull, "drawn on the full-body camera");
+        // CHANGE-3: the Sequence keeps the camera W2228 proved (mode 0) while the built-in full body is mode 1
+        CHECK(!rig.svc.requests.empty() && rig.svc.requests[0].mode_override == 0, "the Sequence asks mode 0 (mode_override 0)");
+        CHECK(!rig.svc.requests.empty() && tc::plan_request(rig.svc.requests[0], nullptr, &full).mode == 0, "the Sequence's plan: mode 0");
         CHECK(rig.manifests.back().find("\"camera\": -2") != std::string::npos && rig.manifests.back().find("\"mode\"") == std::string::npos,
               "manifest: camera -2, no preset mode");
     });

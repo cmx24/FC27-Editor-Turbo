@@ -108,8 +108,10 @@ struct BodyCamera {
 // false (+err naming the line) on any line it does not understand; an empty table (comments only) is ok = false, no error
 bool parse_body_camera(const std::string& text, BodyCamera& out, std::string* err);
 std::string describe_body_camera(const BodyCamera& b);  // "type 2, mode 1, extra 0, +0C=team, +50=2"
-// The full-body camera proven in W2228: mode 0, extra 0 (256x256 slices, ~190 KB), +0C = team, +50 = 2, +58 = 0, +5C = -1
-// (byte for byte the descriptor of the W2228 request, which was LE's learned one; ids and the +64 / +68 flags from the request)
+// The built-in full-body camera: mode 1 (1024x1024 stride), extra 0, +0C = team, +50 = 2, +58 = 0, +5C = -1. The descriptor is byte for
+// byte the one of the W2228 request (LE's learned one; ids and the +64 / +68 flags from the request), which W2228 proved at mode 0
+// (256x256 slices, ~190 KB). 3.1 R1 moved it to mode 1, unproven in game: the looks studio retries once at mode 0 when mode 1 gives no
+// picture, and Sequence sends mode_override = 0 for kCameraBodyFull.
 BodyCamera body_camera_builtin();
 
 // Head id the game's manager-head builder treats as the user's created avatar (+0x68 = 1)
