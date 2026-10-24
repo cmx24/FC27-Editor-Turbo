@@ -943,16 +943,18 @@ void gameplay_editor_panel(App& app, void*) {
     ImGui::TextUnformatted(have ? p->name.c_str() : "Gameplay presets");
     ImGui::PopFont();
     undo_button_right(app, "Undo last load##gpundo", "Undo last load");
-    g_gp.note = "Community slider presets. Write + EA screen read-back proven, on-pitch effect not measured.";
+    g_gp.note = "Community slider presets. Write + EA screen read-back proven, on-pitch effect not measured. That proof is from 10-19: on 10-24 "
+                "the game showed 50 after an apply, so the apply is NOT proven on your current Settings file.";
     theme::muted_text("%s", g_gp.note.c_str());
     theme::muted_text("%s", g_state.sliders_line.c_str());
     g_gp.read_back_ok = false;
     if (have) {
-        ImGui::TextWrapped("%zu sliders%s. Applying stages them; they are written to the game's settings file when FC 27 is closed "
-                           "(turbo_settings_apply.exe), then show on the EA Custom screen.",
+        ImGui::TextWrapped("%zu sliders%s. Applying stages them; turbo_settings_apply.exe --apply writes them to the game's settings file "
+                           "with FC 27 closed (it refuses a file it does not recognise, and then says the sliders were NOT applied). "
+                           "NOT proven in game yet: on 10-24 the game showed 50 after an apply.",
                            p->settings.values.size(), p->settings.include_unverified ? ", including sliders the EA screen has not shown yet" : "");
         g_gp.read_back_ok = g.have_last && g.last.preset == p->name && g.last.state == "loaded";
-        if (g_gp.read_back_ok) theme::ok_text("Prepared (%s): close the game to install", g.last.when.c_str());
+        if (g_gp.read_back_ok) theme::ok_text("Prepared (%s): close the game to install (not proven in game yet)", g.last.when.c_str());
         else if (g.have_last && g.last.preset == p->name) theme::muted_text("Last apply: %s", g.last.state.c_str());
     } else {
         theme::muted_text("Pick a slider preset on the left.");

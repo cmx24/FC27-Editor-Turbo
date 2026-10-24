@@ -862,7 +862,7 @@ static void run_custom() {
         CHECK(md5_of(r.settings / kName) == md5 && r.bytes() == f && r.others() == others, "the settings folder is unchanged");
         CHECK(fs::exists(r.out / pending_file(), ec), "the staging stays for a later apply");
         // --status shows the same thing before anyone runs --apply
-        const Snapshot snap = read_current(r.settings, m);
+        const auto snap = read_current(r.settings, m);
         CHECK(snap.ok, snap.why);
         bool refuses = false;
         for (const std::string& l : status_lines(snap, m))
@@ -886,7 +886,7 @@ static void run_custom() {
         CHECK(SliderMap::parse(custom_map(true), r.map, &err), err);
         const SliderMap& m = r.map;
         // before: --status shows 50 for the three and that --apply accepts the file (prefix 01 00 00 00 01)
-        Snapshot s0 = read_current(r.settings, m);
+        const auto s0 = read_current(r.settings, m);
         CHECK(s0.ok, s0.why);
         auto has = [](const std::vector<std::string>& v, const std::string& t) {
             for (const std::string& l : v)

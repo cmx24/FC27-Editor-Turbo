@@ -158,7 +158,7 @@ void load_preset(App& app) {
     g.preset_line = msg;
     log_line(app, "game settings: " + msg);
     if (!ok) app.notify(msg, true);
-    else app.notify("Staged: close FC 27 and run turbo_settings_apply.exe --apply");
+    else app.notify("Staged: close FC 27 and run turbo_settings_apply.exe --apply (not proven in game yet)");
     read_pending(app);
 }
 
@@ -352,7 +352,7 @@ void draw_presets(App& app) {
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Apply at next launch: writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "
-                          "turbo\\turbo_settings_apply.exe --apply.",
+                          "turbo\\turbo_settings_apply.exe --apply. NOT proven in game yet: on 10-24 the game showed 50 after an apply.",
                           pending_file());
     if (have) {
         const Plan pl = plan_preset(g.presets[size_t(g.preset_sel)], g.map);
@@ -574,7 +574,8 @@ void draw_game_settings(App& app) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
         ImGui::TextWrapped("Apply = applies at next launch: Load stages the VERIFIED rows only, then close FC 27 and run "
                            "turbo\\turbo_settings_apply.exe --apply (it backs the file up, checks it, and --undo puts it back). Turbo never touches "
-                           "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*.");
+                           "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*. NOT proven in game yet: on 10-24 the game showed 50 after an apply; --apply refuses a Settings file "
+                           "it does not recognise and then says the sliders were NOT applied (turbo_settings_apply.exe --status shows why).");
         ImGui::PopStyleColor();
         g_state.closed_note = true;
         // the file
