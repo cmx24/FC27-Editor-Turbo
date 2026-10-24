@@ -712,7 +712,7 @@ void squad_pointer(App& app, const char* where) {
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(where);
     ImGui::PopTextWrapPos();
-    if (ImGui::Button("Open Players > My squad###squadgo")) app.go(Page::Squad);
+    if (ImGui::Button("Open Club > Squad###squadgo")) app.go(Page::TeamPlayers);  // 3.0: the squad cards live on Club > Squad
 }
 void editor_transfers(App& app, void*) {
     if (draw_transfers) {

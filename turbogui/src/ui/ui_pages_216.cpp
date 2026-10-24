@@ -38,7 +38,7 @@ static void draw_player_callname_tab(App& app) {
         return;
     }
     if (!app.db.table_alive(*t, p->rec)) {
-        theme::err_text("The game data changed (another career was loaded?). Use Refresh at the top.");
+        theme::err_text("The game data changed (another career was loaded?). Use Reload from game in Settings.");
         return;
     }
     callname_editor(app, *t, *p);

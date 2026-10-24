@@ -1614,6 +1614,7 @@ void App::load_gui_settings() {
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
         gui_settings["gui"]["legacy_pages"].is_boolean())
         legacy_pages = gui_settings["gui"]["legacy_pages"].get<bool>();
+    if (prefs.first_30_start) legacy_pages = false;  // 3.0 first start: the new pages, once (the switch sits under the Lab switch, which starts off)
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("player_card_view") &&
         gui_settings["gui"]["player_card_view"].is_boolean())
         player_card_view = gui_settings["gui"]["player_card_view"].get<bool>();
@@ -1711,6 +1712,7 @@ struct GlobalSearch {
     uint64_t model_version = ~0ull;
     struct Hit { bool club; int64_t id; std::string text; };
     std::vector<Hit> hits;
+    bool open = false;          // the result list is shown (set while the box is active, cleared by Escape, a pick or a click elsewhere)
 };
 GlobalSearch& global_search() {
     static GlobalSearch g;
@@ -1762,12 +1764,18 @@ static void draw_global_search(App& app) {
     ImGui::SetNextItemWidth(S(240.0f));
     const bool enter = ImGui::InputTextWithHint("##gsearch", "Search players and clubs", g.buf, sizeof(g.buf), ImGuiInputTextFlags_EnterReturnsTrue);
     const ImVec2 under(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + S(2.0f));
+    const bool box_active = ImGui::IsItemActive();
+    if (box_active) g.open = true;
     global_search_refresh(app, g);
     if (enter && !g.hits.empty()) {
         global_search_pick(app, g, 0);
+        g.open = false;
         return;
     }
-    if (g.query.size() < 2) return;
+    // the list closes on Escape, when the box is cleared, or when a click lands anywhere else (the box and the list are not hovered)
+    if (g.query.size() < 2) { g.open = false; return; }
+    if (box_active && ImGui::IsKeyPressed(ImGuiKey_Escape)) { g.open = false; }
+    if (!g.open) return;
     ImGui::SetNextWindowPos(under, ImGuiCond_Always);
     ImGui::SetNextWindowSizeConstraints(ImVec2(S(240.0f), 0.0f), ImVec2(S(480.0f), S(400.0f)));
     if (ImGui::Begin("##gsearch_results", nullptr,
@@ -1780,9 +1788,12 @@ static void draw_global_search(App& app) {
             std::snprintf(lbl, sizeof(lbl), "%s%s###gsr%zu", h.club ? "Club: " : "", h.text.c_str(), i);
             if (ImGui::Selectable(lbl, false)) {
                 global_search_pick(app, g, i);
+                g.open = false;
                 break;
             }
         }
+        const bool list_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        if (!box_active && !list_hovered && ImGui::IsMouseClicked(0)) g.open = false;
         ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
     }
     ImGui::End();
