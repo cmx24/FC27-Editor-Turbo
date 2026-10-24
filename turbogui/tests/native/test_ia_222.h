@@ -276,8 +276,12 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
 #endif
             CHECK(reach("An image file") && ui.click("An image file"), "the miniface editor's image-file tab");
             ui.frames(2);
-            CHECK(reach("Browse...") && ui.click("Browse..."), "Browse...");
+            // "Browse..." sits a few pixels below the visible part of the cards column (TURBO_TEST_DEBUG dump of 3.0.1: centre y 1054, clip bottom 1047).
+            // reach() wheels at (300,400) here, because ###lsundo has scrolled out and is not found: that is over the player list, so nothing moved.
+            // ui.click() goes through find_scrolling, which puts the wheel over the hidden item's own window, the way a user does.
+            CHECK(ui.click("Browse..."), "Browse...");
             ui.frames(3);
+            if (ui.find("Desktop##fpplace") == nullptr) ui.dump("guard: the picker did not open");
             CHECK(ui.find("Desktop##fpplace") != nullptr && ui.find("Pictures##fpplace") != nullptr, "first open of the picker: the Desktop and Pictures shortcuts are there");
             CHECK(ui.click("Cancel##fp"), "close the picker");
             ui.frames(3);
