@@ -1850,7 +1850,7 @@ void App::draw_pages() {
     ImGui::BeginChild("##rail", ImVec2(rail_w, 0.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         const float bw = ImGui::GetContentRegionAvail().x;
-        if (ImGui::SmallButton(narrow ? ">###railtoggle" : "<###railtoggle")) {
+        if (ImGui::SmallButton(narrow ? ">###railwiden" : "<###railnarrow")) {
             prefs.rail_collapsed = !prefs.rail_collapsed;
             if (!save_gui_settings()) notify("cannot save the settings", true);
         }
