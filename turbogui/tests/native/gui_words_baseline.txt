@@ -103,6 +103,9 @@ ui_tactic_presets.cpp	json	5
 ui_tactic_presets.cpp	lua	6
 ui_tactic_presets.cpp	path	9
 ui_tactic_presets.cpp	turbo_output	8
+# 3.0.1 (brief Addendum B): the Game sliders page names the settings tool command with --apply in 3 texts (steps, Prepared status, message): a player must be able to type it
+ui_tactics_page.cpp	exe	3
+ui_tactics_page.cpp	path	3
 ui_teams.cpp	dll	1
 ui_teams.cpp	json	1
 ui_teams.cpp	path	1

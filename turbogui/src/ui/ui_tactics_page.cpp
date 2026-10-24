@@ -388,7 +388,7 @@ void update_sliders_state(App& app) {
     s3.counts_line.clear();
     s3.status.clear();
     s3.can_prepare = s3.can_discard = s3.prepared = false;
-    s3.steps = "1. Press Prepare.\n2. Close the game, then run Turbo's settings installer (it is in the Turbo folder).\n3. Start the game and choose Gameplay Type: Custom.";
+    s3.steps = "1. Press Prepare.\n2. Close the game, then run turbo\\turbo_settings_apply.exe --apply (the settings tool in the Turbo folder).\n3. Start the game and choose Gameplay Type: Custom.";
     if (!p) return;
     if (!sl.plan_ok) {
         s3.counts_line = "Can't check these sliders now. Turbo has no slider list for this version of the game.";
@@ -400,7 +400,7 @@ void update_sliders_state(App& app) {
         s3.counts_line += ".";
     }
     s3.prepared = sl.have_pending && sl.pending_name == p->name;
-    if (s3.prepared) s3.status = "Prepared. Close the game and run Turbo's settings installer to finish.";
+    if (s3.prepared) s3.status = "Prepared. Close the game, then run turbo\\turbo_settings_apply.exe --apply to finish.";
     else if (sl.have_pending) s3.status = "Another preset is prepared (\"" + sl.pending_name + "\"). Preparing this one replaces it.";
     else s3.status = "Not prepared yet.";
     s3.can_prepare = sl.plan_ok && sl.writable > 0;
@@ -416,7 +416,7 @@ void prepare_selected(App& app) {
     const bool ok = game_settings_stage(app, p->name, p->settings.values, msg, staged, skipped, p->settings.include_unverified);
     sl.raw_message = msg;
     s3.message = ok ? "Prepared " + std::to_string(staged) + " slider" + (staged == 1 ? "" : "s") + " from \"" + p->name +
-                          "\". Close the game and run Turbo's settings installer, then start with Gameplay Type: Custom."
+                          "\". Close the game and run turbo\\turbo_settings_apply.exe --apply, then start with Gameplay Type: Custom."
                     : "Couldn't prepare \"" + p->name + "\". None of its sliders can be installed with this version of the game yet.";
     log_line(app, "game sliders: " + (ok ? std::string("prepared ") : std::string("not prepared ")) + p->name);
     read_pending(app, true);

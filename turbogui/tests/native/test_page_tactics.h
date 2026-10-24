@@ -9,6 +9,7 @@
 //                     order and the captain / takers read-out in names; honest tag
 //   Tactic presets:   proof tag + one line; "tactic now" in plain words; the existing panel (its Apply button) is the body
 #pragma once
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -39,7 +40,10 @@ static void show(Ui& ui, void (*fn)(App&)) {
 static bool has(const std::string& hay, const std::string& needle) { return hay.find(needle) != std::string::npos; }
 
 // words a player must not meet on these pages (the plan's R9 list); the states hold every string the pages build at run time
-static bool clean(const std::string& s) {
+// The one exact command the page must give (3.0.1): turbo_settings_apply.exe with no argument only prints its usage, so every step names --apply.
+static const char* const kApplyCmd = "turbo\\turbo_settings_apply.exe --apply";
+static bool clean(std::string s) {
+    for (size_t at; (at = s.find(kApplyCmd)) != std::string::npos;) s.erase(at, std::strlen(kApplyCmd));  // the command is the user-facing words here, not a developer word
     for (const char* w : {"Lua", "hook", "channel", "json", ".txt", "md5", "turbo_output", ".exe", "\\"})
         if (has(s, w)) return false;
     return true;
@@ -95,13 +99,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(has(s.counts_line, "confirmed on the Custom screen") && has(s.counts_line, "left out"), "the counts are stated plainly: " + s.counts_line);
         CHECK(s.status == "Not prepared yet." && !s.prepared, "status before: " + s.status);
         CHECK(has(s.steps, "1. Press Prepare.") && has(s.steps, "Gameplay Type: Custom") && has(s.steps, "Close the game"), "the three steps are stated");
+        CHECK(has(s.steps, kApplyCmd) && has(s.steps, "Close the game"), "step 2 gives the exact command, game closed first: " + s.steps);
         // Prepare
         CHECK(ui.click("Prepare###gsprepare", kWin), "Prepare");
         ui.frames(3);
         CHECK(fs::exists(out / gsettings::pending_file(), ec), "the sliders are staged");
         CHECK(!fs::exists(out / tp::last_load_file(), ec), "no tactic job and no last-load record: the page stages sliders only");
         CHECK(s.prepared && has(s.status, "Prepared.") && s.can_discard, "status after: " + s.status);
+        CHECK(has(s.status, kApplyCmd), "the Prepared status line gives the exact command: " + s.status);
         CHECK(has(s.message, "Gameplay Type: Custom") && has(s.message, "Prepared"), "message: " + s.message);
+        CHECK(has(s.message, kApplyCmd), "the Prepare message gives the exact command: " + s.message);
         for (const std::string* str : {&s.status, &s.message, &s.counts_line, &s.steps}) {
             CHECK(!has(*str, "Installed") && !has(*str, "installed"), "never claims an install that did not happen: " + *str);
             CHECK(!has(*str, "applied") && !has(*str, "Applied"), "never says applied for a staged preset: " + *str);
