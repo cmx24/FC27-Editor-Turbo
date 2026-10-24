@@ -150,7 +150,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         looks::looks_studio_reset_for_tests();
         app.capture = nullptr;
         // 2.20: the Appearance Editor is the only page of its area, so the area tab opens it (there is no page strip)
-        CHECK(ui.click("Appearance Editor", "FC 27 LE Turbo", "##shell") && (ui.frames(2), app.place() == shell::place_of(shell::Page::LooksStudio)), "Appearance Editor");
+        CHECK(ui.click("Looks", "FC 27 LE Turbo", "##shell") && (ui.frames(2), app.place() == shell::place_of(shell::Page::LooksStudio)), "Appearance Editor");
         ui.frames(2);
         CHECK(ui.find("###lsplayers", "FC 27 LE Turbo") != nullptr && ui.find("###lsmanagers", "FC 27 LE Turbo") != nullptr, "the person list is drawn");
         CHECK(shell::default_page(shell::Area::Looks) == shell::Page::LooksStudio && shell::pages_of(shell::Area::Looks).size() == 1, "the Appearance Editor is the area's only page");

@@ -4106,7 +4106,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Appearance Editor") && ui.find("Team") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Looks") && ui.find("Club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {
@@ -5950,7 +5950,7 @@ static void test_ui() {
                   "two views");
             CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
             app.prefs.advanced_mode = true;  /* 2.16 step 4: the database copy is a section of Advanced > Maintenance */
-            CHECK(ui.open_page("Advanced", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
+            CHECK(ui.open_page("Lab", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
             ui.frames(2);
             const Table* lt = app.db.table("leagueteamlinks");
             CHECK(lt != nullptr, "leagueteamlinks");
@@ -9631,7 +9631,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(logged_frame(ui).find("Read-only:") == std::string::npos, "editable again with the signature");
             // Match setup reads the same objects with the same anchors
-            CHECK(ui.open_page("Advanced", "Match setup"), "Match setup view (Advanced > Match setup)");
+            CHECK(ui.open_page("Lab", "Match setup"), "Match setup view (Advanced > Match setup)");
             ui.frames(2);
             CHECK(ui.find("Try again") == nullptr && ui.find("Reload") != nullptr, "fixtures reachable with the build's signatures");
             app.fce_anchors_hook = [=]() { return fce::anchors_for("6AC07E31-2145C000", FceWorld::kBase, kNewSize, kNewPost, 0); };
@@ -9697,7 +9697,7 @@ static void test_ui() {
             app.next_poll = 0.0;
             app.request_tab = 3;
             ui.frames(3);
-            CHECK(ui.open_page("Advanced", "Match setup"), "Match setup view (Advanced > Match setup)");
+            CHECK(ui.open_page("Lab", "Match setup"), "Match setup view (Advanced > Match setup)");
             ui.frames(2);
             {   // the Value column says in words what the number in each box means, for every variable that has words (2.0/ux-descriptors
                 // fix 2): the boxes start at 0 (difficulty: Beginner; time of day: its setting text) and 1 for a switch (on)

@@ -112,7 +112,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const TeamRow* inter = app.model.team(241);
         CHECK(inter != nullptr && app.model.links_of_team(241).size() == 3, "the test world has Inter with three players");
         app.sel_team = 241;
-        CHECK(ui.open_page("Team", "Players") && app.place() == shell::place_of(Page::TeamPlayers), "Team > Players opens");
+        CHECK(ui.open_page("Club", "Squad") && app.place() == shell::place_of(Page::TeamPlayers), "Team > Players opens");
         ui.frames(3);
         const SquadTableState& st = squad_table_state();
         CHECK(st.table_drawn && st.club == 241 && st.rows == 3, fmt("the Squad list tab is the one shown: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
@@ -132,7 +132,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("Squad table: Players > My squad opens on the Squad tab; Age sorts, reverses, resets; OVR sorts high to low", [&] {
         CHECK(mine > 0 && app.model.links_of_team(mine).size() >= 5, "the test world has my club with a squad");
-        CHECK(ui.open_page("Players", "My squad") && app.place() == shell::place_of(Page::Squad), "Players > My squad opens");
+        CHECK(ui.open_page("Lab", "My squad (old page)") && app.place() == shell::place_of(Page::Squad), "Players > My squad opens");
         ui.frames(3);
         const SquadTableState& st = squad_table_state();
         CHECK(st.table_drawn && st.club == mine && st.rows == app.model.links_of_team(mine).size(),
@@ -162,7 +162,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("Squad table: a click on a name opens Players > Edit a player with that player (the page route, not request_tab)", [&] {
         app.request_tab = -1;
-        CHECK(ui.open_page("Players", "My squad"), "Players > My squad");
+        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         const std::string nm = app.model.player_name(1005);
         CHECK(ui.find(nm, "##squad") != nullptr, "Gabriel Jesus is in the table: " + nm);
@@ -173,7 +173,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.request_tab == -1, "the legacy tab index was not used");
         // the same from Team > Players > Squad list, for another club
         app.sel_team = 7;
-        CHECK(ui.open_page("Team", "Players"), "Team > Players");
+        CHECK(ui.open_page("Club", "Squad"), "Team > Players");
         ui.frames(3);
         CHECK(squad_table_state().club == 7 && squad_table_state().rows == app.model.links_of_team(7).size(), "the Squad list shows Everton");
         const std::string pick = app.model.player_name(2001);
@@ -181,7 +181,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(4);
         CHECK(app.sel_player == 2001 && app.place() == shell::place_of(Page::PlayerEdit) && app.request_tab == -1, "he opens in Edit a player");
         // Everton: the sort works there too
-        CHECK(ui.open_page("Team", "Players"), "Team > Players again");
+        CHECK(ui.open_page("Club", "Squad"), "Team > Players again");
         ui.frames(3);
         CHECK(click_header(ui, "OVR"), "OVR on the Squad list");
         CHECK(drawn_order(app, 7) == expected_order(app, 7, false, false), "Everton by overall: " + ids(drawn_order(app, 7)));
@@ -191,7 +191,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: a Jersey edit writes teamplayerlinks.jerseynumber of that player's row only, through App::edit", [&] {
-        CHECK(ui.open_page("Players", "My squad"), "Players > My squad");
+        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         const Table* lt = app.db.table("teamplayerlinks");
         CHECK(lt != nullptr, "the links table");
@@ -249,7 +249,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state(app, ui, le, st);
         CHECK(app.bridge.state().user_team == 0, "no club of his own");
         app.sel_team = 241;
-        CHECK(ui.open_page("Players", "My squad"), "Players > My squad");
+        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         CHECK(ui.find("##sqclub", "FC 27 LE Turbo") != nullptr || ui.find("###sqtabsquad", "FC 27 LE Turbo") != nullptr, "the page is drawn");
         CHECK(squad_table_state().table_drawn && squad_table_state().club == 241 && squad_table_state().rows == 3,
@@ -263,7 +263,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: the Career tools tab keeps the five cards", [&] {
-        CHECK(ui.open_page("Players", "My squad"), "Players > My squad");
+        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
         ui.frames(3);
         CHECK(ui.click("###sqtabtools", "FC 27 LE Turbo"), "the Career tools tab");
         ui.frames(4);
@@ -285,7 +285,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         // Team > Players > All clubs = the club browser (draw_teams): the search box of its sortable team list
         app.sel_team = mine;
-        CHECK(ui.open_page("Team", "Players"), "Team > Players");
+        CHECK(ui.open_page("Club", "Squad"), "Team > Players");
         ui.frames(3);
         CHECK(ui.find("###tptabclubs", "FC 27 LE Turbo") != nullptr, "the All clubs tab is there");
         CHECK(ui.click("###tptabclubs", "FC 27 LE Turbo"), "click All clubs");
@@ -294,7 +294,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("###tptabsquadlist", "FC 27 LE Turbo"), "back to the Squad list tab");
         ui.frames(3);
         // Career > Transfers & money > More tools = the old Turbo Tools panel (draw_tools)
-        CHECK(ui.open_page("Career", "Transfers & money") && app.place() == shell::place_of(Page::Transfers), "Career > Transfers & money");
+        CHECK(ui.open_page("Career", "Money & transfers") && app.place() == shell::place_of(Page::Transfers), "Career > Transfers & money");
         ui.frames(3);
         CHECK(ui.click("More tools###ctmore"), "open More tools");
         ui.frames(4);
@@ -312,7 +312,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("More tools###ctmore"), "close it again");
         ui.frames(2);
         // Players > Managers & staff > All managers (table) = draw_managers: its search box
-        CHECK(ui.open_page("Players", "Managers & staff") && app.place() == shell::place_of(Page::Staff), "Players > Managers & staff");
+        CHECK(ui.open_page("Players", "Staff") && app.place() == shell::place_of(Page::Staff), "Players > Managers & staff");
         ui.frames(3);
         CHECK(ui.click("All managers (table)###csmgr"), "open All managers");
         ui.frames(4);

@@ -69,7 +69,7 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         if (app.busy()) ui.click("Cancel");
         app.prefs.advanced_mode = false;
         app.sel_player = 0;
-        CHECK(ui.open_page("Players", "Commentary names") && app.place() == shell::place_of(Page::CommentaryNames), "Players > Commentary names opens");
+        CHECK(ui.open_page("Players", "Callnames") && app.place() == shell::place_of(Page::CommentaryNames), "Players > Commentary names opens");
         ui.frames(4);
         const CommentaryNamesState& cs = commentary_names_state();
         CHECK(ui.find("###navgo") == nullptr, "no signpost button");
@@ -224,7 +224,7 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         app.prefs.advanced_mode = false;
         app.sel_player = 1001;
         looks::looks_studio_reset_for_tests();
-        CHECK(ui.click("Appearance Editor", "FC 27 LE Turbo", "##shell"), "Appearance Editor tab");
+        CHECK(ui.click("Looks", "FC 27 LE Turbo", "##shell"), "Appearance Editor tab");
         ui.frames(4);
         CHECK(app.place() == shell::place_of(Page::LooksStudio), "it opened the Appearance Editor");
         const looks::StudioState& ss = looks::studio_state();
