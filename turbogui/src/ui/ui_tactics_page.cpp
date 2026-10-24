@@ -570,9 +570,9 @@ void draw_game_sliders_page(App& app) {
         ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
         ImGui::TextWrapped("%s", kOfflineSlidersLabel);
         ImGui::PopStyleColor();
-        if (!adv) theme::muted_text("Settings > Show advanced tools shows the Lab.");
-        if (ImGui::Button(adv ? "Open Lab > Tactics (experimental)###gsmoved" : "Open Settings###gsmoved"))
-            app.go(adv ? shell::Page::AdvTactics : shell::Page::Settings);
+        if (!adv) theme::muted_text("Settings > \"Show the Lab (tools not proven in game)\" adds the Lab to the left menu.");
+        const std::string go = std::string(adv ? "Open Lab > Tactics (experimental)" : "Open Settings") + "###gsmoved";
+        if (ImGui::Button(go.c_str())) app.go(adv ? shell::Page::AdvTactics : shell::Page::Settings);
     } catch (const std::exception& e) {
         theme::err_text("Game sliders error: %s", e.what());
     } catch (...) {

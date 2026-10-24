@@ -152,6 +152,8 @@ static void ui_cases(turbo::App& app, Ui& ui) {
     // the Lab page has no such section). Both page sets: the new pages and Settings > Use the old pages.
     run_case("3.0.1 GUI30K: Game sliders moved to the Lab - no slider staging on the Tactics pages; Lab > Tactics (experimental) has the offline slider file", [&] {
         const bool was_legacy = app.legacy_pages, was_adv = app.prefs.advanced_mode;
+        const ImVec2 was_size = ImGui::FindWindowByName("FC 27 LE Turbo") ? ImGui::FindWindowByName("FC 27 LE Turbo")->Size : ImVec2(1180, 800);
+        ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));  // the size the T8 page cases use
         const std::string heading = "Offline slider file (experimental)";
         const std::string label =
             "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
@@ -178,6 +180,12 @@ static void ui_cases(turbo::App& app, Ui& ui) {
             CHECK(ui.find("Game sliders", "##content", "##pages") == nullptr, "Lab on: still no Game sliders entry in the Tactics strip" + how);
             app.go(Page::AdvTactics);
             ui.frames(4);
+            // the section sits below the live-slider block: scroll the page's child to its end, as a user does (find skips items out of view)
+            for (int k = 0; k < 2; ++k) {
+                for (ImGuiWindow* w : GImGui->Windows)
+                    if (std::string(w->Name).find("##ttac") != std::string::npos) ImGui::SetScrollY(w, w->ScrollMax.y);
+                ui.frames(2);
+            }
             const std::string txt = logged_frame(ui);
             CHECK(app.place() == place_of(Page::AdvTactics), "Lab > Tactics (experimental) opened" + how);
             if (!legacy) {
@@ -201,6 +209,7 @@ static void ui_cases(turbo::App& app, Ui& ui) {
         }
         app.legacy_pages = was_legacy;
         app.prefs.advanced_mode = was_adv;
+        ImGui::SetWindowSize("FC 27 LE Turbo", was_size);
         app.go(Page::PlayerEdit);
         ui.frames(3);
     });
