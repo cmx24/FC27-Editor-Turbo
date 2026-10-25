@@ -16,6 +16,10 @@ class App;
 // player's record is no longer alive (another career loaded).
 bool draw_player_header(App& app);
 
+// Pit wall decision 10-25 15:35 (advisor): the "Shown OVR (display only)" row stays OFF in the TEST build, because nothing in game
+// reads it and it would pass for the in-game OVR mask that is blocked. Flip to true only on Cassio's later F8 decision.
+constexpr bool kShowOvrMaskField = false;
+
 // What the last call drew (plain text is not an ImGui item, so the tests read it here)
 struct PlayerHeaderState {
     int64_t playerid = 0;       // 0 = no card drawn

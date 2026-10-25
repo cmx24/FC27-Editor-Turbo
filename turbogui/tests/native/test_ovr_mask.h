@@ -150,6 +150,29 @@ static void ui_cases(App& app, Ui& ui) {
         const PlayerRow* p = app.model.player(1001);
         CHECK(p != nullptr, "fixture player 1001");
         const int stored = p ? p->overall : 0;
+        if (!kShowOvrMaskField) {
+            // Pit wall decision 10-25 15:35: the TEST build must not show the row (nothing in game reads it, it would pass for the
+            // blocked in-game mask). The row is gone from the header, the store and shown_ovr_apply stay on the branch and are checked directly.
+            CHECK(ui.find("###hdr_shown_ovr") == nullptr && ui.find("Set###hdr_shown_set") == nullptr && ui.find("Clear###hdr_shown_clear") == nullptr,
+                  "the header has NO Shown OVR box, Set or Clear (kShowOvrMaskField is false)");
+            CHECK(player_header_state().shown_ovr == 0 && player_header_state().shown_note.empty(), "the card state carries no Shown OVR");
+            std::string msg;
+            app.reapply.career.clear();
+            CHECK(!shown_ovr_apply(app, 1001, "70", &msg) && !fs::exists(f), "store path, outside a career: refused, no file: '" + msg + "'");
+            app.reapply.career = kCareer;
+            CHECK(shown_ovr_apply(app, 1001, "70", &msg) && om::get(app.turbo_output(), kCareer, 1001) == 70, "store path, inside the career: 70 written: " + msg);
+            const std::string before_off = slurp(f);
+            CHECK(!shown_ovr_apply(app, 1001, "150", &msg) && slurp(f) == before_off, "store path: 150 refused, file unchanged");
+            CHECK(shown_ovr_apply(app, 1001, "", &msg) && !fs::exists(f), "store path: empty text clears the pid and the file");
+            CHECK(!shown_ovr_apply(app, 1001, "", &msg) && msg.find("Nothing to clear") != std::string::npos, "store path: nothing stored says nothing to clear");
+            if (p) CHECK(app.model.player(1001)->overall == stored, "the stored overall is untouched");
+            fs::remove_all(career_dir, ec);
+            app.reapply.career = was_career;
+            app.sel_player = was_sel;
+            app.legacy_pages = was_legacy;
+            ui.frames(2);
+            return;
+        }
         CHECK(ui.find("###hdr_shown_ovr") != nullptr && ui.find("Set###hdr_shown_set") != nullptr && ui.find("Clear###hdr_shown_clear") != nullptr,
               "the header has the Shown OVR box, Set and Clear");
 
