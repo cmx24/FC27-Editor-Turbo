@@ -87,8 +87,16 @@ bool shown_ovr_apply(App& app, int64_t pid, const std::string& text_in, std::str
     if (career.empty()) {
         err = "Shown OVR works only inside a career Turbo has identified: nothing written";
     } else if (text.empty()) {
-        ok = ovr_mask::clear(app.turbo_output(), career, pid, &err);
-        ok_msg = "Cleared";
+        // an empty (or all-spaces) box clears only what is stored; with nothing stored it says so and writes nothing
+        ovr_mask::Map stored;
+        if (!ovr_mask::load(ovr_mask::file_for(app.turbo_output(), career), stored, &err)) {
+            // unreadable file: err says why, nothing written
+        } else if (stored.find(pid) == stored.end()) {
+            err = "Nothing to clear: no Shown OVR is stored for this player";
+        } else {
+            ok = ovr_mask::clear(app.turbo_output(), career, pid, &err);
+            ok_msg = "Cleared";
+        }
     } else {
         const bool digits = text.size() <= 3 && text.find_first_not_of("0123456789") == std::string::npos;
         const int v = digits ? std::atoi(text.c_str()) : -1;

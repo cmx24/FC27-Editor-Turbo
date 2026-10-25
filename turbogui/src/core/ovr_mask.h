@@ -6,10 +6,11 @@
 //
 // File: <LE>\turbo_output\careers\<career id>\ovr_mask.json, the LOCKED schema
 //     {"version":1,"players":{"<pid decimal string>":<int 1..99>}}
-// Atomic write (<file>.tmp + rename). Clear removes the pid, and removes the file when no pid is left.
+// Atomic write (<file>.tmp + replace; the real file is never deleted first). Clear removes the pid, and removes the file when no pid is left.
 // career id = the 16 lower-case hex digits of core/reapply.h career_identity_id (career_faces::is_career_id).
 // Header-only so no build list changes.
 #pragma once
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -18,8 +19,19 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 
 #include "nlohmann/json.hpp"
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace turbo {
 namespace ovr_mask {
@@ -84,7 +96,32 @@ inline std::string dump(const Map& m) {
     return j.dump() + "\n";
 }
 
-// <path>.tmp + rename; creates the folder
+// Replaces <to> by <from> in one step. Windows: MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) (the data is on disk when it returns);
+// elsewhere std::filesystem::rename. A test can swap it through replace_hook() to make the replacement fail. Never deletes <to>.
+using ReplaceFn = bool (*)(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec);
+inline ReplaceFn& replace_hook() {
+    static ReplaceFn h = nullptr;
+    return h;
+}
+inline bool replace_file(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec) {
+    if (replace_hook()) return replace_hook()(from, to, ec);
+    ec.clear();
+#ifdef _WIN32
+    if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        return false;
+    }
+    return true;
+#else
+    std::filesystem::rename(from, to, ec);
+    return !ec;
+#endif
+}
+
+// <path>.tmp + replace; creates the folder. The real file <p> is NEVER deleted before its replacement is in place: when the replacement
+// fails twice (one retry after 50 ms: a virus scanner or the game can hold the file for a moment), <p> keeps its old bytes, only the
+// .tmp is removed, and the result is false with the Windows error in *err. (3.2 review fix: the old fallback deleted <p> first and
+// lost every saved value when the second rename failed too.)
 inline bool write_atomic(const std::filesystem::path& p, const std::string& bytes, std::string* err) {
     std::error_code ec;
     if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
@@ -105,19 +142,15 @@ inline bool write_atomic(const std::filesystem::path& p, const std::string& byte
             return false;
         }
     }
-    std::filesystem::rename(tmp, p, ec);  // libstdc++ on Windows: MoveFileExW(MOVEFILE_REPLACE_EXISTING)
-    if (ec) {
-        std::error_code ec2;
-        std::filesystem::remove(p, ec2);
-        ec.clear();
-        std::filesystem::rename(tmp, p, ec);
-        if (ec) {
-            std::filesystem::remove(tmp, ec2);
-            if (err) *err = "rename to " + p.string() + " failed: " + ec.message();
-            return false;
-        }
-    }
-    return true;
+    if (replace_file(tmp, p, ec)) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ec.clear();
+    if (replace_file(tmp, p, ec)) return true;
+    const std::string why = ec.message();
+    std::error_code ec2;
+    std::filesystem::remove(tmp, ec2);  // only the temp file: <p> stays exactly as it was
+    if (err) *err = "replacing " + p.string() + " failed: " + why + " (the old file is untouched)";
+    return false;
 }
 
 // Sets the shown OVR of one player in one career. Refused (nothing written) for a bad career id, a pid <= 0, a value outside 1..99,
