@@ -2,10 +2,12 @@
 #include "ui_player_header.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "app.h"
 #include "core/overall.h"
+#include "core/ovr_mask.h"
 #include "imgui.h"
 #include "ui_images.h"
 #include "ui_theme.h"
@@ -53,6 +55,86 @@ void big_number(const char* caption, int value, bool muted) {
     ImGui::EndGroup();
 }
 
+// 3.2 Shown OVR: the box text and what the career file holds, read again when the player or career changes and after Set / Clear
+struct ShownOvr {
+    int64_t pid = -1;
+    std::string career;
+    int value = 0;
+    char buf[8] = {0};
+    std::string note;
+};
+ShownOvr g_shown;
+
+void shown_ovr_reload(App& app, int64_t pid) {
+    const std::string career = app.career_faces_wanted();
+    g_shown.pid = pid;
+    g_shown.career = career;
+    g_shown.value = ovr_mask::get(app.turbo_output(), career, pid);
+    const std::string t = g_shown.value > 0 ? std::to_string(g_shown.value) : std::string();
+    std::snprintf(g_shown.buf, sizeof g_shown.buf, "%s", t.c_str());
+}
+
+}  // namespace
+
+bool shown_ovr_apply(App& app, int64_t pid, const std::string& text_in, std::string* msg) {
+    std::string text = text_in;
+    while (!text.empty() && text.front() == ' ') text.erase(text.begin());
+    while (!text.empty() && text.back() == ' ') text.pop_back();
+    std::string err;
+    std::string ok_msg;
+    const std::string career = app.career_faces_wanted();
+    bool ok = false;
+    if (career.empty()) {
+        err = "Shown OVR works only inside a career Turbo has identified: nothing written";
+    } else if (text.empty()) {
+        ok = ovr_mask::clear(app.turbo_output(), career, pid, &err);
+        ok_msg = "Cleared";
+    } else {
+        const bool digits = text.size() <= 3 && text.find_first_not_of("0123456789") == std::string::npos;
+        const int v = digits ? std::atoi(text.c_str()) : -1;
+        ok = ovr_mask::set(app.turbo_output(), career, pid, v, &err);  // refuses anything outside 1..99
+        ok_msg = "Shown OVR set to " + std::to_string(v) + " (display only)";
+    }
+    if (msg) *msg = ok ? ok_msg : err;
+    if (ok) shown_ovr_reload(app, pid);  // a refused write keeps what was typed in the box
+    return ok;
+}
+
+namespace {
+void draw_shown_ovr(App& app, PlayerHeaderState& st) {
+    if (g_shown.pid != st.playerid || g_shown.career != app.career_faces_wanted()) {
+        shown_ovr_reload(app, st.playerid);
+        g_shown.note.clear();
+    }
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Shown OVR (display only)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A number from 1 to 99 kept for this player in this career only.
+"
+                          "Display only: nothing is written to the game's database or memory, and OVR above stays what the game stores.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(56.0f));
+    const bool enter = ImGui::InputText("###hdr_shown_ovr", g_shown.buf, sizeof g_shown.buf,
+                                        ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine();
+    const bool set = ImGui::Button("Set###hdr_shown_set");
+    ImGui::SameLine();
+    const bool clr = ImGui::Button("Clear###hdr_shown_clear");
+    if (clr) {
+        std::string msg;
+        shown_ovr_apply(app, st.playerid, std::string(), &msg);
+        g_shown.note = msg;
+    } else if (enter || set) {
+        std::string msg;
+        shown_ovr_apply(app, st.playerid, std::string(g_shown.buf), &msg);
+        g_shown.note = msg;
+    }
+    st.shown_ovr = g_shown.value;
+    st.shown_note = g_shown.note;
+    ImGui::SameLine();
+    if (!g_shown.note.empty()) theme::muted_text("%s", g_shown.note.c_str());
+    else if (g_shown.career.empty()) theme::muted_text("only inside a career");
+}
 }  // namespace
 
 const PlayerHeaderState& player_header_state() { return g_state; }
@@ -115,6 +197,7 @@ bool draw_player_header(App& app) {
     big_number("Calc", st.calc_overall, true);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The overall the attributes give for his first position (the game shows OVR until it works it out again)");
     ImGui::EndChild();
+    draw_shown_ovr(app, st);
     return true;
 }
 
