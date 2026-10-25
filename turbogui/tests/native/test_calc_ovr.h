@@ -151,7 +151,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("Calc OVR: the squad table has a sortable Calc OVR header and sorts by it", [&] {
         app.sel_team = 7;
-        CHECK(ui.open_page("Team", "Players"), "Team > Players");
+        CHECK(ui.open_page("Club", "Squad"), "Club > Squad (Team > Players)");
         ui.frames(3);
         const ImGuiTable* t = squad_table_test::squad_table_now();
         CHECK(t != nullptr && t->ColumnsCount == 7 && std::string(ImGui::TableGetColumnName(t, 6)) == "Calc OVR", "the seventh column is Calc OVR");
