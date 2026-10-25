@@ -26,6 +26,7 @@
 #include "ui_bodytype_thumbs.h"
 #include "ui_career_page.h"
 #include "ui_faces.h"
+#include "ui_page.h"
 #include "ui_sections.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
@@ -471,13 +472,16 @@ void draw_diagnostics_page(App& app) { shell::page::frame(app, nullptr, editor_d
 
 void draw_data_export_page(App& app) {
     g_state.export_page_drawn = true;
-    ImGui::TextUnformatted("Data export");
-    theme::muted_text("Writes CSV files (spreadsheets) of your career data. You never need this for normal editing.");
+    // 4.0 S1: the worked example of the page template (ui_page.h). The title, the one status line and the Undo / Back bar come from
+    // the frame; the page keeps its folder button and the existing Exports page (same buttons, same Lua tools). Nothing is staged
+    // here, so there is no Apply.
+    page::Frame frame(app, {"data_export", "Data export", "Writes CSV files (spreadsheets) of your career data. You never need this for normal editing.", nullptr});
     if (ImGui::SmallButton("Open the export folder##dataexport")) {
         std::error_code ec;
         const fs::path dir = app.turbo_output();
-        if (!fs::is_directory(dir, ec)) app.notify("The export folder does not exist yet.", true);
-        else if (!open_in_explorer(dir)) app.notify("Explorer did not start.", true);
+        if (!fs::is_directory(dir, ec)) page::couldnt("data_export", "open the export folder", "it does not exist yet");
+        else if (!open_in_explorer(dir)) page::couldnt("data_export", "open the export folder", "Explorer did not start");
+        else page::done("data_export", "opened the export folder");
     }
     ImGui::Spacing();
     draw_career_tools_page(app, shell::Page::AdvExport);  // the existing Exports page (ui_tools.cpp): same buttons, same Lua tools

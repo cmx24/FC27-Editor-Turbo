@@ -288,10 +288,188 @@ inline std::set<std::string> bad_words_in(const std::string& text) {
     return found;
 }
 
+// ---- 4.0 S1: pages that use the page template (src/ui/ui_page.h)
+// A TEMPLATE PAGE is a function that constructs a page::Frame. Its body (from the function's opening brace to the matching one) is a
+// "span"; the stricter checks below (R3 R4 R5 R6 R9 and the copy deck) apply to the literals inside spans only, so the pages that are
+// not converted yet keep their baselines. Text based like the rest of the scanner: comments, strings and character literals are blanked
+// first, so a brace or the word page::Frame inside them is ignored.
+struct Span {
+    std::string file;
+    std::string fn;       // the identifier before the function's parameter list ("" when not found)
+    int first = 0, last = 0;            // lines of the function body
+    int call_first = 0, call_last = 0;  // lines of the page::Frame(...) construct
+};
+
+inline std::string mask_source(const std::string& s) {
+    std::string o = s;
+    const size_t n = s.size();
+    for (size_t i = 0; i < n;) {
+        const char c = s[i];
+        if (c == '/' && i + 1 < n && s[i + 1] == '/') {
+            while (i < n && s[i] != '\n') o[i++] = ' ';
+        } else if (c == '/' && i + 1 < n && s[i + 1] == '*') {
+            o[i] = o[i + 1] = ' ';
+            i += 2;
+            while (i + 1 < n && !(s[i] == '*' && s[i + 1] == '/')) {
+                if (s[i] != '\n') o[i] = ' ';
+                ++i;
+            }
+            if (i + 1 < n) o[i] = o[i + 1] = ' ';
+            i += 2;
+        } else if (c == '"') {
+            ++i;
+            while (i < n && s[i] != '"') {
+                if (s[i] == '\\' && i + 1 < n) o[i++] = ' ';
+                if (i < n && s[i] != '\n') o[i] = ' ';
+                ++i;
+            }
+            ++i;
+        } else if (c == '\'') {
+            if (i > 0 && std::isxdigit(static_cast<unsigned char>(s[i - 1])) && i + 1 < n && std::isxdigit(static_cast<unsigned char>(s[i + 1]))) {
+                ++i;  // digit separator
+                continue;
+            }
+            ++i;
+            while (i < n && s[i] != '\'') {
+                if (s[i] == '\\' && i + 1 < n) o[i++] = ' ';
+                if (i < n && s[i] != '\n') o[i] = ' ';
+                ++i;
+            }
+            ++i;
+        } else {
+            ++i;
+        }
+    }
+    return o;
+}
+
+inline std::vector<Span> template_spans(const std::string& file, const std::string& src) {
+    using namespace detail;
+    const std::string m = mask_source(src);
+    const size_t n = m.size();
+    std::vector<Span> out;
+    auto line_at = [&](size_t pos) {
+        int l = 1;
+        for (size_t i = 0; i < pos && i < n; ++i)
+            if (m[i] == '\n') ++l;
+        return l;
+    };
+    const std::string key = "page::Frame";
+    for (size_t pos = m.find(key); pos != std::string::npos; pos = m.find(key, pos + key.size())) {
+        if (pos > 0 && (ident_char(m[pos - 1]) || m[pos - 1] == ':')) continue;  // shell::page::Frame is not ours
+        size_t p = pos + key.size();
+        while (p < n && std::isspace(static_cast<unsigned char>(m[p]))) ++p;
+        const size_t id0 = p;
+        while (p < n && ident_char(m[p])) ++p;
+        if (p == id0) continue;  // "page::Frame&", "page::Frame(" : not a declaration of a frame object
+        while (p < n && std::isspace(static_cast<unsigned char>(m[p]))) ++p;
+        if (p >= n || m[p] != '(') continue;
+        int d = 0;
+        size_t q = p;
+        for (; q < n; ++q) {
+            if (m[q] == '(') ++d;
+            else if (m[q] == ')' && --d == 0) break;
+        }
+        // the outermost enclosing block whose '{' follows a ')': the function body (a nested if/lambda block is inside it)
+        size_t fn_open = std::string::npos;
+        int depth = 0;
+        for (size_t i = pos; i-- > 0;) {
+            if (m[i] == '}') ++depth;
+            else if (m[i] == '{') {
+                if (depth > 0) {
+                    --depth;
+                    continue;
+                }
+                size_t j = i;
+                while (j > 0 && std::isspace(static_cast<unsigned char>(m[j - 1]))) --j;
+                if (j > 0 && m[j - 1] == ')') fn_open = i;
+            }
+        }
+        if (fn_open == std::string::npos) continue;
+        size_t fn_close = fn_open;
+        depth = 0;
+        for (; fn_close < n; ++fn_close) {
+            if (m[fn_close] == '{') ++depth;
+            else if (m[fn_close] == '}' && --depth == 0) break;
+        }
+        Span sp;
+        sp.file = file;
+        sp.first = line_at(fn_open);
+        sp.last = line_at(fn_close);
+        sp.call_first = line_at(pos);
+        sp.call_last = line_at(q);
+        // the function name: the identifier before the '(' that matches the ')' before fn_open
+        size_t j = fn_open;
+        while (j > 0 && std::isspace(static_cast<unsigned char>(m[j - 1]))) --j;
+        int pd = 0;
+        size_t k = j;
+        while (k > 0) {
+            --k;
+            if (m[k] == ')') ++pd;
+            else if (m[k] == '(' && --pd == 0) break;
+        }
+        while (k > 0 && std::isspace(static_cast<unsigned char>(m[k - 1]))) --k;
+        size_t b = k;
+        while (b > 0 && ident_char(m[b - 1])) --b;
+        sp.fn = m.substr(b, k - b);
+        bool dup = false;
+        for (const Span& o : out) dup = dup || (o.first == sp.first && o.last == sp.last);
+        if (!dup) out.push_back(sp);
+    }
+    return out;
+}
+
+// ImGui calls whose first literal is the text a player reads on a control
+inline const std::set<std::string>& visible_label_callees() {
+    static const std::set<std::string> s = {"Button", "SmallButton", "Checkbox", "RadioButton", "Selectable", "MenuItem", "TreeNode",
+                                            "TreeNodeEx", "CollapsingHeader", "BeginTabItem", "BeginMenu", "checkbox_right", "primary_button"};
+    return s;
+}
+
+// The rules R3 R4 R5 R6 R9 and the copy deck, for the literals inside template spans. One message per violation:
+// "<file>:<line>: <rule> <what>". `spans` is per file.
+inline std::vector<std::string> template_problems(const std::vector<Lit>& lits, const std::map<std::string, std::vector<Span>>& spans) {
+    std::vector<std::string> out;
+    auto add = [&](const Lit& l, const char* rule, const std::string& what) {
+        out.push_back(l.file + ":" + std::to_string(l.line) + ": " + rule + " " + what + "  [" + l.raw.substr(0, 60) + (l.raw.size() > 60 ? "..." : "") + "]");
+    };
+    auto word_id = [](const std::string& t) {  // "ID" as a word (R4); "Id" and "id" inside words are fine
+        for (size_t i = 0; i + 1 < t.size(); ++i)
+            if (t[i] == 'I' && t[i + 1] == 'D' && (i == 0 || !std::isalnum(static_cast<unsigned char>(t[i - 1]))) &&
+                (i + 2 >= t.size() || !std::isalnum(static_cast<unsigned char>(t[i + 2]))))
+                return true;
+        return false;
+    };
+    for (const Lit& l : lits) {
+        const auto it = spans.find(l.file);
+        if (it == spans.end()) continue;
+        const Span* sp = nullptr;
+        for (const Span& s : it->second)
+            if (l.line >= s.first && l.line <= s.last) sp = &s;
+        if (!sp) continue;
+        const bool in_frame_call = l.line >= sp->call_first && l.line <= sp->call_last;
+        const bool visible_label = takes_label(l) && visible_label_callees().count(l.callee) > 0;
+        const std::string shown = is_id_label(l) ? visible_part(l.text) : l.text;
+        if (visible_label && visible_part(l.text).size() > 28) add(l, "R3", "label longer than 28 characters");
+        if (l.callee == "SetTooltip" && l.text.size() > 90) add(l, "R5", "help longer than 90 characters");
+        if ((l.callee == "muted_text" || l.callee == "TextDisabled" || l.callee == "TextWrapped") && l.text.size() > 100)
+            add(l, "R5", "grey hint longer than 100 characters");
+        if (in_frame_call && l.text.size() > 100) add(l, "R5", "page::Frame text longer than 100 characters");
+        if (l.callee == "notify") add(l, "R6", "toast from a click: the page has one status line (page::done / page::couldnt)");
+        if (is_prose(l) || visible_label) {
+            if (!bad_words_in(shown).empty()) add(l, "R9", "developer word on a template page");
+            if (word_id(shown) || shown.find("head asset") != std::string::npos) add(l, "R4", "code on a template page (ID, head asset)");
+            if (shown.compare(0, 6, "Failed") == 0 || shown.compare(0, 6, "Error:") == 0) add(l, "copy", "say a Couldn't line (what, then why), not Failed / Error");
+        }
+    }
+    return out;
+}
+
 // ---- the whole source folder
 
 struct Scan {
     std::vector<Lit> lits;
+    std::map<std::string, std::vector<Span>> spans;  // per file: the template pages (functions that construct a page::Frame)
     std::string error;
     int files = 0;
 };
@@ -313,6 +491,8 @@ inline Scan scan_folder(const fs::path& dir) {
         std::vector<Lit> v = scan_source(p.filename().string(), ss.str(), &err);
         if (!err.empty() && sc.error.empty()) sc.error = err;
         sc.lits.insert(sc.lits.end(), v.begin(), v.end());
+        std::vector<Span> sp = template_spans(p.filename().string(), ss.str());
+        if (!sp.empty()) sc.spans[p.filename().string()] = std::move(sp);
         ++sc.files;
     }
     return sc;

@@ -172,6 +172,59 @@ static void run() {
         CHECK(bad_words_in("Lua's hooks, the Channels").size() == 3 && bad_words_in("Evaluate the pool").empty(), "words are whole tokens (evaluate is not lua)");
     });
 
+    run_case("gui labels: template pages (page::Frame) are held to R3 R4 R5 R6 R9 and the copy deck; other pages are not (synthetic source)", [&] {
+        const std::string good =
+            "void good_page(App& app) {\n"
+            "  page::Frame frame(app, {\"id\", \"Title\", \"One short help line.\", nullptr});\n"
+            "  if (ImGui::Button(\"Open the folder##x\")) page::done(\"id\", \"opened\");\n"
+            "  ImGui::TextDisabled(\"A short grey hint.\");\n"
+            "  frame.end();\n"
+            "}\n";
+        const std::string bad =
+            "void bad_page(App& app) {\n"                                                                              // 1
+            "  page::Frame frame(app, {\"id\", \"Title\", \"Help\", nullptr});\n"                                       // 2
+            "  if (ImGui::Button(\"A label that is far longer than twenty-eight characters\")) {}\n"                 // 3  R3
+            "  if (ImGui::Button(\"Save##s\")) app.notify(\"Saved it\");\n"                                           // 4  R6
+            "  ImGui::TextDisabled(\"Edit the hook in the Lua file under turbo_output to change the thing.\");\n"      // 5  R9
+            "  ImGui::TextDisabled(\"Head asset 1234 and player ID 5 are shown here.\");\n"                            // 6  R4
+            "  ImGui::SetTooltip(\"A tooltip that runs on and on and on, well past the ninety characters a tooltip may use, really.\");\n"  // 7 R5
+            "  page::couldnt(\"id\", \"x\", \"y\"); ImGui::Text(\"Failed to write the file\");\n"                      // 8  copy
+            "  frame.end();\n"
+            "}\n"
+            "void other_page(App& app) {\n"                                                                            // 11
+            "  if (ImGui::Button(\"A label that is far longer than twenty-eight characters\")) app.notify(\"Saved it\");\n"
+            "}\n";
+        std::string e1, e2;
+        std::vector<Lit> lg = scan_source("good.cpp", good, &e1), lb = scan_source("bad.cpp", bad, &e2);
+        CHECK(e1.empty() && e2.empty(), "no scanner error");
+        std::map<std::string, std::vector<Span>> spans;
+        spans["good.cpp"] = template_spans("good.cpp", good);
+        spans["bad.cpp"] = template_spans("bad.cpp", bad);
+        CHECK(spans["good.cpp"].size() == 1 && spans["good.cpp"][0].fn == "good_page" && spans["good.cpp"][0].first == 1 && spans["good.cpp"][0].last == 6,
+              "the template page is found as a span (function good_page, lines 1-6)");
+        CHECK(spans["bad.cpp"].size() == 1 && spans["bad.cpp"][0].fn == "bad_page", "other_page (no page::Frame) is not a span");
+        CHECK(template_problems(lg, spans).empty(), "a clean template page passes");
+        const std::vector<std::string> pr = template_problems(lb, spans);
+        auto has = [&](const char* tag) {
+            for (const std::string& s : pr)
+                if (s.find(tag) != std::string::npos) return true;
+            return false;
+        };
+        CHECK(has("bad.cpp:3: R3") && has("bad.cpp:4: R6") && has("bad.cpp:5: R9") && has("bad.cpp:6: R4") && has("bad.cpp:7: R5") && has("bad.cpp:8: copy"),
+              fmt("R3 R6 R9 R4 R5 and the copy rule are each caught (%zu problems)", pr.size()));
+        bool outside = false;
+        for (const std::string& s : pr) outside = outside || s.find("bad.cpp:12") != std::string::npos;
+        CHECK(!outside, "the same label and toast in a function without page::Frame are left alone");
+        // braces and the word page::Frame inside strings and comments do not move or create spans
+        const std::string tricky =
+            "// page::Frame fake(app, {});\n"
+            "void t(App& app) {\n"
+            "  const char* s = \"} { page::Frame x(app, {});\";\n"
+            "  char c = '{';\n"
+            "}\n";
+        CHECK(template_spans("t.cpp", tricky).empty(), "page::Frame in a comment or a string makes no span");
+    });
+
     const fs::path ui = root_dir() / "src" / "ui";
     const Scan sc = scan_folder(ui);
     run_case("gui labels: src/ui is readable", [&] {
@@ -276,6 +329,29 @@ static void run() {
             for (const auto& w : file.second) lowered += w.second > 0 ? 1 : 0;
         }
         if (lowered) std::printf("  note: %zu word count(s) are below the baseline: run the update to lock the improvement in\n", lowered);
+    });
+
+    // 4.0 S1: the pages that use the template (a function that constructs a page::Frame) are held to R3 R4 R5 R6 R9 and the copy deck.
+    // The worked example is Advanced > Data export; on the 3.1.0 base no function constructs a page::Frame, so "at least one" FAILS there.
+    run_case("gui labels: template pages in src/ui keep R3 R4 R5 R6 R9 and the copy deck (Data export is the worked example)", [&] {
+        size_t pages = 0;
+        std::string names;
+        for (const auto& f : sc.spans)
+            for (const Span& s : f.second) {
+                ++pages;
+                names += " " + f.first + ":" + s.fn;
+            }
+        CHECK(pages >= 1, "at least one page uses the template (page::Frame)");
+        const auto de = sc.spans.find("ui_diagnostics_page.cpp");
+        bool data_export = false;
+        if (de != sc.spans.end())
+            for (const Span& s : de->second) data_export = data_export || s.fn == "draw_data_export_page";
+        CHECK(data_export, "Data export (draw_data_export_page) is a template page; template pages:" + names);
+        const std::vector<std::string> pr = template_problems(sc.lits, sc.spans);
+        std::string why;
+        for (size_t i = 0; i < pr.size() && i < 12; ++i) why += "\n      " + clip(pr[i], 170);
+        CHECK(pr.empty(), fmt("%zu template-page problem(s). Say it in plain words (R3 label <= 28, R5 help <= 90 / grey hint <= 100, R6 page::done / "
+                              "page::couldnt instead of a toast, R9 no developer words, R4 no ids):", pr.size()) + why);
     });
 }
 

@@ -5,6 +5,7 @@
 # TURBO_GUI_LABELS_UPDATE=1 and commit the diff of this file with the change that caused it.
 app.cpp	-	###changes	1
 app.cpp	-	###gsr%zu	1
+app.cpp	-	###nav_back	1
 app.cpp	-	###rail_%s	1
 app.cpp	-	###railnarrow	1
 app.cpp	-	###railwiden	1
@@ -18,7 +19,7 @@ app.cpp	BeginChild	##content	1
 app.cpp	BeginChild	##rail	1
 app.cpp	InputTextWithHint	##gsearch	1
 app.cpp	PushID	##pages	1
-app.cpp	PushID	##shell	2
+app.cpp	PushID	##shell	3
 app.cpp	SmallButton	Cancel	1
 app.cpp	SmallButton	Stop##faces3d	1
 file_picker.cpp	-	##fpplace	1
@@ -829,6 +830,11 @@ ui_nav_pages.cpp	BeginChild	##select	1
 ui_nav_pages.cpp	BeginTable	##players	1
 ui_nav_pages.cpp	InputTextWithHint	##cnsearch	1
 ui_nav_pages.cpp	SmallButton	###cn_none	1
+ui_page.cpp	-	###pg_apply	1
+ui_page.cpp	-	###pg_back	1
+ui_page.cpp	-	###pg_undo	1
+ui_page.cpp	-	##page_	1
+ui_page.cpp	BeginChild	##pg_body	1
 ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
 ui_pages_216.cpp	BeginTabItem	###pe_ability	1
 ui_pages_216.cpp	BeginTabItem	###pe_allfields	1
@@ -1329,11 +1335,16 @@ ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
 ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
 ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
 ui_tactics_page.cpp	-	###gsel	1
+ui_tactics_page.cpp	-	###gsmoved	1
 ui_tactics_page.cpp	-	###gsprepare	1
+ui_tactics_page.cpp	BeginChild	##labtaclive	1
+ui_tactics_page.cpp	BeginChild	##labtacoff	1
+ui_tactics_page.cpp	BeginChild	##offslbody	1
 ui_tactics_page.cpp	BeginChild	##tsbenchlist	1
 ui_tactics_page.cpp	BeginChild	##tspage	1
 ui_tactics_page.cpp	Button	###gsdiscard	1
 ui_tactics_page.cpp	CollapsingHeader	###gsadv	1
+ui_tactics_page.cpp	PushID	##offsl	1
 ui_tactics_page.cpp	SmallButton	###gsrefresh	1
 ui_tactics_page.cpp	SmallButton	###tsreadsp	1
 ui_tactics_page.cpp	checkbox_right	###tsbench	1

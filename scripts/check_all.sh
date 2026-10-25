@@ -69,4 +69,16 @@ else
   [ $nvs -ne 0 ] && nv=1
   [ "${NAVCAP_ADVISORY:-0}" = "1" ] && nv=0
 fi
-[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ] && [ $c -eq 0 ] && [ $nv -eq 0 ]
+# 4.0 S1 one-component lint (turbogui/tests/lint_one_component.py): a page that uses the page template (src/ui/ui_page.h, a function that
+# constructs a page::Frame) has no raw BeginTable (registry form tbl:: only), no own undo store, no classic / old / new label; the tree-wide
+# raw-table / own-undo / cutover-label lists are ADVISORY (counts only in the line below; list: python turbogui/tests/lint_one_component.py --list).
+oc=0
+if [ -z "$pyn" ]; then
+  echo "LINT-ONE skipped: no Python found (set PYTHON=)"
+else
+  $pyn -I turbogui/tests/lint_one_component.py --self-test > "$L/check_lint_one_self.log" 2>&1; ocs=$?
+  $pyn -I turbogui/tests/lint_one_component.py . > "$L/check_lint_one.log" 2>&1; oc=$?
+  echo "LINT-ONE exit=$oc self-test=$ocs $(grep '^ADVISORY' "$L/check_lint_one.log" | tail -1 | cut -c1-200)  (log: $L/check_lint_one.log)"
+  [ $ocs -ne 0 ] && oc=1
+fi
+[ $b -eq 0 ] && [ $l -eq 0 ] && [ $n -eq 0 ] && [ $c -eq 0 ] && [ $nv -eq 0 ] && [ $oc -eq 0 ]
