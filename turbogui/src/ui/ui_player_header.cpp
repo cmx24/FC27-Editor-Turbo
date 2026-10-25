@@ -109,8 +109,7 @@ void draw_shown_ovr(App& app, PlayerHeaderState& st) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Shown OVR (display only)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("A number from 1 to 99 kept for this player in this career only.
-"
+        ImGui::SetTooltip("A number from 1 to 99 kept for this player in this career only.\n"
                           "Display only: nothing is written to the game's database or memory, and OVR above stays what the game stores.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(S(56.0f));
