@@ -4,6 +4,7 @@
 #include <map>
 
 #include "app.h"
+#include "core/devops.h"
 #include "imgui.h"
 #include "ui_theme.h"
 
@@ -139,6 +140,109 @@ Place place_of(Page p) {
     pl.area = area_of(p);
     pl.page = pl.area == Area::Count ? Page::None : p;
     return pl;
+}
+
+// ---- 4.0 S0a: names -> place, and the overlay's half of the dev-service open_page op (ui_shell.h)
+namespace {
+bool same_label(const std::string& a, const char* b) {
+    size_t i = 0;
+    for (; i < a.size() && b[i]; ++i) {
+        char x = a[i], y = b[i];
+        if (x >= 'A' && x <= 'Z') x = static_cast<char>(x - 'A' + 'a');
+        if (y >= 'A' && y <= 'Z') y = static_cast<char>(y - 'A' + 'a');
+        if (x != y) return false;
+    }
+    return i == a.size() && b[i] == 0;
+}
+
+nlohmann::json place_json(const Place& p) {
+    if (!p.valid()) return nullptr;
+    return nlohmann::json{{"area", area_label(p.area)}, {"page", page_label(p.page)}};
+}
+
+// the request applied on the previous frame, answered at the start of this one (overlay thread only)
+uint64_t g_dev_page_ticket = 0;
+Place g_dev_page_target;
+bool g_dev_page_drawn = false;  // Turbo was shown in the frame that applied it (the pump runs before that frame's draw_pages)
+}  // namespace
+
+bool find_place(const std::string& area, const std::string& page, Place& out, std::string& error) {
+    out = Place{};
+    for (int ai = 0; ai < kAreaCount; ++ai) {
+        const Area a = static_cast<Area>(ai);
+        if (!same_label(area, area_label(a))) continue;
+        std::string names;
+        for (Page p : pages_of(a)) {
+            if (same_label(page, page_label(p))) {
+                out = Place{a, p};
+                return true;
+            }
+            names += names.empty() ? "" : ", ";
+            names += page_label(p);
+        }
+        error = "unknown page '" + page + "' in " + area_label(a) + " (its pages: " + names + ")";
+        return false;
+    }
+    std::string names;
+    for (int ai = 0; ai < kAreaCount; ++ai) {
+        names += ai ? ", " : "";
+        names += area_label(static_cast<Area>(ai));
+    }
+    error = "unknown area '" + area + "' (areas: " + names + ")";
+    return false;
+}
+
+void dev_page_pump(App& app) {
+    using nlohmann::json;
+    if (g_dev_page_ticket != 0) {
+        // the go() of the previous frame was taken by its draw_pages() when Turbo was shown; hidden, it waits in App::go_to_ until
+        // Turbo is shown. Judged on the frame that ran: shown this frame but hidden then = not drawn yet = pending.
+        json a = json::object();
+        a["requested"] = place_json(g_dev_page_target);
+        a["overlay_visible"] = g_dev_page_drawn;
+        if (g_dev_page_drawn) {
+            const Place shown = app.place();
+            a["shown"] = place_json(shown);
+            a["pending"] = false;
+            a["ok"] = shown == g_dev_page_target;
+            if (!(shown == g_dev_page_target))
+                a["error"] = std::string("the overlay shows ") + area_label(shown.area) + " > " + page_label(shown.page) + " instead";
+        } else {
+            a["shown"] = nullptr;
+            a["pending"] = true;  // opens when the overlay is shown (the op never shows it)
+            a["ok"] = true;
+        }
+        turbo::dev_page_answer(g_dev_page_ticket, std::move(a));
+        g_dev_page_ticket = 0;
+        g_dev_page_target = Place{};
+        g_dev_page_drawn = false;
+    }
+    turbo::DevPageRequest rq;
+    if (!turbo::dev_page_take(rq)) return;
+    Place target;
+    std::string error;
+    json a = json::object();
+    a["requested"] = json{{"area", rq.area}, {"page", rq.page}};
+    a["overlay_visible"] = app.visible;
+    a["shown"] = nullptr;
+    a["ok"] = false;
+    if (!find_place(rq.area, rq.page, target, error)) {
+        a["error"] = error;
+        turbo::dev_page_answer(rq.ticket, std::move(a));
+        return;
+    }
+    // App::go refuses a page hidden in this view without a word: say so here
+    if (!page_visible(target.page, app.prefs.advanced_mode)) {
+        a["requested"] = place_json(target);
+        a["error"] = std::string(area_label(target.area)) + " > " + page_label(target.page) +
+                     " is hidden in the Simple view: turn on the Advanced view (Settings) to open it";
+        turbo::dev_page_answer(rq.ticket, std::move(a));
+        return;
+    }
+    app.go(target.area, target.page);
+    g_dev_page_ticket = rq.ticket;
+    g_dev_page_target = target;
+    g_dev_page_drawn = app.visible;
 }
 
 bool area_visible(Area a, bool advanced) {

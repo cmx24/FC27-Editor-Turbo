@@ -3803,6 +3803,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
+#include "test_dev_open_page.h"  // 4.0 S0a: the dev-service op open_page {area, page} (devpage_test)
 // ================================================================ live team names (core/teamname_override.h)
 static void test_team_names_live() {
     run_case("live team names: the keys the game asks for (TeamName[_AbbrN]_<id>, IWL_, any case), nothing else", [&] {
@@ -9893,6 +9894,7 @@ static void test_ui() {
         page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
+        devpage_test::ui_cases(app, ui);  // test_dev_open_page.h: dev service open_page {area, page} (4.0 S0a)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)

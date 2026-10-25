@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <mutex>
 
 namespace turbo {
 
@@ -148,6 +149,40 @@ static json value_json(const std::string& t, uint64_t raw) {
     return static_cast<long long>(as_number(t, raw));
 }
 
+// ---- open_page hand-off (devops.h): one slot shared by the dev service thread and the overlay thread
+namespace {
+struct DevPageSlot {
+    std::mutex m;
+    uint64_t next = 0;
+    uint64_t active = 0;     // the ticket the service waits for (0: none)
+    bool posted = false;     // posted, not taken by the overlay yet
+    DevPageRequest req;
+    bool answered = false;
+    json answer;
+};
+DevPageSlot& page_slot() {
+    static DevPageSlot s;
+    return s;
+}
+}  // namespace
+
+bool dev_page_take(DevPageRequest& out) {
+    DevPageSlot& s = page_slot();
+    std::lock_guard<std::mutex> lock(s.m);
+    if (!s.posted || s.active == 0) return false;
+    s.posted = false;
+    out = s.req;
+    return true;
+}
+
+void dev_page_answer(uint64_t ticket, json answer) {
+    DevPageSlot& s = page_slot();
+    std::lock_guard<std::mutex> lock(s.m);
+    if (ticket == 0 || ticket != s.active) return;  // the wait gave up: a late answer is dropped
+    s.answer = std::move(answer);
+    s.answered = true;
+}
+
 std::vector<DevRegion> DevService::pick_regions(const json& req) {
     std::vector<DevRegion> all = env_.regions ? env_.regions() : std::vector<DevRegion>();
     uint64_t from = 0, to = ~uint64_t(0);
@@ -192,7 +227,8 @@ json DevService::op(const json& req, int depth) {
     std::string name = req.value("op", std::string());
     if (name.empty() && req.contains("ms") && depth > 0) name = "sleep";
     if (name.empty()) return fail("no op");
-    if (name != "ping" && name != "sleep" && name != "multi" && name != "seq" && name != "modules" && name != "key" && !env_.mem)
+    if (name != "ping" && name != "sleep" && name != "multi" && name != "seq" && name != "modules" && name != "key" && name != "open_page" &&
+        !env_.mem)
         return fail("no memory access");
     Memory& mem = *env_.mem;
     auto now = [&]() { return env_.clock ? env_.clock() : 0.0; };
@@ -508,6 +544,48 @@ json DevService::op(const json& req, int depth) {
         r["game_in_front"] = sent;
         r["ms"] = ms;
         return r;
+    }
+    if (name == "open_page") {
+        // 4.0 S0a: the overlay applies it at the start of its next frame and answers a frame later (devops.h); never holds the lock while waiting
+        if (!env_.sleep) return fail("not available");
+        const json& ja = req.contains("area") ? req["area"] : json();
+        const json& jp = req.contains("page") ? req["page"] : json();
+        if (!ja.is_string() || ja.get<std::string>().empty()) return fail("area: the label on the rail (Home, Players, Looks, Club, Tactics, Career, Settings, Lab)");
+        if (!jp.is_string() || jp.get<std::string>().empty()) return fail("page: the label on the page strip (Player, Kits, Standings, ...)");
+        DevPageSlot& s = page_slot();
+        uint64_t ticket = 0;
+        {
+            std::lock_guard<std::mutex> lock(s.m);
+            ticket = ++s.next;
+            s.active = ticket;
+            s.req = DevPageRequest{ticket, ja.get<std::string>(), jp.get<std::string>()};
+            s.posted = true;
+            s.answered = false;
+            s.answer = json();
+        }
+        const double t0 = now();
+        const int step_ms = 16;
+        const int max_steps = static_cast<int>(kDevPageWait * 1000.0 / step_ms) + 1;  // when there is no clock
+        for (int step = 0;; ++step) {
+            {
+                std::lock_guard<std::mutex> lock(s.m);
+                if (s.answered && s.active == ticket) {
+                    json a = std::move(s.answer);
+                    s.active = 0;
+                    s.answered = false;
+                    s.answer = json();
+                    if (!a.is_object()) return fail("bad answer from the overlay");
+                    a["ok"] = a.value("ok", false);
+                    return a;
+                }
+                if ((env_.clock && now() - t0 > kDevPageWait) || (!env_.clock && step >= max_steps)) {
+                    s.active = 0;  // a frame that comes later neither applies nor answers it
+                    s.posted = false;
+                    return fail("the overlay drew no frame in 5 s (game minimised or not drawing?): page not opened");
+                }
+            }
+            env_.sleep(step_ms);
+        }
     }
     if (name == "multi" || name == "seq") {
         if (depth > 0) return fail("multi / seq cannot be nested");
