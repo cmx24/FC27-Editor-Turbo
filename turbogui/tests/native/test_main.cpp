@@ -3264,6 +3264,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
+#include "test_gui50_window_rect.h"  // 5.0 T7: Cassio's gui.window replayed (resize kept, Restore fits the screen, stored choice kept, window log lines)
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -9934,6 +9935,7 @@ static void test_ui() {
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
         resize_ui_test::ui_cases(app, ui, le);  // test_ux_resize.h (2.22 G-resize): divider, window drags with the mouse; Row height; Refresh
+        gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 
@@ -15716,6 +15718,7 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
     window_settings_test::run();  // test_window_settings.h (pure cases)
+    gui50_window_rect_test::run();  // test_gui50_window_rect.h (pure cases, D3)
     test_shell();  // test_shell.h: shell contract (pure cases)
     nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
