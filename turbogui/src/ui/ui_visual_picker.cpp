@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "core/bodytype_thumbs.h"
+#include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "core/rdbm_resources.h"
 #include "imgui.h"
@@ -275,10 +276,20 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         if (light) {
             all.push_back(only);
         } else {
+            // 3.2 (charter 19.17): this list is the ONE merged catalogue of the field: the RDBM26 set (named codes, the players' own
+            // codes), the game's gallery ids, none, his value, and for a gallery field the codes the combo that used to sit beside it
+            // offered (the codes the save uses, the named ones, the small range): every code either picker offered on 3.1.0 is here, once.
+            // A code the game files do not carry stays refused by the gallery gate below (writable = 0, with the reason). Release
+            // users have no asset catalogue, so the RDBM26 codes are NOT dropped when the gallery lists a few ids (catalogue-off path).
             if (d) {
                 const vis::CodeDef* b = vis::codes_begin(*d);
                 for (int i = 0; i < d->count; ++i) all.push_back(b[i].code);
             }
+            // fix round 2 (reviewer D1): a field with labelled codes but no gallery (Sleeves 0..4, Sock length 0..3, jersey fit, hair / eye colour,
+            // skin tone, accessory colours...) gets the same merge: the codes field_labels.h names (enum_defs or named codes) are offered, not only the picture
+            // set's (Sleeves 4 and Sock length 3 "Low" were not offered at all). A field with no labelled code (eyebrows, tattoos) is unchanged. The offered set that changes per field is listed by the test of fix 2.
+            if (gal || labels::enum_def(field) || labels::named_codes(field))
+                for (int64_t c : code_value_list(app, t, *f, current)) all.push_back(c);
             for (const GalleryEntry& e : ge) all.push_back(e.id);
             if (gal) all.push_back(0);
             all.push_back(current);  // his value is shown even when the lists do not have it
@@ -996,6 +1007,7 @@ bool visual_picker_tile_writable(int64_t code, std::string* why) {
 }
 
 size_t visual_picker_list_size() { return st().src.codes.size(); }
+std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 
 void visual_picker_close() { close_picker(); }
 

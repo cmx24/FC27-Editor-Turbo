@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/career_faces.h"
+#include "ui/ui_visual_picker.h"
 
 namespace career_faces_test {
 
@@ -438,12 +439,37 @@ inline void ui_cases_safety(App& app, Ui& ui, const fs::path& le) {
                  CHECK(log_has(app, "heads own: player 3001", "his own head back in " + A), "logged");
                  CHECK(has_own_head(app, false, 3001) && restore_own_head(app, false, 3001, &msg) && msg == "he already has his own head",
                        "the record stays (an Undo of the revert can be put back again): " + msg);
-                 // the UI: the chooser shows "His own head"
+                 // the UI: the chooser shows "His own head". 3.2 f3 B2: whether the player's Eyes / Skin boxes show depends on whether his card
+                 // has a picker for them (a picture source = the user's own RDBM26 folder), so the folder is pinned: none first
+                 visual_pictures_override((test_tmp_dir("cf_chooser_none") / "nowhere").u8string());
+                 visual_pictures_refresh(app);
                  app.request_tab = 0;
                  ui.frames(2);
                  CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
                  ui.frames(3);
                  CHECK(ui.find("His own head##faces") != nullptr, "the chooser has the His own head button");
+                 // 3.2 f3 (charter 19.17, Amendment B1/B2): hair and beard are given by their own pickers, not by copy boxes here. Eyes and Skin
+                 // stay (q6-nopicker) while the card has no eye colour / skin tone picker, i.e. without an RDBM26 folder (it is never shipped)
+                 if (const auto* own_btn = ui.find("His own head##faces")) {
+                     const std::string win = own_btn->window;
+                     CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr,
+                           "ONE PICKER: the player's real-face chooser has no Hair / Beard copy boxes (their pickers are in Appearance)");
+                     CHECK(ui.find("Eyes", win) != nullptr && ui.find("Skin", win) != nullptr,
+                           "NO LOST CAPABILITY: with no RDBM26 folder the player's Eyes and Skin boxes stay (no picker on his card gives them)");
+                     // a picture source: the card draws the eye colour / skin tone rows, the boxes go
+                     const fs::path pics = test_tmp_dir("cf_chooser_rdbm") / "Resources";
+                     for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
+                         fs::create_directories((pics / sub).parent_path());
+                         std::ofstream(pics / sub, std::ios::binary) << "\x89PNG";
+                     }
+                     visual_pictures_override(pics.u8string());
+                     visual_pictures_refresh(app);
+                     ui.frames(3);
+                     CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr,
+                           "with an RDBM26 folder the card has the pickers (eye colour, skin tone rows) and the chooser has no Eyes / Skin boxes");
+                 }
+                 visual_pictures_override("");
+                 visual_pictures_refresh(app);
                  ui.click("Close##faces");
                  ui.frames(2);
                  while (app.undo_count(3001) > undo0) app.undo(3001);

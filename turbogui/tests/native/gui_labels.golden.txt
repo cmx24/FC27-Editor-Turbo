@@ -509,9 +509,7 @@ ui_faces.cpp	Button	Clear filters	1
 ui_faces.cpp	Button	Close##faces	1
 ui_faces.cpp	Button	Close##mfaces	1
 ui_faces.cpp	Button	Stop##r3d	1
-ui_faces.cpp	Checkbox	Beard	1
 ui_faces.cpp	Checkbox	Eyes	1
-ui_faces.cpp	Checkbox	Hair	1
 ui_faces.cpp	Checkbox	High-quality heads only	1
 ui_faces.cpp	Checkbox	Only heads with a 3D look	1
 ui_faces.cpp	Checkbox	Real faces only	1
