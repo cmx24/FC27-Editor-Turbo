@@ -1364,7 +1364,6 @@ ui_team_players.cpp	-	###tpreadrole	1
 ui_team_players.cpp	-	###tprevclub	1
 ui_team_players.cpp	-	###tpsetpot	1
 ui_team_players.cpp	-	###tpsetrole	1
-ui_team_players.cpp	-	##team_players	1
 ui_team_players.cpp	-	##teamplclub	1
 ui_team_players.cpp	-	##tp_contract	1
 ui_team_players.cpp	-	##tp_form	1
@@ -1403,7 +1402,6 @@ ui_team_transfers.cpp	-	###tpmvtransfer	1
 ui_team_transfers.cpp	-	###tprole	1
 ui_team_transfers.cpp	-	###tproleread	1
 ui_team_transfers.cpp	-	###tpsignbtn	1
-ui_team_transfers.cpp	-	##team_transfers	1
 ui_team_transfers.cpp	-	##tpmv	1
 ui_team_transfers.cpp	-	##tpmvclub	1
 ui_team_transfers.cpp	-	##tpmvplayer	1

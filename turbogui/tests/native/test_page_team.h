@@ -26,8 +26,16 @@ static void (*g_page_fn)(App&) = nullptr;
 // 0 = the page shows from its top; 1 = scrolled to its bottom (the test window is the size of the screen, a long page clips what is below it)
 static int g_scroll_mode = 0;
 static void apply_scroll() {
-    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
         if (w->ParentWindow && std::strcmp(w->ParentWindow->Name, "##teampage_test") == 0) ImGui::SetScrollY(w, g_scroll_mode > 0 ? w->ScrollMax.y : 0.0f);
+        // 4.0 S8: a page drawn in the page template (ui_page.h) scrolls in its body, two windows below the test window
+        // (and the Career squad cards' own child, ##career_squad, which scrolls inside the body)
+        else if (std::strncmp(w->Name, "##teampage_test/", 16) == 0) {
+            const char* last = std::strrchr(w->Name, '/') + 1;
+            if (std::strncmp(last, "##pg_body", 9) == 0 || std::strncmp(last, "##career_squad", 14) == 0)
+                ImGui::SetScrollY(w, g_scroll_mode > 0 ? w->ScrollMax.y : 0.0f);
+        }
+    }
 }
 static void draw_extra(App& app) {
     if (!g_page_fn) return;
@@ -142,6 +150,8 @@ static bool does_nothing(App& app, Ui& ui, const std::string& button, const char
     return !ui.find("Cancel", "###teamask") && !app.mailbox->pending();
 }
 
+static void s8_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, int64_t mine);  // test_team_players_40.h (4.0 S8)
+
 static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::path& le) {
     const ImVec2 old_display = ImGui::GetIO().DisplaySize;
     const json original_state = read_json(le / "turbo_output" / "bridge_state.json");
@@ -233,8 +243,17 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         show(ui, draw_team_players);
         CHECK(ui.click("Whole squad###tptabsquad", "##teampage_test"), "the Whole squad tab");
         ui.frames(4);
-        for (const char* l : {"Apply to my squad", "Set for my squad", "Extend my squad's contracts", "Develop to potential", "Reveal my players", "Run for my squad"})
-            CHECK(has_item(ui, l, "##team_players_"), std::string("the Career card control is on Whole squad: ") + l);
+        for (const char* l : {"Apply to my squad", "Set for my squad", "Extend my squad's contracts", "Develop to potential", "Reveal my players"})
+            CHECK(has_item(ui, l, "team_players_"), std::string("the Career card control is on Whole squad: ") + l);  // 4.0 S8: ##page_team_players_ inside the template
+        scroll_bottom(ui, true);  // 4.0 S8: the page body (##pg_body) is shorter than the page, the last card is below its first screen
+        {
+            std::string dbg;
+            for (const auto& kv : g_items)
+                if (kv.second.label.find("Run for") != std::string::npos || kv.second.label.find("Reveal my") != std::string::npos)
+                    dbg += " [" + kv.second.label + " @" + kv.second.window + " f" + std::to_string(kv.second.frame) + "/" + std::to_string(g_frame) + " y=" + std::to_string(kv.second.rect.Min.y) + "]";
+            CHECK(has_item(ui, "Run for my squad", "team_players_"), "the Career card control is on Whole squad: Run for my squad" + dbg);
+        }
+        scroll_bottom(ui, false);
         if (!team_preset_apply) CHECK(!has_item(ui, "Apply the My team preset", "##teampage_test"), "no preset button while the preset is not built in");
         json j = ask_and_confirm(app, ui, mem, kMb, "Set for my squad", "##career_roles", "Set roles", why, "###careerask");
         CHECK(why.empty() && j.value("module", "") == "squad_role" && j["overrides"].value("role", 0) == 3, "a Career card works inside the Team page: " + why + j.dump());
@@ -473,6 +492,8 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         }
         hide(ui);
     });
+
+    s8_cases(app, ui, mem, kMb, mine);
 
     // put the simulated game back as the other cases expect it
     app.mailbox->cancel();
