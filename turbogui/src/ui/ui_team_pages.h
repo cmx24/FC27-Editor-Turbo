@@ -36,14 +36,14 @@ void draw_team_players(App& app);
 void draw_team_transfers(App& app);
 
 // 2.22 G-squad: the sortable squad table of 2.14 (ui_teams.cpp; table "##squad": Jersey (editable), Player (click = Players > Edit a player),
-// Pos, OVR, Age, Line-up slot (editable); every header sorts, a third click returns to the database order). It takes the club as given, so it
+// Pos, OVR, Age, Line-up slot (editable), Calc OVR (2.22 calc-ovr); every header sorts, a third click returns to the database order). It takes the club as given, so it
 // serves any club: Players > My squad (the user's club), Team > Players tab "Squad list" (the club picked there) and the old Teams panel.
 void squad_table(App& app, int64_t teamid);
 // What the last squad_table call drew (plain text and sort arrows are not ImGui items, so the tests read it here)
 struct SquadTableState {
     int64_t club = 0;           // the club the table was asked for
     size_t rows = 0;            // players linked to it
-    int columns = 0;            // 6 once the table was drawn
+    int columns = 0;            // 7 once the table was drawn
     bool table_drawn = false;   // false when the game has no teamplayerlinks table or the table was clipped away
     int sort_column = -1;       // the column the sort is on (-1 = database order)
     bool sort_ascending = true;

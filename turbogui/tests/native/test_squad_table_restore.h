@@ -120,12 +120,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const ImGuiTable* t = squad_table_now();
         CHECK(t != nullptr, "the ##squad table is on screen");
         if (t) {
-            CHECK(t->ColumnsCount == 6 && st.columns == 6, fmt("six columns: %d", t->ColumnsCount));
+            CHECK(t->ColumnsCount == 7 && st.columns == 7, fmt("seven columns (2.22 calc-ovr appends Calc OVR): %d", t->ColumnsCount));
             CHECK((t->Flags & ImGuiTableFlags_Sortable) != 0 && (t->Flags & ImGuiTableFlags_SortTristate) != 0, "Sortable and tristate");
             CHECK((t->Flags & ImGuiTableFlags_Resizable) != 0 && (t->Flags & ImGuiTableFlags_Reorderable) != 0 && (t->Flags & ImGuiTableFlags_Hideable) != 0,
                   "column resize / reorder / hide are on");
-            const char* want[] = {"Jersey", "Player", "Pos", "OVR", "Age", "Line-up slot"};
-            for (int i = 0; i < 6 && i < t->ColumnsCount; ++i) CHECK(std::string(ImGui::TableGetColumnName(t, i)) == want[i], std::string("column ") + want[i]);
+            const char* want[] = {"Jersey", "Player", "Pos", "OVR", "Age", "Line-up slot", "Calc OVR"};
+            for (int i = 0; i < 7 && i < t->ColumnsCount; ++i) CHECK(std::string(ImGui::TableGetColumnName(t, i)) == want[i], std::string("column ") + want[i]);
         }
         CHECK(drawn_order(app, 241) == db_order(app, 241), "no header clicked: the database order");
     });
@@ -140,7 +140,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(st.table_drawn && st.club == mine && st.rows == app.model.links_of_team(mine).size(),
               fmt("the Squad tab shows my club: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
         CHECK(ui.find("###sqtabsquad", "FC 27 LE Turbo") != nullptr && ui.find("###sqtabtools", "FC 27 LE Turbo") != nullptr, "tabs Squad and Career tools");
-        CHECK(squad_table_now() != nullptr && squad_table_now()->ColumnsCount == 6, "the six-column table is the first thing on the page");
+        CHECK(squad_table_now() != nullptr && squad_table_now()->ColumnsCount == 7, "the seven-column table is the first thing on the page");
         CHECK(st.sort_column == -1, "database order until a header is clicked");
         const std::vector<int64_t> base = db_order(app, mine);
         CHECK(drawn_order(app, mine) == base, "rows in database order: " + ids(drawn_order(app, mine)));

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "overall.h"
 #include "teamnames.h"
 
 namespace turbo {
@@ -246,6 +247,20 @@ template <class Get> static void fill_filter_fields(const Table& t, PlayerRow& r
     if (const Field* f = t.field("trait1")) r.playstyles = static_cast<uint64_t>(get(*f) - f->min);
     if (const Field* f = t.field("icontrait1")) r.playstyles_plus = static_cast<uint64_t>(get(*f) - f->min);
     if (const Field* f = t.field("gender")) r.gender = static_cast<int>(get(*f));
+    if (const Field* f = t.field("modifier")) r.ovr_modifier = static_cast<int>(get(*f));  // one extra read, at rebuild/refresh only
+    // 2.22 calc-ovr: the overall the 34 attributes give for his main position, worked out here once (a rebuild or a refresh after
+    // an edit), never per frame. -1 when the position or any attribute is not in this database.
+    r.calc_overall = -1;
+    if (r.position >= 0 && r.position <= 27) {
+        overall::Attrs a{};
+        bool all = true;
+        for (int i = 0; i < overall::kAttrCount && all; ++i) {
+            const Field* f = t.field(overall::kAttrNames[i]);
+            if (!f) all = false;
+            else a[static_cast<size_t>(i)] = static_cast<int>(get(*f));
+        }
+        if (all) r.calc_overall = overall::compute_overall(r.position, a);
+    }
 }
 
 void Model::build_players(const GameDate& today) {
