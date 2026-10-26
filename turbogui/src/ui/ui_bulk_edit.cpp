@@ -931,7 +931,22 @@ void section_actions(App& app) {
     else if (app.busy() || !app.mailbox) why = "the game link is busy";
     g_state.actions_why = why;
     if (!why.empty()) ImGui::BeginDisabled();
-    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, g_do_dev ? "Bulk edit: fitness, form, morale, development" : "Bulk edit: fitness, form, morale");
+    // the pending label names only what is ticked ("Bulk edit: development", "Bulk edit: fitness, morale")
+    std::string label = "Bulk edit: ";
+    {
+        std::string names;
+        auto add = [&](bool on, const char* n) {
+            if (!on) return;
+            if (!names.empty()) names += ", ";
+            names += n;
+        };
+        add(g_do_fit, "fitness");
+        add(g_do_form, "form");
+        add(g_do_morale, "morale");
+        add(g_do_dev, "development");
+        label += names;
+    }
+    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, label);
     if (!why.empty()) {
         ImGui::EndDisabled();
         ImGui::SameLine();

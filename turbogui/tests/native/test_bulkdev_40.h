@@ -119,6 +119,113 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         bulkedit::reset();
     });
 
+    // Review round 1 (D2, D3): the send gate of section_actions (ui_bulk_edit.cpp) and the pending label.
+    //   (a) form_morale unavailable, only Development ticked: the form_morale reason does not apply, Send stays enabled and sends.
+    //       (With Fitness ticked the same reason greys Send out: the gate still guards fitness, form and morale.)
+    //   (b) development_xp unavailable: Development ticked greys Send out with the "Development: <reason>" text; nothing is sent.
+    //   (c) the label names only the ticked boxes.
+    // FAILS on a tip whose gate tests form_morale unconditionally ((a) Send is greyed out) and on a tip whose label is the fixed
+    // "fitness, form, morale[, development]" text ((c)). On 7e888096 (no Development block) it fails at "the Development box is on Bulk edit".
+    run_case("S7b Bulk edit: the send gate follows the ticked boxes (form_morale / development_xp) and the label names only what is ticked", [&] {
+        if (app.busy()) app.mailbox->cancel();
+        app.lua_queue.clear();
+        const fs::path state_file = le / "turbo_output" / "bridge_state.json";
+        const json original = read_json(state_file);
+        static int bumps = 0;
+        auto write_unavailable = [&](const json& unavailable) {
+            json st = original;
+            st["unavailable"] = unavailable;
+            st["seq"] = st.value("seq", 0LL) + 1000 + ++bumps;
+            {
+                std::ofstream f(state_file.string(), std::ios::binary | std::ios::trunc);
+                f << st.dump();
+            }
+            fs::last_write_time(state_file, fs::file_time_type::clock::now() + std::chrono::seconds(900 + 2 * bumps));
+            app.next_poll = 0.0;
+            ui.frames(3);
+        };
+        json base_unavailable = original.contains("unavailable") && original["unavailable"].is_object() ? original["unavailable"] : json::object();
+        base_unavailable.erase("form_morale");
+        base_unavailable.erase("development_xp");
+        auto fresh_page = [&] {
+            hide(ui);
+            bulkedit::reset();
+            bulkedit::pick_only(app, {1001, 1005});
+            app.log_lines.clear();
+            show(ui);
+            if (!ui.find("Development###bk_dev_on", W)) {
+                ui.click("###bk_actions_head", W);
+                ui.frames(3);
+            }
+        };
+
+        // (a) form_morale unavailable, Development only
+        json u = base_unavailable;
+        u["form_morale"] = "needs the form and morale natives";
+        write_unavailable(u);
+        CHECK(app.bridge.state().unavailable_reason("form_morale") != nullptr, "form_morale is unavailable in this state");
+        CHECK(app.bridge.state().unavailable_reason("development_xp") == nullptr, "development_xp is available in this state");
+        fresh_page();
+        CHECK(ui.find("Development###bk_dev_on", W) != nullptr, "the Development box is on Bulk edit");
+        CHECK(ui.click("Development###bk_dev_on", W), "tick Development");
+        ui.frames(3);
+        CHECK(bulkedit::state().actions_why.empty(), "(a) form_morale unavailable, Development only: Send is enabled: " + bulkedit::state().actions_why);
+        CHECK(ui.click("Send to the picked players###bk_actions_go", W), "(a) click Send");
+        ui.frames(2);
+        json cmd = last_sent(app);
+        CHECK(!cmd.is_discarded() && cmd["overrides"]["actions"].contains("development"),
+              "(a) the development action went out: " + (cmd.is_discarded() ? std::string("nothing sent") : cmd.dump()));
+        CHECK(app.pending_label == "Bulk edit: development", "(c) a Development-only send is labelled 'Bulk edit: development': '" + app.pending_label + "'");
+        app.mailbox->cancel();
+        // the same reason still guards Fitness
+        CHECK(ui.click("Fitness###bk_fit_on", W), "tick Fitness too");
+        ui.frames(3);
+        CHECK(bulkedit::state().actions_why == "needs the form and morale natives", "(a) Fitness ticked: the form_morale reason greys Send out: '" + bulkedit::state().actions_why + "'");
+
+        // (b) development_xp unavailable, form_morale available
+        u = base_unavailable;
+        u["development_xp"] = "needs the development natives";
+        write_unavailable(u);
+        CHECK(app.bridge.state().unavailable_reason("form_morale") == nullptr && app.bridge.state().unavailable_reason("development_xp") != nullptr,
+              "development_xp is the only unavailable one");
+        fresh_page();
+        CHECK(ui.click("Development###bk_dev_on", W), "tick Development");
+        ui.frames(3);
+        CHECK(bulkedit::state().actions_why == "Development: needs the development natives",
+              "(b) development_xp unavailable: Send is greyed out with the Development reason: '" + bulkedit::state().actions_why + "'");
+        app.log_lines.clear();
+        ui.click("Send to the picked players###bk_actions_go", W);
+        ui.frames(2);
+        CHECK(last_sent(app).is_discarded(), "(b) the greyed-out Send sends nothing");
+        // without Development the same state sends fitness
+        CHECK(ui.click("Development###bk_dev_on", W), "untick Development");
+        CHECK(ui.click("Fitness###bk_fit_on", W), "tick Fitness");
+        ui.frames(3);
+        CHECK(bulkedit::state().actions_why.empty(), "(b) Fitness only: Send is enabled: " + bulkedit::state().actions_why);
+        CHECK(ui.click("Send to the picked players###bk_actions_go", W), "click Send");
+        ui.frames(2);
+        CHECK(app.pending_label == "Bulk edit: fitness", "(c) a Fitness-only send is labelled 'Bulk edit: fitness': '" + app.pending_label + "'");
+        app.mailbox->cancel();
+
+        // (c) several boxes: the ticked ones in a fixed order
+        write_unavailable(base_unavailable);
+        fresh_page();
+        CHECK(ui.click("Morale###bk_morale_on", W), "tick Morale");
+        CHECK(ui.click("Fitness###bk_fit_on", W), "tick Fitness");
+        CHECK(ui.click("Development###bk_dev_on", W), "tick Development");
+        ui.frames(3);
+        CHECK(bulkedit::state().actions_why.empty(), "all available: Send is enabled: " + bulkedit::state().actions_why);
+        CHECK(ui.click("Send to the picked players###bk_actions_go", W), "click Send");
+        ui.frames(2);
+        CHECK(app.pending_label == "Bulk edit: fitness, morale, development", "(c) the label lists the three ticked boxes: '" + app.pending_label + "'");
+        app.mailbox->cancel();
+
+        // put the state file back the way it was
+        hide(ui);
+        bulkedit::reset();
+        write_unavailable(original.contains("unavailable") && original["unavailable"].is_object() ? original["unavailable"] : json::object());
+    });
+
     // Commit 2 (S7b): the bar Undo is off on Bulk edit and Player creation (each page::Spec sets show_undo=false), and every other
     // Frame page keeps it (Data export, the S1 worked example, is the witness). Bulk edit has its own ###bk_undo that restores the whole run;
     // the bar Undo took back only the newest Changes row (one player's edits; changes::poll folds the per-field steps into one row per player).
