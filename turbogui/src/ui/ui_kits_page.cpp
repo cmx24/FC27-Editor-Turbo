@@ -614,7 +614,9 @@ void draw_kits_page(App& app) {
     if (apply_pending && !kit_panel_busy()) {
         apply_pending = false;
         std::string why = apply_why;
-        // the worker is done: poll_jobs put its line on the panel; a texture that could not be staged ends it with "; not staged: <why>"
+        // The worker may have ended in this very frame (a missing zip ends it at once), after apply_items and before the next frame's poll_jobs:
+        // consume its result now, so the line read below is the staging line and a texture that could not be staged ends it with "; not staged: <why>"
+        poll_jobs(app);
         const std::string line = kit_panel_line();
         const size_t ns = line.find("; not staged: ");
         if (why.empty() && ns != std::string::npos) why = "the textures were not staged: " + line.substr(ns + 14);
