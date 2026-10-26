@@ -401,6 +401,54 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         hide(ui);
     });
     club_40_test::ui_cases(app, ui, le);  // test_club_40.h (4.0 S9): both pages in the page template, the Staff tab, one descriptor
+    // 4.0 S9 fix round 3 (P2, found by the round-2 reviewer): "Apply all N kits" (More) is an Apply like the bar's, so it goes through the same
+    // apply_and_track path: a staging failure after it is not left under an earlier "Done".
+    run_case("Kits page: Apply all N kits with a textures staging failure never leaves the line at an earlier Done (the one Apply path of the bar)", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        app.kit_swap = nullptr;
+        put_game_minikit(le);
+        // "Apply all" is drawn only for two ready kits and waits for the game's own minikit of every slot: Away's is set here
+        const fs::path away_mk = le / "turbo_output" / "cache" / "legacy" / kits::minikit_path(7, kits::Slot::Away);
+        {
+            DdsFormat mf;
+            mf.pixel = DdsFormat::Pixel::DXT5;
+            mf.w = mf.h = 64;
+            mf.mips = 7;
+            write(away_mk, encode_dds(solid(64, 64, 9, 9, 9), mf));
+        }
+        const std::string before = club_page_test::kept_rows(app.reapply);
+        const fs::path dir = g_out / "kits_src" / "page_kits_all";
+        make_kit_zip(dir / "h.zip", spec);
+        make_kit_zip(dir / "a.zip", spec);
+        std::error_code ec;
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);  // the exported minikits are read once a second
+        page::done("kits", "an earlier action");  // what the line says before the click
+        CHECK(kit_panel_open(app, dir) && kit_wait(ui), "both zips are read");
+        ui.frames(3);
+        CHECK(kit_panel_count() == 2 && kit_panel_status(0) == "ready" && kit_panel_status(1) == "ready", "two ready kits: " + kit_panel_status(0) + " / " + kit_panel_status(1));
+        // the zip is gone when the worker opens it (the database part ran from the zip read earlier)
+        fs::rename(dir / "h.zip", dir / "h.zip.gone", ec);
+        CHECK(!ec, "the zip is set aside: " + ec.message());
+        CHECK(ui.click("More##kpmore", "##editor"), "open More");
+        ui.frames(3);
+        CHECK(ui.click("Apply all 2 kits##kpall", "##editor"), "Apply all 2 kits");
+        CHECK(kit_wait(ui), "the worker ended");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "after a failed Apply all the line is not an old Done: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: the textures were not staged", 0) == 0, "it says why: " + page::status_text("kits"));
+        // Apply all applied both kits to the database part: put Everton back as it was
+        fs::rename(dir / "h.zip.gone", dir / "h.zip", ec);
+        std::string msg;
+        CHECK(undo_kit_import(app, 7, kits::Slot::Home, &msg), "Home restored: " + msg);
+        CHECK(undo_kit_import(app, 7, kits::Slot::Away, &msg), "Away restored: " + msg);
+        CHECK(club_page_test::kept_rows(app.reapply) == before, "the kept rows are as before: " + club_page_test::kept_rows(app.reapply));
+        fs::remove(away_mk, ec);
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
 }
 
 }  // namespace page_kits_test
