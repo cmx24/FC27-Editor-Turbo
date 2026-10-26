@@ -3050,6 +3050,10 @@ const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*, ImGuiID id) {
 // 2026-10-16: a page test draws its own window after the app (test_club_page.h); null = nothing
 static void (*g_ui_extra)(turbo::App&) = nullptr;
 
+// 5.0 T7 (test_gui50_window_rect.h): the game screen size a case runs on. ImGui_ImplNullPlatform_NewFrame sets io.DisplaySize to 1920x1080 at
+// every frame (third_party/imgui/backends/imgui_impl_null.cpp), so a size set before Ui::frames() was lost after one frame; 0,0 = the backend's size.
+static ImVec2 g_display_override(0.0f, 0.0f);
+
 // 3.0.1: the label match of Ui::find, shared with Ui::find_scrolling: the exact label, the "###stable_id" form of "Text###stable_id", or a widget that
 // reports no label (a combo) whose ID the label hashes to. find_scrolling matched only the exact label, so a header below the fold of a 3.0 page
 // (taller than the 2.x pages) was found by "###ab_attrs" when visible and not found, instead of scrolled to, when hidden.
@@ -3068,6 +3072,7 @@ public:
 
     void frame() {
         ImGui_ImplNull_NewFrame();
+        if (g_display_override.x > 0.0f && g_display_override.y > 0.0f) ImGui::GetIO().DisplaySize = g_display_override;  // 5.0 T7
         ImGui::NewFrame();
         ++g_frame;
         app.tick(t);

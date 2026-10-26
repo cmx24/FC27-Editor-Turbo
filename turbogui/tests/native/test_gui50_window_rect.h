@@ -12,7 +12,9 @@
 //   W4  the window log lines (placed / saved / shown) carry the rectangle, the game screen and the usable verdict with its reason, reach both
 //       the in-app Log and the turbo_gui.log callback, and none is written per frame. FAILS on e03008ed (no window log line existed).
 //   run(): Restore never returns to a rectangle that covers the screen and moves one that sticks out back on (D3, pure). FAILS on e03008ed.
-// Uses only the App / harness API that 93adb6d0 and e03008ed already had, so the same file runs on both for the fail-old runs.
+// Uses only the App / harness API that 93adb6d0 and e03008ed already had, plus g_display_override (test_main.cpp, this track: the null
+// backend resets io.DisplaySize to 1920x1080 at every NewFrame, so without it every case ran on 1920x1080), so the same file runs on both
+// for the fail-old runs (their scratch test_main.cpp gets the same two lines).
 // Included by test_main.cpp after test_window_settings.h; ui_cases runs after resize_ui_test::ui_cases, run() after window_settings_test::run().
 #pragma once
 #include <cmath>
@@ -140,7 +142,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (!window_block.is_null()) g["window"] = window_block;
         json doc = json::object();
         doc["gui"] = g;
-        ImGui::GetIO().DisplaySize = screen;
+        g_display_override = screen;  // every Ui::frame (the null backend alone resets it to 1920x1080 at each NewFrame)
         std::error_code ec;
         fs::create_directories(file.parent_path(), ec);
         {
@@ -226,7 +228,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.save_gui_settings(), "save on the small screen");
         s = stored();
         CHECK(!flag(s, "maximized", true) && near(num(s, "w"), 1400, 0.5f), "kept on the small screen: " + (s.is_null() ? std::string("no window block") : s.dump()));
-        ImGui::GetIO().DisplaySize = ImVec2(2560.0f, 1600.0f);
+        g_display_override = ImVec2(2560.0f, 1600.0f);
         ui.frames(4);
         w = panel();
         CHECK(w && !app.prefs.window.maximized && near(w->Size.x, 1400, 2.0f) && near(w->Size.y, 900, 2.0f) && near(w->Pos.x, 150, 2.0f) && near(w->Pos.y, 90, 2.0f),
@@ -278,6 +280,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     // leave the world as the later cases expect it
     app.log_hook = keep_hook;
+    g_display_override = ImVec2(0.0f, 0.0f);
     ImGui::GetIO().DisplaySize = keep_ds;
     if (keep_file.empty()) {
         std::error_code ec;
