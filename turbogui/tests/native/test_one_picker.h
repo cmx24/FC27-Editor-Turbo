@@ -490,9 +490,12 @@
                 CHECK(miss.empty(), miss);
                 // P3 (fresh review, mutant c1): a field with NO labelled code (the product's own condition: no enum_def, no named codes, no gallery) is
                 // UNCHANGED by the merge: the offered list is EXACTLY the picture set plus his value, as a set, not a count (build_source comment
-                // "A field with no labelled code ... is unchanged"). Mutant c1 (merge forced on) grows headtypecode 611->621 and tattoohead 228->229.
+                // "A field with no labelled code ... is unchanged"). Mutant c1 (merge condition forced true) goes red on headtypecode ONLY (offered 622 codes,
+                // picture set + his value 611); tattoohead is unchanged by c1 (228 both). A code swap inside tattoohead's picture set goes red with EQUAL counts,
+                // because the check compares the sets, not their sizes. An EMPTY picture set must not pass vacuously (his value against itself): the CHECK below.
                 if (!labels::enum_def(field) && !labels::named_codes(field)) {
                     std::set<int64_t> exact = op_rdbm(field);
+                    CHECK(!exact.empty(), std::string("ONE PICKER UNLABELLED FIELD has a non-empty picture set (else the comparison is his value against itself) ") + who + field);
                     exact.insert(cur);
                     const std::set<int64_t> got = v.all();
                     CHECK(got == exact, std::string("ONE PICKER UNLABELLED FIELD UNCHANGED ") + who + field + ": offered " + std::to_string(got.size()) + " codes, picture set + his value " +
