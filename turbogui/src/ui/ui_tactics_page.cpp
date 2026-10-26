@@ -23,6 +23,7 @@
 #include "nlohmann/json.hpp"
 #include "ui_game_settings.h"
 #include "ui_live_tactic.h"
+#include "ui_page.h"
 #include "ui_shell.h"
 #include "ui_tactic_presets.h"
 #include "ui_tactics_pages.h"
@@ -527,8 +528,11 @@ bool team_sheet_set_bench_keep(App& app, bool on) {
     return now_on == on;
 }
 
+// 4.0 S10: the three pages sit in page::Frame (title, one help line, scrolling body, status line, bar Undo / Back). No page has an
+// Apply in the bar: Apply preset and Prepare stay inside the panels they were proven in. The page bodies are the same calls as before.
 void draw_tactics_presets_page(App& app) {
     s1.drawn = true;
+    page::Frame frame(app, {"tactics_presets", "Presets", "Save your tactic as a preset and load it back. Set pieces and sliders can ride along.", nullptr});
     try {
         presets_frame(app);
         draw_tactic_presets(app);  // the list, the editor, Apply, Undo: all of it stays where it was proven
@@ -537,33 +541,37 @@ void draw_tactics_presets_page(App& app) {
     } catch (...) {
         theme::err_text("Tactic presets error");
     }
+    frame.end();
 }
 
 void draw_team_sheet_page(App& app) {
     s2.drawn = true;
+    page::Frame frame(app, {"team_sheet", "Team sheet & bench", "Your starting eleven and bench, and who is captain and takes the set pieces.", nullptr});
     try {
         update_team_sheet_state(app);
-        ImGui::BeginChild("##tspage", ImVec2(0, 0), ImGuiChildFlags_Borders);
         bench_card(app);
         ImGui::Spacing();
-        setpieces_card(app);
-        ImGui::EndChild();
+        setpieces_card(app);  // the existing read-out of the captain and the takers (reading only; see its last line)
     } catch (const std::exception& e) {
         theme::err_text("Team sheet error: %s", e.what());
     } catch (...) {
         theme::err_text("Team sheet error");
     }
+    frame.end();
 }
 
 const char* const kOfflineSlidersHeading = "Offline slider file (experimental)";
 const char* const kOfflineSlidersLabel =
     "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
 
-// 3.0.1 (GUI30K): the Tactics area shows no slider staging. The page stays registered (Home's Game sliders button and Changes & undo
-// open it) and says where the section went; nothing on it stages.
+// 3.0.1 (GUI30K), kept in 4.0 S10 (Pit wall decision 2026-10-25: `turbo_settings_apply.exe --apply` fails at cold boot, F9 row of
+// reviews/triage_consolidated_2026-10-25.md:42): the Tactics area shows no slider staging. The page stays registered (Home's Game sliders
+// button and Changes & undo open it), sits in page::Frame, and says where the section went; nothing on it stages. The offline slider
+// section stays Lab-only (draw_lab_tactics_page below).
 void draw_game_sliders_page(App& app) {
     s3.drawn = true;
     s3.moved_note = true;
+    page::Frame frame(app, {"game_sliders", "Game sliders", "The slider file moved to the Lab: it had no effect in the game when last tried.", nullptr});
     try {
         const bool adv = app.prefs.advanced_mode;
         ImGui::TextWrapped("Game sliders moved to the Lab: Tactics (experimental), section \"%s\".", kOfflineSlidersHeading);
@@ -578,6 +586,7 @@ void draw_game_sliders_page(App& app) {
     } catch (...) {
         theme::err_text("Game sliders error");
     }
+    frame.end();
 }
 
 // The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,

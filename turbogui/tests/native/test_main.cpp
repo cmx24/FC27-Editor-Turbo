@@ -3802,6 +3802,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
 #include "test_team_squad_40.h"  // 4.0 S4: Team > Squad page (ui/ui_team_squad_page.h; team_squad_40_test::ui_cases)
+#include "test_tactics_40.h"  // 4.0 S10: the Tactics pages inside page::Frame (tactics40_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_profile_40.h"  // 4.0 S7: Profile Callname row, Player creation and Bulk edit inside page::Frame (profile40_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
@@ -9896,6 +9897,7 @@ static void test_ui() {
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
         ui_page_test::ui_cases(app, ui, le);  // test_ui_page.h: the page template and its worked example (4.0 S1)
         team_squad_40_test::ui_cases(app, ui, le);  // test_team_squad_40.h: Team > Squad (4.0 S4)
+        tactics40_test::ui_cases(app, ui, le);  // test_tactics_40.h: the Tactics pages inside page::Frame (4.0 S10)
         page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         profile40_test::ui_cases(app, ui, le);  // test_profile_40.h: Profile Callname row, Player creation, Bulk edit in page::Frame (4.0 S7)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)

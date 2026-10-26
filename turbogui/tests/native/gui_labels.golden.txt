@@ -1341,7 +1341,6 @@ ui_tactics_page.cpp	BeginChild	##labtaclive	1
 ui_tactics_page.cpp	BeginChild	##labtacoff	1
 ui_tactics_page.cpp	BeginChild	##offslbody	1
 ui_tactics_page.cpp	BeginChild	##tsbenchlist	1
-ui_tactics_page.cpp	BeginChild	##tspage	1
 ui_tactics_page.cpp	Button	###gsdiscard	1
 ui_tactics_page.cpp	CollapsingHeader	###gsadv	1
 ui_tactics_page.cpp	PushID	##offsl	1
