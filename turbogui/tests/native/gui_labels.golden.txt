@@ -20,6 +20,7 @@ app.cpp	BeginChild	##rail	1
 app.cpp	InputTextWithHint	##gsearch	1
 app.cpp	PushID	##pages	1
 app.cpp	PushID	##shell	3
+app.cpp	SmallButton	###statusrefresh	1
 app.cpp	SmallButton	Cancel	1
 app.cpp	SmallButton	Stop##faces3d	1
 file_picker.cpp	-	##fpplace	1
@@ -182,6 +183,8 @@ ui_bulk_edit.cpp	Button	###bk_preset_go	1
 ui_bulk_edit.cpp	Checkbox	##bk_tick	1
 ui_bulk_edit.cpp	CollapsingHeader	###bk_actions_head	1
 ui_bulk_edit.cpp	CollapsingHeader	###bk_preset_head	1
+ui_bulk_edit.cpp	InputFloat	##bk_xpmult	1
+ui_bulk_edit.cpp	InputInt	##bk_bonusxp	1
 ui_bulk_edit.cpp	InputTextWithHint	##bk_codefilter	1
 ui_bulk_edit.cpp	InputTextWithHint	##bk_fieldfilter	1
 ui_bulk_edit.cpp	InputTextWithHint	##bk_search	1
@@ -197,9 +200,11 @@ ui_bulk_edit.cpp	SmallButton	###bk_clear	1
 ui_bulk_edit.cpp	SmallButton	###bk_pickall	1
 ui_bulk_edit.cpp	SmallButton	###bk_picknone	1
 ui_bulk_edit.cpp	SmallButton	###bk_remove	1
+ui_bulk_edit.cpp	checkbox_right	###bk_dev_on	1
 ui_bulk_edit.cpp	checkbox_right	###bk_fit_on	1
 ui_bulk_edit.cpp	checkbox_right	###bk_form_on	1
 ui_bulk_edit.cpp	checkbox_right	###bk_morale_on	1
+ui_bulk_edit.cpp	checkbox_right	###bk_nodecline	1
 ui_callname_play.cpp	-	###cnpreview	1
 ui_callname_play.cpp	-	##play_%c%lld	1
 ui_callnames.cpp	-	###	1
@@ -721,6 +726,10 @@ ui_kits_page.cpp	-	Restore the game's kit##kprestore	1
 ui_kits_page.cpp	BeginChild	##identity	1
 ui_kits_page.cpp	BeginCombo	##kpfileslot	1
 ui_kits_page.cpp	BeginPopup	##kpclubpop	1
+ui_kits_page.cpp	BeginTabBar	##kc_tabs	1
+ui_kits_page.cpp	BeginTabItem	###kctabid	1
+ui_kits_page.cpp	BeginTabItem	###kctabstadium	1
+ui_kits_page.cpp	BeginTabItem	###kctabstaff	1
 ui_kits_page.cpp	Button	Choose a team folder...##kpfolder	1
 ui_kits_page.cpp	Button	Choose kit file...##kpfile	1
 ui_kits_page.cpp	Checkbox	Also change my club's other kits that use the same pictures##kpshareclub	1
@@ -833,12 +842,19 @@ ui_page.cpp	-	###pg_back	1
 ui_page.cpp	-	###pg_undo	1
 ui_page.cpp	-	##page_	1
 ui_page.cpp	BeginChild	##pg_body	1
-ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
+ui_pages_216.cpp	BeginTabBar	##pe_tabs	2
+ui_pages_216.cpp	BeginTabBar	##pe_who	1
+ui_pages_216.cpp	BeginTabItem	###pe40_ability	1
+ui_pages_216.cpp	BeginTabItem	###pe40_appearance	1
+ui_pages_216.cpp	BeginTabItem	###pe40_creation	1
+ui_pages_216.cpp	BeginTabItem	###pe40_profile	1
 ui_pages_216.cpp	BeginTabItem	###pe_ability	1
 ui_pages_216.cpp	BeginTabItem	###pe_allfields	1
 ui_pages_216.cpp	BeginTabItem	###pe_appearance	1
 ui_pages_216.cpp	BeginTabItem	###pe_callname	1
 ui_pages_216.cpp	BeginTabItem	###pe_profile	1
+ui_pages_216.cpp	BeginTabItem	###pe_who_managers	1
+ui_pages_216.cpp	BeginTabItem	###pe_who_players	1
 ui_pages_216.cpp	Checkbox	###pcardview	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
@@ -866,6 +882,9 @@ ui_player_creation.cpp	Button	###pc_delgo	1
 ui_player_creation.cpp	Button	###pc_delno	1
 ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
 ui_player_header.cpp	BeginChild	##pe_header	1
+ui_player_header.cpp	Button	###hdr_shown_clear	1
+ui_player_header.cpp	Button	###hdr_shown_set	1
+ui_player_header.cpp	InputText	###hdr_shown_ovr	1
 ui_player_page.cpp	-	###	1
 ui_player_page.cpp	-	###pp%lld	1
 ui_player_page.cpp	-	###pp_body	1
@@ -1193,11 +1212,10 @@ ui_settings.cpp	Button	###reload	1
 ui_settings.cpp	Checkbox	###advview	1
 ui_settings.cpp	Checkbox	###legacypages	1
 ui_settings.cpp	Checkbox	###preload	1
-ui_settings.cpp	Combo	###rowdensity	1
-ui_settings.cpp	SliderFloat	##uisize	1
-ui_settings.cpp	SmallButton	Reset size	1
+ui_shell.cpp	-	##select	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##selectrail	1
+ui_shell.cpp	Checkbox	###tree40_preview	1
 ui_standings.cpp	-	##%s	1
 ui_standings.cpp	-	##live	1
 ui_standings.cpp	-	##live_ha	1
@@ -1441,6 +1459,8 @@ ui_teams.cpp	BeginChild	##mdet	1
 ui_teams.cpp	BeginChild	##medit	1
 ui_teams.cpp	BeginChild	##mlist	1
 ui_teams.cpp	BeginChild	##mmface	1
+ui_teams.cpp	BeginChild	##sqbody	1
+ui_teams.cpp	BeginChild	##sqpick	1
 ui_teams.cpp	BeginChild	##tcolours	1
 ui_teams.cpp	BeginChild	##tcrest	1
 ui_teams.cpp	BeginChild	##tedit	1
