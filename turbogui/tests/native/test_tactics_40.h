@@ -21,14 +21,18 @@ namespace tactics40_test {
 using namespace turbo;
 
 static void (*g_fn)(App&) = nullptr;
+static std::string g_text;  // the text the page drew in its last frame (ImGui's text log; logged_frame does not call g_ui_extra)
 static void draw_extra(App& app) {
     if (!g_fn) return;
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
     ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ds);
+    ImGui::LogToBuffer();
     if (ImGui::Begin("##t40_page", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) g_fn(app);
     ImGui::End();
+    g_text = GImGui->LogEnabled ? std::string(GImGui->LogBuffer.c_str()) : std::string();
+    ImGui::LogFinish();
 }
 static void show(Ui& ui, void (*fn)(App&), int frames = 6) {
     g_fn = fn;
@@ -102,7 +106,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(find(ui, "###gsrefresh") == nullptr && find(ui, "Prepare###gsprepare") == nullptr && find(ui, "###gsel0") == nullptr,
                   "no list, no Refresh, no Prepare on the Tactics page" + how);
             CHECK(s.lab_heading.empty() && s.lab_label.empty(), "the offline slider section was not drawn here" + how);
-            const std::string txt = logged_frame(ui);
+            const std::string& txt = g_text;
             CHECK(txt.find(kOfflineSlidersLabel) != std::string::npos, "the honest 'no effect seen in game' label is on screen, verbatim" + how);
             CHECK(txt.find("Game sliders moved to the Lab") != std::string::npos, "the page says where the sliders went" + how);
             hide(ui);

@@ -1335,6 +1335,7 @@ ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
 ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
 ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
 ui_tactics_page.cpp	-	###gsel	1
+ui_tactics_page.cpp	-	###gsmoved	1
 ui_tactics_page.cpp	-	###gsprepare	1
 ui_tactics_page.cpp	BeginChild	##labtaclive	1
 ui_tactics_page.cpp	BeginChild	##labtacoff	1
