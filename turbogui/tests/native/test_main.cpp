@@ -9892,6 +9892,7 @@ static void test_ui() {
         player_page_test::ui_cases(app, ui, le);  // test_page_player.h: the Player page (2.16 step 5)
         page_creation_test::ui_cases(app, ui, mem, kMb, le);  // test_page_creation.h: Players > Player Creation (2.20)
         profile_page_test::ui_cases(app, ui, le);  // test_page_profile.h: Profile and Positions, attributes & PlayStyles (2.20)
+#include "test_ability_40.h"  // 4.0 S6: statements inside this block (the Positions, attributes & PlayStyles tab: card first, descriptors, registry tables)
         ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
         player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
         test_shell_app(app);  // test_shell.h: page registry

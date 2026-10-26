@@ -203,7 +203,32 @@ const std::vector<std::pair<const char*, std::vector<const char*>>>& attribute_g
     return g;
 }
 
+// The ticked boxes of a bit field in words: "Finesse Shot, Rapid"; "none ticked" when nothing is on. A box past the name list reads
+// "Unnamed trait 15" (`unnamed` is "Unnamed trait %d" or "Unnamed PlayStyle %d"): no new catalogue, the number is the box.
+std::string ticked_names(const Field& f, const Value& v, const std::vector<const char*>& names, const char* unnamed) {
+    const int bits = std::min(f.depth, 62);
+    std::string out;
+    for (int b = 0; b < bits; ++b) {
+        if (!((static_cast<uint64_t>(v.i - f.min) >> b) & 1)) continue;
+        char name[48];
+        if (b < static_cast<int>(names.size()) && names[static_cast<size_t>(b)]) std::snprintf(name, sizeof(name), "%s", names[static_cast<size_t>(b)]);
+        else std::snprintf(name, sizeof(name), unnamed, b);
+        if (!out.empty()) out += ", ";
+        out += name;
+    }
+    return out.empty() ? "none ticked" : out;
+}
+
+// One line of help per PlayStyle / Trait set (a tooltip on its heading); in words, no field name
+const char* set_help(const std::string& title) {
+    if (title == "PlayStyles") return "Special skills shown on his card; tick the ones he has";
+    if (title == "PlayStyles+") return "The stronger version of a PlayStyle; tick the ones he has";
+    if (title == "Traits") return "Goalkeeper skills, CPU AI habits and others such as Leadership or Injury Prone";
+    return "The stronger version of a Traits box; tick the ones he has";
+}
+
 void positions_block(App& app, const Table& t, uint64_t rec) {
+    std::string in_words;  // "ST, also RCB (internal, plays as CB)": every position set, named from the same table as the combos below
     for (int k = 1; k <= 7; ++k) {
         const Field* f = t.field("preferredposition" + std::to_string(k));
         if (!f) continue;
@@ -220,7 +245,11 @@ void positions_block(App& app, const Table& t, uint64_t rec) {
             app.edit(t, rec, *f, Value::of_int(cur));
         ImGui::PopID();
         ++g_astate.position_rows;
+        if (cur >= 0) in_words += (in_words.empty() ? "" : (k == 2 ? ", also " : ", ")) + labels::position_text(cur);
     }
+    // the same positions as one line: it stays readable when the combos are narrow
+    if (in_words.empty()) in_words = "none set";
+    theme::muted_text("Plays as: %s", in_words.c_str());
 }
 
 // The attributes: one heading per category with its average; two columns when the pane is wide
@@ -261,7 +290,8 @@ void attribute_sliders(App& app, const Table& t, uint64_t rec) {
 }
 
 // The check boxes of one bit field (PlayStyles, PlayStyles+, Traits, Traits+) with All / None
-void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names, const char* title) {
+void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names, const char* title,
+                    const char* unnamed) {
     const Field* f = t.field(field);
     if (!f) {
         theme::muted_text("Not available in this game version.");
@@ -271,6 +301,9 @@ void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, c
     if (!app.db.get(t, rec, *f, v)) return;
     ImGui::PushID(field);
     const int bits = std::min(f->depth, 62);
+    // 4.0 S6: the ticked boxes in words, above the grid (the grid is long; this is what the player has at a glance)
+    const std::string ticked = ticked_names(*f, v, names, unnamed);
+    theme::muted_text("Ticked: %s", ticked.c_str());
     if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
         // 2.22: a header row (the tick boxes below are the ones this field has)
         ImGui::TableSetupColumn(title, ImGuiTableColumnFlags_WidthStretch);
@@ -282,7 +315,7 @@ void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, c
             bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
             char name[48];
             if (b < static_cast<int>(names.size()) && names[static_cast<size_t>(b)]) std::snprintf(name, sizeof(name), "%s", names[static_cast<size_t>(b)]);
-            else std::snprintf(name, sizeof(name), "Unnamed bit %d", b);
+            else std::snprintf(name, sizeof(name), unnamed, b);
             char lbl[96];
             std::snprintf(lbl, sizeof(lbl), "%s###ab_bit%d", name, b);
             if (ImGui::Checkbox(lbl, &on)) {
@@ -339,7 +372,8 @@ void archetype_stand_in(App& app, const Table& t, const PlayerRow& p) {
     if (!mine) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Puts back everything the last Overall +1 / -1 click changed (the Undo button at the top is for single fields)");
-    theme::muted_text("Reshaping the attributes to a player type with a wanted overall is added when this page is wired in.");
+    const char* more = "Reshaping to a player type is not available here; Overall +1 / -1 still works.";
+    theme::muted_text("%s", more);
 }
 
 void ability_editor(App& app, void*) {
@@ -381,7 +415,7 @@ void ability_editor(App& app, void*) {
     }
     if (section("Overall and potential###ab_ovr")) {
         field_grid(app, *t, p->rec, {"overallrating", "potential", "modifier"}, "##ab_ovrgrid", 3);
-        theme::muted_text("The game works the shown overall out from the attributes: a typed overall moves the attributes that count most for his position.");
+        theme::muted_text("Typing an overall moves the attributes that count most for his position.");
         reapply_player_line(app, *p);  // kept for every career load, his development plan
     }
     if (section("Positions###ab_positions")) positions_block(app, *t, p->rec);
@@ -390,6 +424,16 @@ void ability_editor(App& app, void*) {
                    {"preferredfoot", "weakfootabilitytypecode", "skillmoves", "attackingworkrate", "defensiveworkrate", "skillmoveslikelihood",
                     "gkkickstyle", "runstylecode", "growthprofile"},
                    "##ab_stylegrid", 2);
+        // the roles in words, outside the tree (it is closed at first): every role slot that is set, named by the game's role table
+        if (t->field("role1")) {
+            std::string roles;
+            for (int k = 1; k <= 9; ++k) {
+                const int64_t rv = app.db.get_int(*t, p->rec, ("role" + std::to_string(k)).c_str(), 0);
+                if (rv != 0) roles += (roles.empty() ? "" : ", ") + labels::describe("players", "role" + std::to_string(k), rv);
+            }
+            if (roles.empty()) roles = "none set";
+            theme::muted_text("Roles: %s", roles.c_str());
+        }
         if (ImGui::TreeNodeEx("Roles###ab_roles", ImGuiTreeNodeFlags_SpanAvailWidth)) {
             field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9"}, "##ab_rolegrid", 2);
             ImGui::TreePop();
@@ -403,8 +447,9 @@ void ability_editor(App& app, void*) {
         const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
         for (const Set& s : sets) {
             ImGui::SeparatorText(s.title);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stored as %s", s.field);
-            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", set_help(s.title));
+            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title,
+                           s.second ? "Unnamed trait %d" : "Unnamed PlayStyle %d");
         }
     }
 }
