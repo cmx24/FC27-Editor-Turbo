@@ -610,7 +610,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("resize UI: Players > Edit a player - dragging the list / editor divider 200 px right moves it; it is saved once, per page", [&] {
         fresh_settings(nullptr);
         shell::player_edit_tab() = 0;  // Profile: the tab that draws page::frame
-        CHECK(ui.open_page("Players", "Edit a player") && app.place() == shell::place_of(shell::Page::PlayerEdit), "Edit a player is open");
+        CHECK(ui.open_page("Players", "Player") && app.place() == shell::place_of(shell::Page::PlayerEdit), "Edit a player is open");
         ui.frames(4);
         ImGuiWindow* sel = select_pane();
         CHECK(sel != nullptr, std::string("the select pane is drawn; connected=") + (app.connected() ? "yes" : "no") + " tab=" + std::to_string(shell::player_edit_tab()) + "; windows: " + window_names("/##"));
@@ -637,7 +637,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("resize UI: the divider is clamped (180 px .. 70 % of the panel) and each page keeps its own width", [&] {
         fresh_settings(nullptr);
-        ui.open_page("Players", "Edit a player");
+        ui.open_page("Players", "Player");
         ui.frames(4);
         ImGuiWindow* sel = select_pane();
         if (!sel) { CHECK(false, "select pane"); return; }
@@ -656,10 +656,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         split::reset_runtime_for_tests();
         ui.frames(3);
         CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player at its stored 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
-        CHECK(ui.open_page("Players", "Player creation"), "Player creation opens");
+        CHECK(ui.open_page("Players", "Create & clone"), "Player creation opens");
         ui.frames(4);
         CHECK(select_pane() && near(select_pane()->Size.x, 300.0f * g_ui_scale), fmt("another page starts at its own default 300: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
-        CHECK(ui.open_page("Players", "Edit a player"), "back to Edit a player");
+        CHECK(ui.open_page("Players", "Player"), "back to Edit a player");
         ui.frames(4);
         CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player is back at 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
         // (A child's window name carries the ID stack of its page, so it differs per page; split::pane_x does not change it: it passes the same
@@ -669,11 +669,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("resize UI: a restart puts the stored width back (page::frame restores it)", [&] {
         fresh_settings("{\"gui\":{\"splits\":{\"PlayerEdit/##select\":431}}}");
         CHECK(app.prefs.splits.get("PlayerEdit/##select", 0) == 431, "loaded from gui_settings.json");
-        ui.open_page("Players", "Edit a player");
+        ui.open_page("Players", "Player");
         ui.frames(4);
         CHECK(select_pane() && near(select_pane()->Size.x, 431.0f * g_ui_scale), fmt("431 px after the restart: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
         fresh_settings("{\"gui\":{\"splits\":{\"PlayerEdit/##select\":99999}}}");
-        ui.open_page("Players", "Edit a player");
+        ui.open_page("Players", "Player");
         ui.frames(4);
         CHECK(select_pane() && main_panel() && select_pane()->Size.x <= 0.7f * main_panel()->Size.x + 2.0f, "a damaged (huge) stored width is clamped");
     });
