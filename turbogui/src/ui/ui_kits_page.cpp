@@ -598,19 +598,27 @@ void draw_kits_page(App& app) {
     const bool clicked = f.end();
     if (!on) return;
     static bool apply_pending = false;  // an Apply was pressed and its result is not on the status line yet
+    static std::string apply_why;       // why the database part of that Apply failed, read the moment apply_items returned
     if (clicked && can_apply) {
         apply_items(app, ctx.team, ctx.which);
         invalidate_look();
         apply_pending = true;
+        // The outcome of the database part is read HERE: poll_jobs replaces the panel line with "textures staged..." when the worker ends.
+        // Only the items just applied (ctx.which) count, not a stale "not applied" item of another slot.
+        apply_why.clear();
+        for (size_t i : ctx.which)
+            if (apply_why.empty() && kit_panel_status(i).rfind("not applied", 0) == 0) apply_why = kit_panel_status(i);
+        // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
+        if (apply_why.empty() && kit_panel_line().find("was not saved") != std::string::npos) apply_why = kit_panel_line();
     }
     if (apply_pending && !kit_panel_busy()) {
         apply_pending = false;
-        std::string why;
-        for (size_t i = 0; i < kit_panel_count() && why.empty(); ++i)
-            if (kit_panel_status(i).rfind("not applied", 0) == 0) why = kit_panel_status(i);
-        // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
-        if (why.empty() && kit_panel_line().find("was not saved") != std::string::npos) why = kit_panel_line();
-        if (why.empty()) page::done("kits", kit_panel_line());
+        std::string why = apply_why;
+        // the worker is done: poll_jobs put its line on the panel; a texture that could not be staged ends it with "; not staged: <why>"
+        const std::string line = kit_panel_line();
+        const size_t ns = line.find("; not staged: ");
+        if (why.empty() && ns != std::string::npos) why = "the textures were not staged: " + line.substr(ns + 14);
+        if (why.empty()) page::done("kits", line);
         else page::couldnt("kits", "apply the kit", why);
     }
 }
@@ -641,7 +649,7 @@ void identity_tab(App& app) {
     card_end();
     if (wide) ImGui::Columns(1);
     ImGui::PushTextWrapPos(0.0f);
-    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: change them back here if you need to.");
+    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: set them back by hand.");
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
 }
