@@ -121,7 +121,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     // Commit 2 (S7b): the bar Undo is off on Bulk edit and Player creation (each page::Spec sets show_undo=false), and every other
     // Frame page keeps it (Data export, the S1 worked example, is the witness). Bulk edit has its own ###bk_undo that restores the whole run;
-    // the bar Undo took back one field of one player.
+    // the bar Undo took back only the newest Changes row (one player's edits; changes::poll folds the per-field steps into one row per player).
     // FAILS on 7e888096 (S7 tip): both pages draw ###pg_undo.
     run_case("S7b page::Frame: no bar Undo on Bulk edit and Player creation, the bar Undo stays on Data export", [&] {
         if (app.busy()) app.mailbox->cancel();

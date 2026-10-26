@@ -40,7 +40,7 @@ struct Spec {
     const char* apply_label;  // nullptr = the page has no Apply; else <= 28 characters, e.g. "Apply changes"
     bool apply_enabled = true;
     // false = the bar has no Undo (4.0 S7b): for a page where the bar Undo would mislead. Bulk edit has its own Undo that restores
-    // the whole run (the bar one takes back a single field); Player creation makes players, which no Undo step takes back.
+    // the whole run (the bar one takes back only the newest row of the Changes list: one player's edits); Player creation makes players, which no Undo step takes back.
     // Every other page keeps the bar Undo (the default).
     bool show_undo = true;
 };
