@@ -16,6 +16,7 @@
 #include "core/model.h"
 #include "core/overall.h"
 #include "core/range_filter.h"
+#include "core/team_preset.h"
 #include "geo.h"
 #include "imgui.h"
 #include "playstyles.h"
@@ -82,6 +83,11 @@ uint64_t g_version = ~uint64_t(0);
 bool g_confirm_big = false;
 bool g_do_fit = false, g_do_form = false, g_do_morale = false;
 int g_fit = 95, g_form = 100, g_morale = 100;
+// Development (re-homed from Lab > Bulk edit, ui_tools.cpp section_bulk_edit): every box starts OFF (the core/team_preset.h growth defaults)
+bool g_do_dev = teampreset::kExtraXpDefault;
+bool g_no_decline = teampreset::kNoDeclineDefault;
+int g_bonus_xp = 0;
+float g_xp_mult = 2.0f;
 Run g_run;
 std::vector<Done> g_done;  // newest last
 State g_state;
@@ -891,10 +897,28 @@ void section_actions(App& app) {
     ImGui::SetNextItemWidth(S(160.0f));
     ImGui::SliderInt("##bk_morale", &g_morale, 0, 100);
     const std::vector<int64_t> sel = selected_ids();
+    checkbox_right("Development###bk_dev_on", &g_do_dev);
+    if (g_do_dev) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("XP multiplier");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputFloat("##bk_xpmult", &g_xp_mult, 0.0f, 0.0f, "%.1f");
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Bonus XP");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputInt("##bk_bonusxp", &g_bonus_xp, 0);
+        ImGui::SameLine();
+        checkbox_right("No decline###bk_nodecline", &g_no_decline, -1.0f);
+    }
     json actions = json::object();
     if (g_do_fit) actions["fitness"] = g_fit;
     if (g_do_form) actions["form"] = g_form;
     if (g_do_morale) actions["morale"] = g_morale;
+    if (g_do_dev) actions["development"] = {{"xp_multiplier", g_xp_mult}, {"bonus_xp", g_bonus_xp}, {"no_decline", g_no_decline}};
     json cmd = {{"op", "run"}, {"module", "bulk_edit"},
                 {"overrides", {{"scope", {{"playerids", sel}}}, {"filters", json::object()}, {"set", json::object()}, {"actions", actions}, {"confirm_all", false}}}};
     std::string why;
@@ -902,11 +926,12 @@ void section_actions(App& app) {
     else if (actions.empty()) why = "tick what to set";
     else if (sel.empty()) why = "no player is picked";
     else if (sel.size() > kSendPlayers || cmd.dump().size() > 3900) why = "too many players for one go: pick fewer (about 350 at most)";
-    else if (const std::string* r = st.unavailable_reason("form_morale")) why = *r;
+    else if ((g_do_fit || g_do_form || g_do_morale) && st.unavailable_reason("form_morale")) why = *st.unavailable_reason("form_morale");
+    else if (g_do_dev && st.unavailable_reason("development_xp")) why = "Development: " + *st.unavailable_reason("development_xp");
     else if (app.busy() || !app.mailbox) why = "the game link is busy";
     g_state.actions_why = why;
     if (!why.empty()) ImGui::BeginDisabled();
-    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, "Bulk edit: fitness, form, morale");
+    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, g_do_dev ? "Bulk edit: fitness, form, morale, development" : "Bulk edit: fitness, form, morale");
     if (!why.empty()) {
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -959,6 +984,10 @@ void reset() {
     g_version = ~uint64_t(0);
     g_confirm_big = false;
     g_do_fit = g_do_form = g_do_morale = false;
+    g_do_dev = teampreset::kExtraXpDefault;
+    g_no_decline = teampreset::kNoDeclineDefault;
+    g_bonus_xp = 0;
+    g_xp_mult = 2.0f;
     g_run = Run();
     g_done.clear();
     g_state = State();
