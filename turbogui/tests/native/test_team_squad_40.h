@@ -4,7 +4,7 @@
 //
 // What is guarded (offline; nothing here is proven in game):
 //   - the page is a page::Frame page ("team_squad", title "Squad", no Apply, bar Undo + Back) holding the club picker and squad_table;
-//   - the table is the existing one: table "##squad", six columns Jersey, Player, Pos, OVR, Age, Line-up slot, Sortable + tristate,
+//   - the table is the existing one: table "##squad", seven columns Jersey, Player, Pos, OVR, Age, Line-up slot, Calc OVR (4.0 calc-ovr rebase: 2.22 calc-ovr appended the seventh), Sortable + tristate,
 //     resize / reorder / hide on; Age and OVR sort as on the old pages (test_squad_table_restore.h tests the table itself);
 //   - the club picker drives the table (My club, a row of the list) and an unknown club defaults to the user's club;
 //   - a click on a player's name opens Players > Edit a player;
@@ -52,7 +52,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     app.legacy_pages = false;
     if (!app.connected()) ui.frames(5);
 
-    run_case("Team squad 40: the page is a page::Frame page (Squad, no Apply, bar Undo + Back) with the picker and the six-column table", [&] {
+    run_case("Team squad 40: the page is a page::Frame page (Squad, no Apply, bar Undo + Back) with the picker and the seven-column table", [&] {
         page::reset_for_tests();
         app.go(Page::Standings);  // a shell page that draws no squad table, so only the page under test does
         ui.frames(2);
@@ -67,12 +67,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const ImGuiTable* t = squad_table_test::squad_table_now();
         CHECK(t != nullptr, "the ##squad table is on screen");
         if (t) {
-            CHECK(t->ColumnsCount == 6 && st.columns == 6, fmt("six columns: %d", t->ColumnsCount));
+            CHECK(t->ColumnsCount == 7 && st.columns == 7, fmt("seven columns (4.0 calc-ovr rebase: Calc OVR appended): %d", t->ColumnsCount));
             CHECK((t->Flags & ImGuiTableFlags_Sortable) != 0 && (t->Flags & ImGuiTableFlags_SortTristate) != 0, "Sortable and tristate");
             CHECK((t->Flags & ImGuiTableFlags_Resizable) != 0 && (t->Flags & ImGuiTableFlags_Reorderable) != 0 && (t->Flags & ImGuiTableFlags_Hideable) != 0,
                   "column resize / reorder / hide are on");
-            const char* want[] = {"Jersey", "Player", "Pos", "OVR", "Age", "Line-up slot"};
-            for (int i = 0; i < 6 && i < t->ColumnsCount; ++i)
+            const char* want[] = {"Jersey", "Player", "Pos", "OVR", "Age", "Line-up slot", "Calc OVR"};
+            for (int i = 0; i < 7 && i < t->ColumnsCount; ++i)
                 CHECK(std::string(ImGui::TableGetColumnName(t, i)) == want[i], std::string("column ") + want[i]);
         }
         CHECK(squad_table_test::drawn_order(app, 241) == squad_table_test::db_order(app, 241), "no header clicked: the database order");
