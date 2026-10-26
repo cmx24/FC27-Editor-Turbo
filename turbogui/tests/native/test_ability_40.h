@@ -156,15 +156,23 @@
             if (ew == nullptr)
                 for (ImGuiWindow* w : GImGui->Windows)
                     if (!ew && w->Active && w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ew = w;
+            // The help must show on the heading itself: below the "PlayStyles and traits" section header (an item with an id, the one IsItemHovered
+            // would answer for if the heading were gone) and above the first tick box.
+            float sec_bottom = -1.0f, box_top = -1.0f, hit_y = -1.0f;
+            for (const auto& kv : g_items)
+                if (kv.second.frame == g_frame && label_matches(kv.second, "###ab_styles") && kv.second.window.find(W) != std::string::npos)
+                    sec_bottom = kv.second.rect.Max.y;
             if (box && ew) {
                 found = true;
+                box_top = box->rect.Min.y;
                 const float x = box->rect.Min.x + 24.0f, top = ew->InnerClipRect.Min.y + 2.0f;
                 int tries = 0, tip_windows = 0;
                 float first_tip_y = -1.0f;
-                for (float y = top; y < box->rect.Min.y && tries < 600 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 3.0f, ++tries) {
+                for (float y = top; y < box_top && tries < 600 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 3.0f, ++tries) {
                     ImGui::GetIO().AddMousePosEvent(x, y);
                     ui.frames(2);
                     tip = page_log();
+                    if (hit_y < 0.0f && has(tip, "Special skills shown on his card; tick the ones he has")) hit_y = y;
                     for (ImGuiWindow* w : GImGui->Windows)
                         if (w->Active && w->Name && std::strncmp(w->Name, "##Tooltip_", 10) == 0) {
                             if (first_tip_y < 0.0f) first_tip_y = y;
@@ -185,6 +193,9 @@
             }
             CHECK(found, "the PlayStyles heading is on the page");
             CHECK(has(tip, "Special skills shown on his card; tick the ones he has"), "the heading's help is a tooltip in words:" + diag);
+            CHECK(sec_bottom > 0.0f && hit_y > sec_bottom && hit_y < box_top,
+                  "the help shows with the mouse on the PlayStyles heading (shown at y " + std::to_string(int(hit_y)) + ", section header bottom y " +
+                      std::to_string(int(sec_bottom)) + ", first tick box y " + std::to_string(int(box_top)) + ")");
             CHECK(!has(tip, "Stored as") && !has(tip, "trait1"), "the tooltip names no field");
             ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             ui.frames(2);
