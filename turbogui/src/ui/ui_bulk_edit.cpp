@@ -1135,7 +1135,7 @@ void draw_bulk_edit(App& app) {
     using namespace bulkedit;
     // 4.0 (S7): the page template. The staged Apply (preview, big-run confirm, the page's own Undo) stays in the body as section 3; the
     // frame has no Apply of its own, its bar gives the global Undo and Back.
-    page::Frame f(app, {"bulk_edit", "Bulk edit", "Change one or more fields for many players at once: pick them, add the fields, apply.", nullptr});
+    page::Frame f(app, {"bulk_edit", "Bulk edit", "Change one or more fields for many players at once: pick them, add the fields, apply.", nullptr, true, false});
     if (!app.connected() || !players_table(app)) {
         not_connected_hint();
         return;

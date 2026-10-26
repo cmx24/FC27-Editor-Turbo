@@ -12,18 +12,22 @@
 #pragma once
 #include "ui/ui_bulk_edit.h"
 #include "ui/ui_page.h"
+#include "ui/ui_player_creation.h"
+#include "ui/ui_diagnostics_page.h"
+#include <algorithm>
 
 namespace bulkdev40_test {
 
 using namespace turbo;
 
+static void (*g_page)(App&) = draw_bulk_edit;  // the page the hook window draws
 static void draw_extra(App& app) {
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) ImGui::SetNextWindowFocus();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ds);
     if (ImGui::Begin("##bulkdev40_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
-        draw_bulk_edit(app);
+        g_page(app);
     ImGui::End();
 }
 static void show(Ui& ui) {
@@ -112,6 +116,43 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(ui.find("##bk_xpmult", W) == nullptr && ui.find("###bk_nodecline", W) == nullptr, "after reset Development is off again");
         hide(ui);
+        bulkedit::reset();
+    });
+
+    // Commit 2 (S7b): the bar Undo is off on Bulk edit and Player creation (each page::Spec sets show_undo=false), and every other
+    // Frame page keeps it (Data export, the S1 worked example, is the witness). Bulk edit has its own ###bk_undo that restores the whole run;
+    // the bar Undo took back one field of one player.
+    // FAILS on 7e888096 (S7 tip): both pages draw ###pg_undo.
+    run_case("S7b page::Frame: no bar Undo on Bulk edit and Player creation, the bar Undo stays on Data export", [&] {
+        if (app.busy()) app.mailbox->cancel();
+        app.lua_queue.clear();
+        app.sel_player = 0;
+        bulkedit::reset();
+        struct PageCase { const char* id; void (*fn)(App&); bool undo; };
+        for (const PageCase& pc : {PageCase{"bulk_edit", draw_bulk_edit, false}, PageCase{"player_creation", draw_player_creation, false},
+                                   PageCase{"data_export", draw_data_export_page, true}}) {
+            page::reset_for_tests();
+            g_page = pc.fn;
+            show(ui);
+            const page::Record* r = page::last_record(pc.id);
+            const std::string who = pc.id;
+            CHECK(r != nullptr, who + ": the page drew a page::Frame");
+            if (r) {
+                const bool in_bar = std::find(r->bar.begin(), r->bar.end(), "###pg_undo") != r->bar.end();
+                CHECK(in_bar == pc.undo, who + ": ###pg_undo in the bar = " + (pc.undo ? "yes" : "no"));
+                CHECK(!r->bar.empty() && r->bar.back() == "###pg_back", who + ": Back is still the last button");
+                if (!pc.undo) CHECK(!r->undo_enabled, who + ": the Record says the bar Undo is off");
+            }
+            CHECK((ui.find("###pg_undo", "##bulkdev40_test") != nullptr) == pc.undo, who + ": the Undo button is " + (pc.undo ? "drawn" : "not drawn"));
+            CHECK(ui.find("###pg_back", "##bulkdev40_test") != nullptr, who + ": Back is drawn");
+            hide(ui);
+        }
+        // Bulk edit keeps its own Undo of the whole run
+        g_page = draw_bulk_edit;
+        show(ui);
+        CHECK(ui.find("###bk_undo", "##bulkdev40_test") != nullptr, "Bulk edit keeps its own Undo (###bk_undo)");
+        hide(ui);
+        g_page = draw_bulk_edit;
         bulkedit::reset();
     });
 }

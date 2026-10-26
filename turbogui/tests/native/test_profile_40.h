@@ -7,7 +7,7 @@
 //     (callname_editor: ui_callnames.cpp, ui_callname_pick.h; its own Preview and Apply) was drawn for the picked player. NOTE: this row
 //     is already on the base (ui_player_profile.cpp pf_callname, labelled "What the commentator says"); the case is a guard, not a fix.
 //   - Player creation and Bulk edit construct page::Frame: page::last_record() holds their id and title and the bar in the explicit order
-//     Undo, Back (neither has a frame Apply: Create like him... and the staged Apply of Bulk edit stay where they were), with every
+//     Back (S7b: no bar Undo; neither has a frame Apply: Create like him... and the staged Apply of Bulk edit stay where they were), with every
 //     control of the old page still on it (searched by the ids the 2.20 tests use).
 // The two Frame cases FAIL on ce664c6b (no record: the pages draw no frame) and pass with S7.
 #pragma once
@@ -64,7 +64,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.sel_player = 0;
     });
 
-    run_case("Player creation 4.0: the page is inside page::Frame (Undo and Back in the bar) and keeps every control", [&] {
+    run_case("Player creation 4.0: the page is inside page::Frame (Back in the bar) and keeps every control", [&] {
         if (app.busy()) ui.click("Cancel");
         app.lua_queue.clear();
         app.sel_player = 0;
@@ -75,16 +75,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (r) {
             CHECK(r->title == "Player creation", "title: " + r->title);
             CHECK(!r->has_apply, "no frame Apply (Create like him... keeps its place)");
-            CHECK(r->bar.size() == 2 && r->bar[0] == "###pg_undo" && r->bar[1] == "###pg_back", "the bar is Undo, Back");
+            CHECK(r->bar.size() == 1 && r->bar[0] == "###pg_back" && !r->undo_enabled, "the bar is Back only (S7b: no bar Undo)");
         }
-        CHECK(ui.find("###pg_back", W) != nullptr && ui.find("###pg_undo", W) != nullptr, "Undo and Back are buttons on the page");
+        CHECK(ui.find("###pg_back", W) != nullptr && ui.find("###pg_undo", W) == nullptr, "Back is a button on the page, the bar Undo is not (S7b)");
         CHECK(ui.find("###pc_tab_player", W) != nullptr && ui.find("###pc_tab_cmt", W) != nullptr, "both tabs");
         CHECK(ui.find("##pcsearch", W) != nullptr && ui.find("###pc_chip_free", W) != nullptr && ui.find("##pcpos", W) != nullptr, "search, chip, position filter");
         CHECK(ui.find("Create like him...", W) != nullptr, "the footer action");
         hide(ui);
     });
 
-    run_case("Bulk edit 4.0: the page is inside page::Frame (Undo and Back in the bar) and keeps every control", [&] {
+    run_case("Bulk edit 4.0: the page is inside page::Frame (Back in the bar) and keeps every control", [&] {
         if (app.busy()) ui.click("Cancel");
         bulkedit::reset();
         page::reset_for_tests();
@@ -94,9 +94,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (r) {
             CHECK(r->title == "Bulk edit", "title: " + r->title);
             CHECK(!r->has_apply, "no frame Apply (the staged Apply with its preview stays in section 3)");
-            CHECK(r->bar.size() == 2 && r->bar[0] == "###pg_undo" && r->bar[1] == "###pg_back", "the bar is Undo, Back");
+            CHECK(r->bar.size() == 1 && r->bar[0] == "###pg_back" && !r->undo_enabled, "the bar is Back only (S7b: no bar Undo)");
         }
-        CHECK(ui.find("###pg_back", W) != nullptr && ui.find("###pg_undo", W) != nullptr, "Undo and Back are buttons on the page");
+        CHECK(ui.find("###pg_back", W) != nullptr && ui.find("###pg_undo", W) == nullptr, "Back is a button on the page, the bar Undo is not (S7b)");
         CHECK(ui.find("##bk_search", W) != nullptr, "search box");
         CHECK(ui.find("Add field###bk_addfield", W) != nullptr, "Add field");
         CHECK(ui.find("###bk_apply", W) != nullptr, "the staged Apply");
