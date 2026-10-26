@@ -3778,6 +3778,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
 #include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
 #include "test_page_team.h"    // 2.20 ia-team: Team > Players and Team > Transfers (page_team_test::ui_cases)
+#include "test_team_players_40.h"  // 4.0 S8: the Team pages in the page template, the preset on the page, the player card actions (called from page_team_test::ui_cases)
 #include "test_squad_table_restore.h"  // 2.22 G-squad: the sortable squad table on Players > My squad and Team > Players (squad_table_test::ui_cases)
 #include "test_faces_band_newhead.h"  // 2.16: a new head never keeps a Turbo 3D hair / beard (band codes)
 #include "test_player_id.h"    // 2.3: Create player > Player ID (typed id checks, the head / callname of the id)

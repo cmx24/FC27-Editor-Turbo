@@ -13,6 +13,12 @@
 // App::edit_field; a move the Undo button cannot bring back asks first. The rules of the old panel (move_rules.h) are the same: a move that
 // cannot run for the player is greyed out with the reason. The transfer and loan lists, the roles and the morale exist in the game for the
 // user's club only; for another club those controls say so.
+//
+// 4.0 S8: the page is drawn inside the page template (ui_page.h: title, help, body, ONE status line "Done: ...", the bar Undo / Back).
+// The old PageFrame's status line (g_status) is carried into that status line; the question popup is still the Team pages' one popup.
+// The controls of ONE player (Move a player, the extension of one contract) are also exported for the player card (q3):
+// team_player_move_controls / team_player_extend_controls, called by draw_player_contract_actions (ui_team_players.cpp). The cards of
+// this page call the same two functions, so each control has one implementation.
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -23,8 +29,10 @@
 #include "imgui.h"
 #include "move_rules.h"
 #include "table_registry.h"
+#include "ui_page.h"
 #include "ui_parity.h"
 #include "ui_team_common.h"
+#include "ui_team_page40.h"
 #include "ui_team_pages.h"
 
 namespace turbo {
@@ -206,9 +214,8 @@ void list_fallback(App& app, const PlayerRow& p) {
     }
 }
 
-void card_move(App& app, int64_t club, const std::vector<const PlayerRow*>& squad) {
-    ++g_state.cards;
-    card_begin("##tt_move", "Move a player");
+// The controls of the Move a player card (the card below and the player card of Team > Players, q3, draw the same ones)
+void move_controls(App& app, int64_t club, const std::vector<const PlayerRow*>& squad) {
     int64_t& to_team = g_in.to_team;
     int& fee = g_in.fee;
     int& wage = g_in.wage;
@@ -218,7 +225,6 @@ void card_move(App& app, int64_t club, const std::vector<const PlayerRow*>& squa
     const PlayerRow* p = squad_combo(app, squad, g_in.player, "##tpmvplayer");
     if (!p) {
         theme::muted_text("This club has no players.");
-        card_end();
         return;
     }
     g_state.player = p->playerid;
@@ -277,6 +283,12 @@ void card_move(App& app, int64_t club, const std::vector<const PlayerRow*>& squa
     } else {
         list_fallback(app, *p);
     }
+}
+
+void card_move(App& app, int64_t club, const std::vector<const PlayerRow*>& squad) {
+    ++g_state.cards;
+    card_begin("##tt_move", "Move a player");
+    move_controls(app, club, squad);
     card_end();
 }
 
@@ -352,6 +364,38 @@ void card_sign(App& app, int64_t club) {
 constexpr int kExtendMonths[] = {12, 24, 36, 48, 60};
 const char* const kExtendLabels[] = {"1 year", "2 years", "3 years", "4 years", "5 years"};
 
+// "Extend by": the years every Extend button of this page adds (also the player card's)
+int extend_by() {
+    int& pick = g_in.extend_pick;
+    form_label("Extend by", "The game stores the year a contract ends, so a contract grows in whole years.");
+    ImGui::SetNextItemWidth(S(160.0f));
+    ImGui::Combo("##tpextby", &pick, kExtendLabels, 5);
+    pick = std::max(0, std::min(pick, 4));
+    return kExtendMonths[pick] / 12;
+}
+
+// The end year of one contract now and after the extension, and whether the Extend button may run (`gate`)
+struct ExtendFacts {
+    int64_t until = 0, after = 0;
+    Gate gate;
+};
+ExtendFacts extend_facts(App& app, const Table& pt, const Field& cf, const PlayerRow& p, int64_t club, int add_years) {
+    ExtendFacts e;
+    e.until = app.db.table_alive(pt, p.rec) ? app.db.get_int(pt, p.rec, "contractvaliduntil", 0) : 0;
+    e.after = e.until + add_years;
+    const bool loaned_in = p.on_loan && p.loaned_from != club;
+    if (loaned_in) e.gate = {false, "A loaned player keeps the contract of his parent club."};
+    else if (e.until <= 0) e.gate = {false, "He has no contract end year yet: set it in the Contract card of Team > Players."};
+    else if (e.after > cf.max()) e.gate = {false, "That is longer than the game allows."};
+    else if (!app.db.table_alive(pt, p.rec)) e.gate = {false, "The game's data changed: press Refresh at the top."};
+    return e;
+}
+void extend_button(App& app, const Table& pt, const Field& cf, const PlayerRow& p, const ExtendFacts& e) {
+    if (gated_button(("Extend###tpext" + std::to_string(p.playerid)).c_str(), false, e.gate, "Writes the new end year into his contract (the Undo button takes it back).")) {
+        if (app.edit_field(pt, p.rec, cf, Value::of_int(e.after))) g_status = "Extended " + p.name + "'s contract to " + std::to_string(e.after) + ".";
+    }
+}
+
 void card_extensions(App& app, int64_t club, const std::vector<const PlayerRow*>& squad) {
     ++g_state.cards;
     card_begin("##tt_extend", "Contract extensions");
@@ -362,12 +406,7 @@ void card_extensions(App& app, int64_t club, const std::vector<const PlayerRow*>
         card_end();
         return;
     }
-    int& pick = g_in.extend_pick;
-    form_label("Extend by", "The game stores the year a contract ends, so a contract grows in whole years.");
-    ImGui::SetNextItemWidth(S(160.0f));
-    ImGui::Combo("##tpextby", &pick, kExtendLabels, 5);
-    pick = std::max(0, std::min(pick, 4));
-    const int add_years = kExtendMonths[pick] / 12;
+    const int add_years = extend_by();
     g_state.listed = squad.size();
     g_state.extend_line.clear();
     ImGui::BeginChild("##tt_extend_rows", ImVec2(0, S(260.0f)), ImGuiChildFlags_Borders);
@@ -381,26 +420,17 @@ void card_extensions(App& app, int64_t club, const std::vector<const PlayerRow*>
         for (const PlayerRow* p : squad) {
             ImGui::TableNextRow();
             ImGui::PushID(static_cast<int>(p->playerid & 0x7FFFFFFF));
-            const int64_t until = app.db.table_alive(*pt, p->rec) ? app.db.get_int(*pt, p->rec, "contractvaliduntil", 0) : 0;
-            const int64_t after = until + add_years;
-            const bool loaned_in = p->on_loan && p->loaned_from != club;
+            const ExtendFacts e = extend_facts(app, *pt, *cf, *p, club, add_years);
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(p->name.c_str());
             ImGui::TableNextColumn();
-            ImGui::Text("%lld", static_cast<long long>(until));
+            ImGui::Text("%lld", static_cast<long long>(e.until));
             ImGui::TableNextColumn();
-            ImGui::Text("%lld", static_cast<long long>(after));
-            if (g_state.extend_line.empty()) g_state.extend_line = p->name + ": contract until " + std::to_string(after);
+            ImGui::Text("%lld", static_cast<long long>(e.after));
+            if (g_state.extend_line.empty()) g_state.extend_line = p->name + ": contract until " + std::to_string(e.after);
             ImGui::TableNextColumn();
-            Gate g;
-            if (loaned_in) g = {false, "A loaned player keeps the contract of his parent club."};
-            else if (until <= 0) g = {false, "He has no contract end year yet: set it in the Contract card of Team > Players."};
-            else if (after > cf->max()) g = {false, "That is longer than the game allows."};
-            else if (!app.db.table_alive(*pt, p->rec)) g = {false, "The game's data changed: press Refresh at the top."};
-            if (gated_button(("Extend###tpext" + std::to_string(p->playerid)).c_str(), false, g, "Writes the new end year into his contract (the Undo button takes it back).")) {
-                if (app.edit_field(*pt, p->rec, *cf, Value::of_int(after))) g_status = "Extended " + p->name + "'s contract to " + std::to_string(after) + ".";
-            }
+            extend_button(app, *pt, *cf, *p, e);
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -468,15 +498,39 @@ void card_roles(App& app, int64_t club, const std::vector<const PlayerRow*>& squ
 
 }  // namespace
 
+// ---------------------------------------------------------------- one player (the player card of Team > Players, q3)
+void team_player_move_controls(App& app, int64_t club) { move_controls(app, club, squad_of(app, club)); }
+
+void team_player_extend_controls(App& app, int64_t club) {
+    const Table* pt = app.db.table("players");
+    const Field* cf = pt ? pt->field("contractvaliduntil") : nullptr;
+    if (!pt || !cf) {
+        theme::muted_text("This game's data has no contract end year.");
+        return;
+    }
+    const int add_years = extend_by();
+    const PlayerRow* p = app.sel_player > 0 ? app.model.player(app.sel_player) : nullptr;
+    if (!p) {
+        theme::muted_text("Pick a player first.");
+        return;
+    }
+    const ExtendFacts e = extend_facts(app, *pt, *cf, *p, club, add_years);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s: contract ends %lld, after %lld", p->name.c_str(), static_cast<long long>(e.until), static_cast<long long>(e.after));
+    ImGui::SameLine();
+    extend_button(app, *pt, *cf, *p, e);
+}
+
 // ---------------------------------------------------------------- the page
 void draw_team_transfers(App& app) {
     g_state = TeamPageState{};
+    page::Frame frame(app, {"team_transfers", "Transfers", "Moves in and out, loans, contract extensions and squad roles of one club.", nullptr});
+    PageTail tail(app, "team_transfers");
     if (!app.connected()) {
         g_state.waiting = true;
         not_connected_hint();
         return;
     }
-    PageFrame page(app, "##team_transfers", "Moves in and out, loans, contract extensions and squad roles of one club.");
     const int64_t club = club_header(app, "##tttclub");
     g_state.club = club;
     if (club <= 0) {

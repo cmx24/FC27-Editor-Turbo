@@ -148,25 +148,6 @@ inline void confirm_popup(App& app) {
     }
 }
 
-// The page frame: the scrolling area, the label column of the form rows, the question line, the status line and the popup
-struct PageFrame {
-    App& app;
-    PageFrame(App& a, const char* id, const char* question) : app(a) {
-        ImGui::BeginChild(id, ImVec2(0, 0));
-        form_label_width(S(150.0f));
-        if (question && *question) {
-            hint(question);
-            ImGui::Spacing();
-        }
-    }
-    ~PageFrame() {
-        if (!g_status.empty()) theme::muted_text("%s", g_status.c_str());
-        confirm_popup(app);
-        form_label_width(0.0f);
-        ImGui::EndChild();
-    }
-};
-
 // ---------------------------------------------------------------- the club
 // "Club [chooser] [My club]": the header of both pages. Returns the club (0 = none to show). `id` makes the chooser's id.
 inline int64_t club_header(App& app, const char* id) {

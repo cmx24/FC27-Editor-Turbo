@@ -12,15 +12,25 @@
 // same editors; a request the Undo button cannot bring back asks first. Morale and the squad roles exist in the game for the user's club
 // only: for another club those controls are greyed out with the reason. Turbo can set the morale of the whole squad but cannot read or
 // set one player's morale, so the Form and morale card says so.
+//
+// 4.0 S8: the page is drawn inside the page template (ui_page.h: title, help, body, ONE status line "Done: ...", the bar Undo / Back).
+//   - The "My team preset" button is on the page itself, above the tabs, so it is reachable from every tab (it was inside the Whole squad
+//     tab). Same function call (team_preset_apply), same question first. The five things it sets are listed from the preset's own field
+//     list (core/team_preset.h fields()), so the page cannot say anything else than what the preset does.
+//   - draw_player_contract_actions (q3): one player's contract and transfer actions for that player's card. It calls the existing code:
+//     the Contract fields below and the extension and move controls of ui_team_transfers.cpp.
 #include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
 
 #include "app.h"
+#include "core/team_preset.h"
 #include "imgui.h"
 #include "ui_career_pages.h"
+#include "ui_page.h"
 #include "ui_team_common.h"
+#include "ui_team_page40.h"
 #include "ui_team_pages.h"
 
 namespace turbo {
@@ -72,14 +82,19 @@ void player_list(App& app, const std::vector<const PlayerRow*>& squad) {
 }
 
 // ---------------------------------------------------------------- the cards of one player
-void card_contract(App& app, const Table& t, const PlayerRow& p) {
-    ++g_state.cards;
-    card_begin("##tp_contract", "Contract");
+// The contract fields of one player (the Contract card and the player card's contract actions draw the same grid)
+void contract_fields(App& app, const Table& t, const PlayerRow& p) {
     field_grid(app, t, p.rec, {"contractvaliduntil", "wage", "releaseclause", "isretiring"}, "##tpcontract", 2);
     if (p.on_loan) {
         theme::muted_text("On loan from %s.", p.loaned_from > 0 ? app.model.team_name(p.loaned_from).c_str() : "another club");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("A loaned player keeps the contract of his parent club.");
     }
+}
+
+void card_contract(App& app, const Table& t, const PlayerRow& p) {
+    ++g_state.cards;
+    card_begin("##tp_contract", "Contract");
+    contract_fields(app, t, p);
     card_end();
 }
 
@@ -225,41 +240,96 @@ void player_cards(App& app, int64_t club, const PlayerRow& p) {
 }
 
 // ---------------------------------------------------------------- the whole squad
+// What the preset's contract step does, in plain words. It is NOT "60 months from today": team_mass long_contract writes the contract END
+// YEAR contract_end_year(60) = the start year of the current season (July to June) + 5 (moves.lua:210-215, team_mass.lua:145 via :129), a
+// fixed June about 49 to 60 months away, and it writes it even when the player's own contract is longer (that one is shortened).
+std::string preset_contract_rule(const GameDate& today) {
+    if (!today.valid()) return "Contract runs to June, five seasons after this season began (a longer contract is shortened)";
+    const int season_start = today.month >= 7 ? today.year : today.year - 1;
+    return "Contract runs to June " + std::to_string(season_start + teampreset::kContractMonths / 12) + " (a longer contract is shortened)";
+}
+
+std::string preset_ask_text(const GameDate& today) {
+    std::string rule = preset_contract_rule(today);
+    rule[0] = static_cast<char>(rule[0] + ('a' - 'A'));  // "contract runs to June 2031 (...)" inside the sentence
+    return "Every player of your club gets tight shirts, a squad role (Rotation, or Prospect for young players below the club's middle "
+           "rating), very happy morale and blocked transfer offers. Their " + rule +
+           "; players on loan to you keep their own club's contract. Nothing else changes. Part of this can't be undone with the Undo button.";
+}
+
+// The last texts preset_strip handed to the draw calls (the tests read them through team_preset_drawn_text, ui_team_page40.h)
+std::string g_drawn_hint, g_drawn_ask;
+
+// The "My team" preset, on the page above the tabs: the five things it sets (the preset's own list), the button, and the question first.
+// Greyed out with the reason for another club (team_preset_apply refuses it as well). Not counted in g_state.cards (the cards of one player).
+void preset_strip(App& app, int64_t club) {
+    if (!team_preset_apply) return;
+    card_begin("##tp_preset", "My team preset");
+    const GameDate today = app.today();
+    std::string what;
+    for (const teampreset::Field& f : teampreset::fields())
+        what += (what.empty() ? "" : "; ") + (std::string(f.id) == "contract" ? preset_contract_rule(today) : std::string(f.title));
+    what += ". Extra XP development and Does not decline stay off.";
+    const std::string ask = preset_ask_text(today);
+    g_drawn_hint = what;
+    g_drawn_ask = ask;
+    hint(what.c_str());
+    Gate g = lua_gate(app, true, "team_mass");
+    if (!is_own_club(app, club)) g = {false, "It is for your own club only: press My club above."};
+    if (gated_button("Apply the My team preset", true, g, "Sets those five things for the whole squad.")) {
+        ask_do("Apply the My team preset?", ask, "Apply it", [club](App& a) { return team_preset_apply(a, club); }, "Asked: the My team preset for your club.");
+    }
+    card_end();
+}
+
 void whole_squad(App& app, int64_t club) {
     if (!is_own_club(app, club)) {
         hint("The whole-squad tools work on your own club: roles, morale, offers and the preset exist in the game for it only. "
              "Press My club above.");
         return;
     }
-    if (team_preset_apply) {
-        ++g_state.cards;
-        card_begin("##tp_preset", "My team preset");
-        hint("Tight shirts, 60-month contracts, very happy morale, squad roles and blocked transfer offers for every player of your club. "
-             "Nothing else changes.");
-        const Gate g = lua_gate(app, true, "team_mass");
-        if (gated_button("Apply the My team preset", true, g, "Sets those five things for the whole squad.")) {
-            ask_do("Apply the My team preset?",
-                   "Every player of your club gets tight shirts, a 60-month contract, very happy morale, a squad role (Rotation, or Prospect for "
-                   "young players below the club's middle rating) and blocked transfer offers. Nothing else changes. Part of this can't be "
-                   "undone with the Undo button.",
-                   "Apply it", [club](App& a) { return team_preset_apply(a, club); }, "Asked: the My team preset for your club.");
-        }
-        card_end();
-    }
     draw_career_squad_cards(app);  // ui_career_pages.h: form and fitness, squad roles, contracts, growth, squad tools
 }
 
 }  // namespace
 
+const char* team_preset_drawn_text(int which) { return (which == 0 ? g_drawn_hint : g_drawn_ask).c_str(); }
+
+// ---------------------------------------------------------------- one player's contract and transfer actions (q3)
+void draw_player_contract_actions(App& app) {
+    const PlayerRow* p = app.sel_player > 0 ? app.model.player(app.sel_player) : nullptr;
+    const Table* t = app.db.table("players");
+    if (!p) {
+        theme::muted_text("Pick a player first.");
+        return;
+    }
+    if (!t || !app.db.table_alive(*t, p->rec)) {
+        theme::err_text("The game's data changed (another save loaded?). Press Refresh at the top.");
+        return;
+    }
+    ImGui::SeparatorText("Contract");
+    contract_fields(app, *t, *p);
+    if (p->club <= 0) {
+        theme::muted_text("He has no club: a contract extension and a move need one.");
+    } else {
+        ImGui::SeparatorText("Extend the contract");
+        team_player_extend_controls(app, p->club);
+        ImGui::SeparatorText("Transfer, loan or release");
+        team_player_move_controls(app, p->club);
+    }
+    confirm_popup(app);  // the question those controls ask first (teampage::confirm_popup)
+}
+
 // ---------------------------------------------------------------- the page
 void draw_team_players(App& app) {
     g_state = TeamPageState{};
+    page::Frame frame(app, {"team_players", "Players", "Contract, form, squad role and growth of one player; the tools for a whole squad.", nullptr});
+    PageTail tail(app, "team_players");
     if (!app.connected()) {
         g_state.waiting = true;
         not_connected_hint();
         return;
     }
-    PageFrame page(app, "##team_players", nullptr);
     const int64_t club = club_header(app, "##teamplclub");
     g_state.club = club;
     if (club <= 0) {
@@ -268,6 +338,7 @@ void draw_team_players(App& app) {
         return;
     }
     g_state.own_club = is_own_club(app, club);
+    preset_strip(app, club);
     if (ImGui::BeginTabBar("##team_pl_tabs")) {
         // 2.22 G-squad: the sortable squad table of 2.14 for the club picked above (any club), first and selected by default
         if (ImGui::BeginTabItem("Squad list###tptabsquadlist")) {
