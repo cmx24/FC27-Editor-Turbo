@@ -10,11 +10,16 @@
 //      needle is in the file. A present site that is not held (owner "") must offer the SAME code set as the others.
 //   2. HELD: a site with an owner (faces3d-proven, raw-entry, q6-nopicker, blocked-new-logic) is printed on every run with its
 //      file:line and reason, and is not compared. An unlisted site fails (step 4).
-//   3. CODES: for each field with several sites the code sets are compared (the game's list = gallery_codes is the catalogue,
-//      brief Amendment A2; RDBM26 is a picture source only): the vp grid, the combo of item_galleries, the kit combo ...
+//   3. CODES (superset rule, fix round 1 of 3.2): for each field the ONE picker (the vp grid) must offer a SUPERSET of what the
+//      field could be picked or written with on the base 9a1e888: the game's list (gallery_codes, the proven catalogue, Amendment A2),
+//      the codes the old combo offered (code_value_list) and the RDBM26 set (picture and name source, which release users who have
+//      no asset catalogue still pick from). Never equality: a code that only the RDBM26 set knows is a capability, not a second catalogue.
+//      The cases: catalogue off (players, managers), catalogue active (the grid's WRITABLE set), and the Simple player page with no
+//      RDBM26 folder (the Eyes / Skin boxes of the real-face chooser stay while no picker gives them).
 //   4. COMPLETENESS: every statement of src/ui/*.cpp that names a look field and calls an option-offering widget must contain
 //      the needle of a listed site of that file, else "unlisted picker site".
-//   5. SELF-CHECK: a planted second catalogue must make the comparison fail, an identical one must pass.
+//   5. SELF-CHECK: a planted second catalogue must make the comparison fail, an identical one must pass; a planted missing code
+//      must make the superset check fail.
 {
     namespace opfs = std::filesystem;
     const opfs::path op_root = opfs::path(g_lua).parent_path().parent_path().parent_path();  // g_lua = <root>/tests/native/gui_world.lua
@@ -51,7 +56,8 @@
         {"raw-manager-career", "ui_career_page.cpp", "\"##careermgrid\"", "raw-grid", "manager skintonecode typed", "raw-entry", "typed raw code (A3)"},
         {"raw-manager-teams", "ui_teams.cpp", "\"##mgrid\"", "raw-grid", "manager bodytypecode / outfitid / skintonecode typed", "raw-entry", "typed raw code (A3)"},
         {"chooser-manager-eyes-skin", "ui_faces.cpp", "ImGui::Checkbox(\"Eyes\", &ch.opts.eyes)", "own-popup", "manager eye colour + skin copy boxes of the real-face chooser", "q6-nopicker",
-         "Amendment B2: the manager card (Career / Teams > Appearance) has hair and beard galleries but no eye-colour or skin-tone picker"},
+         "Amendment B2: the manager card (Career / Teams > Appearance) has hair and beard galleries but no eye-colour or skin-tone picker; "
+         "the player's two boxes stay too while the card has no picture source (no RDBM26 folder), see the Simple-page case"},
         {"tattoo-free-int", "ui_images.cpp", "field_editor(app, t, rec, *f, \"##tval\"", "free-int", "tattoohead ... tattoorightleg: typed number + its own popup (g_tattoos + catalog Tattoo family)", "blocked-new-logic",
          "the vp tattoo group offers the RDBM26 sets, the tattoo popup the save's tattoo table and the game catalog: one catalogue needs a decision and new logic (report)"},
         {"body-gallery", "ui_bodytypes.cpp", "c.filter(f)", "own-gallery", "bodytypecode: filters, copy from player, risky-pairing guard", "blocked-new-logic",
@@ -85,6 +91,97 @@
                                    std::to_string(sites[0].second.size()) + " codes): " + op_diff(sites[0].second, sites[i].second));
         return problems;
     };
+    // superset rule: every code of `need` is in `have`; returns the problem (empty = ok)
+    auto op_missing = [&](const std::string& what, const std::set<int64_t>& need, const std::set<int64_t>& have) {
+        std::string first;
+        int n = 0;
+        for (int64_t c : need)
+            if (!have.count(c) && ++n <= 6) first += (first.empty() ? "" : ",") + std::to_string(c);
+        return n == 0 ? std::string() : fmt("%s: %d of %zu codes are missing from the one picker (first: %s)", what.c_str(), n, need.size(), first.c_str());
+    };
+    auto op_strip = [](std::set<int64_t> s, int64_t cur) {
+        s.erase(0);
+        s.erase(cur);
+        return s;
+    };
+    // the RDBM26 set of a field (names and codes compiled in; the pictures are the user's own folder)
+    auto op_rdbm = [](const std::string& field) {
+        std::set<int64_t> out;
+        if (const turbo::visual::SetDef* d = turbo::visual::set_for_field(field)) {
+            const turbo::visual::CodeDef* b = turbo::visual::codes_begin(*d);
+            for (int i = 0; i < d->count; ++i) out.insert(b[i].code);
+        }
+        return out;
+    };
+    // the one picker's list of a field: codes in list order, and which of them a tile can write (the catalogue gate)
+    struct OpVp {
+        bool open = false;
+        std::vector<int64_t> codes;
+        std::set<int64_t> writable;
+        std::set<int64_t> all() const { return std::set<int64_t>(codes.begin(), codes.end()); }
+        bool unique() const { return all().size() == codes.size(); }
+    };
+    auto op_vp = [&](const Table& t, uint64_t r, const std::string& field, bool manager) {
+        OpVp o;
+        visual_picker_close();
+        ui.frames(2);
+        vp::open(app, t, r, field, manager);
+        ui.frames(3);
+        if (visual_picker_ui().open && visual_picker_ui().field == field) {
+            o.open = true;
+            o.codes = visual_picker_codes();
+            for (int64_t c : o.codes)
+                if (visual_picker_tile_writable(c)) o.writable.insert(c);
+        }
+        visual_picker_close();
+        ui.frames(2);
+        return o;
+    };
+    auto op_draw = [&](const Table* t, uint64_t r) {
+        ui.extra_draw = [&app, t, r]() {
+            ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(900.0f, 700.0f), ImGuiCond_Always);
+            if (ImGui::Begin("One picker test")) visual_pickers_section(app, *t, r);
+            ImGui::End();
+        };
+        ui.frames(2);
+    };
+    // fixture: the game's own list (legacy_filename_hash_list.csv) with a few ids per gallery directory; no RDBM26 folder
+    const opfs::path op_hash = le / "legacy_filename_hash_list.csv";
+    auto op_fixture_on = [&]() {
+        const std::string before = opfs::exists(op_hash) ? read_file(op_hash) : std::string();
+        {
+            std::ofstream h(op_hash);
+            h << "hash;file_name\n"
+                 "1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
+                 "3;data/ui/imgAssets/facialhairstyle/item_11_0.dds\n4;data/ui/imgAssets/facialhairstyle/item_12_0.dds\n"
+                 "5;data/ui/imgAssets/boots/item_16_0.dds\n6;data/ui/imgAssets/boots/item_17_0.dds\n"
+                 "7;data/ui/imgAssets/gkglove/gkglove_5.dds\n8;data/ui/imgAssets/gkglove/gkglove_6.dds\n"
+                 "9;data/ui/imgAssets/accessories/item_6_0.dds\n10;data/ui/imgAssets/accessories/item_7_0.dds\n";
+        }
+        app.request_tab = 0;
+        ui.frames(70);  // gear_pictures looks at the lists once per ImGui second (60 frames): the new hash list must be read
+        visual_pictures_override((test_tmp_dir("one_picker_none") / "nowhere").u8string());  // names only: no RDBM26 folder (release users have none)
+        visual_pictures_refresh(app);
+        return before;
+    };
+    auto op_fixture_off = [&](const std::string& before) {
+        ui.extra_draw = nullptr;
+        visual_pictures_override("");
+        if (before.empty()) {
+            std::error_code ec;
+            opfs::remove(op_hash, ec);
+        } else {
+            std::ofstream(op_hash, std::ios::binary | std::ios::trunc) << before;
+        }
+        app.request_tab = 0;
+        ui.frames(70);  // the lists are read again (the next case sees the file as it was)
+    };
+    std::set<std::string> op_present;
+    for (const OpSite& st : op_sites)
+        if (op_read(st.file).find(st.needle) != std::string::npos) op_present.insert(st.id);
+    static const char* const kOpGallery[] = {"hairtypecode", "facialhairtypecode", "shoetypecode", "smallsidedshoetypecode", "gkglovetypecode",
+                                             "accessorycode1", "accessorycode2", "accessorycode3", "accessorycode4"};
 
     run_case("UI 3.2 one picker: every look field has ONE code set (the game's list) at every picker site; held sites listed; unlisted sites fail (charter 19.17)", [&] {
         const Table* p = app.db.table("players");
@@ -99,6 +196,8 @@
             two.insert(987654);  // a code only the planted catalogue has
             CHECK(op_agree("planted", {{"catalogue A", one}, {"catalogue B", two}}).size() == 1, "self-check: a planted second catalogue makes the comparison fail");
             CHECK(op_agree("planted", {{"catalogue A", one}, {"catalogue B", one}}).empty(), "self-check: the same catalogue twice passes");
+            CHECK(!op_missing("planted", two, one).empty(), "self-check: a code the picker lacks makes the superset check fail");
+            CHECK(op_missing("planted", one, two).empty() && op_missing("planted", one, one).empty(), "self-check: a superset passes");
         }
 
         // ---- 1/2. the site table against the source, and the held list (printed on every run)
@@ -163,79 +262,65 @@
             CHECK(statements >= 6, fmt("the scan found the known statements (%d)", statements));
         }
 
-        // ---- 3. the code sets. Fixture: the game's own list (legacy_filename_hash_list.csv) with a few ids per gallery directory
-        const opfs::path hash = le / "legacy_filename_hash_list.csv";
-        const std::string hash_before = opfs::exists(hash) ? read_file(hash) : std::string();
-        {
-            std::ofstream h(hash);
-            h << "hash;file_name\n"
-                 "1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n"
-                 "3;data/ui/imgAssets/facialhairstyle/item_11_0.dds\n4;data/ui/imgAssets/facialhairstyle/item_12_0.dds\n"
-                 "5;data/ui/imgAssets/boots/item_16_0.dds\n6;data/ui/imgAssets/boots/item_17_0.dds\n"
-                 "7;data/ui/imgAssets/gkglove/gkglove_5.dds\n8;data/ui/imgAssets/gkglove/gkglove_6.dds\n"
-                 "9;data/ui/imgAssets/accessories/item_6_0.dds\n10;data/ui/imgAssets/accessories/item_7_0.dds\n";
-        }
-        app.request_tab = 0;
-        ui.frames(70);  // gear_pictures looks at the lists once per ImGui second (60 frames): the new hash list must be read
-        visual_pictures_override((test_tmp_dir("one_picker_none") / "nowhere").u8string());  // names only: the RDBM26 pictures are not the point
-        visual_pictures_refresh(app);
-        auto draw_section = [&app, p, rec]() {
-            ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(900.0f, 700.0f), ImGuiCond_Always);
-            if (ImGui::Begin("One picker test")) visual_pickers_section(app, *p, rec);
-            ImGui::End();
-        };
-        ui.extra_draw = draw_section;
-        ui.frames(2);
-
-        auto strip = [&](std::set<int64_t> s, int64_t cur) {
-            s.erase(0);
-            s.erase(cur);
-            return s;
-        };
-        auto vp_codes = [&](const std::string& field) {
-            std::set<int64_t> out;
-            visual_picker_close();
-            ui.frames(2);
-            vp::open(app, *p, rec, field, false);
-            ui.frames(3);
-            if (visual_picker_ui().open && visual_picker_ui().field == field) {
-                const std::vector<int64_t> v = visual_picker_codes();
-                out.insert(v.begin(), v.end());
-            }
-            visual_picker_close();
-            ui.frames(2);
-            return out;
-        };
-        const bool combo_present = present.count("gallery-combo") > 0;
-        const bool kit_present = present.count("kit-combo") > 0;
-        int compared = 0;
-        // gallery fields: the vp grid, the combo next to it, and the game's list itself
-        for (const char* field : {"hairtypecode", "facialhairtypecode", "shoetypecode", "smallsidedshoetypecode", "gkglovetypecode", "accessorycode1", "accessorycode2",
-                                  "accessorycode3", "accessorycode4"}) {
-            const Field* f = p->field(field);
-            if (!f) continue;
-            const int64_t cur = app.db.get_int(*p, rec, field, 0);
-            const std::vector<int64_t> game = gallery_codes(app, field);
-            std::vector<OpProvider> sites;
-            sites.push_back({"the game's list (gallery_codes)", strip(std::set<int64_t>(game.begin(), game.end()), cur)});
-            sites.push_back({"the vp grid (Choose... / Change)", strip(vp_codes(field), cur)});
-            if (combo_present) {
-                const std::vector<int64_t> cv = code_value_list(app, *p, *f, cur);
-                sites.push_back({"the combo next to it (enum_editor / code_value_list)", strip(std::set<int64_t>(cv.begin(), cv.end()), cur)});
-            }
-            CHECK(!sites[0].second.empty() || std::string(field) == "smallsidedshoetypecode" || std::string(field).rfind("accessory", 0) == 0,
-                  std::string("fixture: the game's list of ") + field + " is not empty");
-            for (const std::string& pr : op_agree(field, sites)) CHECK(false, "ONE PICKER, ONE CATALOGUE: " + pr);
-            ++compared;
-        }
-        // kit fit: the test world's players table has no sock / sleeve columns, so this cannot be compared by code sets: the statement
-        // is the check. The "Socks and sleeves" list must not offer socklengthcode / jerseysleevelengthcode as enum combos beside their vp rows.
+        // ---- 3. the kit rule and the shared body list are checked in the cases below
+        const bool kit_present = op_present.count("kit-combo") > 0;
+        CHECK(!op_present.count("gallery-combo"), "ONE PICKER, ONE CATALOGUE: the gallery's code combo (enum_editor) is gone from item_galleries; the picker is the only chooser");
         if (kit_present) {
             CHECK(false, "ONE PICKER, ONE CATALOGUE: socklengthcode, jerseysleevelengthcode: the kit combo (enum_editor, in-use + named + range codes, "
                          "ui_images.cpp \"Socks and sleeves\") is a second catalogue next to the vp rows of visual_pickers_section (group Kit and boots)");
         }
-        // body type: the vp list and the studio card are one function; the gallery is held but its difference is printed
+        CHECK(kit_present || op_present.count("kit-inline"), "the sock length / sleeves rows are inline rows of the one picker (vp::inline_field) once the kit combo is gone");
+    });
+
+    // ---- catalogue off (every release user): players
+    run_case("UI 3.2 one picker (fix 1): catalogue off, players: the ONE picker offers a SUPERSET of the game's list, the old combo's list and the RDBM26 set, merged once", [&] {
+        const Table* p = app.db.table("players");
+        const uint64_t rec = p ? app.db.find(*p, "playerid", 2002) : 0;
+        CHECK(p && rec != 0, "the test world has player 2002");
+        if (!p || !rec) return;
+        set_gear_catalog(nullptr);
+        const std::string before = op_fixture_on();
+        op_draw(p, rec);
+        int compared = 0;
+        for (const char* field : kOpGallery) {
+            const Field* f = p->field(field);
+            if (!f) continue;
+            const int64_t cur = app.db.get_int(*p, rec, field, 0);
+            const OpVp v = op_vp(*p, rec, field, false);
+            CHECK(v.open, std::string("the picker of ") + field + " opens");
+            CHECK(v.unique(), std::string("ONE merged list, no code twice: ") + field);
+            const std::set<int64_t> have = op_strip(v.all(), cur);
+            const std::vector<int64_t> game = gallery_codes(app, field);
+            const std::vector<int64_t> cv = code_value_list(app, *p, *f, cur);
+            CHECK(!game.empty() || std::string(field) == "smallsidedshoetypecode" || std::string(field).rfind("accessory", 0) == 0,
+                  std::string("fixture: the game's list of ") + field + " is not empty");
+            for (const std::string& pr : {op_missing(std::string("ONE PICKER NO LOST CAPABILITY ") + field + " vs the game's list", op_strip(std::set<int64_t>(game.begin(), game.end()), cur), have),
+                                          op_missing(std::string("ONE PICKER NO LOST CAPABILITY ") + field + " vs the old combo's list", op_strip(std::set<int64_t>(cv.begin(), cv.end()), cur), have),
+                                          op_missing(std::string("ONE PICKER NO LOST CAPABILITY ") + field + " vs the RDBM26 set", op_strip(op_rdbm(field), cur), have)})
+                CHECK(pr.empty(), pr);
+            ++compared;
+        }
+        CHECK(compared >= 5, fmt("fields compared (%d)", compared));
+        // the literal codes of 9a1e888's picker (visual_names_data.h): accessories, goalkeeper gloves, boots. They have models in the
+        // game, a release user has no catalogue to say so, and the grid listed them: they stay pickable
+        struct Lit {
+            const char* field;
+            std::vector<int64_t> codes;
+        };
+        const std::vector<int64_t> gloves = {105, 106, 107, 108, 110, 113, 114, 115, 117, 118, 119, 120, 121, 122, 123};
+        for (const Lit& l : std::vector<Lit>{{"accessorycode1", {6, 8, 10, 12, 14, 22, 24, 26, 44, 190}},
+                                             {"gkglovetypecode", gloves},
+                                             {"shoetypecode", {240, 241, 242}}}) {
+            CHECK(p->field(l.field) != nullptr, std::string("fixture: the players table has ") + l.field);
+            if (!p->field(l.field)) continue;
+            const int64_t cur = app.db.get_int(*p, rec, l.field, 0);
+            const std::set<int64_t> have = op_vp(*p, rec, l.field, false).all();
+            std::set<int64_t> need(l.codes.begin(), l.codes.end());
+            need.erase(cur);
+            const std::string pr = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (literal codes) ") + l.field, need, have);
+            CHECK(pr.empty(), pr);
+        }
+        // the body type list: the vp list and the studio card are one function (the gallery is held, its difference is printed)
         if (p->has("bodytypecode")) {
             const int64_t cur = app.db.get_int(*p, rec, "bodytypecode", 0);
             const int gender = p->has("gender") ? static_cast<int>(app.db.get_int(*p, rec, "gender", -1)) : -1;
@@ -244,33 +329,130 @@
             const std::vector<int64_t> gal = cat.codes();
             std::vector<OpProvider> sites;
             sites.push_back({"looks::body_grid_codes (the studio card)", std::set<int64_t>(shared.begin(), shared.end())});
-            sites.push_back({"the vp body list", vp_codes("bodytypecode")});
+            sites.push_back({"the vp body list", op_vp(*p, rec, "bodytypecode", false).all()});
             for (const std::string& pr : op_agree("bodytypecode", sites)) CHECK(false, "ONE PICKER, ONE CATALOGUE: " + pr);
             const std::set<int64_t> g(gal.begin(), gal.end());
             std::printf("  ONE-PICKER held body-gallery (blocked-new-logic), for the report: %s\n", op_diff(sites[0].second, g).c_str());
-            ++compared;
         }
         // tattoos: held, printed
         if (p->has("tattoohead")) {
-            const std::set<int64_t> v = vp_codes("tattoohead");
+            const OpVp v = op_vp(*p, rec, "tattoohead", false);
             const std::vector<int64_t> gc = gallery_codes(app, "tattoohead");
-            std::printf("  ONE-PICKER held tattoos (blocked-new-logic), for the report: vp group %zu codes, the tattoo popup's game list %zu codes\n", v.size(), gc.size());
+            std::printf("  ONE-PICKER held tattoos (blocked-new-logic), for the report: vp group %zu codes, the tattoo popup's game list %zu codes\n", v.codes.size(), gc.size());
         }
-        // the other half of the kit rule: where the combos are gone, the vp rows must be there
-        CHECK(kit_present || present.count("kit-inline"), "the sock length / sleeves rows are inline rows of the one picker (vp::inline_field) once the kit combo is gone");
-        CHECK(compared >= 6, fmt("fields compared (%d)", compared));
-        std::printf("  ONE-PICKER compared %d fields; gallery combo %s, kit combo %s\n", compared, combo_present ? "PRESENT" : "gone", kit_present ? "PRESENT" : "gone");
+        std::printf("  ONE-PICKER catalogue off, players: %d fields compared as supersets\n", compared);
+        op_fixture_off(before);
+    });
 
-        // ---- cleanup
-        ui.extra_draw = nullptr;
-        visual_pictures_override("");
-        if (hash_before.empty()) {
-            std::error_code ec;
-            opfs::remove(hash, ec);
-        } else {
-            std::ofstream(hash, std::ios::binary | std::ios::trunc) << hash_before;
+    // ---- catalogue off: managers (the manager view is never gated, there is no catalogue for it)
+    run_case("UI 3.2 one picker (fix 1): catalogue off, managers: hair and beard offer a SUPERSET of the old combo's list, the game's list and the RDBM26 set", [&] {
+        const Table* mt = app.db.table("manager");
+        const auto& mgrs = app.model.managers();
+        CHECK(mt && !mgrs.empty(), "the test world has a manager");
+        if (!mt || mgrs.empty()) return;
+        const uint64_t rec = mgrs[0].rec;
+        set_gear_catalog(nullptr);
+        const std::string before = op_fixture_on();
+        op_draw(mt, rec);
+        int compared = 0;
+        for (const char* field : {"hairtypecode", "facialhairtypecode"}) {
+            const Field* f = mt->field(field);
+            CHECK(f != nullptr, std::string("fixture: the manager table has ") + field);
+            if (!f) continue;
+            const int64_t cur = app.db.get_int(*mt, rec, field, 0);
+            const OpVp v = op_vp(*mt, rec, field, true);
+            CHECK(v.open, std::string("the manager picker of ") + field + " opens");
+            CHECK(v.unique(), std::string("ONE merged list, no code twice (manager): ") + field);
+            const std::set<int64_t> have = op_strip(v.all(), cur);
+            const std::vector<int64_t> game = gallery_codes(app, field);
+            const std::vector<int64_t> cv = code_value_list(app, *mt, *f, cur);
+            for (const std::string& pr : {op_missing(std::string("ONE PICKER NO LOST CAPABILITY (manager) ") + field + " vs the game's list", op_strip(std::set<int64_t>(game.begin(), game.end()), cur), have),
+                                          op_missing(std::string("ONE PICKER NO LOST CAPABILITY (manager) ") + field + " vs the old combo's list", op_strip(std::set<int64_t>(cv.begin(), cv.end()), cur), have),
+                                          op_missing(std::string("ONE PICKER NO LOST CAPABILITY (manager) ") + field + " vs the RDBM26 set", op_strip(op_rdbm(field), cur), have)})
+                CHECK(pr.empty(), pr);
+            ++compared;
         }
-        app.request_tab = 0;
-        ui.frames(70);  // the lists are read again (the next case sees the file as it was)
+        CHECK(compared == 2, fmt("manager fields compared (%d)", compared));
+        op_fixture_off(before);
+    });
+
+    // ---- catalogue active (a developer with the asset catalogue): what a tile can WRITE is a superset of what the gate lets through
+    run_case("UI 3.2 one picker (fix 1): catalogue active, players: every code the gate lets through is a writable tile; the codes it refuses are still listed, greyed", [&] {
+        const Table* p = app.db.table("players");
+        const uint64_t rec = p ? app.db.find(*p, "playerid", 2002) : 0;
+        CHECK(p && rec != 0, "the test world has player 2002");
+        if (!p || !rec) return;
+        auto cat = std::make_shared<assets::Catalog>();
+        std::string cerr;
+        CHECK(cat->load_file("tests/fixtures/asset_catalog_v1_small.json", "0000AAAA-0000BBBB", &cerr) && cat->current(), "catalog fixture loaded: " + cerr);
+        const std::string before = op_fixture_on();
+        set_gear_catalog(cat);
+        op_draw(p, rec);
+        int compared = 0, gated = 0;
+        for (const char* field : {"hairtypecode", "facialhairtypecode", "shoetypecode", "gkglovetypecode", "accessorycode1"}) {
+            const Field* f = p->field(field);
+            CHECK(f != nullptr, std::string("fixture: the players table has ") + field);
+            if (!f) continue;
+            const int64_t cur = app.db.get_int(*p, rec, field, 0);
+            const OpVp v = op_vp(*p, rec, field, false);
+            CHECK(v.open, std::string("the picker of ") + field + " opens (catalogue active)");
+            CHECK(v.unique(), std::string("ONE merged list, no code twice (catalogue active): ") + field);
+            std::set<int64_t> need = op_rdbm(field);
+            for (int64_t c : gallery_codes(app, field)) need.insert(c);
+            for (int64_t c : code_value_list(app, *p, *f, cur)) need.insert(c);
+            need = op_strip(need, cur);
+            std::set<int64_t> pass;  // what the catalogue gate lets through (the same call the tile uses)
+            for (int64_t c : need)
+                if (gallery_write_ok(app, field, false, c, nullptr)) pass.insert(c);
+                else ++gated;
+            const std::string listed = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (catalogue active) ") + field + " listed", need, v.all());
+            CHECK(listed.empty(), listed);
+            const std::string wr = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (catalogue active) ") + field + " writable", pass, v.writable);
+            CHECK(wr.empty(), wr);
+            CHECK(!pass.empty(), std::string("fixture: the gate lets some code of ") + field + " through");
+            ++compared;
+        }
+        CHECK(compared == 5, fmt("fields compared (%d)", compared));
+        std::printf("  ONE-PICKER catalogue active: %d fields; %d codes refused by the gate (listed, greyed)\n", compared, gated);
+        // the accessory pairs the gate lets through (players' set: 6..17, 22..27) are writable although the fixture catalogue lists only a preview of 40
+        const OpVp acc = op_vp(*p, rec, "accessorycode1", false);
+        for (int64_t c : {6, 8, 10, 12, 14, 22, 24, 26})
+            if (c != app.db.get_int(*p, rec, "accessorycode1", 0)) CHECK(acc.writable.count(c) > 0, "accessory " + std::to_string(c) + " (a player accessory) is a writable tile with the catalogue active");
+        set_gear_catalog(nullptr);
+        op_fixture_off(before);
+    });
+
+    // ---- the Simple player page, no RDBM26 folder: "Choose a real face..." keeps the Eyes and Skin boxes (q6-nopicker)
+    run_case("UI 3.2 one picker (fix 1): Simple player page, no RDBM26 folder: the real-face chooser keeps its Eyes and Skin boxes, never Hair / Beard; with a folder they go", [&] {
+        const int64_t saved_sel = app.sel_player;
+        app.sel_player = 1001;
+        visual_pictures_override((test_tmp_dir("one_picker_simple") / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        player_page_test::show(ui);
+        CHECK(ui.click("###pp_face", "pp_looks"), "the Simple page's Choose a real face button");
+        ui.frames(3);
+        if (const ItemRec* own = ui.find("His own head##faces")) {
+            const std::string win = own->window;
+            CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr, "no Hair / Beard copy boxes (their pickers are in Appearance)");
+            CHECK(ui.find("Eyes", win) != nullptr && ui.find("Skin", win) != nullptr,
+                  "NO LOST CAPABILITY: with no RDBM26 folder the Simple page's chooser keeps its Eyes and Skin boxes (no picker on the card gives them)");
+            const fs::path pics = test_tmp_dir("one_picker_simple_rdbm") / "Resources";
+            for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
+                fs::create_directories((pics / sub).parent_path());
+                std::ofstream(pics / sub, std::ios::binary) << "\x89PNG";
+            }
+            visual_pictures_override(pics.u8string());
+            visual_pictures_refresh(app);
+            ui.frames(3);
+            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr, "with an RDBM26 folder the card has the eye colour / skin tone pickers and the boxes go");
+        } else {
+            CHECK(false, "the chooser opened from the Simple page (His own head)");
+        }
+        ui.click("Close##faces");
+        ui.frames(2);
+        player_page_test::hide(ui);
+        visual_pictures_override("");
+        visual_pictures_refresh(app);
+        app.sel_player = saved_sel;
     });
 }

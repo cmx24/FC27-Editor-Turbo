@@ -275,13 +275,17 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         if (light) {
             all.push_back(only);
         } else {
-            // 3.2 (charter 19.17, brief Amendment A2): the CODE SET of a gallery field is the game's list (gallery_entries below);
-            // the RDBM26 set is a picture source only. Its codes join the list only where the game lists nothing for the field
-            // (no hash list and no catalogue) or the field has no gallery.
-            if (d && (!gal || ge.empty())) {
+            // 3.2 (charter 19.17): this list is the ONE merged catalogue of the field: the RDBM26 set (named codes, the players' own
+            // codes), the game's gallery ids, none, his value, and for a gallery field the codes the combo that used to sit beside it
+            // offered (the codes the save uses, the named ones, the small range): every code either picker offered on 3.1.0 is here, once.
+            // A code the game files do not carry stays refused by the gallery gate below (writable = 0, with the reason). Release
+            // users have no asset catalogue, so the RDBM26 codes are NOT dropped when the gallery lists a few ids (catalogue-off path).
+            if (d) {
                 const vis::CodeDef* b = vis::codes_begin(*d);
                 for (int i = 0; i < d->count; ++i) all.push_back(b[i].code);
             }
+            if (gal)
+                for (int64_t c : code_value_list(app, t, *f, current)) all.push_back(c);
             for (const GalleryEntry& e : ge) all.push_back(e.id);
             if (gal) all.push_back(0);
             all.push_back(current);  // his value is shown even when the lists do not have it

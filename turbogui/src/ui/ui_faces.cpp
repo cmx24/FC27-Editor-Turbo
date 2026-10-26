@@ -24,6 +24,7 @@
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
 #include "ui_faces3d_gate.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -1954,24 +1955,39 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
         if (ImGui::Button("Clear filters")) ch.filter.clear();
     }
 
-    // 3.2 f3 (brief Amendment B, Cassio's q6 "agree"): hair, beard, eyes and skin are changed in the one picker of each look
-    // (Appearance / Looks), no longer here: the head is given with those copy options off (head fields + skin tone only).
+    // 3.2 f3 (brief Amendment B, Cassio's q6 "agree"): hair and beard are changed in the one picker of each look (Appearance /
+    // Looks), no longer here: the head is given with those copy options off. A player's Eyes and Skin boxes stay only while his
+    // card has no picker for them (B2, owner q6-nopicker): the card draws the eye colour and skin tone rows when there is a
+    // picture source (the user's own RDBM26 folder, which is never shipped); without one the box is the only way to give them.
     // The managers' Eyes and Skin boxes stay (held, owner q6-nopicker): the manager card (Career / Teams > Appearance) has
     // hair and beard galleries but no eye-colour or skin-tone picker, only the raw "Appearance fields" grid.
     ch.opts.hair = ch.opts.beard = false;
-    if (manager_target) {
-        ImGui::TextDisabled("Also give:");
-        ImGui::SameLine();
+    bool eyes_box = true, skin_box = true;
+    if (!manager_target) {
+        const Table* pt = app.db.table("players");
+        eyes_box = !pt || !vp::has_picture(app, *pt, "eyecolorcode", false);
+        skin_box = !pt || !vp::has_picture(app, *pt, "skintonecode", false);
+        if (!eyes_box) ch.opts.eyes = false;
+        if (!skin_box) ch.opts.skin = false;
+    }
+    ImGui::TextDisabled("Also give:");
+    ImGui::SameLine();
+    if (eyes_box) {
         ImGui::Checkbox("Eyes", &ch.opts.eyes);
         ImGui::SameLine();
+    }
+    if (skin_box) {
         ImGui::Checkbox("Skin", &ch.opts.skin);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", "The skin tone always comes with the head (it goes with it).\n"
                                     "Skin adds the skin type, complexion, surface and make-up.");
         ImGui::SameLine();
-    } else {
-        ch.opts.eyes = ch.opts.skin = false;
+    }
+    if (!eyes_box && !skin_box) {
         ImGui::TextDisabled("Hair, beard, eyes and skin: use their pickers (Appearance).");
+        ImGui::SameLine();
+    } else if (!manager_target && (!eyes_box || !skin_box)) {
+        ImGui::TextDisabled("(hair, beard%s: use their pickers)", !eyes_box ? ", eyes" : ", skin");
         ImGui::SameLine();
     }
     ImGui::TextDisabled("| his real picture is kept; with none, one is made (careers only)");

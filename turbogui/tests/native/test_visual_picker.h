@@ -11,7 +11,6 @@
 // Included by test_main.cpp after test_bodytype_thumbs.h; visual_picker_test::core_cases() from main with the core tests,
 // visual_picker_test::ui_cases() with the UI cases.
 #pragma once
-#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -784,7 +783,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         const vis::SetDef* hs = vis::find_set("hairstyle");
         CHECK(hs != nullptr, "the hair names set");
         if (!hs) return;
-        int64_t a = 0, b = 0;  // two named hair codes: the game list below carries a (its RDBM26 file is its picture), not b (3.2 A2: the grid does NOT offer b: RDBM26 is a picture source only)
+        int64_t a = 0, b = 0;  // two named hair codes the game list below does not carry
         const vis::CodeDef* cb = vis::codes_begin(*hs);
         for (int i = 0; i < hs->count && !(a && b); ++i) {
             const int64_t c = cb[i].code;
@@ -796,14 +795,13 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         const std::string hash_before = fs::exists(hash) ? read_file(hash) : std::string();
         {
             std::ofstream h(hash);
-            h << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n3;data/ui/imgAssets/hairstyle/item_" << a << "_0.dds\n";
+            h << "hash;file_name\n1;data/ui/imgAssets/hairstyle/item_3261_0.dds\n2;data/ui/imgAssets/hairstyle/item_1053_0.dds\n";
         }
         app.request_tab = 0;
-        ui.frames(70);  // 3.2: the game list is re-read once per ImGui second; the grid below is built from it
+        ui.frames(2);
         const fs::path root = test_tmp_dir("merged_rdbm");
         const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G'};
-        write_bytes(root / "Resources" / "hairstyle" / fmt("item_%lld_0.png", static_cast<long long>(a)), png);  // 3.2: a named code the game lists, with an RDBM26 file: its picture
-        write_bytes(root / "Resources" / "hairstyle" / fmt("item_%lld_0.png", static_cast<long long>(b)), png);  // 3.2: a named code the game does not list: a file, but no tile
+        write_bytes(root / "Resources" / "hairstyle" / fmt("item_%lld_0.png", static_cast<long long>(a)), png);
         visual_pictures_override((root / "Resources").u8string());
         visual_pictures_refresh(app);
         ui.extra_draw = draw_section;
@@ -811,19 +809,14 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         visual_picker_request("hairtypecode");
         ui.frames(3);
         CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode" && !visual_picker_ui().names_only, "the hair grid is open with pictures");
-        // 3.2 (charter 19.17, brief Amendment A2). Was: tile_source(a) == Rdbm, tile_source(3261) == Game, tile_source(b) == Placeholder,
-        // sources rdbm>=1 game>=2 grey>=1, list_size > 700 (every named RDBM26 code joined the game ids). Now the CODE SET is the game's
-        // list (3261, 1053, none, his own value); the RDBM26 file only supplies the picture of a code the game lists.
-        const std::vector<int64_t> offered = visual_picker_codes();
-        auto offers = [&](int64_t c) { return std::find(offered.begin(), offered.end(), c) != offered.end(); };
-        CHECK(offers(a) && !offers(b), "A2: a named RDBM26 code the game does not list is not offered (the game's list is the catalogue)");
-        CHECK(offers(3261) && offers(1053) && offers(0), "the game's ids and 'none' are offered");
-        CHECK(visual_picker_tile_source(a) == TileSource::Rdbm, "a listed hair code with an RDBM26 file: its RDBM26 picture");
-        CHECK(visual_picker_tile_source(1053) == TileSource::Game, "a listed hair code without an RDBM26 file: the game preview");
+        CHECK(visual_picker_tile_source(a) == TileSource::Rdbm, "a hair code with an RDBM26 file: its RDBM26 picture");
+        CHECK(visual_picker_tile_source(3261) == TileSource::Game && visual_picker_tile_source(1053) == TileSource::Game,
+              "hair codes the game lists without an RDBM26 file: the game preview");
+        CHECK(visual_picker_tile_source(b) == TileSource::Placeholder, "a named hair code with neither: the grey tile");
         const VisualPickerUi& vu = visual_picker_ui();
-        CHECK(vu.source_rdbm >= 1 && vu.source_game >= 1 && vu.source_blank >= 1,
+        CHECK(vu.source_rdbm >= 1 && vu.source_game >= 2 && vu.source_blank >= 1,
               fmt("one grid, three sources (rdbm %d, game %d, grey %d)", vu.source_rdbm, vu.source_game, vu.source_blank));
-        CHECK(visual_picker_list_size() >= 4 && visual_picker_list_size() <= 7, fmt("only the game's ids, none and his value are in the list (%zu)", visual_picker_list_size()));
+        CHECK(visual_picker_list_size() > 700, fmt("every named hair code and the game ids are in the one list (%zu)", visual_picker_list_size()));
 
         // PERF: opening the merged hair grid never takes more than 16 ms of a frame on this thread
         visual_picker_close();
@@ -860,8 +853,9 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         visual_picker_request("hairtypecode");
         ui.frames(3);
         CHECK(visual_picker_ui().open && !visual_picker_ui().names_only, "hair grid open without the RDBM26 folder (it has the game previews)");
-        CHECK(visual_picker_ui().source_rdbm == 0 && visual_picker_tile_source(3261) == TileSource::Game && visual_picker_tile_source(0) == TileSource::Placeholder,
-              "previews where the game has them, a grey tile for 'none'");
+        CHECK(visual_picker_ui().source_rdbm == 0 && visual_picker_tile_source(3261) == TileSource::Game &&
+                  visual_picker_tile_source(a) == TileSource::Placeholder,
+              "previews where the game has them, grey tiles with the name elsewhere");
         CHECK(visual_picker_ui().tiles_drawn > 0, "tiles drawn");
         const int64_t was = app.db.get_int(*p, rec, "hairtypecode", -1);
         visual_picker_select(1053);
