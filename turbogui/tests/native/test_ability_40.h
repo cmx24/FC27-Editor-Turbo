@@ -145,26 +145,26 @@
             GImGui->NavHighlightItemUnderNav = false;
             ImGui::GetIO().AddMousePosEvent(4.0f, 4.0f);
             ui.frames(2);
-            for (int attempt = 0; attempt < 3 && !has(tip, "Special skills shown on his card; tick the ones he has"); ++attempt) {
-                // the heading is found again each time (reach scrolls it into view); the mouse rests on its left end, inside what is visible of it
-                const ItemRec* head = profile_page_test::reach(ui, "PlayStyles", W);
-                if (!head) break;
+            // The heading (a separator text) has no item id, so the registry does not list it; the table header "PlayStyles" right below it does.
+            // Scroll so that there is room above that header inside the window, then rest the mouse at each height above it, as a user moving up
+            // from the grid would, until the help shows
+            for (ImGuiWindow* w : GImGui->Windows)
+                if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ImGui::SetScrollY(w, std::max(0.0f, w->Scroll.y - 160.0f));
+            ui.frames(3);
+            const ItemRec* col = profile_page_test::reach(ui, "PlayStyles", W);
+            if (col) {
                 found = true;
-                ImRect vis = head->rect;
-                vis.ClipWith(head->clip);
-                const float x = vis.Min.x + 24.0f, y = vis.GetCenter().y;
-                const std::string hlabel = head->label, hwin = head->window;
-                ImGui::GetIO().AddMousePosEvent(x, y);
-                ui.frames(3);
-                tip = page_log();
-                diag += " [mouse " + std::to_string(int(x)) + "," + std::to_string(int(y)) + " hovered window '" +
-                        std::string(GImGui->HoveredWindow ? GImGui->HoveredWindow->Name : "none") + "' item '" + hlabel + "' in '" + hwin + "' active id " +
-                        std::to_string(GImGui->ActiveId) + " nav window '" + std::string(GImGui->NavWindow ? GImGui->NavWindow->Name : "none") +
-                        "' nav cursor " + std::to_string(GImGui->NavCursorVisible) + " tooltip windows:";
-                for (ImGuiWindow* w : GImGui->Windows)
-                    if (w->Name && std::strstr(w->Name, "Tooltip"))
-                        diag += std::string(" ") + w->Name + (w->Active ? " active" : " inactive") + (w->Hidden ? " hidden" : "") + (w->SkipItems ? " skipitems" : "");
-                diag += "]";
+                const float x = col->rect.Min.x + 24.0f, y0 = col->rect.Min.y, ymin = col->clip.Min.y + 2.0f;
+                int tries = 0;
+                for (float y = y0 - 4.0f; y >= ymin && y > y0 - 140.0f && !has(tip, "Special skills shown on his card; tick the ones he has"); y -= 4.0f, ++tries) {
+                    ImGui::GetIO().AddMousePosEvent(x, y);
+                    ui.frames(2);
+                    tip = page_log();
+                }
+                diag += " [swept " + std::to_string(tries) + " heights above the grid header at y " + std::to_string(int(y0)) + ", x " + std::to_string(int(x)) +
+                        ", visible from y " + std::to_string(int(ymin)) + "; hovered window '" +
+                        std::string(GImGui->HoveredWindow ? GImGui->HoveredWindow->Name : "none") + "' active id " + std::to_string(GImGui->ActiveId) +
+                        " nav cursor " + std::to_string(GImGui->NavCursorVisible) + "]";
             }
             CHECK(found, "the PlayStyles heading is on the page");
             CHECK(has(tip, "Special skills shown on his card; tick the ones he has"), "the heading's help is a tooltip in words:" + diag);
