@@ -151,22 +151,31 @@
             // of a table item is the table's own, so the window's inner rectangle is used for the top.)
             profile_page_test::to_top(ui);
             const ItemRec* box = profile_page_test::reach(ui, "###ab_bit0", W);
-            ImGuiWindow* ew = nullptr;
-            for (ImGuiWindow* w : GImGui->Windows)
-                if (!ew && w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ew = w;
+            // the window the box was drawn in (its own name from the registry), else an editor window that is on screen
+            ImGuiWindow* ew = box ? ImGui::FindWindowByName(box->window.c_str()) : nullptr;
+            if (ew == nullptr)
+                for (ImGuiWindow* w : GImGui->Windows)
+                    if (!ew && w->Active && w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ew = w;
             if (box && ew) {
                 found = true;
                 const float x = box->rect.Min.x + 24.0f, top = ew->InnerClipRect.Min.y + 2.0f;
-                int tries = 0;
-                for (float y = top; y < box->rect.Min.y && tries < 400 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 3.0f, ++tries) {
+                int tries = 0, tip_windows = 0;
+                float first_tip_y = -1.0f;
+                for (float y = top; y < box->rect.Min.y && tries < 600 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 3.0f, ++tries) {
                     ImGui::GetIO().AddMousePosEvent(x, y);
                     ui.frames(2);
                     tip = page_log();
+                    for (ImGuiWindow* w : GImGui->Windows)
+                        if (w->Active && w->Name && std::strncmp(w->Name, "##Tooltip_", 10) == 0) {
+                            if (first_tip_y < 0.0f) first_tip_y = y;
+                            ++tip_windows;
+                        }
                 }
                 diag += " [swept " + std::to_string(tries) + " heights from y " + std::to_string(int(top)) + " at x " + std::to_string(int(x)) +
-                        " to the first tick box at y " + std::to_string(int(box->rect.Min.y)) + "; editor window " + std::to_string(int(ew->InnerClipRect.Min.y)) +
-                        ".." + std::to_string(int(ew->InnerClipRect.Max.y)) + " scroll " + std::to_string(int(ew->Scroll.y)) + "/" +
-                        std::to_string(int(ew->ScrollMax.y)) + ", hovered window '" +
+                        " to the first tick box at y " + std::to_string(int(box->rect.Min.y)) + "; window '" + std::string(ew->Name) + "' (box drawn in '" +
+                        box->window + "') inner " + std::to_string(int(ew->InnerClipRect.Min.y)) + ".." + std::to_string(int(ew->InnerClipRect.Max.y)) + " scroll " +
+                        std::to_string(int(ew->Scroll.y)) + "/" + std::to_string(int(ew->ScrollMax.y)) + "; tooltip windows seen " + std::to_string(tip_windows) +
+                        " first at y " + std::to_string(int(first_tip_y)) + "; hovered window '" +
                         std::string(GImGui->HoveredWindow ? GImGui->HoveredWindow->Name : "none") + "' active id " + std::to_string(GImGui->ActiveId) +
                         " nav cursor " + std::to_string(GImGui->NavCursorVisible) + "; items labelled PlayStyles at y";
                 for (const auto& kv : g_items)
