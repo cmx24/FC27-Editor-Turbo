@@ -249,15 +249,22 @@
                 if (ls[i] == "--- " + title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
             return "<no heading line '" + title + "'>";
         };
-        // the text logged between the heading line of `title` and the next "Ticked: " line: with the mouse on the heading, the tooltip's own lines
-        // (empty when nothing is logged there)
+        // the text logged after the heading line of `title` up to the set's "Ticked: " text: with the mouse on the heading, the tooltip's own text
+        // (empty when nothing is logged there). ImGui's log puts the Ticked line on the tooltip's last line ('Stored as trait2 Ticked: Super Sub',
+        // S6_FIX2\r4\f2_mutE.log:76), so the slice ends at the first "Ticked: " anywhere in a line, not only at a line start.
         const auto help_under = [&](const std::string& text, const std::string& title) -> std::string {
             const std::vector<std::string> ls = lines_of(text);
             for (size_t i = 0; i < ls.size(); ++i) {
                 if (ls[i] != "--- " + title) continue;
                 std::string out;
-                for (size_t j = i + 1; j < ls.size() && ls[j].compare(0, 8, "Ticked: ") != 0; ++j)
-                    if (!ls[j].empty()) out += (out.empty() ? "" : "\n") + ls[j];
+                for (size_t j = i + 1; j < ls.size(); ++j) {
+                    const size_t k = ls[j].find("Ticked: ");
+                    std::string part = k == std::string::npos ? ls[j] : ls[j].substr(0, k);
+                    const size_t e = part.find_last_not_of(" \t\r");
+                    part = e == std::string::npos ? std::string() : part.substr(0, e + 1);
+                    if (!part.empty()) out += (out.empty() ? "" : "\n") + part;
+                    if (k != std::string::npos) break;
+                }
                 return out;
             }
             return "";
