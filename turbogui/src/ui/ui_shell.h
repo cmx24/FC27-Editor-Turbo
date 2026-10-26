@@ -11,6 +11,7 @@
 // Navigation: T1 adds App::go(Area, Page) on top of Place; until then the legacy shim App::request_tab = N lands on
 // area_for(N). The registry lives in ui_shell.cpp; the enums and the tables are inline there too (no ImGui state here).
 #pragma once
+#include <string>
 #include <vector>
 
 namespace turbo {
@@ -84,6 +85,15 @@ bool page_unproven(Page p);
 const char* lab_banner_text();  // "Lab: not proven in game yet. Nothing here is guaranteed to show up in your match."
 // Mixed page: the write is proven, the effect on play is not (GameplayPresets): one muted sentence instead of the banner
 bool page_effect_unmeasured(Page p);
+
+// ---- names -> place (4.0 S0a, the dev-service open_page op): the place an {area label, page label} pair names, labels as drawn on the
+// rail and the page strip (area_label / page_label; ASCII case ignored), i.e. the strings the native tests click (Ui::open_page). No
+// second id map: the labels above are the only names. False with an error naming the unknown area or page (and the valid ones).
+bool find_place(const std::string& area, const std::string& page, Place& out, std::string& error);
+// The overlay's half of open_page (core/devops.h dev_page_take / dev_page_answer), called first thing in App::draw (hidden or not):
+// answers the request it applied on the previous frame with the page drawn since (app.place()) or, while Turbo is hidden, with the
+// page it will open on, then takes a new request and opens it with App::go. A Lab page while the Lab is hidden is refused by name.
+void dev_page_pump(App& app);
 
 // ---- legacy tab shim: TopTab indices 0 players, 1 teams, 2 managers, 3 competitions, 4 database, 5 tools, 6 status,
 // 7 game settings (gui_prefs.h) -> their new home. Out of range -> invalid Place.

@@ -1959,6 +1959,7 @@ void App::draw_pages() {
 }
 
 void App::draw() {
+    shell::dev_page_pump(*this);  // 4.0 S0a: the dev-service open_page op (ui_shell.h), first thing in the frame, hidden or not
     textures.new_frame(now);
     zoom_input(*this);  // Ctrl + mouse wheel / Ctrl + 0 (ui_zoom.h); the style follows on the next tick
     if (texture_test && visible) {
