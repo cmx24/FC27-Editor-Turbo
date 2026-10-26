@@ -249,6 +249,19 @@
                 if (ls[i] == "--- " + title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
             return "<no heading line '" + title + "'>";
         };
+        // the text logged between the heading line of `title` and the next "Ticked: " line: with the mouse on the heading, the tooltip's own lines
+        // (empty when nothing is logged there)
+        const auto help_under = [&](const std::string& text, const std::string& title) -> std::string {
+            const std::vector<std::string> ls = lines_of(text);
+            for (size_t i = 0; i < ls.size(); ++i) {
+                if (ls[i] != "--- " + title) continue;
+                std::string out;
+                for (size_t j = i + 1; j < ls.size() && ls[j].compare(0, 8, "Ticked: ") != 0; ++j)
+                    if (!ls[j].empty()) out += (out.empty() ? "" : "\n") + ls[j];
+                return out;
+            }
+            return "";
+        };
         struct SetView {
             bool anchors = false, in_view = false;
             std::string base, tip, diag;
@@ -322,8 +335,15 @@
                 CHECK(v.hit_y > v.upper && v.hit_y < v.box_top,
                       "a help shows with the mouse on the " + title + " heading (shown at y " + std::to_string(int(v.hit_y)) + ")" + v.diag);
                 CHECK(has(v.tip, c.help), "the " + title + " heading's help is its own, in words (text: ..." + tail(v.tip) + ")");
-                // as strict as the old fd3ec1e9 help check: no "trait" at all (covers trait1, icontrait1, trait2, icontrait2)
-                CHECK(!v.tip.empty() && !has(v.tip, "Stored as") && !has(v.tip, "trait"),
+                // the help's own text: the lines the tooltip adds between the heading line and its Ticked line (the page itself says "PlayStyles and
+                // traits", so the whole-frame text cannot carry the old check). As strict as the old fd3ec1e9 help check (test_ability_40.h:92): not
+                // empty, no "trait" at all (covers trait1, icontrait1, trait2, icontrait2), no "Stored as".
+                const std::string own = help_under(v.tip, title);
+                CHECK(help_under(v.base, title).empty(), "with the mouse away nothing is logged between the " + title + " heading and its Ticked line: '" +
+                                                             help_under(v.base, title) + "'");
+                CHECK(!own.empty() && has(own, c.help) && !has(own, "trait") && !has(own, "Stored as"),
+                      "the " + title + " help, read under its heading, is its own and names no field: '" + own + "'");
+                CHECK(!v.tip.empty() && !has(v.tip, "Stored as") && !has(v.tip, "trait1") && !has(v.tip, "trait2"),
                       "the " + title + " help names no field (text: ..." + tail(v.tip) + ")");
                 CHECK(!v.base.empty() && !has(v.base, "Stored as") && !has(v.base, "trait1") && !has(v.base, "trait2"),
                       "the page around the " + title + " heading names no field (text: ..." + tail(v.base) + ")");
