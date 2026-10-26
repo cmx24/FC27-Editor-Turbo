@@ -240,23 +240,44 @@ void player_cards(App& app, int64_t club, const PlayerRow& p) {
 }
 
 // ---------------------------------------------------------------- the whole squad
+// What the preset's contract step does, in plain words. It is NOT "60 months from today": team_mass long_contract writes the contract END
+// YEAR contract_end_year(60) = the start year of the current season (July to June) + 5 (moves.lua:210-215, team_mass.lua:145 via :129), a
+// fixed June about 49 to 60 months away, and it writes it even when the player's own contract is longer (that one is shortened).
+std::string preset_contract_rule(const GameDate& today) {
+    if (!today.valid()) return "Contract runs to June, five seasons after this season began (a longer contract is shortened)";
+    const int season_start = today.month >= 7 ? today.year : today.year - 1;
+    return "Contract runs to June " + std::to_string(season_start + teampreset::kContractMonths / 12) + " (a longer contract is shortened)";
+}
+
+std::string preset_ask_text(const GameDate& today) {
+    std::string rule = preset_contract_rule(today);
+    rule[0] = static_cast<char>(rule[0] + ('a' - 'A'));  // "contract runs to June 2031 (...)" inside the sentence
+    return "Every player of your club gets tight shirts, a squad role (Rotation, or Prospect for young players below the club's middle "
+           "rating), very happy morale and blocked transfer offers. Their " + rule +
+           "; players on loan to you keep their own club's contract. Nothing else changes. Part of this can't be undone with the Undo button.";
+}
+
+// The last texts preset_strip handed to the draw calls (the tests read them through team_preset_drawn_text, ui_team_page40.h)
+std::string g_drawn_hint, g_drawn_ask;
+
 // The "My team" preset, on the page above the tabs: the five things it sets (the preset's own list), the button, and the question first.
 // Greyed out with the reason for another club (team_preset_apply refuses it as well). Not counted in g_state.cards (the cards of one player).
 void preset_strip(App& app, int64_t club) {
     if (!team_preset_apply) return;
     card_begin("##tp_preset", "My team preset");
+    const GameDate today = app.today();
     std::string what;
-    for (const teampreset::Field& f : teampreset::fields()) what += (what.empty() ? "" : "; ") + std::string(f.title);
+    for (const teampreset::Field& f : teampreset::fields())
+        what += (what.empty() ? "" : "; ") + (std::string(f.id) == "contract" ? preset_contract_rule(today) : std::string(f.title));
     what += ". Extra XP development and Does not decline stay off.";
+    const std::string ask = preset_ask_text(today);
+    g_drawn_hint = what;
+    g_drawn_ask = ask;
     hint(what.c_str());
     Gate g = lua_gate(app, true, "team_mass");
     if (!is_own_club(app, club)) g = {false, "It is for your own club only: press My club above."};
     if (gated_button("Apply the My team preset", true, g, "Sets those five things for the whole squad.")) {
-        ask_do("Apply the My team preset?",
-               "Every player of your club gets tight shirts, a 60-month contract, very happy morale, a squad role (Rotation, or Prospect for "
-               "young players below the club's middle rating) and blocked transfer offers. Nothing else changes. Part of this can't be "
-               "undone with the Undo button.",
-               "Apply it", [club](App& a) { return team_preset_apply(a, club); }, "Asked: the My team preset for your club.");
+        ask_do("Apply the My team preset?", ask, "Apply it", [club](App& a) { return team_preset_apply(a, club); }, "Asked: the My team preset for your club.");
     }
     card_end();
 }
@@ -271,6 +292,8 @@ void whole_squad(App& app, int64_t club) {
 }
 
 }  // namespace
+
+const char* team_preset_drawn_text(int which) { return (which == 0 ? g_drawn_hint : g_drawn_ask).c_str(); }
 
 // ---------------------------------------------------------------- one player's contract and transfer actions (q3)
 void draw_player_contract_actions(App& app) {

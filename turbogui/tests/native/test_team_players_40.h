@@ -22,6 +22,7 @@
 
 namespace turbo {
 void draw_player_contract_actions(App& app) TURBO_WEAK;  // ui_team_players.cpp (4.0 S8, q3)
+const char* team_preset_drawn_text(int which) TURBO_WEAK;  // ui_team_page40.h (4.0 S8 fix 1: the texts the preset card drew)
 }
 
 namespace page_team_test {
@@ -135,6 +136,34 @@ static void s8_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, int64_t min
         CHECK(does_nothing(app, ui, kPreset, "##teampage_test"), "another club: no question, nothing sent");
         app.sel_team = mine;
         ui.frames(3);
+        hide(ui);
+    });
+
+    run_case("Team-pages 4.0: the My team preset card says what its contract step does - an end year in June, not '60 months' (S8 fix 1, D3)", [&] {
+        // team_mass long_contract writes contractvaliduntil = season start year + 5 (moves.lua:210-215, team_mass.lua:145), even when the
+        // player's own contract is longer. The card must say that, from the texts it handed to the draw calls on the last frame.
+        CHECK(team_preset_drawn_text != nullptr, "ui_team_players.cpp exports team_preset_drawn_text (the texts of the preset card)");
+        app.sel_team = mine;
+        app.sel_player = 1005;
+        show(ui, draw_team_players);
+        ui.frames(2);
+        const std::string hint = team_preset_drawn_text ? team_preset_drawn_text(0) : std::string();
+        const GameDate today = app.today();
+        const std::string want_rule =
+            today.valid() ? "June " + std::to_string((today.month >= 7 ? today.year : today.year - 1) + 5) : std::string("June,");
+        CHECK(!hint.empty(), "the preset hint was drawn");
+        CHECK(hint.find("60 months") == std::string::npos && hint.find("60-month") == std::string::npos && hint.find("by 60") == std::string::npos,
+              "the hint does not promise 60 months: " + hint);
+        CHECK(hint.find("Contract runs to " + want_rule) != std::string::npos, "the hint says the end-year rule (" + want_rule + "): " + hint);
+        CHECK(hint.find("a longer contract is shortened") != std::string::npos, "the hint says a longer contract is shortened: " + hint);
+        // the question the button opens says the same
+        const std::string ask = team_preset_drawn_text ? team_preset_drawn_text(1) : std::string();
+        CHECK(!ask.empty() && ask.find("60-month") == std::string::npos && ask.find("60 months") == std::string::npos, "the question does not promise 60 months: " + ask);
+        CHECK(ask.find("contract runs to " + want_rule) != std::string::npos && ask.find("a longer contract is shortened") != std::string::npos,
+              "the question says the end-year rule: " + ask);
+        // the other four things are still listed
+        for (const char* t : {"Tight shirts", "Squad roles", "Very happy morale", "Offers for your players blocked"})
+            CHECK(hint.find(t) != std::string::npos, std::string("the hint still lists: ") + t);
         hide(ui);
     });
 

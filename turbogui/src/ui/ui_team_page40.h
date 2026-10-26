@@ -20,6 +20,10 @@ void draw_player_contract_actions(App& app);
 void team_player_move_controls(App& app, int64_t club);    // Move a player: transfer, loan, release, the game's transfer and loan lists
 void team_player_extend_controls(App& app, int64_t club);  // Contract extension of that one player
 
+// The texts the My team preset card handed to the draw calls on its last frame (ui_team_players.cpp preset_strip): 0 = the hint line under
+// the card title, 1 = the question the button opens. "" until the card has been drawn. The native tests read what was drawn through it.
+const char* team_preset_drawn_text(int which);
+
 namespace teampage {
 
 // The Team cards write "Extended X's contract to Y." or "Asked: <what>." into g_status; the template shows ONE line, "Done: ...". The

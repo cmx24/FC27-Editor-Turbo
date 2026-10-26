@@ -246,13 +246,7 @@ static void ui_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, const fs::p
         for (const char* l : {"Apply to my squad", "Set for my squad", "Extend my squad's contracts", "Develop to potential", "Reveal my players"})
             CHECK(has_item(ui, l, "team_players_"), std::string("the Career card control is on Whole squad: ") + l);  // 4.0 S8: ##page_team_players_ inside the template
         scroll_bottom(ui, true);  // 4.0 S8: the page body (##pg_body) is shorter than the page, the last card is below its first screen
-        {
-            std::string dbg;
-            for (const auto& kv : g_items)
-                if (kv.second.label.find("Run for") != std::string::npos || kv.second.label.find("Reveal my") != std::string::npos)
-                    dbg += " [" + kv.second.label + " @" + kv.second.window + " f" + std::to_string(kv.second.frame) + "/" + std::to_string(g_frame) + " y=" + std::to_string(kv.second.rect.Min.y) + "]";
-            CHECK(has_item(ui, "Run for my squad", "team_players_"), "the Career card control is on Whole squad: Run for my squad" + dbg);
-        }
+        CHECK(has_item(ui, "Run for my squad", "team_players_"), "the Career card control is on Whole squad: Run for my squad");
         scroll_bottom(ui, false);
         if (!team_preset_apply) CHECK(!has_item(ui, "Apply the My team preset", "##teampage_test"), "no preset button while the preset is not built in");
         json j = ask_and_confirm(app, ui, mem, kMb, "Set for my squad", "##career_roles", "Set roles", why, "###careerask");
