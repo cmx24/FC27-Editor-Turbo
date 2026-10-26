@@ -87,6 +87,7 @@ void visual_picker_select(int64_t code);   // what a click on a tile does
 TileSource visual_picker_tile_source(int64_t code);  // of the open picker (NamesOnly: not in the list)
 bool visual_picker_tile_writable(int64_t code, std::string* why = nullptr);  // the catalog gate, greyed tiles
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters
+std::vector<int64_t> visual_picker_codes();  // those codes themselves (tests: 3.2 one picker, one catalogue per field)
 bool visual_picker_apply(App& app);        // what Apply does (on the record the picker was opened for)
 void visual_picker_close();
 // Look for the pictures folder again (after the setting changed); tests point it at a folder of their own

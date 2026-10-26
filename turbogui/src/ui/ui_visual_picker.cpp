@@ -996,6 +996,7 @@ bool visual_picker_tile_writable(int64_t code, std::string* why) {
 }
 
 size_t visual_picker_list_size() { return st().src.codes.size(); }
+std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 
 void visual_picker_close() { close_picker(); }
 

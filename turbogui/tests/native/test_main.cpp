@@ -9908,6 +9908,7 @@ static void test_ui() {
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
+#include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
