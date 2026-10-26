@@ -24,6 +24,9 @@ using namespace turbo;
 #ifdef TURBO_HAVE_TEAM_SQUAD_40
 static void page_fn(App& app) { draw_team_squad_page(app); }
 
+// squad_table_state() is reset only inside squad_table(), so it is read as "this frame's" only while the ##squad table is on screen
+static bool on_screen() { return squad_table_test::squad_table_now() != nullptr; }
+
 static std::string ini_text() {
     size_t n = 0;
     const char* s = ImGui::SaveIniSettingsToMemory(&n);
@@ -59,7 +62,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(rec != nullptr && rec->title == "Squad" && !rec->has_apply, "the frame recorded itself: title Squad, no Apply");
         CHECK(rec && rec->bar.size() == 2 && rec->bar[0] == "###pg_undo" && rec->bar[1] == "###pg_back", "the bar is Undo then Back");
         const SquadTableState& st = squad_table_state();
-        CHECK(st.table_drawn && st.club == 241 && st.rows == 3, fmt("the table shows the picked club: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
+        CHECK(on_screen() && st.table_drawn && st.club == 241 && st.rows == 3, fmt("the table is on screen and shows the picked club: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
         CHECK(ui.find("My club", "##uipage_test") != nullptr, "the club picker is on the page (My club)");
         const ImGuiTable* t = squad_table_test::squad_table_now();
         CHECK(t != nullptr, "the ##squad table is on screen");
@@ -82,18 +85,18 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         app.sel_team = 0;
         ui_page_test::show(ui, page_fn);
-        CHECK(mine > 0 && app.sel_team == mine && squad_table_state().club == mine, fmt("no club picked: my club is shown (%lld)", static_cast<long long>(squad_table_state().club)));
+        CHECK(mine > 0 && app.sel_team == mine && on_screen() && squad_table_state().club == mine, fmt("no club picked: my club is shown (%lld)", static_cast<long long>(squad_table_state().club)));
         // a row of the club list picks that club
         const ItemRec* row = ui.find("241", "##teams");
         CHECK(row != nullptr, "Inter is a row of the club list on the page");
         if (row) {
             ui.click(row);
             ui.frames(3);
-            CHECK(app.sel_team == 241 && squad_table_state().club == 241 && squad_table_state().rows == 3, "a click on the row shows that club's squad");
+            CHECK(app.sel_team == 241 && on_screen() && squad_table_state().club == 241 && squad_table_state().rows == 3, "a click on the row shows that club's squad");
         }
         CHECK(ui.click("My club", "##uipage_test"), "click My club");
         ui.frames(3);
-        CHECK(app.sel_team == mine && squad_table_state().club == mine, "My club returns to the user's club");
+        CHECK(app.sel_team == mine && on_screen() && squad_table_state().club == mine, "My club returns to the user's club");
         ui_page_test::hide(ui);
         page::reset_for_tests();
     });
@@ -104,7 +107,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.sel_team = mine;
         ui_page_test::show(ui, page_fn);
         const SquadTableState& st = squad_table_state();
-        CHECK(st.table_drawn && st.club == mine && st.rows >= 5, "my club's squad is on the page");
+        CHECK(on_screen() && st.table_drawn && st.club == mine && st.rows >= 5, "my club's squad is on the page");
         const std::vector<int64_t> base = squad_table_test::db_order(app, mine);
         CHECK(squad_table_test::drawn_order(app, mine) == base, "database order until a header is clicked");
         CHECK(squad_table_test::click_header(ui, "Age"), "the Age header");
@@ -156,9 +159,38 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui_page_test::show(ui, page_fn);
         const ImGuiTable* t3 = squad_table_test::squad_table_now();
         CHECK(t3 != nullptr && t3->ID == id0, "re-opened: the same id");
-        CHECK(squad_table_state().sort_column == 3 && !squad_table_state().sort_ascending, "re-opened: the sort on OVR is still on");
+        CHECK(on_screen() && squad_table_state().sort_column == 3 && !squad_table_state().sort_ascending, "re-opened: the sort on OVR is still on");
         CHECK(squad_table_test::click_header(ui, "OVR"), "OVR again");
         CHECK(squad_table_test::click_header(ui, "OVR"), "OVR a third time (reset)");
+        ui_page_test::hide(ui);
+        page::reset_for_tests();
+    });
+
+    run_case("Team squad 40: the stale-data guard - with the teams table moved (another save loaded) no squad table is drawn and the page says Press Refresh", [&] {
+        app.go(Page::Standings);
+        ui.frames(2);
+        app.sel_team = 241;
+        ui_page_test::show(ui, page_fn);
+        CHECK(on_screen() && squad_table_state().club == 241 && !squad_table_state().stale_notice, "database alive: the table is on screen, no notice");
+        const Table* tt = app.db.table("teams");
+        const TeamRow* tr = app.model.team(241);
+        CHECK(tt != nullptr && tr != nullptr, "the teams table and Inter's row exist");
+        if (!tt || !tr) { ui_page_test::hide(ui); return; }
+        // the way the stale-table test of test_main.cpp moves the database: the header no longer describes the table
+        uint32_t shortname = 0;
+        app.mem.rd(tt->header + 0x40, shortname);
+        const uint32_t other = 0x58585858;  // "XXXX"
+        app.mem.wr(tt->header + 0x40, other);
+        ui.frames(3);
+        const bool alive_now = app.db.table_alive(*tt, tr->rec);
+        const bool table_on_screen = on_screen();
+        const SquadTableState after = squad_table_state();
+        app.mem.wr(tt->header + 0x40, shortname);  // put the world back before any check can end the case
+        CHECK(!alive_now, "the header changed: the team row is not alive");
+        CHECK(!table_on_screen, "no ##squad table is drawn on a database that moved (its Jersey and Line-up slot cells would write into freed memory)");
+        CHECK(after.stale_notice && after.club == 241 && !after.table_drawn, "the page shows the Refresh message instead of the table");
+        ui.frames(3);
+        CHECK(app.db.table_alive(*tt, tr->rec) && on_screen() && !squad_table_state().stale_notice, "database back: the table is drawn again, no notice");
         ui_page_test::hide(ui);
         page::reset_for_tests();
     });

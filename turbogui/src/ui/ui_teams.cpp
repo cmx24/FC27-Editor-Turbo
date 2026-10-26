@@ -484,6 +484,11 @@ static void mass_actions_tab(App& app, const TeamRow& tr) {
     ImGui::EndChild();
 }
 
+// The one notice for a team row whose database moved under the GUI (another save loaded): the editors below write through App::edit.
+static void database_changed_notice() {
+    ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "The database changed (another save loaded?). Press Refresh.");
+}
+
 static void team_editor(App& app) {
     const Table* t = app.db.table("teams");
     const TeamRow* tr = app.model.team(app.sel_team);
@@ -492,7 +497,7 @@ static void team_editor(App& app) {
         return;
     }
     if (!app.db.table_alive(*t, tr->rec)) {
-        ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "The database changed (another save loaded?). Press Refresh.");
+        database_changed_notice();
         return;
     }
     // crest thumbnail (custom file first: what the game shows)
@@ -605,8 +610,15 @@ void draw_team_squad_page(App& app) {
     ImGui::SameLine();
     ImGui::BeginChild("##sqbody", ImVec2(0, 0));
     const TeamRow* tr = app.model.team(app.sel_team);
+    const Table* teams_t = app.db.table("teams");
+    g_squad_state = SquadTableState{};  // this frame's state, not the last squad_table call's (the tests read it)
     if (!tr) {
-        ImGui::TextDisabled("Select a team on the left.");
+        ImGui::TextDisabled("Pick a club on the left.");
+    } else if (!teams_t || !app.db.table_alive(*teams_t, tr->rec)) {
+        // the guard of the old Squad tab (team_editor): the Jersey and Line-up slot cells write through field_editor / App::edit
+        g_squad_state.club = tr->teamid;
+        g_squad_state.stale_notice = true;
+        database_changed_notice();
     } else {
         draw_legacy_picture(app, crest_main_path(tr->teamid), S(40.0f), true);
         ImGui::SameLine();
