@@ -322,7 +322,8 @@
                 CHECK(v.hit_y > v.upper && v.hit_y < v.box_top,
                       "a help shows with the mouse on the " + title + " heading (shown at y " + std::to_string(int(v.hit_y)) + ")" + v.diag);
                 CHECK(has(v.tip, c.help), "the " + title + " heading's help is its own, in words (text: ..." + tail(v.tip) + ")");
-                CHECK(!v.tip.empty() && !has(v.tip, "Stored as") && !has(v.tip, "trait1") && !has(v.tip, "trait2"),
+                // as strict as the old fd3ec1e9 help check: no "trait" at all (covers trait1, icontrait1, trait2, icontrait2)
+                CHECK(!v.tip.empty() && !has(v.tip, "Stored as") && !has(v.tip, "trait"),
                       "the " + title + " help names no field (text: ..." + tail(v.tip) + ")");
                 CHECK(!v.base.empty() && !has(v.base, "Stored as") && !has(v.base, "trait1") && !has(v.base, "trait2"),
                       "the page around the " + title + " heading names no field (text: ..." + tail(v.base) + ")");
