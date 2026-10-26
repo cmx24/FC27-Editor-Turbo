@@ -1115,8 +1115,8 @@ void draw_bulk_edit(App& app) {
     const float prev_label_w = form_label_width();
     form_label_width(S(110.0f));
     step_run(app, kPerFrame);
-    ImGui::TextWrapped("Change one or more fields for many players at once. Pick the players, add the fields, then apply. Each edit goes through the "
-                       "same checks as the Player editor.");
+    // (the first sentence of the old intro is now the page::Frame help above; a template page keeps its grey hints to 100 characters)
+    ImGui::TextWrapped("Each edit goes through the same checks as the Player editor.");
     section_who(app);
     section_what(app, t);
     section_apply(app);
