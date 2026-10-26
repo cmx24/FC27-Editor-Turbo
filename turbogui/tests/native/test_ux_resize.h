@@ -163,6 +163,8 @@ static void test_ux_resize() {
             {"##lscards", "G-ia: the Appearance Editor's cards; ##lslist / ##lspreview beside it already have ResizeX; calls split::pane_x after the merge"},
             {"##tacright", "the remainder of the Tactics row: ##tacleft and ##taccentre beside it have ResizeX, so dragging their borders resizes this one"},
             {"##complist", "the competition picker's list inside a popup"},
+            {"##rail", "the 3.0 shell's area rail (app.cpp ##rail): a fixed 156 / 44 px shell rail with its own narrow toggle, not a pane; no resize flag "
+                       "(brief 2.22-G-resize.md:66,76; Pit wall 19:36 2026-10-26, 4.0c)"},
         };
         auto allowed = [&](const std::string& id) {
             for (const Allow& a : allow) if (id == a.id) return true;
