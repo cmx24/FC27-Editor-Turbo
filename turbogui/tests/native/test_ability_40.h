@@ -146,23 +146,32 @@
             ImGui::GetIO().AddMousePosEvent(4.0f, 4.0f);
             ui.frames(2);
             // The heading (a separator text) has no item id, so the registry does not list it; the table header "PlayStyles" right below it does.
-            // Scroll so that there is room above that header inside the window, then rest the mouse at each height above it, as a user moving up
-            // from the grid would, until the help shows
+            // The page is scrolled to its end first, so that reach() brings that header into the middle of the window (room above it), then the
+            // mouse rests at every height from the top of the visible window down to the header, as a user moving down the page would, until the
+            // help shows
             for (ImGuiWindow* w : GImGui->Windows)
-                if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ImGui::SetScrollY(w, std::max(0.0f, w->Scroll.y - 160.0f));
+                if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ImGui::SetScrollY(w, w->ScrollMax.y);
             ui.frames(3);
             const ItemRec* col = profile_page_test::reach(ui, "PlayStyles", W);
             if (col) {
                 found = true;
                 const float x = col->rect.Min.x + 24.0f, y0 = col->rect.Min.y, ymin = col->clip.Min.y + 2.0f;
                 int tries = 0;
-                for (float y = y0 - 4.0f; y >= ymin && y > y0 - 140.0f && !has(tip, "Special skills shown on his card; tick the ones he has"); y -= 4.0f, ++tries) {
+                for (float y = ymin; y < y0 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 4.0f, ++tries) {
                     ImGui::GetIO().AddMousePosEvent(x, y);
                     ui.frames(2);
                     tip = page_log();
                 }
-                diag += " [swept " + std::to_string(tries) + " heights above the grid header at y " + std::to_string(int(y0)) + ", x " + std::to_string(int(x)) +
-                        ", visible from y " + std::to_string(int(ymin)) + "; hovered window '" +
+                float scroll_y = -1.0f, scroll_max = -1.0f;
+                for (ImGuiWindow* w : GImGui->Windows)
+                    if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) {
+                        scroll_y = w->Scroll.y;
+                        scroll_max = w->ScrollMax.y;
+                    }
+                diag += " [swept " + std::to_string(tries) + " heights from y " + std::to_string(int(ymin)) + " to the grid header at y " +
+                        std::to_string(int(y0)) + ", x " + std::to_string(int(x)) + ", clip " + std::to_string(int(col->clip.Min.y)) + ".." +
+                        std::to_string(int(col->clip.Max.y)) + ", scroll " + std::to_string(int(scroll_y)) + "/" + std::to_string(int(scroll_max)) +
+                        ", header label '" + col->label + "', hovered window '" +
                         std::string(GImGui->HoveredWindow ? GImGui->HoveredWindow->Name : "none") + "' active id " + std::to_string(GImGui->ActiveId) +
                         " nav cursor " + std::to_string(GImGui->NavCursorVisible) + "]";
             }
