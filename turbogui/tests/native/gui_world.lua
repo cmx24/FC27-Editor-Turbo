@@ -340,6 +340,8 @@ local function build_world(sim)
             { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },   -- FC 27's schema (fc27_db_schema.json): 1 .. 512
             { name = "contractvaliduntil", short = "cvu_", depth = 11 },
             { name = "jerseyfit", short = "jfit", depth = 2 },   -- 0 Normal, 1 Tight, 2 Team Kit Fit (the My team preset test)
+            { name = "jerseysleevelengthcode", short = "jslc", depth = 3 },   -- fix round 2 (3.2 one picker): Sleeves 0..4 (field_labels.h), no gallery
+            { name = "socklengthcode", short = "sklc", depth = 3 },           -- Sock length 0..3 (3 "Low"), no gallery; the real players table: depth 3, max 7 (fc27_db_schema.json tables/players/fields/130), sleeves depth 3 max 7 (fields/69)
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },
         },

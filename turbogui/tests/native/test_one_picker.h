@@ -422,6 +422,87 @@
         op_fixture_off(before);
     });
 
+    // ---- fix round 2 (reviewer D1, 717aa116 moved Sleeves and Sock length from enum_editor to the picker's inline rows): a field with a
+    // picture set and labelled codes but NO gallery must offer every labelled code too (the merge was gated on the gallery alone)
+    run_case("UI 3.2 one picker (fix 2): non-gallery fields offer every labelled code: Sleeves 0..4 and Sock length 0..3 first, then every labelled non-gallery look field", [&] {
+        const Table* p = app.db.table("players");
+        const uint64_t rec = p ? app.db.find(*p, "playerid", 2002) : 0;
+        CHECK(p && rec != 0, "the test world has player 2002");
+        if (!p || !rec) return;
+        set_gear_catalog(nullptr);
+        const std::string before = op_fixture_on();
+        op_draw(p, rec);
+        // the literal codes of field_labels.h (jerseysleevelengthcode 0..4, socklengthcode 0..3 "Low"): written out here, not read from the
+        // table the fix reads, so the test cannot agree with the code by construction
+        struct Lit {
+            const char* field;
+            std::vector<int64_t> codes;
+        };
+        for (const Lit& l : std::vector<Lit>{{"jerseysleevelengthcode", {0, 1, 2, 3, 4}}, {"socklengthcode", {0, 1, 2, 3}}}) {
+            const Field* f = p->field(l.field);
+            CHECK(f != nullptr, std::string("fixture: the players table has ") + l.field);
+            if (!f) continue;
+            const OpVp v = op_vp(*p, rec, l.field, false);
+            CHECK(v.open, std::string("the picker of ") + l.field + " opens");
+            CHECK(v.unique(), std::string("ONE merged list, no code twice: ") + l.field);
+            CHECK(!gallery_has(l.field), std::string("fixture: ") + l.field + " has no gallery (the case this fix is about)");
+            const std::set<int64_t> need(l.codes.begin(), l.codes.end());
+            const std::string miss = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (non-gallery) ") + l.field + " vs field_labels.h", need, v.all());
+            CHECK(miss.empty(), miss);
+            const std::string wr = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (non-gallery) ") + l.field + " writable", need, v.writable);
+            CHECK(wr.empty(), wr);
+        }
+        // EVERY field the picker can open (the compiled field table, mapped_fields), players and managers: the offered set of a field with no gallery
+        // must hold every labelled code (enum_defs or named codes, inside the field's range) and the old combo's list. A field with no labelled
+        // code (eyebrows, tattoos, head type, run-up beyond the three standard ones) is unchanged by the fix and is only listed. The list printed
+        // per field (picture set size, labelled codes, offered codes, the ones outside the picture set) is the report's "offered set changes" table.
+        int compared = 0, unchanged = 0, absent = 0;
+        const Table* mt = app.db.table("manager");
+        const auto& mgrs = app.model.managers();
+        const uint64_t mrec = (mt && !mgrs.empty()) ? mgrs[0].rec : 0;
+        for (const bool manager : {false, true}) {
+            const Table* tt = manager ? mt : p;
+            const uint64_t trec = manager ? mrec : rec;
+            if (!tt || !trec) continue;
+            for (const std::string& field : turbo::visual::mapped_fields()) {
+                const Field* f = tt->field(field);
+                if (!f) {
+                    ++absent;
+                    continue;
+                }
+                if (gallery_has(field, manager)) continue;  // a gallery field already merged (fix 1): same branch, not changed by fix 2
+                std::set<int64_t> labelled;
+                if (const labels::EnumDef* e = labels::enum_def(field))
+                    for (size_t k = 0; k < e->labels.size(); ++k) labelled.insert(e->base + static_cast<int64_t>(k));
+                else if (const labels::NamedCodes* n = labels::named_codes(field))
+                    for (const auto& e : *n) labelled.insert(e.first);
+                for (auto it = labelled.begin(); it != labelled.end();) it = (*it < f->min || *it > f->max()) ? labelled.erase(it) : std::next(it);
+                const int64_t cur = app.db.get_int(*tt, trec, field, 0);
+                std::set<int64_t> need = labelled;
+                if (!labelled.empty())
+                    for (int64_t c : code_value_list(app, *tt, *f, cur)) need.insert(c);  // the old combo's list (only where the field has labelled codes)
+                const OpVp v = op_vp(*tt, trec, field, manager);
+                CHECK(v.open, std::string("the picker of ") + field + " opens");
+                CHECK(v.unique(), std::string("ONE merged list, no code twice: ") + field);
+                const std::string who = manager ? "(manager) " : "";
+                const std::string miss = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (non-gallery) ") + who + field + " vs field_labels.h and the old combo's list", op_strip(need, cur), v.all());
+                CHECK(miss.empty(), miss);
+                // the offered set that changed against the picture set alone: printed per field for the report
+                const std::set<int64_t> pic = op_rdbm(field);
+                std::string added;
+                int nadd = 0;
+                for (int64_t c : v.all())
+                    if (!pic.count(c) && c != cur && ++nadd <= 8) added += (added.empty() ? "" : ",") + std::to_string(c);
+                std::printf("  ONE-PICKER fix2 %s%-26s picture set %3zu codes, labelled %3zu, offered %3zu, not in the picture set: %d%s%s\n", manager ? "[mgr] " : "", field.c_str(),
+                            pic.size(), labelled.size(), v.codes.size(), nadd, nadd ? " e.g. " : "", added.c_str());
+                (labelled.empty() ? unchanged : compared)++;
+            }
+        }
+        std::printf("  ONE-PICKER fix2 summary: %d non-gallery fields with labelled codes compared, %d without (unchanged), %d mapped fields absent from the test tables\n", compared, unchanged, absent);
+        CHECK(compared >= 6, fmt("non-gallery fields with labelled codes compared (%d)", compared));
+        op_fixture_off(before);
+    });
+
     // ---- the Simple player page, no RDBM26 folder: "Choose a real face..." keeps the Eyes and Skin boxes (q6-nopicker)
     run_case("UI 3.2 one picker (fix 1): Simple player page, no RDBM26 folder: the real-face chooser keeps its Eyes and Skin boxes, never Hair / Beard; with a folder they go", [&] {
         const int64_t saved_sel = app.sel_player;

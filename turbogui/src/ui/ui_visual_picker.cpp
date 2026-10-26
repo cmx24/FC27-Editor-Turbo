@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "core/bodytype_thumbs.h"
+#include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "core/rdbm_resources.h"
 #include "imgui.h"
@@ -284,7 +285,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 const vis::CodeDef* b = vis::codes_begin(*d);
                 for (int i = 0; i < d->count; ++i) all.push_back(b[i].code);
             }
-            if (gal)
+            // fix round 2 (reviewer D1): a field with labelled codes but no gallery (Sleeves 0..4, Sock length 0..3, jersey fit, hair / eye colour,
+            // skin tone, accessory colours...) gets the same merge: the codes field_labels.h names (enum_defs or named codes) are offered, not only the picture
+            // set's (Sleeves 4 and Sock length 3 "Low" were not offered at all). A field with no labelled code (eyebrows, tattoos) is unchanged. The offered set that changes per field is listed by the test of fix 2.
+            if (gal || labels::enum_def(field) || labels::named_codes(field))
                 for (int64_t c : code_value_list(app, t, *f, current)) all.push_back(c);
             for (const GalleryEntry& e : ge) all.push_back(e.id);
             if (gal) all.push_back(0);
