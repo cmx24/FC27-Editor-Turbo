@@ -301,9 +301,9 @@ const PlayerCreationState& player_creation_state() { return g_state; }
 
 void draw_player_creation(App& app) {
     // 4.0 (S7): the page template. The staged action stays the shell footer "Create like him..." of the two-pane layout (same call as
-    // before), so the frame has no Apply of its own; its bar gives the global Undo and Back.
+    // before), so the frame has no Apply of its own; its bar gives Back only (S7b: no bar Undo, a new player is not an Undo step).
     page::Frame f(app, {"player_creation", "Player creation",
-                        "Make a player from one in your career, or take one from the CMTracker library.", nullptr});
+                        "Make a player from one in your career, or take one from the CMTracker library.", nullptr, true, false});
     if (!app.connected()) {
         not_connected_hint();
         return;

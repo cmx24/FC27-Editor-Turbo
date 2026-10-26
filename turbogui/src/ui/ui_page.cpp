@@ -108,7 +108,7 @@ bool Frame::end() {
         rec.bar.push_back(kApplyId);
         ImGui::SameLine();
     }
-    {
+    if (spec_.show_undo) {
         const changes::Change* c = changes::last_undoable(app_);
         const std::string label = changes::undo_label(app_) + kUndoId;
         ImGui::BeginDisabled(!c);

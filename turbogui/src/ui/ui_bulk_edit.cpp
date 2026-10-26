@@ -16,6 +16,7 @@
 #include "core/model.h"
 #include "core/overall.h"
 #include "core/range_filter.h"
+#include "core/team_preset.h"
 #include "geo.h"
 #include "imgui.h"
 #include "playstyles.h"
@@ -82,6 +83,11 @@ uint64_t g_version = ~uint64_t(0);
 bool g_confirm_big = false;
 bool g_do_fit = false, g_do_form = false, g_do_morale = false;
 int g_fit = 95, g_form = 100, g_morale = 100;
+// Development (re-homed from Lab > Bulk edit, ui_tools.cpp section_bulk_edit): every box starts OFF (the core/team_preset.h growth defaults)
+bool g_do_dev = teampreset::kExtraXpDefault;
+bool g_no_decline = teampreset::kNoDeclineDefault;
+int g_bonus_xp = 0;
+float g_xp_mult = 2.0f;
 Run g_run;
 std::vector<Done> g_done;  // newest last
 State g_state;
@@ -877,7 +883,7 @@ void section_apply(App& app) {
 
 void section_actions(App& app) {
     const BridgeState& st = app.bridge.state();
-    if (!ImGui::CollapsingHeader("Fitness, form and morale (career)###bk_actions_head")) return;
+    if (!ImGui::CollapsingHeader("Fitness, form, morale and development (career)###bk_actions_head")) return;
     checkbox_right("Fitness###bk_fit_on", &g_do_fit);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(S(160.0f));
@@ -891,10 +897,28 @@ void section_actions(App& app) {
     ImGui::SetNextItemWidth(S(160.0f));
     ImGui::SliderInt("##bk_morale", &g_morale, 0, 100);
     const std::vector<int64_t> sel = selected_ids();
+    checkbox_right("Development###bk_dev_on", &g_do_dev);
+    if (g_do_dev) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("XP multiplier");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputFloat("##bk_xpmult", &g_xp_mult, 0.0f, 0.0f, "%.1f");
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Bonus XP");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(S(90.0f));
+        ImGui::InputInt("##bk_bonusxp", &g_bonus_xp, 0);
+        ImGui::SameLine();
+        checkbox_right("No decline###bk_nodecline", &g_no_decline, -1.0f);
+    }
     json actions = json::object();
     if (g_do_fit) actions["fitness"] = g_fit;
     if (g_do_form) actions["form"] = g_form;
     if (g_do_morale) actions["morale"] = g_morale;
+    if (g_do_dev) actions["development"] = {{"xp_multiplier", g_xp_mult}, {"bonus_xp", g_bonus_xp}, {"no_decline", g_no_decline}};
     json cmd = {{"op", "run"}, {"module", "bulk_edit"},
                 {"overrides", {{"scope", {{"playerids", sel}}}, {"filters", json::object()}, {"set", json::object()}, {"actions", actions}, {"confirm_all", false}}}};
     std::string why;
@@ -902,11 +926,27 @@ void section_actions(App& app) {
     else if (actions.empty()) why = "tick what to set";
     else if (sel.empty()) why = "no player is picked";
     else if (sel.size() > kSendPlayers || cmd.dump().size() > 3900) why = "too many players for one go: pick fewer (about 350 at most)";
-    else if (const std::string* r = st.unavailable_reason("form_morale")) why = *r;
+    else if ((g_do_fit || g_do_form || g_do_morale) && st.unavailable_reason("form_morale")) why = *st.unavailable_reason("form_morale");
+    else if (g_do_dev && st.unavailable_reason("development_xp")) why = "Development: " + *st.unavailable_reason("development_xp");
     else if (app.busy() || !app.mailbox) why = "the game link is busy";
     g_state.actions_why = why;
     if (!why.empty()) ImGui::BeginDisabled();
-    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, "Bulk edit: fitness, form, morale");
+    // the pending label names only what is ticked ("Bulk edit: development", "Bulk edit: fitness, morale")
+    std::string label = "Bulk edit: ";
+    {
+        std::string names;
+        auto add = [&](bool on, const char* n) {
+            if (!on) return;
+            if (!names.empty()) names += ", ";
+            names += n;
+        };
+        add(g_do_fit, "fitness");
+        add(g_do_form, "form");
+        add(g_do_morale, "morale");
+        add(g_do_dev, "development");
+        label += names;
+    }
+    if (ImGui::Button("Send to the picked players###bk_actions_go")) app.send(cmd, label);
     if (!why.empty()) {
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -959,6 +999,10 @@ void reset() {
     g_version = ~uint64_t(0);
     g_confirm_big = false;
     g_do_fit = g_do_form = g_do_morale = false;
+    g_do_dev = teampreset::kExtraXpDefault;
+    g_no_decline = teampreset::kNoDeclineDefault;
+    g_bonus_xp = 0;
+    g_xp_mult = 2.0f;
     g_run = Run();
     g_done.clear();
     g_state = State();
@@ -1106,7 +1150,7 @@ void draw_bulk_edit(App& app) {
     using namespace bulkedit;
     // 4.0 (S7): the page template. The staged Apply (preview, big-run confirm, the page's own Undo) stays in the body as section 3; the
     // frame has no Apply of its own, its bar gives the global Undo and Back.
-    page::Frame f(app, {"bulk_edit", "Bulk edit", "Change one or more fields for many players at once: pick them, add the fields, apply.", nullptr});
+    page::Frame f(app, {"bulk_edit", "Bulk edit", "Change one or more fields for many players at once: pick them, add the fields, apply.", nullptr, true, false});
     if (!app.connected() || !players_table(app)) {
         not_connected_hint();
         return;

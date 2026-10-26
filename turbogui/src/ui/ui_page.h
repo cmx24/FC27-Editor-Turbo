@@ -39,6 +39,10 @@ struct Spec {
     const char* help;         // nullptr or one grey line, <= 100 characters
     const char* apply_label;  // nullptr = the page has no Apply; else <= 28 characters, e.g. "Apply changes"
     bool apply_enabled = true;
+    // false = the bar has no Undo (4.0 S7b): for a page where the bar Undo would mislead. Bulk edit has its own Undo that restores
+    // the whole run (the bar one takes back only the newest row of the Changes list: one player's edits); Player creation makes players, which no Undo step takes back.
+    // Every other page keeps the bar Undo (the default).
+    bool show_undo = true;
 };
 
 class Frame {
@@ -67,7 +71,7 @@ const std::string& status_text(const char* page_id);                            
 struct Record {
     std::string id, title;
     bool has_apply = false;
-    std::vector<std::string> bar;  // stable ids in drawing order: "###pg_apply", "###pg_undo", "###pg_back"
+    std::vector<std::string> bar;  // stable ids in drawing order: "###pg_apply", "###pg_undo" (not when Spec::show_undo is false), "###pg_back"
     bool undo_enabled = false, back_enabled = false;
     int frame = -1;  // ImGui frame count it was drawn in
 };
