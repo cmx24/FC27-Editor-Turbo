@@ -59,6 +59,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         show(ui);
         ui.click("###bk_actions_head", W);
         ui.frames(3);
+        {   // fix round 2: the collapsed header names Development, so a user can see the block is inside it
+            const auto* head = ui.find("###bk_actions_head", W);
+            CHECK(head != nullptr && head->label.find("development") != std::string::npos,
+                  "the Bulk edit actions header names development: " + (head ? head->label : std::string("header not drawn")));
+        }
         CHECK(ui.find("Development###bk_dev_on", W) != nullptr, "the Development box is on Bulk edit");
         // OFF by default: the three controls only open with the box, and nothing is ready to send
         CHECK(ui.find("##bk_xpmult", W) == nullptr && ui.find("##bk_bonusxp", W) == nullptr && ui.find("###bk_nodecline", W) == nullptr,

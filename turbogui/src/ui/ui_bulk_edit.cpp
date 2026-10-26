@@ -883,7 +883,7 @@ void section_apply(App& app) {
 
 void section_actions(App& app) {
     const BridgeState& st = app.bridge.state();
-    if (!ImGui::CollapsingHeader("Fitness, form and morale (career)###bk_actions_head")) return;
+    if (!ImGui::CollapsingHeader("Fitness, form, morale and development (career)###bk_actions_head")) return;
     checkbox_right("Fitness###bk_fit_on", &g_do_fit);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(S(160.0f));
