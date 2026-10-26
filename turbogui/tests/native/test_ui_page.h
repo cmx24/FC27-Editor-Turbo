@@ -70,7 +70,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(page::status_text("p").empty(), "no status at first");
         page::done("p", "saved 3 files");
         CHECK(page::status_text("p") == "Done: saved 3 files", "done: " + page::status_text("p"));
-        page::couldnt("p", "open the folder", "it does not exist yet");
+        page::couldnt(app, "p", "open the folder", "it does not exist yet");
         CHECK(page::status_text("p") == "Couldn't open the folder: it does not exist yet", "couldnt: " + page::status_text("p"));
         CHECK(page::status_text("other").empty(), "one status line per page");
         page::reset_for_tests();
@@ -153,6 +153,21 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(4);
         CHECK(app.place().page == target.page, "Back landed on the page it came from");
         CHECK(!shell::back_place().valid(), "one level: the back place is cleared");
+        page::reset_for_tests();
+    });
+
+    // Round 1 item 3: Data export's error paths used to go through App::notify(text, true), which also writes "ERROR: ..." to the log
+    // (app.cpp notify). The template's couldnt() must leave the same trace.
+    run_case("Page template: couldnt() writes the same ERROR line to the App log that notify(error) wrote", [&] {
+        page::reset_for_tests();
+        page::couldnt(app, "p", "open the folder", "it does not exist yet (log-test-1)");
+        CHECK(!app.log_lines.empty() && app.log_lines.back() == "ERROR: Couldn't open the folder: it does not exist yet (log-test-1)",
+              "log line: " + (app.log_lines.empty() ? std::string("<empty>") : app.log_lines.back()));
+        app.notify("parity (log-test-2)", true);
+        CHECK(!app.log_lines.empty() && app.log_lines.back() == "ERROR: parity (log-test-2)", "notify(error) wrote the same prefix: " + app.log_lines.back());
+        const std::string last = app.log_lines.back();
+        page::done("p", "saved 3 files");
+        CHECK(app.log_lines.back() == last, "done() writes no log line (notify(text) did not either)");
         page::reset_for_tests();
     });
 #endif

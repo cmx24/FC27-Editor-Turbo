@@ -46,9 +46,11 @@ void done(const char* page_id, const std::string& what) {
     statuses()[page_id] = "Done: " + what;
     status_is_error()[page_id] = false;
 }
-void couldnt(const char* page_id, const std::string& what, const std::string& why) {
+void couldnt(App& app, const char* page_id, const std::string& what, const std::string& why) {
     statuses()[page_id] = "Couldn't " + what + ": " + why;
     status_is_error()[page_id] = true;
+    // Parity with App::notify(text, true), which the pages used before the template: an error also goes to the log as "ERROR: ...".
+    app.log("ERROR: " + statuses()[page_id]);
 }
 const std::string& status_text(const char* page_id) {
     static const std::string none;
@@ -113,7 +115,7 @@ bool Frame::end() {
         if (ImGui::Button(label.c_str())) {
             std::string msg;
             if (changes::undo_last(app_, &msg)) done(spec_.id, msg);
-            else couldnt(spec_.id, "undo", msg);
+            else couldnt(app_, spec_.id, "undo", msg);
         }
         ImGui::EndDisabled();
         focus_outline();

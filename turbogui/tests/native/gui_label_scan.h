@@ -343,6 +343,21 @@ inline std::string mask_source(const std::string& s) {
     return o;
 }
 
+// True when the page::Frame at pos is ours: bare, `turbo::page::Frame` or `::turbo::page::Frame` (the form of the usage example in
+// ui_page.h). Any other qualifier (`shell::page::Frame`) or a glued identifier (`xpage::Frame`) is not.
+inline bool own_frame_prefix(const std::string& m, size_t pos) {
+    using namespace detail;
+    if (pos == 0) return true;
+    const char c = m[pos - 1];
+    if (ident_char(c)) return false;
+    if (c != ':') return true;
+    if (pos < 2 || m[pos - 2] != ':') return false;
+    const size_t e = pos - 2;
+    size_t b = e;
+    while (b > 0 && ident_char(m[b - 1])) --b;
+    return m.compare(b, e - b, "turbo") == 0 && e - b == 5;
+}
+
 inline std::vector<Span> template_spans(const std::string& file, const std::string& src) {
     using namespace detail;
     const std::string m = mask_source(src);
@@ -356,7 +371,7 @@ inline std::vector<Span> template_spans(const std::string& file, const std::stri
     };
     const std::string key = "page::Frame";
     for (size_t pos = m.find(key); pos != std::string::npos; pos = m.find(key, pos + key.size())) {
-        if (pos > 0 && (ident_char(m[pos - 1]) || m[pos - 1] == ':')) continue;  // shell::page::Frame is not ours
+        if (!own_frame_prefix(m, pos)) continue;  // shell::page::Frame is not ours; bare, turbo:: and ::turbo:: are
         size_t p = pos + key.size();
         while (p < n && std::isspace(static_cast<unsigned char>(m[p]))) ++p;
         const size_t id0 = p;
