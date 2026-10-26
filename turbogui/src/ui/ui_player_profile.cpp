@@ -203,15 +203,6 @@ const std::vector<std::pair<const char*, std::vector<const char*>>>& attribute_g
     return g;
 }
 
-// 4.0 S6: what the tab said, in drawing order (the sections and the coded fields in words), read by the native test through turbo_ability_words_40.
-// Plain text is not an ImGui item, so this is the only way a test sees it.
-#ifdef IMGUI_ENABLE_TEST_ENGINE  // test builds only: the shipped DLL keeps no trace
-std::vector<std::string> g_awords;
-void say(const std::string& s) { g_awords.push_back(s); }
-#else
-inline void say(const std::string&) {}
-#endif
-
 // The ticked boxes of a bit field in words: "Finesse Shot, Rapid"; "none ticked" when nothing is on. A box past the name list reads
 // "Unnamed trait 15" (`unnamed` is "Unnamed trait %d" or "Unnamed PlayStyle %d"): no new catalogue, the number is the box.
 std::string ticked_names(const Field& f, const Value& v, const std::vector<const char*>& names, const char* unnamed) {
@@ -258,7 +249,6 @@ void positions_block(App& app, const Table& t, uint64_t rec) {
     }
     // the same positions as one line: it stays readable when the combos are narrow
     if (in_words.empty()) in_words = "none set";
-    say("words positions: " + in_words);
     theme::muted_text("Plays as: %s", in_words.c_str());
 }
 
@@ -313,7 +303,6 @@ void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, c
     const int bits = std::min(f->depth, 62);
     // 4.0 S6: the ticked boxes in words, above the grid (the grid is long; this is what the player has at a glance)
     const std::string ticked = ticked_names(*f, v, names, unnamed);
-    say(std::string("words ") + title + ": " + ticked);
     theme::muted_text("Ticked: %s", ticked.c_str());
     if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
         // 2.22: a header row (the tick boxes below are the ones this field has)
@@ -384,7 +373,6 @@ void archetype_stand_in(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Puts back everything the last Overall +1 / -1 click changed (the Undo button at the top is for single fields)");
     const char* more = "Reshaping to a player type is not available here; Overall +1 / -1 still works.";
-    say(std::string("help stand-in: ") + more);
     theme::muted_text("%s", more);
 }
 
@@ -396,9 +384,6 @@ void ability_editor(App& app, void*) {
     g_astate.position_rows = 0;
     g_astate.attribute_sliders = 0;
     g_astate.playstyle_boxes = 0;
-#ifdef IMGUI_ENABLE_TEST_ENGINE
-    g_awords.clear();
-#endif
     const Table* t = nullptr;
     const PlayerRow* p = nullptr;
     if (!picked(app, t, p)) {
@@ -416,7 +401,6 @@ void ability_editor(App& app, void*) {
     // Open at first, collapsible, remembered (gui.sections_open "ability.type_tier").
     g_astate.type_tier_shown = false;
     g_astate.bar_calls = 0;
-    say("section ab_typetier");
     if (collapsing_section(app, "ability.type_tier", "Player type & tier###ab_typetier", true)) {
         g_astate.type_tier_shown = true;
         archetype_populate_panel(app, *t, *p);
@@ -429,15 +413,12 @@ void ability_editor(App& app, void*) {
             archetype_stand_in(app, *t, *p);
         }
     }
-    say("section ab_ovr");
     if (section("Overall and potential###ab_ovr")) {
         field_grid(app, *t, p->rec, {"overallrating", "potential", "modifier"}, "##ab_ovrgrid", 3);
         theme::muted_text("Typing an overall moves the attributes that count most for his position.");
         reapply_player_line(app, *p);  // kept for every career load, his development plan
     }
-    say("section ab_positions");
     if (section("Positions###ab_positions")) positions_block(app, *t, p->rec);
-    say("section ab_style");
     if (section("Playing style and roles###ab_style")) {
         field_grid(app, *t, p->rec,
                    {"preferredfoot", "weakfootabilitytypecode", "skillmoves", "attackingworkrate", "defensiveworkrate", "skillmoveslikelihood",
@@ -451,7 +432,6 @@ void ability_editor(App& app, void*) {
                 if (rv != 0) roles += (roles.empty() ? "" : ", ") + labels::describe("players", "role" + std::to_string(k), rv);
             }
             if (roles.empty()) roles = "none set";
-            say("words roles: " + roles);
             theme::muted_text("Roles: %s", roles.c_str());
         }
         if (ImGui::TreeNodeEx("Roles###ab_roles", ImGuiTreeNodeFlags_SpanAvailWidth)) {
@@ -461,15 +441,12 @@ void ability_editor(App& app, void*) {
     }
     // 2.22: G-pickers' Set-pieces card (penalty and free-kick takers), ui_setpiece_card.cpp
     setpiece_card::draw(app, p->playerid);
-    say("section ab_attrs");
     if (section("Attributes###ab_attrs")) attribute_sliders(app, *t, p->rec);
-    say("section ab_styles");
     if (section("PlayStyles and traits###ab_styles")) {
         struct Set { const char* title; const char* field; bool second; };
         const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
         for (const Set& s : sets) {
             ImGui::SeparatorText(s.title);
-            say(std::string("help ") + s.title + ": " + set_help(s.title));
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", set_help(s.title));
             playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title,
                            s.second ? "Unnamed trait %d" : "Unnamed PlayStyle %d");
@@ -512,9 +489,3 @@ void draw_player_ability(App& app) {
 void draw_player_ability_editor(App& app) { editor_scroll(app, ability_editor); }
 
 }  // namespace turbo
-
-// 4.0 S6 (test hook, global namespace on purpose: tests/native/test_ability_40.h declares it weak). What the Positions, attributes & PlayStyles tab said
-// in words in its last frame, in drawing order. Nothing else reads it.
-#ifdef IMGUI_ENABLE_TEST_ENGINE
-const std::vector<std::string>& turbo_ability_words_40() { return turbo::g_awords; }
-#endif
