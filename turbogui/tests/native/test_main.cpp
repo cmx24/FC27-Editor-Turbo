@@ -3801,6 +3801,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
+#include "test_team_squad_40.h"  // 4.0 S4: Team > Squad page (ui/ui_team_squad_page.h; team_squad_40_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
@@ -9892,6 +9893,7 @@ static void test_ui() {
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
         ui_page_test::ui_cases(app, ui, le);  // test_ui_page.h: the page template and its worked example (4.0 S1)
+        team_squad_40_test::ui_cases(app, ui, le);  // test_team_squad_40.h: Team > Squad (4.0 S4)
         page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)

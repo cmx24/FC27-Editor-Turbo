@@ -13,11 +13,13 @@
 #include "ui_identity.h"
 #include "ui_images.h"
 #include "ui_kits.h"
+#include "ui_page.h"
 #include "ui_parity.h"
 #include "ui_role_rules.h"
 #include "ui_tactic_presets.h"
 #include "ui_team_filter.h"
 #include "ui_team_pages.h"
+#include "ui_team_squad_page.h"
 
 namespace turbo {
 
@@ -585,6 +587,36 @@ void draw_teams(App& app) {
     ImGui::SameLine();
     ImGui::BeginChild("##tedit", ImVec2(0, 0));
     team_editor(app);
+    ImGui::EndChild();
+}
+
+// 4.0 S4: Team > Squad. The club picker of the Teams page (team_list) and the squad table (squad_table, table "##squad", sort and
+// restore logic untouched) inside the one page frame. Opening it with no club picked shows the user's club, as "My club" does.
+void draw_team_squad_page(App& app) {
+    page::Frame f(app, {"team_squad", "Squad", "Pick a club on the left. Click a header to sort; Jersey and Line-up slot are editable.", nullptr});
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    if (!app.model.team(app.sel_team) && app.bridge.state().user_team > 0) app.sel_team = app.bridge.state().user_team;
+    ImGui::BeginChild("##sqpick", ImVec2(S(360.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    team_list(app);
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("##sqbody", ImVec2(0, 0));
+    const TeamRow* tr = app.model.team(app.sel_team);
+    if (!tr) {
+        ImGui::TextDisabled("Select a team on the left.");
+    } else {
+        draw_legacy_picture(app, crest_main_path(tr->teamid), S(40.0f), true);
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::Text("%s", tr->name.c_str());
+        ImGui::TextDisabled("overall %d%s", tr->overall, app.model.is_national_team(tr->teamid) ? ", national team" : "");
+        ImGui::EndGroup();
+        ImGui::Separator();
+        squad_table(app, tr->teamid);
+    }
     ImGui::EndChild();
 }
 
