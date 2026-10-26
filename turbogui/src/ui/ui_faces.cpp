@@ -1954,19 +1954,26 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
         if (ImGui::Button("Clear filters")) ch.filter.clear();
     }
 
-    ImGui::TextDisabled("Also give:");
-    ImGui::SameLine();
-    ImGui::Checkbox("Hair", &ch.opts.hair);
-    ImGui::SameLine();
-    ImGui::Checkbox("Beard", &ch.opts.beard);
-    ImGui::SameLine();
-    ImGui::Checkbox("Eyes", &ch.opts.eyes);
-    ImGui::SameLine();
-    ImGui::Checkbox("Skin", &ch.opts.skin);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", "The skin tone always comes with the head (it goes with it).\n"
-                                "Skin adds the skin type, complexion, surface and make-up.");
-    ImGui::SameLine();
+    // 3.2 f3 (brief Amendment B, Cassio's q6 "agree"): hair, beard, eyes and skin are changed in the one picker of each look
+    // (Appearance / Looks), no longer here: the head is given with those copy options off (head fields + skin tone only).
+    // The managers' Eyes and Skin boxes stay (held, owner q6-nopicker): the manager card (Career / Teams > Appearance) has
+    // hair and beard galleries but no eye-colour or skin-tone picker, only the raw "Appearance fields" grid.
+    ch.opts.hair = ch.opts.beard = false;
+    if (manager_target) {
+        ImGui::TextDisabled("Also give:");
+        ImGui::SameLine();
+        ImGui::Checkbox("Eyes", &ch.opts.eyes);
+        ImGui::SameLine();
+        ImGui::Checkbox("Skin", &ch.opts.skin);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", "The skin tone always comes with the head (it goes with it).\n"
+                                    "Skin adds the skin type, complexion, surface and make-up.");
+        ImGui::SameLine();
+    } else {
+        ch.opts.eyes = ch.opts.skin = false;
+        ImGui::TextDisabled("Hair, beard, eyes and skin: use their pickers (Appearance).");
+        ImGui::SameLine();
+    }
     ImGui::TextDisabled("| his real picture is kept; with none, one is made (careers only)");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", manager_target ? "A picture he already has (the game's, or one Turbo did not make) is never replaced.\n"

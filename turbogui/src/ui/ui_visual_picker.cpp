@@ -275,7 +275,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         if (light) {
             all.push_back(only);
         } else {
-            if (d) {
+            // 3.2 (charter 19.17, brief Amendment A2): the CODE SET of a gallery field is the game's list (gallery_entries below);
+            // the RDBM26 set is a picture source only. Its codes join the list only where the game lists nothing for the field
+            // (no hash list and no catalogue) or the field has no gallery.
+            if (d && (!gal || ge.empty())) {
                 const vis::CodeDef* b = vis::codes_begin(*d);
                 for (int i = 0; i < d->count; ++i) all.push_back(b[i].code);
             }

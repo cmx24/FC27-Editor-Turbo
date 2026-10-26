@@ -444,6 +444,12 @@ inline void ui_cases_safety(App& app, Ui& ui, const fs::path& le) {
                  CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
                  ui.frames(3);
                  CHECK(ui.find("His own head##faces") != nullptr, "the chooser has the His own head button");
+                 // 3.2 f3 (charter 19.17, Amendment B1): hair, beard, eyes and skin are given by their own pickers, not by copy boxes here
+                 if (const auto* own_btn = ui.find("His own head##faces")) {
+                     CHECK(ui.find("Hair", own_btn->window) == nullptr && ui.find("Beard", own_btn->window) == nullptr && ui.find("Eyes", own_btn->window) == nullptr &&
+                               ui.find("Skin", own_btn->window) == nullptr,
+                           "ONE PICKER: the player's real-face chooser has no Hair / Beard / Eyes / Skin copy boxes (their pickers are in Appearance)");
+                 }
                  ui.click("Close##faces");
                  ui.frames(2);
                  while (app.undo_count(3001) > undo0) app.undo(3001);

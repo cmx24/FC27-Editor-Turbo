@@ -38,9 +38,10 @@
         {"studio-body-card", "ui_looks_studio.cpp", "body_grid_codes(&cat, current, gender, manager)", "shared-fn", "bodytypecode", "", ""},
         {"studio-field-combo", "ui_looks_studio.cpp", "field_combo(app, s, t, rec, who, f.first", "vp", "generic-head hair / beard type and colour", "", ""},
         {"gallery-choose", "ui_images.cpp", "vp::open(app, t, rec, g.field, manager)", "vp", "hair, beard, boots, gloves, accessories", "", ""},
+        {"kit-inline", "ui_images.cpp", "vp::inline_field(app, t, rec, k[0], k[1])", "vp", "socklengthcode, jerseysleevelengthcode (Socks and sleeves)", "", ""},
         // ---- duplicates that must draw from the one catalogue (compared while present)
         {"gallery-combo", "ui_images.cpp", "enum_editor(app, t, rec, *f, nullptr, S(240.0f));  // its name (", "combo", "hair, beard, boots, gloves, accessories", "", ""},
-        {"kit-combo", "ui_images.cpp", "{\"sockstylecode\", \"Sock style\"}, {\"socklengthcode\", \"Sock length\"}", "combo", "socklengthcode, jerseysleevelengthcode as enum combos next to their vp rows", "", ""},
+        {"kit-combo", "ui_images.cpp", "{\"sockstylecode\", \"Sock style\"}, {\"socklengthcode\"", "combo", "socklengthcode, jerseysleevelengthcode as enum combos next to their vp rows", "", ""},
         // ---- held
         {"faces3d-gallery", "ui_faces3d_gate.cpp", "gallery_picker(app, \"", "faces3d", "hair / beard in the faces3d band (own codes 9999 / 511, base 8039 / 335)", "faces3d-proven",
          "Apply hair & beard is proven in game (CHANGELOG.md:115); its band codes are not the DB codes, writer not changed here"},
@@ -255,6 +256,8 @@
             const std::vector<int64_t> gc = gallery_codes(app, "tattoohead");
             std::printf("  ONE-PICKER held tattoos (blocked-new-logic), for the report: vp group %zu codes, the tattoo popup's game list %zu codes\n", v.size(), gc.size());
         }
+        // the other half of the kit rule: where the combos are gone, the vp rows must be there
+        CHECK(kit_present || present.count("kit-inline"), "the sock length / sleeves rows are inline rows of the one picker (vp::inline_field) once the kit combo is gone");
         CHECK(compared >= 6, fmt("fields compared (%d)", compared));
         std::printf("  ONE-PICKER compared %d fields; gallery combo %s, kit combo %s\n", compared, combo_present ? "PRESENT" : "gone", kit_present ? "PRESENT" : "gone");
 

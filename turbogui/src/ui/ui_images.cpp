@@ -1712,7 +1712,10 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                 placeholder(thumb, "none");
             }
             ImGui::TableNextColumn();
-            enum_editor(app, t, rec, *f, nullptr, S(240.0f));  // its name ("Adidas boots #16"), or the id where there is none
+            // 3.2 (charter 19.17): its name ("Adidas boots #16"), or the id where there is none, as text. The choice itself is made in the ONE
+            // picker (Choose... below, ui_visual_picker.cpp); the combo that used to sit here listed a second code set (in use + named + range).
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(app.describe_value(t, *f, Value::of_int(v.i)).c_str());
             ImGui::TableNextColumn();
             // 2.22: hair, beard, boots, gloves and accessories open the ONE merged grid of ui_visual_picker.cpp (RDBM26 picture, else
             // this gallery's preview, else a grey tile); the rest (the manager outfit) keeps the gallery window below
@@ -1853,13 +1856,17 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
         // socks and kit sleeves: no preview pictures in the game, so named lists (Live Editor's names, field_labels.h).
         // Written by Turbo into the players table; the game's own career editor pickers for these are never used here.
         bool header = false;
-        static const char* const kKit[][2] = {{"sockstylecode", "Sock style"}, {"socklengthcode", "Sock length"},
-                                              {"jerseysleevelengthcode", "Sleeves"}};
-        for (const auto& k : kKit) {
-            const Field* f = t.field(k[0]);
-            if (!f) continue;
+        // 3.2 (charter 19.17): sock length and sleeves have a picker set (Kit and boots group, ui_visual_picker.cpp), so they are
+        // inline rows of the ONE picker; only the sock style (no set) keeps its named list.
+        if (const Field* f = t.field("sockstylecode")) {
+            ImGui::SeparatorText("Socks and sleeves"), header = true;
+            enum_editor(app, t, rec, *f, "Sock style", S(240.0f));
+        }
+        static const char* const kKitPicked[][2] = {{"socklengthcode", "Sock length"}, {"jerseysleevelengthcode", "Sleeves"}};
+        for (const auto& k : kKitPicked) {
+            if (!t.field(k[0])) continue;
             if (!header) ImGui::SeparatorText("Socks and sleeves"), header = true;
-            enum_editor(app, t, rec, *f, k[1], S(240.0f));
+            vp::inline_field(app, t, rec, k[0], k[1]);
         }
     }
     if (app.legacy.waiting() > 0) waiting_hint();
