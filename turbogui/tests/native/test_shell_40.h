@@ -18,7 +18,7 @@
 //     the board), so "Open Lab > Tactics (experimental)" on Tactics > Game sliders works again; the Career database copy is in Lab > Maintenance (row 11);
 //   - with the flag off the old tree keeps its areas, strips and pages (the existing cases keep passing; the strips are checked again here),
 //     with two deliberate changes: the checkbox "Preview the 4.0 menus" sits above the Lab pages, and a framed page (Data export and every
-//     page listed in page_has_frame) loses the shell's "< Back" above its own Back (app.cpp:1924);
+//     page listed in page_has_frame) loses the shell's "< Back" above its own Back (app.cpp:1927);
 //   - 4.0 integration (S3 merge): each Team tab draws its 4.0 page frame (Squad = S4's team_squad), page_has_frame is checked in the old tree
 //     too, and the card's Profile tab carries S8's contract actions with the Team status carried once into the card's line.
 // These cases FAIL on the base without tree40 (ce664c6b); the throwaway run that shows it is in the board row.
@@ -407,6 +407,29 @@ static void ui_cases(App& app, Ui& ui) {
             }
         }
         CHECK(compared > 5, "the sweep compared pages with a back place (" + std::to_string(compared) + ")");
+    });
+
+    // 4.0 rehearsal (merged-head review P2): app.cpp:1927 keeps the frame's Back alone on ONE page with the old pages on: the 4.0 tree's
+    // Team > Squad, which draw_page draws as S4's framed team_squad page in both paths. Without the `|| Squad` branch both Backs stand.
+    run_case("Shell 4.0: with the old pages on and the 4.0 menus on, Team > Squad draws exactly one Back (the frame's)", [&] {
+        State st(app, ui);
+        app.legacy_pages = true;
+        app.prefs.advanced_mode = true;
+        tree40() = true;
+        app.go(Page::Home);
+        ui.frames(3);
+        const int before = ImGui::GetFrameCount();
+        CHECK(ui.open_page("Team", "Squad"), "Team > Squad opens by the clicks");
+        ui.frames(2);
+        CHECK(app.place() == place_of(Page::Squad), "on Team > Squad");
+        const Place bp = back_place();
+        CHECK(bp.valid() && bp.page != Page::Squad && page_visible(bp.page, true), "Team > Squad has a back place");
+        const turbo::page::Record* r = turbo::page::last_record("team_squad");
+        CHECK(r != nullptr && r->frame > before, "with the old pages on, Team > Squad still draws S4's framed page team_squad");
+        const bool framed = ui.find("###pg_back") != nullptr;
+        const bool shell_back = ui.find("###nav_back") != nullptr;
+        CHECK(framed && !shell_back, std::string("old pages on + 4.0 menus, Squad: one Back, the frame's (frame's ") + (framed ? "yes" : "no") +
+                                         ", shell's " + (shell_back ? "yes" : "no") + ")");
     });
 
     // 4.0 integration (S3 merge, ask (2), brief 4.0-gui-pages :77-80 + q3): the player card of the 4.0 tree carries S8's
