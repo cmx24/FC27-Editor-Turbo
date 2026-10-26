@@ -145,35 +145,33 @@
             GImGui->NavHighlightItemUnderNav = false;
             ImGui::GetIO().AddMousePosEvent(4.0f, 4.0f);
             ui.frames(2);
-            // The heading (a separator text) has no item id, so the registry does not list it; the table header "PlayStyles" right below it does.
-            // At the end of the tab that header is the first thing in the window (the heading is above the visible part), so the tab goes back to its
-            // top, where the heading is in view, and the mouse rests at every height of the window, as a user moving down the page would, until the
-            // help shows
+            // The heading (a separator text) has no item id, so the registry does not list it; the first tick box below it (###ab_bit0) is the one
+            // item of that set with a stable id. The tab is at its top, where the box and the heading above it are in view, and the mouse rests at
+            // every height of the editor window down to that box, as a user moving down the page would, until the help shows. (The registry's clip
+            // of a table item is the table's own, so the window's inner rectangle is used for the top.)
             profile_page_test::to_top(ui);
-            const ItemRec* col = profile_page_test::reach(ui, "PlayStyles", W);
-            if (col) {
+            const ItemRec* box = profile_page_test::reach(ui, "###ab_bit0", W);
+            ImGuiWindow* ew = nullptr;
+            for (ImGuiWindow* w : GImGui->Windows)
+                if (!ew && w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) ew = w;
+            if (box && ew) {
                 found = true;
-                const float x = col->rect.Min.x + 24.0f, y0 = col->rect.Min.y, ymin = col->clip.Min.y + 2.0f, ymax = col->clip.Max.y - 2.0f;
+                const float x = box->rect.Min.x + 24.0f, top = ew->InnerClipRect.Min.y + 2.0f;
                 int tries = 0;
-                for (float y = ymin; y < ymax && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 4.0f, ++tries) {
+                for (float y = top; y < box->rect.Min.y && tries < 400 && !has(tip, "Special skills shown on his card; tick the ones he has"); y += 3.0f, ++tries) {
                     ImGui::GetIO().AddMousePosEvent(x, y);
                     ui.frames(2);
                     tip = page_log();
                 }
-                float scroll_y = -1.0f, scroll_max = -1.0f;
-                for (ImGuiWindow* w : GImGui->Windows)
-                    if (w->Name && std::strstr(w->Name, "##profilepage_test/##editor_")) {
-                        scroll_y = w->Scroll.y;
-                        scroll_max = w->ScrollMax.y;
-                    }
-                diag += " [swept " + std::to_string(tries) + " heights, y " + std::to_string(int(ymin)) + ".." + std::to_string(int(ymax)) +
-                        " at x " + std::to_string(int(x)) + "; the grid header is at y " + std::to_string(int(y0)) + ", scroll " +
-                        std::to_string(int(scroll_y)) + "/" + std::to_string(int(scroll_max)) + ", header label '" + col->label + "', hovered window '" +
+                diag += " [swept " + std::to_string(tries) + " heights from y " + std::to_string(int(top)) + " at x " + std::to_string(int(x)) +
+                        " to the first tick box at y " + std::to_string(int(box->rect.Min.y)) + "; editor window " + std::to_string(int(ew->InnerClipRect.Min.y)) +
+                        ".." + std::to_string(int(ew->InnerClipRect.Max.y)) + " scroll " + std::to_string(int(ew->Scroll.y)) + "/" +
+                        std::to_string(int(ew->ScrollMax.y)) + ", hovered window '" +
                         std::string(GImGui->HoveredWindow ? GImGui->HoveredWindow->Name : "none") + "' active id " + std::to_string(GImGui->ActiveId) +
                         " nav cursor " + std::to_string(GImGui->NavCursorVisible) + "; items labelled PlayStyles at y";
                 for (const auto& kv : g_items)
                     if (kv.second.frame == g_frame && kv.second.label.find("PlayStyles") != std::string::npos)
-                        diag += " " + std::to_string(int(kv.second.rect.Min.y)) + "('" + kv.second.label + "')";
+                        diag += " " + std::to_string(int(kv.second.rect.Min.y)) + "('" + kv.second.label + "' in " + kv.second.window + ")";
                 diag += "]";
             }
             CHECK(found, "the PlayStyles heading is on the page");
