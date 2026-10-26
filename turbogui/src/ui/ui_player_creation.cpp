@@ -15,6 +15,7 @@
 #include "move_rules.h"
 #include "table_registry.h"
 #include "ui_career_page.h"
+#include "ui_page.h"
 #include "ui_player_page.h"
 #include "ui_presets.h"
 #include "ui_shell.h"
@@ -299,6 +300,10 @@ void draw_from_player(App& app) {
 const PlayerCreationState& player_creation_state() { return g_state; }
 
 void draw_player_creation(App& app) {
+    // 4.0 (S7): the page template. The staged action stays the shell footer "Create like him..." of the two-pane layout (same call as
+    // before), so the frame has no Apply of its own; its bar gives the global Undo and Back.
+    page::Frame f(app, {"player_creation", "Player creation",
+                        "Make a player from one in your career, or take one from the CMTracker library.", nullptr});
     if (!app.connected()) {
         not_connected_hint();
         return;

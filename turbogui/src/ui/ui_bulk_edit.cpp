@@ -20,6 +20,7 @@
 #include "imgui.h"
 #include "playstyles.h"
 #include "ui_career_page.h"  // TURBO_WEAK
+#include "ui_page.h"
 #include "ui_team_filter.h"
 #include "ui_theme.h"
 
@@ -1103,6 +1104,9 @@ void run_to_end(App& app, int max_frames) {
 // ---------------------------------------------------------------- the page
 void draw_bulk_edit(App& app) {
     using namespace bulkedit;
+    // 4.0 (S7): the page template. The staged Apply (preview, big-run confirm, the page's own Undo) stays in the body as section 3; the
+    // frame has no Apply of its own, its bar gives the global Undo and Back.
+    page::Frame f(app, {"bulk_edit", "Bulk edit", "Change one or more fields for many players at once: pick them, add the fields, apply.", nullptr});
     if (!app.connected() || !players_table(app)) {
         not_connected_hint();
         return;
@@ -1111,8 +1115,8 @@ void draw_bulk_edit(App& app) {
     const float prev_label_w = form_label_width();
     form_label_width(S(110.0f));
     step_run(app, kPerFrame);
-    ImGui::TextWrapped("Change one or more fields for many players at once. Pick the players, add the fields, then apply. Each edit goes through the "
-                       "same checks as the Player editor.");
+    // (the first sentence of the old intro is now the page::Frame help above; a template page keeps its grey hints to 100 characters)
+    ImGui::TextWrapped("Each edit goes through the same checks as the Player editor.");
     section_who(app);
     section_what(app, t);
     section_apply(app);
