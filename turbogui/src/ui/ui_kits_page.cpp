@@ -161,6 +161,23 @@ struct KitsCtx {
     bool waiting = false;       // the game's own minikit is still loading
 };
 
+// 4.0 S9 fix round 3: the ONE path of every Apply on this page (the bar Apply and "Apply all N kits"). It applies, then arms the status line:
+// draw_kits_page reads the outcome when the staging worker has ended. A button that called apply_items itself left the line at an earlier "Done".
+static bool g_apply_pending = false;  // an Apply was pressed and its result is not on the status line yet
+static std::string g_apply_why;       // why the database part of that Apply failed, read the moment apply_items returned
+void apply_and_track(App& app, int64_t team, const std::vector<size_t>& which) {
+    apply_items(app, team, which);
+    invalidate_look();
+    g_apply_pending = true;
+    // The outcome of the database part is read HERE: poll_jobs replaces the panel line with "textures staged..." when the worker ends.
+    // Only the items just applied (which) count, not a stale "not applied" item of another slot.
+    g_apply_why.clear();
+    for (size_t i : which)
+        if (g_apply_why.empty() && kit_panel_status(i).rfind("not applied", 0) == 0) g_apply_why = kit_panel_status(i);
+    // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
+    if (g_apply_why.empty() && kit_panel_line().find("was not saved") != std::string::npos) g_apply_why = kit_panel_line();
+}
+
 void select_panel(App& app, void* user) {
     KitsCtx& c = *static_cast<KitsCtx*>(user);
     theme::muted_text("Club");
@@ -500,10 +517,7 @@ void more_section(App& app, int64_t team, KitsCtx& c) {
         const bool can = !busy && !waiting && app.model.team(team);
         if (!can) ImGui::BeginDisabled();
         const std::string all = "Apply all " + std::to_string(ready.size()) + " kits##kpall";
-        if (ImGui::Button(all.c_str())) {
-            apply_items(app, team, ready);
-            invalidate_look();
-        }
+        if (ImGui::Button(all.c_str())) apply_and_track(app, team, ready);
         if (!can) ImGui::EndDisabled();
     }
     (void)c;
@@ -597,23 +611,10 @@ void draw_kits_page(App& app) {
     else shell::page::frame(app, select_panel, editor_panel, &ctx, nullptr);
     const bool clicked = f.end();
     if (!on) return;
-    static bool apply_pending = false;  // an Apply was pressed and its result is not on the status line yet
-    static std::string apply_why;       // why the database part of that Apply failed, read the moment apply_items returned
-    if (clicked && can_apply) {
-        apply_items(app, ctx.team, ctx.which);
-        invalidate_look();
-        apply_pending = true;
-        // The outcome of the database part is read HERE: poll_jobs replaces the panel line with "textures staged..." when the worker ends.
-        // Only the items just applied (ctx.which) count, not a stale "not applied" item of another slot.
-        apply_why.clear();
-        for (size_t i : ctx.which)
-            if (apply_why.empty() && kit_panel_status(i).rfind("not applied", 0) == 0) apply_why = kit_panel_status(i);
-        // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
-        if (apply_why.empty() && kit_panel_line().find("was not saved") != std::string::npos) apply_why = kit_panel_line();
-    }
-    if (apply_pending && !kit_panel_busy()) {
-        apply_pending = false;
-        std::string why = apply_why;
+    if (clicked && can_apply) apply_and_track(app, ctx.team, ctx.which);
+    if (g_apply_pending && !kit_panel_busy()) {
+        g_apply_pending = false;
+        std::string why = g_apply_why;
         // The worker may have ended in this very frame (a missing zip ends it at once), after apply_items and before the next frame's poll_jobs:
         // consume its result now, so the line read below is the staging line and a texture that could not be staged ends it with "; not staged: <why>"
         poll_jobs(app);
