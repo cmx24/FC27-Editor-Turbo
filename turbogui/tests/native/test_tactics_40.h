@@ -3,13 +3,14 @@
 // window "##t40_page" through the Ui hook g_ui_extra (the pages are shared by the old and the 4.0 menus; no registry is needed).
 //
 // What is guarded (the three page cases FAIL on the base 64242633 = ce664c6b plus a tools text file, where no Tactics page constructs a
-// page::Frame and Game sliders is only a pointer to the Lab; the Lab-copy case is a regression guard and PASSES on the base):
+// page::Frame; the Lab-copy case is a regression guard and PASSES on the base). Pit wall decision 2026-10-25, replacing brief S10 lines
+// 176-178: Game sliders stays a pointer to the Lab (GUI30K, 3.0.1), because `turbo_settings_apply.exe --apply` fails at cold boot.
 //   - Tactics > Presets, Team sheet & bench and Game sliders each construct page::Frame with their own id and title, have no Apply
-//     (Apply preset / Prepare stay inside their panels) and carry the bar Undo, Back;
+//     (Apply preset stays inside its panel) and carry the bar Undo, Back;
 //   - Team sheet & bench still shows the captain and takers read-out (the existing button "Read from the game") and the bench option;
-//   - Game sliders draws the offline slider section (the same function the Lab draws): its list Refresh, Prepare, the heading and the
-//     honest "no effect seen in game" label verbatim; the old pointer (moved_note, "Open Lab ...") is gone;
-//   - the Lab page still draws its own copy of the section (deletion target until the in-game PASS).
+//   - Game sliders is the GUI30K pointer drawn inside the frame: where the section went, the honest "no effect seen in game" label
+//     verbatim, the link (###gsmoved), and NO slider staging (no list, no Refresh, no Prepare);
+//   - the Lab page still draws the section (heading and label).
 #pragma once
 #include "ui/ui_page.h"
 #include "ui/ui_tactic_presets.h"
@@ -84,22 +85,30 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         page::reset_for_tests();
     });
 
-    run_case("S10 Tactics > Game sliders: inside page::Frame; draws the offline slider section with the honest label, no pointer", [&] {
-        changes_page_test::Sandbox sb(app, ui);
-        tactics_pages_reset();
-        page::reset_for_tests();
-        show(ui, draw_game_sliders_page, 8);
-        check_frame("game_sliders", "Game sliders");
-        const GameSlidersPageState& s = game_sliders_page_state();
-        CHECK(s.drawn, "the page body ran");
-        CHECK(!s.moved_note, "no pointer page any more");
-        CHECK(find(ui, "###gsmoved") == nullptr, "no 'Open Lab' button");
-        CHECK(s.lab_heading == kOfflineSlidersHeading && s.lab_label == kOfflineSlidersLabel, "the section heading and the label were drawn verbatim");
-        CHECK(s.lab_label.find("No effect seen in game") == 0, "the label still says no effect was seen in game");
-        CHECK(find(ui, "###gsrefresh") != nullptr, "the list's Refresh is on the page");
-        CHECK(find(ui, "Prepare###gsprepare") != nullptr, "Prepare is on the page (it stays inside the section)");
-        hide(ui);
-        page::reset_for_tests();
+    run_case("S10 Tactics > Game sliders: the GUI30K pointer inside page::Frame; no slider staging on the Tactics page", [&] {
+        const bool was_adv = app.prefs.advanced_mode;
+        for (bool adv : {false, true}) {
+            changes_page_test::Sandbox sb(app, ui);
+            app.prefs.advanced_mode = adv;
+            tactics_pages_reset();
+            page::reset_for_tests();
+            show(ui, draw_game_sliders_page, 8);
+            const std::string how = adv ? " (Lab on)" : " (Lab off)";
+            check_frame("game_sliders", "Game sliders");
+            const GameSlidersPageState& s = game_sliders_page_state();
+            CHECK(s.drawn, "the page body ran" + how);
+            CHECK(s.moved_note, "the pointer says where the section went" + how);
+            CHECK(find(ui, "###gsmoved") != nullptr, "the link to the Lab / Settings is there" + how);
+            CHECK(find(ui, "###gsrefresh") == nullptr && find(ui, "Prepare###gsprepare") == nullptr && find(ui, "###gsel0") == nullptr,
+                  "no list, no Refresh, no Prepare on the Tactics page" + how);
+            CHECK(s.lab_heading.empty() && s.lab_label.empty(), "the offline slider section was not drawn here" + how);
+            const std::string txt = logged_frame(ui);
+            CHECK(txt.find(kOfflineSlidersLabel) != std::string::npos, "the honest 'no effect seen in game' label is on screen, verbatim" + how);
+            CHECK(txt.find("Game sliders moved to the Lab") != std::string::npos, "the page says where the sliders went" + how);
+            hide(ui);
+            page::reset_for_tests();
+        }
+        app.prefs.advanced_mode = was_adv;
     });
 
     run_case("S10 Lab > Tactics (experimental) keeps its own copy of the section until the in-game PASS", [&] {

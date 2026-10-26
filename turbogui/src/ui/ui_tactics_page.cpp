@@ -564,12 +564,28 @@ const char* const kOfflineSlidersHeading = "Offline slider file (experimental)";
 const char* const kOfflineSlidersLabel =
     "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
 
-// 4.0 S10: Tactics > Game sliders draws the offline slider section (below) in the page frame, the same function the Lab page calls, with
-// its heading and its honest "no effect seen in game" label. It replaces the 3.0.1 (GUI30K) pointer page ("moved to the Lab").
+// 3.0.1 (GUI30K), kept in 4.0 S10 (Pit wall decision 2026-10-25: `turbo_settings_apply.exe --apply` fails at cold boot, F9 row of
+// reviews/triage_consolidated_2026-10-25.md:42): the Tactics area shows no slider staging. The page stays registered (Home's Game sliders
+// button and Changes & undo open it), sits in page::Frame, and says where the section went; nothing on it stages. The offline slider
+// section stays Lab-only (draw_lab_tactics_page below).
 void draw_game_sliders_page(App& app) {
     s3.drawn = true;
-    page::Frame frame(app, {"game_sliders", "Game sliders", "Prepare a slider preset here and install it later. No effect in the game has been seen yet.", nullptr});
-    draw_offline_slider_section(app);  // has its own try / catch
+    s3.moved_note = true;
+    page::Frame frame(app, {"game_sliders", "Game sliders", "The slider file moved to the Lab: it had no effect in the game when last tried.", nullptr});
+    try {
+        const bool adv = app.prefs.advanced_mode;
+        ImGui::TextWrapped("Game sliders moved to the Lab: Tactics (experimental), section \"%s\".", kOfflineSlidersHeading);
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
+        ImGui::TextWrapped("%s", kOfflineSlidersLabel);
+        ImGui::PopStyleColor();
+        if (!adv) theme::muted_text("Settings > \"Show the Lab (tools not proven in game)\" adds the Lab to the left menu.");
+        const std::string go = std::string(adv ? "Open Lab > Tactics (experimental)" : "Open Settings") + "###gsmoved";
+        if (ImGui::Button(go.c_str())) app.go(adv ? shell::Page::AdvTactics : shell::Page::Settings);
+    } catch (const std::exception& e) {
+        theme::err_text("Game sliders error: %s", e.what());
+    } catch (...) {
+        theme::err_text("Game sliders error");
+    }
     frame.end();
 }
 
