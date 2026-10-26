@@ -23,6 +23,8 @@ struct PlayerRow;
 // ---- Profile: names, commentary name, personal details, club and contract (read only, with a link to Team > Players)
 void draw_player_profile(App& app);         // [list | editor]
 void draw_player_profile_editor(App& app);  // the editor alone, for App::sel_player
+// [list | editor] with `below(app)` drawn at the end of the editor for the picked player (the 4.0 card: S8's contract actions)
+void draw_player_profile_with(App& app, void (*below)(App&));
 
 // ---- Positions, attributes & PlayStyles: overall and potential, positions, playing style, roles, attributes, PlayStyles
 void draw_player_ability(App& app);         // [list | editor]

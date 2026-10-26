@@ -43,7 +43,7 @@ shell::Page g_team_page = shell::Page::Squad;
 // as the Classic editor's and its divider can be dragged.
 size_t g_listed = 0;
 
-void list_and_editor(App& app, void (*editor_fn)(App&, void*)) {
+void list_and_editor(App& app, void (*editor_fn)(App&, void*), void* user = nullptr) {
     const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
     ImGui::BeginChild("##select", ImVec2(list_w, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
     draw_classic_player_list(app);
@@ -51,7 +51,7 @@ void list_and_editor(App& app, void (*editor_fn)(App&, void*)) {
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##editor", ImVec2(0, 0), ImGuiChildFlags_Borders);
-    if (editor_fn) editor_fn(app, nullptr);
+    if (editor_fn) editor_fn(app, user);
     ImGui::EndChild();
 }
 
@@ -478,6 +478,28 @@ void draw_player_profile(App& app) {
     list_and_editor(app, profile_editor);
 }
 void draw_player_profile_editor(App& app) { editor_scroll(app, profile_editor); }
+
+// 4.0 integration (S3 merge, brief 4.0-gui-pages :77-80, q3): the card of the 4.0 tree draws the host's controls for the picked player at
+// the end of the Profile editor (inside its scrolling pane, so they are reachable). Nobody picked: the editor says so and nothing more is drawn.
+namespace {
+struct ProfileBelow {
+    void (*fn)(App&);
+};
+void profile_editor_below(App& app, void* user) {
+    profile_editor(app, nullptr);
+    const auto* b = static_cast<const ProfileBelow*>(user);
+    if (b && b->fn && g_pstate.playerid != 0) b->fn(app);
+}
+}  // namespace
+
+void draw_player_profile_with(App& app, void (*below)(App&)) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    ProfileBelow b{below};
+    list_and_editor(app, profile_editor_below, &b);
+}
 
 void draw_player_ability(App& app) {
     if (!app.connected()) {

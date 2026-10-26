@@ -3805,6 +3805,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
 #include "test_team_squad_40.h"  // 4.0 S4: Team > Squad page (ui/ui_team_squad_page.h; team_squad_40_test::ui_cases)
 #include "test_tactics_40.h"  // 4.0 S10: the Tactics pages inside page::Frame (tactics40_test::ui_cases)
+#include "test_shell_40.h"  // 4.0 S3: the 4.0 menu tree behind shell::tree40() (shell40_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_profile_40.h"  // 4.0 S7: Profile Callname row, Player creation and Bulk edit inside page::Frame (profile40_test::ui_cases)
 #include "test_bulkdev_40.h"  // 4.0 S7b: Development block (XP multiplier, Bonus XP, No decline) on Bulk edit (bulkdev40_test::ui_cases)
@@ -9895,6 +9896,7 @@ static void test_ui() {
 #include "test_ability_40.h"  // 4.0 S6: statements inside this block (the Positions, attributes & PlayStyles tab: card first, descriptors, registry tables)
         ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
         player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
+        shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named

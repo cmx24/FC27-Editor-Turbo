@@ -67,6 +67,17 @@ const std::vector<Page>& pages_of(Area a);  // the page strip of the area, in or
 Page default_page(Area a);                  // first of the strip: Home, Player, Appearance Editor, Kits, Presets, Standings, Settings, Database
 Place place_of(Page p);                     // {area_of(p), p}
 
+// ---- 4.0 menu preview (brief 4.0-gui-pages S3). ONE session flag, default OFF, selects the second table (the 4.0 tree) in every lookup of this
+// header (area_label, page_label, area_of, pages_of, default_page, area_visible, page_visible, area_for); App::draw_pages only calls those, so
+// the whole menu follows it. Both trees open the SAME page functions; only the labels, the strips, the areas and the Player card tabs differ.
+// Not saved. Set by the checkbox "Preview the 4.0 menus" (drawn above every Lab page, ui_shell.cpp) and by the native tests. The old table
+// (kPages) stays the default until the in-game PASS; then the Pit wall deletes it and this flag. A page that is not in the 4.0 tree has
+// area_of == Area::Count while the flag is on (App::go refuses it), and keeps its old label.
+bool& tree40();
+// The page draws its own bar with Back (page::Frame, ui_page.h): the shell's "< Back to <page>" above it would be a second Back. The list is
+// kept here (one line per converted page; a native test compares it with the pages that really draw the frame's bar).
+bool page_has_frame(Page p);
+
 // Edit a player is one page with tabs: 0 Profile, 1 Positions, attributes & PlayStyles, 2 Appearance, 3 All fields. The page follows this value
 // when code changes it (a link that opens the Appearance tab, a test) and writes the tab the user clicked back into it.
 int& player_edit_tab();
