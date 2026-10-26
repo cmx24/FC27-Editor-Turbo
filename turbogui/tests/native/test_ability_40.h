@@ -40,13 +40,10 @@
         app.prefs.advanced_mode = false;
         profile_page_test::show(ui, profile_page_test::Which::Ability);
         CHECK(&turbo_ability_words_40 != nullptr, "the tab reports its words (turbo_ability_words_40)");
-        const ItemRec* card = ui.find("###ab_typetier", W);
-        const ItemRec* ovr = ui.find("###ab_ovr", W);
-        const ItemRec* pos = ui.find("###ab_positions", W);
-        // the page is taller than the window: Positions can be below the fold, so the card must be on screen and, of the sections in view, the card is the topmost
-        CHECK(card != nullptr, "the Player type & tier card is on screen");
-        if (card && ovr) CHECK(card->rect.Min.y < ovr->rect.Min.y, "geometry: the card is above Overall");
-        if (ovr && pos) CHECK(ovr->rect.Min.y < pos->rect.Min.y, "geometry: Overall is above Positions");
+        // the editor window keeps its scroll between cases, so the card can be above the view: reached by scrolling, as a user does. The screen
+        // geometry (card above Overall above Positions) is checked in test_ia_222.h; here the order is the one the tab drew.
+        CHECK(profile_page_test::reach(ui, "###ab_typetier", W) != nullptr, "the Player type & tier card is on the page");
+        CHECK(profile_page_test::reach(ui, "###ab_positions", W) != nullptr, "Positions is on the page");
         const int a = index_of("section ab_typetier"), o = index_of("section ab_ovr"), p = index_of("section ab_positions"), s = index_of("section ab_style"),
                   at = index_of("section ab_attrs"), ps = index_of("section ab_styles");
         CHECK(a == 0, "the Player type & tier card is the first section drawn: " + std::to_string(a));
