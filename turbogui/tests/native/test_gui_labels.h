@@ -225,6 +225,31 @@ static void run() {
         CHECK(template_spans("t.cpp", tricky).empty(), "page::Frame in a comment or a string makes no span");
     });
 
+    // round 1 (S1): the qualified form of the usage example in ui_page.h must not escape the checks
+    run_case("gui labels: a template page written turbo::page::Frame is checked like the bare form; shell::page::Frame is not ours (synthetic source)", [&] {
+        auto page_src = [](const char* frame_type) {
+            return std::string("void qpage(App& app) {\n") + "  " + frame_type + " frame(app, {\"id\", \"Title\", \"Help\", nullptr});\n" +
+                   "  if (ImGui::Button(\"A label that is far longer than twenty-eight characters\")) {}\n" + "  if (ImGui::Button(\"Save##s\")) app.notify(\"Saved it\");\n" + "}\n";
+        };
+        for (const char* ft : {"turbo::page::Frame", "::turbo::page::Frame", "page::Frame"}) {
+            const std::string src = page_src(ft);
+            std::string err;
+            std::vector<Lit> lits = scan_source("q.cpp", src, &err);
+            std::map<std::string, std::vector<Span>> spans;
+            spans["q.cpp"] = template_spans("q.cpp", src);
+            CHECK(spans["q.cpp"].size() == 1 && spans["q.cpp"][0].fn == "qpage", fmt("%s makes qpage a template page", ft));
+            const std::vector<std::string> pr = template_problems(lits, spans);
+            bool r3 = false, r6 = false;
+            for (const std::string& s : pr) {
+                r3 = r3 || s.find("q.cpp:3: R3") != std::string::npos;
+                r6 = r6 || s.find("q.cpp:4: R6") != std::string::npos;
+            }
+            CHECK(r3 && r6, fmt("%s: the long label (R3) and the toast (R6) are caught", ft));
+        }
+        for (const char* ft : {"shell::page::Frame", "turbo::shell::page::Frame", "xpage::Frame"})
+            CHECK(template_spans("q.cpp", page_src(ft)).empty(), fmt("%s is not the template", ft));
+    });
+
     const fs::path ui = root_dir() / "src" / "ui";
     const Scan sc = scan_folder(ui);
     run_case("gui labels: src/ui is readable", [&] {

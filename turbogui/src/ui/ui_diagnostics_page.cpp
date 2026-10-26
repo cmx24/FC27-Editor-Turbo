@@ -479,8 +479,8 @@ void draw_data_export_page(App& app) {
     if (ImGui::SmallButton("Open the export folder##dataexport")) {
         std::error_code ec;
         const fs::path dir = app.turbo_output();
-        if (!fs::is_directory(dir, ec)) page::couldnt("data_export", "open the export folder", "it does not exist yet");
-        else if (!open_in_explorer(dir)) page::couldnt("data_export", "open the export folder", "Explorer did not start");
+        if (!fs::is_directory(dir, ec)) page::couldnt(app, "data_export", "open the export folder", "it does not exist yet");
+        else if (!open_in_explorer(dir)) page::couldnt(app, "data_export", "open the export folder", "Explorer did not start");
         else page::done("data_export", "opened the export folder");
     }
     ImGui::Spacing();

@@ -19,7 +19,7 @@
 //     void draw_x_page(turbo::App& app) {
 //         turbo::page::Frame f(app, {"x_page", "Page title", "One grey help line.", nullptr});
 //         ...widgets...
-//         if (clicked) turbo::page::done("x_page", "did the thing");
+//         if (clicked) turbo::page::done("x_page", "did the thing");   // failures: turbo::page::couldnt(app, "x_page", "do it", "why")
 //     }                                  // ~Frame draws the status line and the bar
 // tests/lint_one_component.py and test_gui_labels.h treat every function that constructs a page::Frame as a TEMPLATE page and hold
 // it to the stricter checks (no raw BeginTable, no own undo store, no "classic"/"old"/"new" label).
@@ -60,7 +60,7 @@ private:
 // The page's one status line. Replaces the previous text of that page. "Done: " / "Couldn't " are added here, so every page
 // says it the same way (rule R6 and the copy deck).
 void done(const char* page_id, const std::string& what);                              // "Done: <what>"
-void couldnt(const char* page_id, const std::string& what, const std::string& why);   // "Couldn't <what>: <why>"
+void couldnt(App& app, const char* page_id, const std::string& what, const std::string& why);  // "Couldn't <what>: <why>"; also App::log "ERROR: ..." (as notify did)
 const std::string& status_text(const char* page_id);                                   // empty = nothing yet
 
 // What the frame drew last (tests): the bar buttons in drawing order and whether each was enabled.

@@ -90,6 +90,25 @@ def ident_char(c):
     return c.isalnum() or c == "_"
 
 
+def own_frame_prefix(m, pos):
+    """True when the page::Frame at pos is ours: bare, `turbo::page::Frame` or `::turbo::page::Frame`. Any other qualifier
+    (`shell::page::Frame`, `x::turbo::...` is fine only for turbo) or a glued identifier (`xpage::Frame`) is not."""
+    if pos == 0:
+        return True
+    c = m[pos - 1]
+    if ident_char(c):
+        return False
+    if c != ":":
+        return True
+    if pos < 2 or m[pos - 2] != ":":
+        return False
+    e = pos - 2
+    b = e
+    while b > 0 and ident_char(m[b - 1]):
+        b -= 1
+    return m[b:e] == "turbo"
+
+
 def template_spans(src):
     """[(fn_name, body_start_pos, body_end_pos, frame_call_start, frame_call_end)] of the functions that construct a page::Frame."""
     m = mask(src)
@@ -98,7 +117,7 @@ def template_spans(src):
     pos = m.find(FRAME_KEY)
     while pos != -1:
         nxt = m.find(FRAME_KEY, pos + len(FRAME_KEY))
-        if pos > 0 and (ident_char(m[pos - 1]) or m[pos - 1] == ":"):
+        if not own_frame_prefix(m, pos):
             pos = nxt
             continue
         p = pos + len(FRAME_KEY)
@@ -324,6 +343,35 @@ def self_test():
     shell = 'void t(App& app) {\n  shell::page::Frame f(app);\n  ImGui::BeginTable("##t", 2, ImGuiTableFlags_RowBg);\n}\n'
     fl, adv, sp = analyse(shell)
     check(sp == [] and fl == [], "shell::page::Frame (the existing two-pane frame) is not the template")
+    # round 1 fix 1: the qualified form of the usage example in ui_page.h is a template page too
+    for form in ("turbo::page::Frame", "::turbo::page::Frame"):
+        q = ('void qbad(App& app) {\n'
+             '  %s f(app, {"id", "The new page", "help", nullptr});\n'
+             '  if (ImGui::BeginTable("##t", 2, ImGuiTableFlags_RowBg)) {}\n'
+             '  std::vector<Step> undo_stack;\n'
+             '}\n' % form)
+        fl, adv, sp = analyse(q)
+        rules = sorted(r for _, r, _ in fl)
+        check(len(sp) == 1 and sp[0][0] == "qbad" and rules == ["T1", "T2", "T3"], "%s is a template page and its violations are caught: %s" % (form, rules))
+    for form in ("shell::page::Frame", "turbo::shell::page::Frame", "xpage::Frame"):
+        q = 'void other(App& app) {\n  %s f(app);\n}\n' % form
+        check(template_spans(q) == [], "%s is not the template" % form)
+    # round 1 fix 2: a tree with no template page FAILS (a lint that checks nothing must not pass)
+    import tempfile, io, contextlib
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "turbogui", "src", "ui"))
+        with open(os.path.join(d, "turbogui", "src", "ui", "x.cpp"), "w") as f:
+            f.write('void plain(App& app) { ImGui::Button("Open##x"); }\n')
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc_empty = scan_tree(d)
+        check(rc_empty == 1 and "T0" in buf.getvalue(), "a tree with zero template pages fails (rc=%d)" % rc_empty)
+        with open(os.path.join(d, "turbogui", "src", "ui", "y.cpp"), "w") as f:
+            f.write('void good(App& app) {\n  turbo::page::Frame f(app, {"id", "Title", "help", nullptr});\n}\n')
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc_one = scan_tree(d)
+        check(rc_one == 0, "the same tree with one clean template page (written turbo::page::Frame) passes (rc=%d)" % rc_one)
     return ok
 
 
@@ -334,6 +382,10 @@ def main():
     base = os.path.abspath(args[0]) if args else os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     if os.path.basename(base) == "turbogui":
         base = os.path.dirname(base)
+    return scan_tree(base)
+
+
+def scan_tree(base):
     if not os.path.isdir(os.path.join(base, "turbogui", "src", "ui")):
         print("lint_one_component: no turbogui/src/ui under %s" % base)
         return 2
@@ -346,6 +398,9 @@ def main():
         failures += ["FAIL %s %s:%d  %s" % (r, rel(p), ln, msg) for ln, r, msg in fl]
         if "/src/ui/" in "/" + rel(p):  # the GUI only: core/ keeps the data-layer records the Changes list reads
             adv_all += [(rel(p), ln, r, msg) for ln, r, msg in adv]
+    if pages == 0:
+        # the same rule as the native guard (test_gui_labels.h): a scanner that finds no template page checks nothing, so it must not pass
+        failures.append("FAIL T0 turbogui/src/ui  no template page found (no function constructs a page::Frame): the lint would check nothing")
     for f in failures:
         print(f)
     counts = {}
