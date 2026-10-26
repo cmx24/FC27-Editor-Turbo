@@ -2,10 +2,15 @@
 // draw_player_ability and the helpers only it calls).
 //
 // What is guarded (all of it read from the text ImGui drew, not from a trace the page keeps for tests):
-//   - the tab draws the Player type & tier card FIRST, then Overall, Positions, Style and roles, Attributes, PlayStyles (heading order in the frame's text log);
+//   - the tab draws the Player type & tier card FIRST, then Overall, Positions, Style and roles, Attributes, PlayStyles: every heading is drawn (text log,
+//     read at its section), card < Overall < Positions in the text at the top of the tab, and the full six-section order is the screen order of the
+//     six section headers in the item registry (each must be present; none is skipped);
 //   - a coded field shows its descriptor in words: the "Plays as: ST, also RCB (internal, plays as CB)" line, one "Ticked: ..." line per PlayStyle / Trait set
 //     (a box past the name list reads "Unnamed trait N": not reachable in the fixture, whose trait fields are as wide as the name lists), and the Roles line
 //     (only when the table has role fields, which the fixture world, gui_world.lua, does not: named as untested here in the S6 report);
+//     each set's "Ticked: ..." line is matched exactly, read right under its own heading line;
+//   - each of the four set headings (PlayStyles, PlayStyles+, Traits, Traits+) shows its own help with the mouse on the heading, and no help
+//     says "Stored as" or names a field (trait1, icontrait1, trait2, icontrait2);
 //   - the old stand-in wording is gone ("is added when this page is wired in", "The game works the shown overall", the "Stored as <field>" tooltip);
 //   - the two grids of the tab are tables in the registry form (table_registry.h ids "##bits" and "##sl", tbl::kGrid flags).
 //
@@ -63,6 +68,24 @@
         const size_t pos = ovr == std::string::npos ? std::string::npos : top.find("Positions", ovr);
         CHECK(card != std::string::npos && ovr != std::string::npos && card < ovr, "the card heading is drawn before Overall (text: ..." + tail(top) + ")");
         CHECK(pos == std::string::npos || ovr < pos, "Overall is drawn before Positions");
+        // the full order of the six sections on the page, from the item registry (every section header is listed in every frame, in view or not):
+        // each one present (never skipped) and each one below the one before it
+        {
+            bool found[6] = {false, false, false, false, false, false};
+            float y[6] = {0, 0, 0, 0, 0, 0};
+            for (int i = 0; i < 6; ++i)
+                for (const auto& kv : g_items)
+                    if (kv.second.frame == g_frame && label_matches(kv.second, ids[i]) && kv.second.window.find(W) != std::string::npos) {
+                        found[i] = true;
+                        y[i] = kv.second.rect.Min.y;
+                    }
+            std::string got;
+            for (int i = 0; i < 6; ++i) got += std::string(" ") + ids[i] + (found[i] ? " y " + std::to_string(int(y[i])) : std::string(" MISSING"));
+            for (int i = 0; i < 6; ++i) CHECK(found[i], std::string("the section header ") + ids[i] + " is on the page:" + got);
+            bool ordered = true;
+            for (int i = 1; i < 6; ++i) ordered = ordered && found[i - 1] && found[i] && y[i - 1] < y[i];
+            CHECK(ordered, "order on the page: card, Overall, Positions, Style and roles, Attributes, PlayStyles:" + got);
+        }
         CHECK(player_ability_state().archetype_bar_external && player_ability_state().bar_calls == 1, "the player type editor is the card's, drawn once");
         // the Overall line: the new wording, not the old one
         const std::string ovr_text = text_at("###ab_ovr");
@@ -201,6 +224,110 @@
             ui.frames(2);
         }
 
+        // Each of the four sets read where a user sees it (review 10-26 P2: the fd3ec1e9 test checked all four helps and the exact words of each set):
+        // the set's heading in view, its "Ticked: ..." line matched EXACTLY (the line right under the heading line, so "none ticked" is tied to
+        // Traits+), and its help with the mouse on the heading itself: the set's own words, no "Stored as", no field name. The heading (a separator
+        // text, no item id) lies between the item above it (the section header for the first set, the None button of the set above for the others,
+        // ui_player_profile.cpp playstyle_bits) and the set's first tick box.
+        const auto lines_of = [](const std::string& text) {
+            std::vector<std::string> out;
+            for (size_t at = 0; at <= text.size();) {
+                size_t nl = text.find('\n', at);
+                if (nl == std::string::npos) nl = text.size();
+                const std::string l = text.substr(at, nl - at);
+                const size_t b = l.find_first_not_of(" \t\r"), e = l.find_last_not_of(" \t\r");
+                out.push_back(b == std::string::npos ? std::string() : l.substr(b, e - b + 1));
+                at = nl + 1;
+            }
+            return out;
+        };
+        // the words of the "Ticked: " line right under the heading line `title` (a line equal to the title)
+        const auto ticked_under = [&](const std::string& text, const std::string& title) -> std::string {
+            const std::vector<std::string> ls = lines_of(text);
+            for (size_t i = 0; i < ls.size(); ++i)
+                if (ls[i] == title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
+            return "<no heading line '" + title + "'>";
+        };
+        struct SetView {
+            bool anchors = false, in_view = false;
+            std::string base, tip, diag;
+            float upper = -1.0f, box_top = -1.0f, hit_y = -1.0f;
+        };
+        const auto set_view = [&](const char* prev_field) -> SetView {
+            SetView v;
+            ImGui::ClearActiveID();
+            if (ImGuiWindow* pw = ImGui::FindWindowByName(W)) ImGui::FocusWindow(pw);
+            GImGui->NavCursorVisible = false;
+            GImGui->NavHighlightItemUnderNav = false;
+            ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+            ui.frames(2);
+            const ItemRec* up = prev_field ? profile_page_test::reach(ui, "###ab_none", W, prev_field) : profile_page_test::reach(ui, "###ab_styles", W);
+            if (up == nullptr) {
+                v.diag = std::string(" [no item above the heading: ") + (prev_field ? std::string("###ab_none of ") + prev_field : std::string("###ab_styles")) + "]";
+                return v;
+            }
+            v.upper = up->rect.Max.y;
+            const std::string win = up->window;
+            float x = -1.0f;
+            for (const auto& kv : g_items) {
+                const ItemRec& r = kv.second;
+                if (r.frame != g_frame || !label_matches(r, "###ab_bit0") || r.window.find(W) == std::string::npos) continue;
+                if (r.rect.Min.y > v.upper && (v.box_top < 0.0f || r.rect.Min.y < v.box_top)) {
+                    v.box_top = r.rect.Min.y;
+                    x = r.rect.Min.x + 24.0f;
+                }
+            }
+            ImGuiWindow* ew = ImGui::FindWindowByName(win.c_str());
+            v.anchors = v.box_top > 0.0f && ew != nullptr;
+            v.diag = " [item above bottom y " + std::to_string(int(v.upper)) + ", first tick box y " + std::to_string(int(v.box_top)) + ", window '" + win + "'";
+            if (!v.anchors) {
+                v.diag += "]";
+                return v;
+            }
+            v.in_view = ew->InnerClipRect.Min.y <= v.upper && v.box_top <= ew->InnerClipRect.Max.y;
+            v.diag += " inner " + std::to_string(int(ew->InnerClipRect.Min.y)) + ".." + std::to_string(int(ew->InnerClipRect.Max.y)) + "]";
+            v.base = page_log();  // the mouse is away: no tooltip
+            for (float y = v.upper + 1.0f; v.in_view && y < v.box_top; y += 2.0f) {
+                ImGui::GetIO().AddMousePosEvent(x, y);
+                ui.frames(2);
+                const std::string log = page_log();
+                bool tip_up = false;
+                for (ImGuiWindow* w : GImGui->Windows)
+                    if (w->Active && w->Name && std::strncmp(w->Name, "##Tooltip_", 10) == 0) tip_up = true;
+                if (tip_up) {  // the first height at which a tooltip shows
+                    v.hit_y = y;
+                    v.tip = log;
+                    break;
+                }
+            }
+            ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+            ui.frames(2);
+            return v;
+        };
+        {
+            struct SetCase { const char* title; const char* prev; const char* help; const char* words; };
+            const SetCase sets[] = {
+                {"PlayStyles", nullptr, "Special skills shown on his card; tick the ones he has", "Finesse Shot, Rapid"},
+                {"PlayStyles+", "trait1", "The stronger version of a PlayStyle; tick the ones he has", "Power Shot"},
+                {"Traits", "icontrait1", "Goalkeeper skills, CPU AI habits and others such as Leadership or Injury Prone", "Super Sub"},
+                {"Traits+", "trait2", "The stronger version of a Traits box; tick the ones he has", "none ticked"},
+            };
+            for (const SetCase& c : sets) {
+                const SetView v = set_view(c.prev);
+                const std::string title = c.title;
+                CHECK(v.anchors && v.in_view, "the " + title + " heading is in view between its neighbours:" + v.diag);
+                CHECK(ticked_under(v.base, title) == c.words,
+                      title + " in words, exactly '" + c.words + "': '" + ticked_under(v.base, title) + "' (text: ..." + tail(v.base) + ")");
+                CHECK(v.hit_y > v.upper && v.hit_y < v.box_top,
+                      "a help shows with the mouse on the " + title + " heading (shown at y " + std::to_string(int(v.hit_y)) + ")" + v.diag);
+                CHECK(has(v.tip, c.help), "the " + title + " heading's help is its own, in words (text: ..." + tail(v.tip) + ")");
+                CHECK(!v.tip.empty() && !has(v.tip, "Stored as") && !has(v.tip, "trait1") && !has(v.tip, "trait2"),
+                      "the " + title + " help names no field (text: ..." + tail(v.tip) + ")");
+                CHECK(!v.base.empty() && !has(v.base, "Stored as") && !has(v.base, "trait1") && !has(v.base, "trait2"),
+                      "the page around the " + title + " heading names no field (text: ..." + tail(v.base) + ")");
+            }
+        }
+
         // the descriptor follows an edit by the next frame (a ticked box, in words)
         const Field* f1 = t->field("trait1");
         if (f1) {
@@ -208,6 +335,9 @@
             ui.frames(2);
             const std::string after = text_at("###ab_bit0");
             CHECK(has(after, "Ticked: Precision Header") && !has(after, "Ticked: Finesse Shot"), "after an edit: ..." + tail(after));
+            const SetView v = set_view(nullptr);
+            CHECK(ticked_under(v.base, "PlayStyles") == "Precision Header",
+                  "after an edit, PlayStyles in words, exactly 'Precision Header': '" + ticked_under(v.base, "PlayStyles") + "'" + v.diag);
         }
         profile_page_test::hide(ui);
         while (app.undo_count(1004) > undo0) app.undo(1004);  // the fixture player as it was
