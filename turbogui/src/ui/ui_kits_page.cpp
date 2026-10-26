@@ -608,6 +608,8 @@ void draw_kits_page(App& app) {
         std::string why;
         for (size_t i = 0; i < kit_panel_count() && why.empty(); ++i)
             if (kit_panel_status(i).rfind("not applied", 0) == 0) why = kit_panel_status(i);
+        // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
+        if (why.empty() && kit_panel_line().find("was not saved") != std::string::npos) why = kit_panel_line();
         if (why.empty()) page::done("kits", kit_panel_line());
         else page::couldnt("kits", "apply the kit", why);
     }

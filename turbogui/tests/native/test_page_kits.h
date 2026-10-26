@@ -181,6 +181,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) != nullptr, "applied: the import record and the kept kit row exist");
         CHECK(fs::exists(kits::slot_dir(le, 7, kits::Slot::Home) / "manifest.json"), "the textures were staged: the apply path of the old page ran, not a lesser one");
         CHECK(app.reapply.kits.size() == n_before + 1, "one new kept row");
+        CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "the frame's one status line says it (4.0 S9): " + page::status_text("kits"));
         const std::string txt = page_text(ui).all;
         CHECK(has(txt, "Custom") && kits_page_state().custom, "the slot list says Custom");
         CHECK(kits_page_state().status.rfind("applied to Everton", 0) == 0, "state: " + kits_page_state().status);
