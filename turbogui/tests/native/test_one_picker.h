@@ -457,6 +457,7 @@
         // code (eyebrows, tattoos, head type, run-up beyond the three standard ones) is unchanged by the fix and is only listed. The list printed
         // per field (picture set size, labelled codes, offered codes, the ones outside the picture set) is the report's "offered set changes" table.
         int compared = 0, unchanged = 0, absent = 0;
+        std::set<std::string> exact_checked;  // P3 (fresh review): the unlabelled fields whose offered list is asserted exactly
         const Table* mt = app.db.table("manager");
         const auto& mgrs = app.model.managers();
         const uint64_t mrec = (mt && !mgrs.empty()) ? mgrs[0].rec : 0;
@@ -487,6 +488,17 @@
                 const std::string who = manager ? "(manager) " : "";
                 const std::string miss = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (non-gallery) ") + who + field + " vs field_labels.h and the old combo's list", op_strip(need, cur), v.all());
                 CHECK(miss.empty(), miss);
+                // P3 (fresh review, mutant c1): a field with NO labelled code (the product's own condition: no enum_def, no named codes, no gallery) is
+                // UNCHANGED by the merge: the offered list is EXACTLY the picture set plus his value, as a set, not a count (build_source comment
+                // "A field with no labelled code ... is unchanged"). Mutant c1 (merge forced on) grows headtypecode 611->621 and tattoohead 228->229.
+                if (!labels::enum_def(field) && !labels::named_codes(field)) {
+                    std::set<int64_t> exact = op_rdbm(field);
+                    exact.insert(cur);
+                    const std::set<int64_t> got = v.all();
+                    CHECK(got == exact, std::string("ONE PICKER UNLABELLED FIELD UNCHANGED ") + who + field + ": offered " + std::to_string(got.size()) + " codes, picture set + his value " +
+                                            std::to_string(exact.size()) + ": " + op_diff(exact, got));
+                    exact_checked.insert((manager ? "mgr:" : "") + field);
+                }
                 // the offered set that changed against the picture set alone: printed per field for the report
                 const std::set<int64_t> pic = op_rdbm(field);
                 std::string added;
@@ -500,6 +512,8 @@
         }
         std::printf("  ONE-PICKER fix2 summary: %d non-gallery fields with labelled codes compared, %d without (unchanged), %d mapped fields absent from the test tables\n", compared, unchanged, absent);
         CHECK(compared >= 6, fmt("non-gallery fields with labelled codes compared (%d)", compared));
+        CHECK(exact_checked.count("headtypecode") && exact_checked.count("tattoohead"), "P3: headtypecode and tattoohead (players) are among the unlabelled fields asserted exactly");
+        std::printf("  ONE-PICKER P3 unlabelled fields asserted exactly (offered == picture set + his value): %zu\n", exact_checked.size());
         op_fixture_off(before);
     });
 
