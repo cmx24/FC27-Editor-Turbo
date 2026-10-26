@@ -3802,6 +3802,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
+#include "test_profile_40.h"  // 4.0 S7: Profile Callname row, Player creation and Bulk edit inside page::Frame (profile40_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
 // ================================================================ live team names (core/teamname_override.h)
@@ -9893,6 +9894,7 @@ static void test_ui() {
         page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
         ui_page_test::ui_cases(app, ui, le);  // test_ui_page.h: the page template and its worked example (4.0 S1)
         page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
+        profile40_test::ui_cases(app, ui, le);  // test_profile_40.h: Profile Callname row, Player creation, Bulk edit in page::Frame (4.0 S7)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
