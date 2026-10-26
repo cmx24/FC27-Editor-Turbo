@@ -934,6 +934,11 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
     if (!app.db.table("tattoo")) ImGui::TextDisabled("The tattoo table is empty or missing.");
     const float thumb = S(56.0f);
     if (ImGui::BeginTable("##tattoos", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Where");  // 2.22 G-resize: a header row, so the column edges can be found and dragged
+        ImGui::TableSetupColumn("Picture");
+        ImGui::TableSetupColumn("Id");
+        ImGui::TableSetupColumn("Change");
+        ImGui::TableHeadersRow();
         for (size_t a = 0; a < sizeof(kTattooAreas) / sizeof(kTattooAreas[0]); ++a) {
             const Field* f = t.field(kTattooAreas[a][0]);
             if (!f) continue;
@@ -1679,6 +1684,11 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
     const GalleryDef* defs = manager ? kManagerGalleries : kGalleries;
     const size_t ndefs = manager ? std::size(kManagerGalleries) : std::size(kGalleries);
     if (ImGui::BeginTable("##galleries", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Item");  // 2.22 G-resize: a header row
+        ImGui::TableSetupColumn("Picture");
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Change");
+        ImGui::TableHeadersRow();
         for (size_t gi = 0; gi < ndefs; ++gi) {
             const GalleryDef& g = defs[gi];
             const Field* f = t.field(g.field);

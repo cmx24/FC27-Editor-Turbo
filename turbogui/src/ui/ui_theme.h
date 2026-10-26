@@ -21,6 +21,10 @@ constexpr ImVec4 kRule{0.24f, 0.28f, 0.36f, 0.55f};       // thin separator / di
 constexpr ImVec4 kRailHover{1.0f, 1.0f, 1.0f, 0.07f};     // hover wash on a transparent rail button
 constexpr ImVec4 kRailActive{1.0f, 1.0f, 1.0f, 0.12f};
 
+// 2.22: table column dividers (ImGuiCol_TableBorderStrong / Light): clearly visible on the dark window; there is one theme (dark)
+constexpr ImVec4 kTableBorderStrong{0.52f, 0.58f, 0.70f, 1.0f};
+constexpr ImVec4 kTableBorderLight{0.40f, 0.45f, 0.56f, 1.0f};
+
 inline ImVec4 accent() { return kAccent; }
 inline ImVec4 accent_hover() { return ImVec4(kAccent.x * 1.15f, kAccent.y * 1.15f, kAccent.z * 1.05f, 1.0f); }
 inline ImVec4 accent_active() { return ImVec4(kAccent.x * 0.85f, kAccent.y * 0.85f, kAccent.z * 0.85f, 1.0f); }

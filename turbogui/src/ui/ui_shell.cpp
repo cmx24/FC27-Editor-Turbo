@@ -8,6 +8,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "ui_team_squad_page.h"
+#include "ui_split.h"
 #include "ui_theme.h"
 
 namespace turbo::shell {
@@ -451,6 +452,23 @@ bool draw_new_page(App& app, Page p, bool advanced) {
     return true;
 }
 
+const char* page_key(Page p) {
+    // The enumerator names, never the labels or the numbers: a renamed page or a page inserted by another track keeps the widths people chose
+    switch (p) {
+#define TURBO_PK(x) case Page::x: return #x;
+        TURBO_PK(Home) TURBO_PK(PlayerEdit) TURBO_PK(Squad) TURBO_PK(CreatePlayer) TURBO_PK(BulkEdit) TURBO_PK(Staff) TURBO_PK(CommentaryNames)
+        TURBO_PK(LooksStudio)
+        TURBO_PK(Kits) TURBO_PK(Identity) TURBO_PK(TeamPlayers) TURBO_PK(TeamTransfers) TURBO_PK(StadiumExtras)
+        TURBO_PK(TacticPresets) TURBO_PK(TeamSheet) TURBO_PK(GameplayPresets)
+        TURBO_PK(Standings) TURBO_PK(Transfers) TURBO_PK(JobOffer) TURBO_PK(CMTracker) TURBO_PK(ChangesUndo)
+        TURBO_PK(Settings)
+        TURBO_PK(AdvDatabase) TURBO_PK(AdvRawRows) TURBO_PK(AdvBulkEdit) TURBO_PK(AdvMaintenance) TURBO_PK(AdvTactics) TURBO_PK(AdvMatchSetup)
+        TURBO_PK(AdvGameplayTuning) TURBO_PK(AdvExport) TURBO_PK(AdvDiagnostics) TURBO_PK(AdvKitDiagnostics)
+#undef TURBO_PK
+        default: return "Page";
+    }
+}
+
 namespace page {
 
 void frame(App& app, DrawFn select_fn, DrawFn editor_fn, void* user, Primary* primary) {
@@ -458,9 +476,15 @@ void frame(App& app, DrawFn select_fn, DrawFn editor_fn, void* user, Primary* pr
     const bool narrow = ImGui::GetWindowWidth() < S(theme::kNarrowWindow);
     const float footer = primary && primary->label ? ImGui::GetFrameHeightWithSpacing() + S(theme::kGrid) : 0.0f;
     if (select_fn) {
-        const float w = narrow ? S(theme::kRailWidth) : S(theme::kSelectWidth);
-        ImGui::BeginChild("##select", ImVec2(w, -footer), ImGuiChildFlags_Borders);
-        if (!narrow) select_fn(app, user);
+        // 2.22 G-resize: the select panel is resizable (ui_split.h: ResizeX, remembered per page in gui_settings.json gui.splits, 180 px .. 70 %).
+        // The ID "##select" is unchanged (the tables inside keep their saved layout); the narrow rail is a plain child of its own ID, so its
+        // 36 px never reaches the saved window size of "##select".
+        if (narrow) {
+            ImGui::BeginChild("##selectrail", ImVec2(S(theme::kRailWidth), -footer), ImGuiChildFlags_Borders);
+        } else {
+            split::pane_x("##select", theme::kSelectWidth, kSplitMinW, kSplitMaxFrac, -footer);
+            select_fn(app, user);
+        }
         ImGui::EndChild();
         ImGui::SameLine();
     }

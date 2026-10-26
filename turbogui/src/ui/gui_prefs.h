@@ -1,8 +1,12 @@
 // FC 27 LE Turbo GUI - the small display preferences of gui_settings.json "gui" (2026-10-11):
 //   gui.preload_images  true (default): pictures (faces, 3D head renders at hand, tattoos, galleries, crests) load in the
 //                       background from the moment the career connects (ui/preload.h); false: only what is on screen
-//   gui.row_density     "compact" | "normal" (default) | "comfortable": the height of table rows and list rows
-//                       (App::update_style multiplies CellPadding.y / ItemSpacing.y / FramePadding.y)
+//   gui.row_height      (2.22) number, unscaled px of one table row at UI size 1 (kRowHeightMin..kRowHeightMax, default kRowHeightNormal):
+//                       the "Row height" slider of Settings > Look and feel; App::update_style turns it into CellPadding.y / ItemSpacing.y /
+//                       FramePadding.y. gui.row_density ("compact" | "normal" | "comfortable") is still written (the nearest step, for an older
+//                       build) and read when gui.row_height is missing
+//   gui.splits          (2.22) {"<page>/<pane id>": width}: the width, in unscaled px, the person dragged a list pane to (ui_split.h); the
+//                       divider moves, the width is kept per page and across restarts (written once, when the drag has rested)
 //   gui.advanced_mode   false (default): "Simple" view, only the screens with a proven in-game effect; true: "Advanced",
 //                       everything (A6 entry point of the GUI simplification; see turbo_dev/research_20261016/GUI_AUDIT.md)
 //   gui.window          {x, y, w, h, maximized}: the main panel's place, size and maximized state (2.20; see WindowPrefs below)
@@ -44,6 +48,37 @@ inline RowDensity row_density_from_name(const std::string& s, RowDensity fallbac
     if (s == "normal") return RowDensity::Normal;
     return fallback;
 }
+// ---- Row height (2.22 G-resize; Cassio 10-19: "STILL cant resize ... rows") -------------------------------------------------
+// Dear ImGui cannot drag a row's edge, so the height of every table / list row is a slider. The value is the height of one table row in
+// unscaled px at UI size 1: text height (the 17 px font) + 2 * CellPadding.y. Normal = Dear ImGui's own style (CellPadding.y 2).
+constexpr float kRowHeightMin = 19.0f;     // compact: CellPadding.y 1
+constexpr float kRowHeightNormal = 21.0f;  // CellPadding.y 2: the style as it was before the setting existed
+constexpr float kRowHeightMax = 41.0f;     // roomy: CellPadding.y 12
+constexpr float kRowFontPx = 17.0f;        // the overlay's font size (win/overlay_dx12.cpp); text height of a row
+inline float clamp_row_height(float v) {
+    if (!std::isfinite(v)) return kRowHeightNormal;
+    return v < kRowHeightMin ? kRowHeightMin : v > kRowHeightMax ? kRowHeightMax : v;
+}
+// CellPadding.y in unscaled px for a row height, given the font's px height
+inline float row_height_cell_padding(float row_height, float font_px = kRowFontPx) {
+    const float p = (clamp_row_height(row_height) - font_px) * 0.5f;
+    return p < 0.5f ? 0.5f : p;
+}
+// Multipliers on the style's other vertical spacings (list rows = text + ItemSpacing.y, widget rows = text + 2 * FramePadding.y): 1 at
+// normal, 0.8 / 0.85 at compact, 1.4 / 1.3 at CellPadding.y 4, capped so a roomy table does not blow up every button
+inline float row_height_item_spacing_mult(float row_height, float font_px = kRowFontPx) {
+    const float m = row_height_cell_padding(row_height, font_px) / 2.0f;
+    const float v = 1.0f + (m - 1.0f) * 0.4f;
+    return v > 1.6f ? 1.6f : v;
+}
+inline float row_height_frame_padding_mult(float row_height, float font_px = kRowFontPx) {
+    const float m = row_height_cell_padding(row_height, font_px) / 2.0f;
+    const float v = 1.0f + (m - 1.0f) * 0.3f;
+    return v > 1.5f ? 1.5f : v;
+}
+inline float row_height_of_density(RowDensity d) { return d == RowDensity::Compact ? kRowHeightMin : d == RowDensity::Comfortable ? 25.0f : kRowHeightNormal; }
+inline RowDensity density_of_row_height(float h) { return h <= 20.0f ? RowDensity::Compact : h >= 24.0f ? RowDensity::Comfortable : RowDensity::Normal; }
+
 // Multipliers on Dear ImGui's (scaled) sizes: table rows are text height + 2 * CellPadding.y, list rows (Selectable)
 // text height + ItemSpacing.y, widget rows FrameHeight (= text + 2 * FramePadding.y)
 inline float row_density_cell_padding(RowDensity d) { return d == RowDensity::Compact ? 0.5f : d == RowDensity::Comfortable ? 2.0f : 1.0f; }
@@ -217,13 +252,61 @@ inline int gui_version_compare(const std::string& a, const std::string& b) {
     return 0;
 }
 constexpr const char* kShellGuiVersion = "3.0.0";  // the gui.version the 3.0 shell writes (kGuiVersion, app.h, is the release number)
+// ---- Split panes (2.22 G-resize, ui/ui_split.h) ----------------------------------------------------------------------------
+// gui.splits = {"<page key>/<child id>": width}, unscaled px. Pure (no ImGui): the native tests check the round trip and the clamp.
+constexpr float kSplitMinW = 180.0f;     // a list pane never gets narrower than this (unscaled px)
+constexpr float kSplitMaxFrac = 0.70f;   // ... nor wider than this share of the panel it sits in
+inline float clamp_split_width(float w, float min_w, float panel_w, float max_frac) {
+    float hi = panel_w * max_frac;
+    if (hi < min_w) hi = min_w;  // a tiny panel: the minimum wins
+    if (!std::isfinite(w)) return min_w;
+    return w < min_w ? min_w : w > hi ? hi : w;
+}
+struct SplitStore {
+    std::map<std::string, float> widths;  // unscaled px
+    bool dirty = false;                   // changed since the last save: the app writes gui_settings.json (once, after the drag rested)
+
+    bool has(const std::string& key) const { return widths.find(key) != widths.end(); }
+    float get(const std::string& key, float dflt) const {
+        auto it = widths.find(key);
+        return it == widths.end() ? dflt : it->second;
+    }
+    void set(const std::string& key, float w) {
+        if (!std::isfinite(w) || w < 1.0f) return;
+        const float r = std::round(w);
+        auto it = widths.find(key);
+        if (it != widths.end() && it->second == r) return;
+        widths[key] = r;
+        dirty = true;
+    }
+    bool take_dirty() {
+        const bool d = dirty;
+        dirty = false;
+        return d;
+    }
+    void load(const nlohmann::json& gui) {
+        widths.clear();
+        auto so = gui.find("splits");
+        if (so == gui.end() || !so->is_object()) return;
+        for (auto it = so->begin(); it != so->end(); ++it)
+            if (it.value().is_number() && std::isfinite(it.value().get<double>()) && it.value().get<double>() >= 1.0)
+                widths[it.key()] = static_cast<float>(it.value().get<double>());
+    }
+    void save(nlohmann::json& gui) const {
+        nlohmann::json o = nlohmann::json::object();
+        for (const auto& kv : widths) o[kv.first] = kv.second;
+        gui["splits"] = o;
+    }
+};
 
 struct GuiPrefs {
     WindowPrefs window;        // gui.window (the main panel's place, size and maximized state)
     WindowTracker window_rt;   // run time only
     bool advanced_mode = false;
     bool preload_images = true;
-    RowDensity row_density = RowDensity::Normal;
+    RowDensity row_density = RowDensity::Normal;  // the nearest step of row_height (kept for an older build's file)
+    float row_height = kRowHeightNormal;         // 2.22: the Row height slider (unscaled px of a table row)
+    SplitStore splits;                            // 2.22: the widths of the list panes the person dragged
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
     bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
     bool first_30_start = false;   // run time only: load() found no gui.version >= 3.0.0 and hid the Lab
@@ -258,6 +341,12 @@ struct GuiPrefs {
         if (pi != g->end() && pi->is_boolean()) p.preload_images = pi->get<bool>();
         auto rd = g->find("row_density");
         if (rd != g->end() && rd->is_string()) p.row_density = row_density_from_name(rd->get<std::string>());
+        p.row_height = row_height_of_density(p.row_density);  // an older file: the step it names
+        auto rh = g->find("row_height");
+        if (rh != g->end() && rh->is_number() && std::isfinite(rh->get<double>())) p.row_height = clamp_row_height(static_cast<float>(rh->get<double>()));
+        p.row_density = density_of_row_height(p.row_height);
+        p.splits.load(*g);
+        p.splits.dirty = false;
         p.window = WindowPrefs::load(gui_settings);
         auto so = g->find("sections_open");
         if (so != g->end() && so->is_object())
@@ -272,7 +361,9 @@ struct GuiPrefs {
         if (!g.is_object()) g = nlohmann::json::object();
         g["advanced_mode"] = advanced_mode;
         g["preload_images"] = preload_images;
-        g["row_density"] = row_density_name(row_density);
+        g["row_density"] = row_density_name(density_of_row_height(row_height));
+        g["row_height"] = std::round(clamp_row_height(row_height));
+        splits.save(g);
         nlohmann::json so = nlohmann::json::object();
         for (const auto& kv : sections_open) so[kv.first] = kv.second;
         g["sections_open"] = so;
