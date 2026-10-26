@@ -10,7 +10,9 @@
 // What is proven: every page of every area opens by the labels drawn on the rail and the page strip, the answer names the page drawn
 // (app.place()); the names are the ones Ui::open_page clicks; unknown area / page, a Lab page in the Simple view and missing fields are
 // refused by name and leave the place alone; hidden, the op does not show Turbo, answers pending and the page is there once shown;
-// a request no frame answers gives up after 5 s and a later frame does not navigate.
+// a request no frame answers gives up after 5 s and a later frame does not navigate; a request the overlay TOOK (one frame, shown or
+// hidden) but never confirmed is answered ok:false taken:true, never as "page not opened" (the page is open, or opens when shown),
+// and the confirmation that comes late is dropped.
 #pragma once
 #include <memory>
 #include <string>
@@ -29,6 +31,7 @@ struct Rig {
     turbo::DevEnv env;
     double clock = 0.0;
     int frames = 0;
+    int frame_budget = -1;  // frames_run only: at most this many overlay frames per open() (-1: no limit), then the overlay stalls
     std::unique_ptr<turbo::DevService> svc;
     int id = 0;
     Rig(Ui& ui, bool frames_run) {
@@ -36,7 +39,7 @@ struct Rig {
         env.clock = [this]() { return clock; };
         env.sleep = [this, &ui, frames_run](int ms) {
             clock += ms / 1000.0;
-            if (frames_run) {
+            if (frames_run && (frame_budget < 0 || frames < frame_budget)) {
                 ui.frame();
                 ++frames;
             }
@@ -165,12 +168,59 @@ static void ui_cases(App& app, Ui& ui) {
         Rig stalled(ui, false);  // sleep runs no frame: the game is not drawing
         const json r = stalled.open("Club", "Kits");
         CHECK(!r.value("ok", true) && r.value("error", "").find("no frame in 5 s") != std::string::npos, "timed out by name: " + r.dump());
+        CHECK(r.contains("taken") && r["taken"].is_boolean() && !r["taken"].get<bool>(), "nobody took it: taken:false: " + r.dump());
         CHECK(stalled.clock >= 5.0 && stalled.clock < 6.0, "waited about 5 s (" + std::to_string(stalled.clock) + ")");
         ui.frames(3);
         CHECK(app.place() == place_of(Page::Standings), "the abandoned request did not navigate (now " + where(app) + ")");
         Rig rig(ui, true);
         const json r2 = rig.open("Tactics", "Presets");
         CHECK(r2.value("ok", false) && app.place() == place_of(Page::TacticPresets), "the next request works: " + r2.dump());
+    });
+
+    run_case("dev service open_page: request taken by one frame, then the overlay stalls -> ok:false taken:true, not 'page not opened'; the late answer is dropped", [&] {
+        app.visible = true;
+        app.prefs.advanced_mode = true;
+        {
+            Rig rig(ui, true);
+            CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
+        }
+        Rig rig(ui, true);
+        rig.frame_budget = 1;  // frame 1 takes the request and go() opens the page; frame 2 (the answer) never comes in time
+        const json r = rig.open("Club", "Kits");
+        CHECK(rig.frames == 1, "exactly one overlay frame ran (" + std::to_string(rig.frames) + ")");
+        CHECK(!r.value("ok", true), "ok:false, opening is not confirmed: " + r.dump());
+        CHECK(r.contains("taken") && r["taken"].is_boolean() && r["taken"].get<bool>(), "taken:true: " + r.dump());
+        CHECK(r.value("error", "").find("page not opened") == std::string::npos, "not the 'page not opened' text: " + r.dump());
+        CHECK(r.value("error", "").find("took the request") != std::string::npos && r.value("error", "").find("read the current page") != std::string::npos,
+              "the error says the overlay took it and to read the current page: " + r.dump());
+        CHECK(rig.clock >= 5.0 && rig.clock < 6.0, "waited about 5 s (" + std::to_string(rig.clock) + ")");
+        ui.frames(3);  // the confirmation arrives late: dropped, the page stays open
+        CHECK(app.place() == place_of(Page::Kits), "shown case: the page IS open (now " + where(app) + ")");
+        Rig next(ui, true);
+        const json r2 = next.open("Tactics", "Presets");
+        CHECK(r2.value("ok", false) && !r2.contains("taken") && app.place() == place_of(Page::TacticPresets) && r2.contains("requested") &&
+                  r2["requested"].value("page", "") == "Presets",
+              "the next request gets its own answer, not the dropped one: " + r2.dump());
+    });
+
+    run_case("dev service open_page: taken while Turbo is hidden, then no frame -> ok:false taken:true; the page opens once Turbo is shown", [&] {
+        app.visible = true;
+        app.prefs.advanced_mode = true;
+        {
+            Rig rig(ui, true);
+            CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
+        }
+        app.visible = false;
+        Rig rig(ui, true);
+        rig.frame_budget = 1;
+        const json r = rig.open("Club", "Kits");
+        CHECK(rig.frames == 1, "exactly one overlay frame ran (" + std::to_string(rig.frames) + ")");
+        CHECK(!r.value("ok", true) && r.contains("taken") && r["taken"].is_boolean() && r["taken"].get<bool>(), "ok:false taken:true: " + r.dump());
+        CHECK(r.value("error", "").find("page not opened") == std::string::npos, "not the 'page not opened' text: " + r.dump());
+        CHECK(!app.visible, "the op did not show Turbo");
+        app.visible = true;
+        ui.frames(3);
+        CHECK(app.place() == place_of(Page::Kits), "hidden case: shown, the page is there (now " + where(app) + ")");
     });
 
     app.prefs.advanced_mode = adv0;

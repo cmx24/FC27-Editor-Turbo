@@ -579,8 +579,15 @@ json DevService::op(const json& req, int depth) {
                     return a;
                 }
                 if ((env_.clock && now() - t0 > kDevPageWait) || (!env_.clock && step >= max_steps)) {
+                    // dev_page_take clears posted: taken = the overlay already has the request (shown: go() ran in that frame; hidden:
+                    // App::go_to_ keeps it until Turbo is shown), only its confirmation did not come in time
+                    const bool taken = !s.posted;
                     s.active = 0;  // a frame that comes later neither applies nor answers it
                     s.posted = false;
+                    r["taken"] = taken;
+                    if (taken)
+                        return fail("the overlay took the request but did not confirm in 5 s: the page may be open, or open when Turbo is shown; "
+                                    "read the current page before retrying");
                     return fail("the overlay drew no frame in 5 s (game minimised or not drawing?): page not opened");
                 }
             }
