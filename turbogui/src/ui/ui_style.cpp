@@ -84,8 +84,9 @@ void apply_turbo_theme(ImGuiStyle& st) {
     c[ImGuiCol_TabDimmedSelectedOverline] = accent_alpha(0.60f);
     // tables
     c[ImGuiCol_TableHeaderBg] = ImVec4(0.068f, 0.080f, 0.116f, 1.0f);
-    c[ImGuiCol_TableBorderStrong] = ImVec4(0.20f, 0.23f, 0.30f, 1.0f);
-    c[ImGuiCol_TableBorderLight] = ImVec4(0.14f, 0.165f, 0.22f, 1.0f);
+    // 2.22 resize: column dividers you can see and grab (ui_theme.h kTableBorderStrong / Light)
+    c[ImGuiCol_TableBorderStrong] = kTableBorderStrong;
+    c[ImGuiCol_TableBorderLight] = kTableBorderLight;
     c[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     c[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.04f);
     // misc

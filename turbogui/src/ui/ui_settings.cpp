@@ -40,32 +40,8 @@ void save_or_complain(App& app) {
     if (!app.save_gui_settings()) app.notify("The setting could not be saved", true);
 }
 
-// 3.0 track C: "Look and feel" - how big Turbo is and how tall its rows are (the section keeps the key settings.preferences,
-// so a section the user closed before stays closed)
-void draw_look_and_feel(App& app) {
-    form_label("UI size", "The size of the whole Turbo window, on top of the automatic size for the window height");
-    ImGui::SetNextItemWidth(S(140.0f));
-    ImGui::SliderFloat("##uisize", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
-    if (ImGui::IsItemDeactivatedAfterEdit()) save_or_complain(app);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Reset size")) {
-        app.ui_scale_user = 1.0f;
-        save_or_complain(app);
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("now %.2fx", static_cast<double>(app.ui_scale_applied));
-    note("Makes everything in Turbo bigger or smaller.");
-    ImGui::Spacing();
-    // Row density (ui/gui_prefs.h): the style follows on the next tick
-    ImGui::SetNextItemWidth(S(140.0f));
-    int d = static_cast<int>(app.prefs.row_density);
-    const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
-    if (ImGui::Combo("Row height###rowdensity", &d, names, 3)) {
-        app.prefs.row_density = static_cast<RowDensity>(d);
-        save_or_complain(app);
-    }
-    note("How tall the rows of tables and lists are.");
-}
+// 3.0 track C "Look and feel" (section key settings.preferences, so a section the user closed before stays closed): draw_look_and_feel is the
+// one definition in ui_tools.cpp (2.22 resize: UI size + the Row height slider that replaced the 3-step combo; asks-1026 merge)
 
 // "Pictures": the folder of the animations and pictures the pickers show, and loading them ahead of time
 void draw_pictures(App& app) {

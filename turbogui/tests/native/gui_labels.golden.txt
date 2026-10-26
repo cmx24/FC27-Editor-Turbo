@@ -1199,7 +1199,7 @@ ui_settings.cpp	Combo	###rowdensity	1
 ui_settings.cpp	SliderFloat	##uisize	1
 ui_settings.cpp	SmallButton	Reset size	1
 ui_shell.cpp	BeginChild	##editor	1
-ui_shell.cpp	BeginChild	##select	1
+ui_shell.cpp	BeginChild	##selectrail	1
 ui_standings.cpp	-	##%s	1
 ui_standings.cpp	-	##live	1
 ui_standings.cpp	-	##live_ha	1
@@ -1536,7 +1536,6 @@ ui_tools.cpp	Button	Delete...	1
 ui_tools.cpp	Button	Put the overalls back...	1
 ui_tools.cpp	Checkbox	###preload	1
 ui_tools.cpp	CollapsingHeader	Technical details	1
-ui_tools.cpp	Combo	###rowdensity	1
 ui_tools.cpp	Combo	##squadrole	1
 ui_tools.cpp	InputFloat	##bexpmult	1
 ui_tools.cpp	InputInt	##banuntil	1
@@ -1558,6 +1557,7 @@ ui_tools.cpp	RadioButton	All players##be	1
 ui_tools.cpp	RadioButton	My squad##be	1
 ui_tools.cpp	RadioButton	Players shown in the Players list##be	1
 ui_tools.cpp	RadioButton	Team IDs##be	1
+ui_tools.cpp	SliderFloat	##rowheight	1
 ui_tools.cpp	SliderFloat	##uisize	1
 ui_tools.cpp	SliderInt	##befit	1
 ui_tools.cpp	SliderInt	##beform	1
@@ -1566,6 +1566,7 @@ ui_tools.cpp	SliderInt	##dvweekly	1
 ui_tools.cpp	SliderInt	##fmfitness	1
 ui_tools.cpp	SliderInt	##fmform	1
 ui_tools.cpp	SliderInt	##fmmorale	1
+ui_tools.cpp	SmallButton	###rowheightreset	1
 ui_tools.cpp	SmallButton	Copy rebuild command##asset	1
 ui_tools.cpp	SmallButton	Open folder##asset	1
 ui_tools.cpp	SmallButton	Reload catalog##asset	1

@@ -1026,9 +1026,9 @@ void draw_status_health(App& app) {
 
 }
 
-// The preferences: show/hide key, UI size, row density, background loading (Status tab > Settings; Settings page)
-void draw_preferences(App& app) {
-    hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
+// The preferences: show/hide key, UI size, row height, background loading (Status tab > Settings; Settings page)
+// 2.22 G-resize: Settings > Look and feel. UI size and Row height; the tooltip says how every other size is changed.
+void draw_look_and_feel(App& app) {
     form_label("UI size", "The size of the whole Turbo window, on top of the automatic size for the window height");
     ImGui::SetNextItemWidth(S(140.0f));
     ImGui::SliderFloat("##uisize", &app.ui_scale_user, 0.6f, 2.5f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
@@ -1041,17 +1041,25 @@ void draw_preferences(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("now %.2fx (window height %.0f px)", static_cast<double>(app.ui_scale_applied),
                         static_cast<double>(ImGui::GetIO().DisplaySize.y));
-    // Row density (ui/gui_prefs.h): the height of table and list rows; the style follows on the next tick
-    {
-        ImGui::SetNextItemWidth(S(140.0f));
-        int d = static_cast<int>(app.prefs.row_density);
-        const char* names[] = {row_density_label(RowDensity::Compact), row_density_label(RowDensity::Normal), row_density_label(RowDensity::Comfortable)};
-        if (ImGui::Combo("List spacing###rowdensity", &d, names, 3)) {
-            app.prefs.row_density = static_cast<RowDensity>(d);
-            if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How tall the rows of tables and lists are");
+    // Row height (ui/gui_prefs.h): the height of every table and list row, live; the style follows on the next tick. (The old "List spacing" box.)
+    form_label("Row height", "How tall the rows of tables and lists are (px at UI size 1). Drag column edges to resize columns; drag the line between panels to resize panels.");
+    ImGui::SetNextItemWidth(S(140.0f));
+    float rh = app.prefs.row_height;
+    if (ImGui::SliderFloat("##rowheight", &rh, kRowHeightMin, kRowHeightMax, "%.0f px", ImGuiSliderFlags_AlwaysClamp)) app.prefs.row_height = clamp_row_height(rh);
+    if (ImGui::IsItemDeactivatedAfterEdit() && !app.save_gui_settings()) app.notify("cannot save the row height", true);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Compact to roomy. Drag column edges to resize columns; drag the line between panels to resize panels.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset rows###rowheightreset")) {
+        app.prefs.row_height = kRowHeightNormal;
+        if (!app.save_gui_settings()) app.notify("cannot save the row height", true);
     }
+    ImGui::TextDisabled("Drag column edges to resize columns; drag the line between panels to resize panels.");
+}
+
+void draw_preferences(App& app, bool with_look) {
+    hotkey_setting(app);  // hotkey_setting.h: pick the key from the list or by pressing it
+    if (with_look) draw_look_and_feel(app);
     // Background loading of pictures (ui/preload.h, gui.preload_images)
     if (ImGui::Checkbox("Preload pictures###preload", &app.prefs.preload_images)) {
         if (!app.save_gui_settings()) app.notify("cannot write gui_settings.json", true);

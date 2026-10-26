@@ -103,10 +103,11 @@ void select_panel(App& app, void*) {
 
     // "##players" is the registered ID of the player list (table_registry.h); this table lives in another window, so its saved layout is its own
     if (ImGui::BeginTable("##players", 3, tbl::kData | ImGuiTableFlags_ScrollY, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
-        ImGui::TableSetupScrollFreeze(0, 0);
+        ImGui::TableSetupScrollFreeze(0, 1);  // 2.22 G-resize: a header row (drag its edges to resize the columns; click Name / Pos / OVR is not sorted)
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
-        ImGui::TableSetupColumn("Rating", ImGuiTableColumnFlags_WidthFixed, S(30.0f));
+        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed, S(30.0f));
+        ImGui::TableHeadersRow();
         ImGuiListClipper clipper;
         clipper.Begin(static_cast<int>(g_ids.size()));
         while (clipper.Step()) {

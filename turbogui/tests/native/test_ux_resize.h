@@ -11,6 +11,7 @@
 #include "ui/gui_prefs.h"
 #include "ui/preload_queue.h"
 #include "ui/table_registry.h"
+#include "ui/ui_split.h"
 
 namespace {
 
@@ -148,31 +149,215 @@ static void test_ux_resize() {
               "Database: table name on the ID stack before ##dbt");
     });
 
-    run_case("panes: the lists and split panes have a resize border (ImGuiChildFlags_ResizeX / ResizeY)", [&] {
-        struct Want { const char* file; const char* id; const char* flag; };
-        const Want wants[] = {
-            {"ui_players.cpp", "##plist", "ResizeX"},        {"ui_teams.cpp", "##tlist", "ResizeX"},
-            {"ui_teams.cpp", "##mlist", "ResizeX"},          {"ui_competitions.cpp", "##ltable", "ResizeX"},
-            {"ui_faces.cpp", "##facegrid", "ResizeY"},
-            {"ui_tactics.cpp", "##tacleft", "ResizeX"},      {"ui_tactics.cpp", "##taccentre", "ResizeX"},
-            {"ui_images.cpp", "##tgrid", "ResizeY"},         {"ui_images.cpp", "##ggrid", "ResizeY"},
-            {"ui_images.cpp", "##chooser", "ResizeX"},       {"ui_identity.cpp", "##crestgrid", "ResizeY"},
-            {"ui_bodytypes.cpp", "##btlist", "ResizeY"},     {"ui_names.cpp", "##nmids", "ResizeY"},
-            {"ui_standings.cpp", "##lsfix", "ResizeY"},      {"file_picker.cpp", "##fpfiles", "ResizeY"},
-            {"ui_cmtracker.cpp", "##cmtlist", "ResizeY"},
-            // ui_presets.cpp's "##clublist" pane is gone since the 1.2.5 merge: the club pickers are the club search box
-            // (ui_club_search.cpp, its dropdown table "##clubrows" is a popup)
+    run_case("panes (2.22): EVERY BeginChild in src/ui that sits beside another pane has a resize flag or is on the commented allow-list", [&] {
+        // No hard-coded list of panes: each BeginChild is read where it stands. "Beside another pane" = it has a fixed width in its size argument,
+        // or the next SameLine follows its EndChild directly (a left pane). It then needs ResizeX / AutoResizeX in its flags, or must be a pane that
+        // is already resized by its neighbour, a popup / modal list, or owned by another track until merge (ui_split.h: they call pane_x after merge).
+        struct Allow { const char* id; const char* why; };
+        const Allow allow[] = {
+            {"##selectrail", "the 36 px rail the select panel collapses to under 900 px: not a pane to resize (the wide pane is split::pane_x '##select')"},
+            {"##bk_fieldlist", "Bulk edit's field list inside a modal picker (fixed size next to nothing)"},
+            {"##fvals", "a value list inside a modal popup (face chooser counts)"},
+            {"##vpgrid", "G-pickers: the visual picker's tile grid; calls split::pane_x after the merge (brief 2.22 field 1a)"},
+            {"##vppreview", "G-pickers: the visual picker's preview, the remainder next to ##vpgrid"},
+            {"##lscards", "G-ia: the Appearance Editor's cards; ##lslist / ##lspreview beside it already have ResizeX; calls split::pane_x after the merge"},
+            {"##tacright", "the remainder of the Tactics row: ##tacleft and ##taccentre beside it have ResizeX, so dragging their borders resizes this one"},
+            {"##complist", "the competition picker's list inside a popup"},
         };
-        for (const Want& w : wants) {
-            const std::string text = read_file(ux_src_ui() / w.file);
-            bool found = false;
-            for (const std::string& args : ux_calls(text, "ImGui::BeginChild")) {
+        auto allowed = [&](const std::string& id) {
+            for (const Allow& a : allow) if (id == a.id) return true;
+            return false;
+        };
+        const fs::path dir = ux_src_ui();
+        size_t scanned = 0, beside = 0;
+        for (const auto& e : fs::directory_iterator(dir)) {
+            if (e.path().extension() != ".cpp") continue;
+            const std::string text = read_file(e.path());
+            size_t at = 0;
+            while ((at = text.find("ImGui::BeginChild(", at)) != std::string::npos) {
+                const size_t call = at;
+                at += 18;
+                ++scanned;
+                const std::vector<std::string> one = ux_calls(text.substr(call), "ImGui::BeginChild");
+                if (one.empty()) continue;
+                const std::string args = one[0];
                 const std::vector<std::string> ids = ux_first_arg_literals(args);
-                if (std::find(ids.begin(), ids.end(), std::string(w.id)) == ids.end()) continue;
-                found = args.find(std::string("ImGuiChildFlags_") + w.flag) != std::string::npos;
+                const std::string id = ids.empty() ? std::string("<computed>") : ids[0];
+                // the size argument: the text after the first top-level comma up to the next top-level comma
+                std::string size_arg;
+                {
+                    int depth = 0, commas = 0;
+                    bool in_str = false;
+                    for (char c : args) {
+                        if (in_str) { if (c == '"') in_str = false; continue; }
+                        if (c == '"') in_str = true;
+                        else if (c == '(') ++depth;
+                        else if (c == ')') --depth;
+                        else if (c == ',' && depth == 0) { ++commas; continue; }
+                        if (commas == 1) size_arg += c;
+                    }
+                }
+                bool fixed_w = false;
+                {
+                    const size_t v = size_arg.find("ImVec2(");
+                    if (v != std::string::npos) {
+                        std::string x;
+                        int depth = 0;
+                        for (size_t i = v + 7; i < size_arg.size(); ++i) {
+                            const char c = size_arg[i];
+                            if (c == '(') ++depth;
+                            else if (c == ')') { if (depth == 0) break; --depth; }
+                            else if (c == ',' && depth == 0) break;
+                            x += c;
+                        }
+                        x.erase(0, x.find_first_not_of(" \t"));
+                        x.erase(x.find_last_not_of(" \t") + 1);
+                        fixed_w = !(x == "0" || x == "0.0f" || x == "-FLT_MIN" || x.empty());
+                    }
+                }
+                // the matching EndChild, then: does a SameLine follow?
+                bool same_line_after = false;
+                {
+                    int depth = 1;
+                    size_t i = call + 18;
+                    while (depth > 0) {
+                        const size_t nb = text.find("ImGui::BeginChild(", i), ne = text.find("ImGui::EndChild(", i);
+                        if (ne == std::string::npos) break;
+                        if (nb != std::string::npos && nb < ne) { ++depth; i = nb + 18; }
+                        else { --depth; i = ne + 16; }
+                    }
+                    if (depth == 0) {
+                        const size_t semi = text.find(';', i);
+                        const std::string tail = text.substr(semi == std::string::npos ? i : semi + 1, 40);
+                        same_line_after = tail.find("ImGui::SameLine(") != std::string::npos && tail.find("ImGui::SameLine(") < 24;
+                    }
+                }
+                if (!fixed_w && !same_line_after) continue;
+                ++beside;
+                const bool flagged = args.find("ResizeX") != std::string::npos || args.find("ImGuiChildFlags_Resize") != std::string::npos;
+                const bool auto_h = args.find("AutoResizeY") != std::string::npos && !fixed_w;  // a card that only grows downward
+                CHECK(flagged || allowed(id) || auto_h, std::string(e.path().filename().string()) + " " + id + " sits beside another pane with no ResizeX and is not on the allow-list: " + args.substr(0, 90));
             }
-            CHECK(found, std::string(w.file) + " " + w.id + " has " + w.flag);
         }
+        CHECK(scanned >= 80, fmt("%zu BeginChild calls scanned", scanned));
+        CHECK(beside >= 8, fmt("%zu panes beside another were found (the scan sees the split rows)", beside));
+        for (const Allow& a : allow) CHECK(a.why && *a.why, std::string("allow-list entry explained: ") + a.id);
+        // the select panel of every page::frame page goes through the shared helper, not a plain child
+        const std::string shell_src = read_file(dir / "ui_shell.cpp");
+        CHECK(shell_src.find("split::pane_x(\"##select\"") != std::string::npos, "page::frame draws ##select with split::pane_x");
+        CHECK(shell_src.find("BeginChild(\"##select\"") == std::string::npos, "no plain BeginChild(\"##select\") is left");
+        const std::string split_src = read_file(dir / "ui_split.h");
+        CHECK(split_src.find("ImGuiChildFlags_ResizeX") != std::string::npos && split_src.find("ImGuiChildFlags_ResizeY") != std::string::npos &&
+                  split_src.find("pane_x") != std::string::npos && split_src.find("pane_y") != std::string::npos,
+              "ui_split.h has pane_x (ResizeX) and pane_y (ResizeY)");
+    });
+
+    run_case("main panel (2.22): the flags never contain NoResize or NoMove", [&] {
+        const std::string app_src = read_file(ux_src_ui() / "app.cpp");
+        bool found = false;
+        for (const std::string& args : ux_calls(app_src, "ImGui::Begin")) {
+            if (args.find("\"FC 27 LE Turbo\"") == std::string::npos) continue;
+            found = true;
+            CHECK(args.find("NoResize") == std::string::npos && args.find("NoMove") == std::string::npos, "Begin(\"FC 27 LE Turbo\") flags: " + args);
+        }
+        CHECK(found, "the main panel's Begin is in app.cpp");
+        CHECK(app_src.find("ConfigWindowsMoveFromTitleBarOnly = wprefs.maximized") != std::string::npos,
+              "while maximized only the title bar moves it (a stray drag on the page does not un-maximize it)");
+    });
+
+    run_case("tables (2.22): every BeginTable outside a popup has a header row, or is a layout grid, or belongs to another track until merge", [&] {
+        // A layout grid (tbl::kGrid: label + editor cells) has nothing to head. The header-less data tables below belong to other tracks
+        // (G-ia ui_player_profile.cpp, G-pickers ui_visual_picker.cpp) or sit in a popup the registry cannot tell (##comptable); they are named
+        // one by one, so a NEW header-less table in the same files still fails. Remove each line when its owner has added the header row.
+        const std::set<std::string> other_tracks = {"ui_player_profile.cpp|##players", "ui_visual_picker.cpp|##vrows", "ui_visual_picker.cpp|##vrow",
+                                                    "ui_competitions.cpp|##comptable"};
+        size_t tables = 0, headed = 0, grids = 0, parked = 0, popups = 0;
+        for (const auto& e : fs::directory_iterator(ux_src_ui())) {
+            if (e.path().extension() != ".cpp") continue;
+            const std::string text = read_file(e.path());
+            size_t at = 0;
+            while ((at = text.find("ImGui::BeginTable(", at)) != std::string::npos) {
+                const size_t call = at;
+                at += 18;
+                const std::vector<std::string> one = ux_calls(text.substr(call), "ImGui::BeginTable");
+                if (one.empty()) continue;
+                ++tables;
+                const std::string args = one[0];
+                const std::vector<std::string> ids = ux_first_arg_literals(args);
+                const std::string id = ids.empty() ? std::string("<computed>") : ids[0];
+                const size_t end = text.find("ImGui::EndTable(", call);
+                const std::string body = text.substr(call, end == std::string::npos ? 4000 : end - call);
+                const bool header = body.find("TableHeadersRow") != std::string::npos || body.find("TableHeader(") != std::string::npos;
+                const tbl::Spec* sp = ids.empty() ? nullptr : tbl::find(id.c_str());
+                const bool popup = sp && sp->popup;
+                const bool grid = args.find("tbl::kGrid") != std::string::npos;
+                if (header) { ++headed; continue; }
+                if (grid) { ++grids; continue; }
+                if (popup) { ++popups; continue; }
+                if (other_tracks.count(e.path().filename().string() + "|" + id)) { ++parked; continue; }
+                CHECK(false, std::string(e.path().filename().string()) + " " + id + ": a data table without a header row (add TableHeadersRow, or name it above with its owner)");
+            }
+        }
+        CHECK(tables >= 45, fmt("%zu BeginTable calls scanned", tables));
+        CHECK(headed >= 25, fmt("%zu tables have a header row", headed));
+        std::printf("      header rows: %zu headed, %zu layout grids, %zu popups, %zu parked for G-ia / G-pickers\n", headed, grids, popups, parked);
+    });
+
+    run_case("splits (2.22): the clamp (180 px .. 70 %), the store round trip, the damaged-file defaults", [&] {
+        CHECK(clamp_split_width(300, 180, 1920, 0.7f) == 300 && clamp_split_width(50, 180, 1920, 0.7f) == 180 && clamp_split_width(5000, 180, 1920, 0.7f) == 1344,
+              "300 stays; 50 -> 180; 5000 -> 70 % of 1920");
+        CHECK(clamp_split_width(500, 180, 200, 0.7f) == 180, "a panel so small that 70 % is under the minimum: the minimum wins");
+        CHECK(clamp_split_width(NAN, 180, 1920, 0.7f) == 180, "NaN -> minimum");
+        SplitStore st;
+        CHECK(!st.has("PlayerEdit/##select") && st.get("PlayerEdit/##select", 300) == 300 && !st.dirty, "nothing stored: the default, not dirty");
+        st.set("PlayerEdit/##select", 512.4f);
+        st.set("Kits/##select", 241.0f);
+        CHECK(st.dirty && st.get("PlayerEdit/##select", 0) == 512 && st.take_dirty() && !st.dirty && !st.take_dirty(), "stored rounded; taken once");
+        st.set("PlayerEdit/##select", 512.0f);
+        CHECK(!st.dirty, "the same value again is not a change");
+        st.set("x", NAN);
+        st.set("y", -4.0f);
+        CHECK(!st.has("x") && !st.has("y"), "NaN and negative widths are refused");
+        json j = json::parse("{\"gui\":{\"ui_scale\":1.2}}");
+        st.save(j["gui"]);
+        CHECK(j["gui"]["splits"]["PlayerEdit/##select"] == 512 && j["gui"]["splits"]["Kits/##select"] == 241 && j["gui"]["ui_scale"] == 1.2, "written, other keys kept");
+        SplitStore back;
+        back.load(j["gui"]);
+        CHECK(back.get("PlayerEdit/##select", 0) == 512 && back.get("Kits/##select", 0) == 241 && !back.dirty, "round trip");
+        SplitStore bad;
+        bad.load(json::parse("{\"splits\":{\"a\":\"wide\",\"b\":null,\"c\":-3,\"d\":250}}"));
+        CHECK(bad.widths.size() == 1 && bad.get("d", 0) == 250, "junk entries are dropped");
+        bad.load(json::parse("{\"splits\":7}"));
+        CHECK(bad.widths.empty(), "a damaged block is no widths");
+        GuiPrefs gp;
+        gp.splits.set("Standings/##select", 333);
+        json g = json::object();
+        gp.save(g);
+        CHECK(GuiPrefs::load(g).splits.get("Standings/##select", 0) == 333 && !GuiPrefs::load(g).splits.dirty, "GuiPrefs save / load carries gui.splits");
+    });
+
+    run_case("row height (2.22): range, defaults, old row_density files, round trip, the style numbers", [&] {
+        CHECK(GuiPrefs::load(json::object()).row_height == kRowHeightNormal, "default = normal");
+        CHECK(clamp_row_height(5) == kRowHeightMin && clamp_row_height(500) == kRowHeightMax && clamp_row_height(NAN) == kRowHeightNormal && clamp_row_height(30) == 30,
+              "clamped to the range");
+        CHECK(GuiPrefs::load(json::parse("{\"gui\":{\"row_density\":\"compact\"}}")).row_height == row_height_of_density(RowDensity::Compact), "compact -> its row height");
+        CHECK(GuiPrefs::load(json::parse("{\"gui\":{\"row_density\":\"comfortable\"}}")).row_height == row_height_of_density(RowDensity::Comfortable), "comfortable -> its row height");
+        CHECK(GuiPrefs::load(json::parse("{\"gui\":{\"row_density\":\"comfortable\",\"row_height\":33}}")).row_height == 33, "row_height wins over row_density");
+        CHECK(GuiPrefs::load(json::parse("{\"gui\":{\"row_height\":\"tall\"}}")).row_height == kRowHeightNormal, "wrong type keeps the default");
+        CHECK(GuiPrefs::load(json::parse("{\"gui\":{\"row_height\":9999}}")).row_height == kRowHeightMax, "out of range is clamped");
+        GuiPrefs s;
+        s.row_height = 31;
+        json j = json::parse("{\"gui\":{\"ui_scale\":1.2}}");
+        s.save(j);
+        CHECK(j["gui"]["row_height"] == 31 && j["gui"]["row_density"] == "comfortable" && j["gui"]["ui_scale"] == 1.2, "written next to the density step: " + j["gui"].dump());
+        CHECK(GuiPrefs::load(j).row_height == 31, "round trip");
+        CHECK(row_height_cell_padding(kRowHeightNormal) == 2.0f && row_height_item_spacing_mult(kRowHeightNormal) == 1.0f && row_height_frame_padding_mult(kRowHeightNormal) == 1.0f,
+              "normal leaves Dear ImGui's style alone (CellPadding.y 2)");
+        CHECK(row_height_cell_padding(kRowHeightMin) < row_height_cell_padding(kRowHeightNormal) && row_height_cell_padding(kRowHeightNormal) < row_height_cell_padding(kRowHeightMax),
+              "taller rows -> more cell padding");
+        CHECK(row_height_item_spacing_mult(kRowHeightMin) < 1.0f && row_height_item_spacing_mult(kRowHeightMax) > 1.0f && row_height_item_spacing_mult(kRowHeightMax) <= 1.6f &&
+                  row_height_frame_padding_mult(kRowHeightMax) <= 1.5f,
+              "list and widget rows follow, capped");
     });
 
     run_case("preload order: the user's club, the listed players, the face chooser, tattoos, galleries, crests, managers", [&] {
@@ -334,7 +519,7 @@ static void test_ux_resize() {
         json j = json::parse("{\"gui\":{\"ui_scale\":1.2,\"toggle_key\":119},\"callnames\":{\"language\":\"it\"}}");
         GuiPrefs s;
         s.preload_images = false;
-        s.row_density = RowDensity::Comfortable;
+        s.row_height = row_height_of_density(RowDensity::Comfortable);  // 2.22: the density step is the nearest step of the row height
         s.save(j);
         CHECK(j["gui"]["preload_images"] == false && j["gui"]["row_density"] == "comfortable", "written");
         CHECK(j["gui"]["ui_scale"] == 1.2 && j["gui"]["toggle_key"] == 119 && j["callnames"]["language"] == "it", "other keys kept");
@@ -350,3 +535,214 @@ static void test_ux_resize() {
               "normal leaves the style alone; compact < normal < comfortable");
     });
 }
+
+// ---- 2.22 G-resize: the real panel, with the mouse (the proof is a DRAG, not a flag scan) -----------------------------------------------
+namespace resize_ui_test {
+
+using namespace turbo;
+
+static ImGuiWindow* find_window(const char* part) {
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+        if (w->Name && std::strstr(w->Name, part) && w->Active) return w;
+    return nullptr;
+}
+// a child's window name is "<parent>/<id>" (ID stack at its root) or "<parent>/<id>_<hash>"
+static ImGuiWindow* find_child(const char* id) {
+    const std::string plain = std::string("/") + id, hashed = plain + "_";
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+        if (!w->Name || !w->Active) continue;
+        const std::string n = w->Name;
+        if ((n.size() >= plain.size() && n.compare(n.size() - plain.size(), plain.size(), plain) == 0) || n.find(hashed) != std::string::npos) return w;
+    }
+    return nullptr;
+}
+static ImGuiWindow* select_pane() { return find_child("##select"); }
+static std::string window_names(const char* part) {  // diagnostics for a failing check
+    std::string r;
+    for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows)
+        if (w->Name && w->Active && std::strstr(w->Name, part)) r += std::string(r.empty() ? "" : " | ") + w->Name;
+    return r.empty() ? "(none)" : r;
+}
+static ImGuiWindow* main_panel() { return ImGui::FindWindowByName("FC 27 LE Turbo"); }
+static bool near(float a, float b, float tol = 2.5f) { return std::fabs(a - b) <= tol; }
+
+// press at `from`, move to `to` in steps (one frame each), release; the mouse button is up again at the end
+static void drag(Ui& ui, ImVec2 from, ImVec2 to, int steps = 14) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(from.x, from.y);
+    ui.frames(3);
+    io.AddMouseButtonEvent(0, true);
+    ui.frames(3);
+    for (int i = 1; i <= steps; ++i) {
+        io.AddMousePosEvent(from.x + (to.x - from.x) * float(i) / float(steps), from.y + (to.y - from.y) * float(i) / float(steps));
+        ui.frames(1);
+    }
+    ui.frames(2);
+    io.AddMouseButtonEvent(0, false);
+    ui.frames(3);
+    io.AddMousePosEvent(960.0f, 540.0f);
+    ui.frames(2);
+}
+
+static json stored_gui(const fs::path& file) {
+    json j = json::parse(read_file(file), nullptr, false);
+    return j.is_object() && j.contains("gui") ? j["gui"] : json::object();
+}
+
+static void ui_cases(App& app, Ui& ui, const fs::path& le) {
+    const fs::path file = le / "turbo_output" / "gui_settings.json";
+    const std::string keep_file = read_file(file);
+    const GuiPrefs keep_prefs = app.prefs;
+    const bool keep_legacy = app.legacy_pages;
+    app.legacy_pages = false;  // the 2.16+ pages (page::frame), as test_p213.h does
+    auto fresh_settings = [&](const char* body) {
+        std::error_code ec;
+        fs::remove(file, ec);
+        if (body) std::ofstream(file.string(), std::ios::binary) << body;
+        app.load_gui_settings();
+        split::reset_runtime_for_tests();
+        ui.frames(4);
+    };
+    ImGui::GetIO().DisplaySize = ImVec2(1920.0f, 1080.0f);
+
+    run_case("resize UI: Players > Edit a player - dragging the list / editor divider 200 px right moves it; it is saved once, per page", [&] {
+        fresh_settings(nullptr);
+        shell::player_edit_tab() = 0;  // Profile: the tab that draws page::frame
+        CHECK(ui.open_page("Players", "Edit a player") && app.place() == shell::place_of(shell::Page::PlayerEdit), "Edit a player is open");
+        ui.frames(4);
+        ImGuiWindow* sel = select_pane();
+        CHECK(sel != nullptr, std::string("the select pane is drawn; connected=") + (app.connected() ? "yes" : "no") + " tab=" + std::to_string(shell::player_edit_tab()) + "; windows: " + window_names("/##"));
+        if (!sel) return;
+        const float w0 = sel->Size.x, sc = g_ui_scale;
+        CHECK(near(w0, 300.0f * sc), fmt("starts at the default %.0f px (got %.0f)", 300.0f * sc, w0));
+        CHECK((sel->ChildFlags & ImGuiChildFlags_ResizeX) != 0, "the select pane has ResizeX");
+        const float y = sel->Pos.y + sel->Size.y * 0.5f;
+        drag(ui, ImVec2(sel->Pos.x + w0 + 1.5f, y), ImVec2(sel->Pos.x + w0 + 1.5f + 200.0f, y));
+        sel = select_pane();
+        CHECK(sel && near(sel->Size.x, w0 + 200.0f), fmt("dragged 200 px right: %.0f -> %.0f", w0, sel ? sel->Size.x : -1.0f));
+        ImGuiWindow* ed = find_child("##editor");
+        CHECK(ed && sel && ed->Pos.x > sel->Pos.x + sel->Size.x - 1.0f, "the editor pane moved with it");
+        ui.frames(40);
+        json g = stored_gui(file);
+        CHECK(g.contains("splits") && g["splits"].contains("PlayerEdit/##select") && near(g["splits"]["PlayerEdit/##select"].get<float>(), (w0 + 200.0f) / sc),
+              "saved under this page's key once the drag rested: " + (g.contains("splits") ? g["splits"].dump() : std::string("no splits")));
+        // not written again every frame
+        std::error_code ec;
+        fs::remove(file, ec);
+        ui.frames(120);
+        CHECK(!fs::exists(file), "no write while it just sits there");
+    });
+
+    run_case("resize UI: the divider is clamped (180 px .. 70 % of the panel) and each page keeps its own width", [&] {
+        fresh_settings(nullptr);
+        ui.open_page("Players", "Edit a player");
+        ui.frames(4);
+        ImGuiWindow* sel = select_pane();
+        if (!sel) { CHECK(false, "select pane"); return; }
+        float x = sel->Pos.x + sel->Size.x + 1.5f, y = sel->Pos.y + sel->Size.y * 0.5f;
+        drag(ui, ImVec2(x, y), ImVec2(x + 3000.0f, y), 20);
+        sel = select_pane();
+        const float panel_w = main_panel() ? main_panel()->Size.x : 1920.0f;
+        CHECK(sel && sel->Size.x <= panel_w * 0.7f + 2.0f && sel->Size.x >= panel_w * 0.5f, fmt("over-drag stops at 70 %%: %.0f of %.0f", sel ? sel->Size.x : -1.0f, panel_w));
+        sel = select_pane();
+        x = sel->Pos.x + sel->Size.x + 1.5f;
+        drag(ui, ImVec2(x, y), ImVec2(x - 3000.0f, y), 20);
+        sel = select_pane();
+        CHECK(sel && sel->Size.x >= 180.0f * g_ui_scale - 1.0f && sel->Size.x <= 180.0f * g_ui_scale + 3.0f, fmt("under-drag stops at 180 px: %.0f", sel ? sel->Size.x : -1.0f));
+        // set a distinct width for Edit a player, look at another page, come back
+        split::store().set("PlayerEdit/##select", 520.0f);
+        split::reset_runtime_for_tests();
+        ui.frames(3);
+        CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player at its stored 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
+        CHECK(ui.open_page("Players", "Player creation"), "Player creation opens");
+        ui.frames(4);
+        CHECK(select_pane() && near(select_pane()->Size.x, 300.0f * g_ui_scale), fmt("another page starts at its own default 300: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
+        CHECK(ui.open_page("Players", "Edit a player"), "back to Edit a player");
+        ui.frames(4);
+        CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player is back at 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
+        // (A child's window name carries the ID stack of its page, so it differs per page; split::pane_x does not change it: it passes the same
+        // literal "##select" to BeginChild as page::frame did, and pushes no ID.)
+    });
+
+    run_case("resize UI: a restart puts the stored width back (page::frame restores it)", [&] {
+        fresh_settings("{\"gui\":{\"splits\":{\"PlayerEdit/##select\":431}}}");
+        CHECK(app.prefs.splits.get("PlayerEdit/##select", 0) == 431, "loaded from gui_settings.json");
+        ui.open_page("Players", "Edit a player");
+        ui.frames(4);
+        CHECK(select_pane() && near(select_pane()->Size.x, 431.0f * g_ui_scale), fmt("431 px after the restart: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
+        fresh_settings("{\"gui\":{\"splits\":{\"PlayerEdit/##select\":99999}}}");
+        ui.open_page("Players", "Edit a player");
+        ui.frames(4);
+        CHECK(select_pane() && main_panel() && select_pane()->Size.x <= 0.7f * main_panel()->Size.x + 2.0f, "a damaged (huge) stored width is clamped");
+    });
+
+    run_case("resize UI: the main panel - an edge drag from maximized shrinks it, leaves maximized, and is saved; the title bar moves it; a drag on the page does not", [&] {
+        fresh_settings(nullptr);
+        ImGuiWindow* w = main_panel();
+        CHECK(w && app.prefs.window.maximized && near(w->Size.x, 1920.0f) && near(w->Pos.x, 0.0f), "starts maximized");
+        if (!w) return;
+        CHECK((w->Flags & ImGuiWindowFlags_NoMove) == 0 && (w->Flags & ImGuiWindowFlags_NoResize) == 0, "maximized: NoMove / NoResize are not set");
+        // a drag on empty page space does not un-maximize it
+        drag(ui, ImVec2(960.0f, 1062.0f), ImVec2(700.0f, 900.0f));
+        w = main_panel();
+        CHECK(app.prefs.window.maximized && w && near(w->Pos.x, 0.0f) && near(w->Pos.y, 0.0f) && near(w->Size.x, 1920.0f), "a stray drag on the page leaves it maximized");
+        // the right edge, dragged 400 px left
+        std::error_code ec;
+        fs::remove(file, ec);
+        drag(ui, ImVec2(1918.0f, 500.0f), ImVec2(1518.0f, 500.0f));
+        w = main_panel();
+        CHECK(w && near(w->Size.x, 1520.0f, 4.0f) && near(w->Size.y, 1080.0f, 4.0f), fmt("the right edge dragged 400 px: %.0f x %.0f", w ? w->Size.x : -1.0f, w ? w->Size.y : -1.0f));
+        CHECK(!app.prefs.window.maximized, "dragging an edge leaves maximized");
+        ui.frames(70);
+        json g = stored_gui(file);
+        CHECK(g.contains("window") && g["window"].value("maximized", true) == false && g["window"].value("w", 0) >= 1500 && g["window"].value("w", 0) <= 1540,
+              "saved: " + (g.contains("window") ? g["window"].dump() : std::string("no window block")));
+        // the title bar moves it
+        w = main_panel();
+        if (w) drag(ui, ImVec2(w->Pos.x + 300.0f, w->Pos.y + 8.0f), ImVec2(w->Pos.x + 300.0f + 120.0f, w->Pos.y + 8.0f + 60.0f));
+        w = main_panel();
+        CHECK(w && near(w->Pos.x, 120.0f, 4.0f) && near(w->Pos.y, 60.0f, 4.0f), fmt("the title bar dragged: %.0f,%.0f", w ? w->Pos.x : -1.0f, w ? w->Pos.y : -1.0f));
+        // from maximized, a title bar drag of a few pixels still leaves maximized and is saved once it rests
+        fresh_settings(nullptr);
+        fs::remove(file, ec);
+        drag(ui, ImVec2(500.0f, 8.0f), ImVec2(520.0f, 14.0f), 4);
+        ui.frames(70);
+        g = stored_gui(file);
+        CHECK(!app.prefs.window.maximized && g.contains("window") && g["window"].value("maximized", true) == false, "a short title-bar drag from maximized is saved as not maximized");
+        fresh_settings(nullptr);
+    });
+
+    run_case("resize UI: Settings > Look and feel - the Row height slider (no second control), rows get taller live, and the status line has Refresh", [&] {
+        fresh_settings(nullptr);
+        ui.click("Settings", "FC 27 LE Turbo", "##shell");
+        ui.frames(4);
+        CHECK(app.prefs.section_open("settings.look", true), "the Look and feel section is open by default on the Settings page");
+        CHECK(ui.find("##rowheight") != nullptr, "the Row height slider is visible without scrolling or opening anything");
+        CHECK(ui.find("List spacing") == nullptr, "the old List spacing box is gone (no duplicate control)");
+        const float before = ImGui::GetStyle().CellPadding.y;
+        app.prefs.row_height = kRowHeightMax;
+        ui.frames(3);
+        const float after = ImGui::GetStyle().CellPadding.y;
+        CHECK(after > before * 3.0f && near(after, row_height_cell_padding(kRowHeightMax) * g_ui_scale, 0.6f), fmt("rows taller at the maximum: CellPadding.y %.1f -> %.1f", before, after));
+        app.prefs.row_height = kRowHeightMin;
+        ui.frames(3);
+        CHECK(ImGui::GetStyle().CellPadding.y < before, "and tighter at the minimum");
+        app.prefs.row_height = kRowHeightNormal;
+        ui.frames(3);
+        CHECK(near(ImGui::GetStyle().CellPadding.y, before, 0.01f), "normal puts the old style back exactly");
+        CHECK(ui.find("Refresh###statusrefresh") != nullptr, "the status line has the Refresh button (v2.14 behaviour)");
+        CHECK(ui.click("Refresh###statusrefresh"), "and it can be pressed");
+        ui.frames(3);
+    });
+
+    // put everything back
+    {
+        std::ofstream(file.string(), std::ios::binary) << keep_file;
+        app.prefs = keep_prefs;
+        app.legacy_pages = keep_legacy;
+        split::reset_runtime_for_tests();
+        ui.frames(4);
+    }
+}
+
+}  // namespace resize_ui_test

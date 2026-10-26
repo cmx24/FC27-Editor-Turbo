@@ -343,7 +343,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         settle();
         CHECK(app.place() == place_of(Page::Settings), "on the Settings page");
         CHECK(ui.find("Look and feel") != nullptr, "sections drawn (the Log header is clicked below, scrolling to it if it is below the fold)");
-        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("###rowdensity") != nullptr, "the preferences of the old Status tab");
+        CHECK(ui.find("Change...##hotkey", "", "status") != nullptr && ui.find("##rowheight") != nullptr, "the preferences of the old Status tab (2.22: the Row height slider replaced ###rowdensity)");
         CHECK(ui.click("Show the Lab (tools not proven in game)###advview", "FC 27 LE Turbo"), "click the toggle");
         ui.frames(3);
         CHECK(app.prefs.advanced_mode && read_gui()["gui"]["advanced_mode"] == true, "Advanced on, saved");
@@ -359,7 +359,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         ui.frames(3);
         CHECK(!app.prefs.section_open("settings.preferences", true) && read_gui()["gui"]["sections_open"]["settings.preferences"] == false,
               "Look and feel closed, saved");
-        CHECK(ui.find("###rowdensity") == nullptr, "the closed section is not drawn");
+        CHECK(ui.find("##rowheight") == nullptr, "the closed section is not drawn");
         app.prefs.sections_open.clear();
         app.save_gui_settings();
     });
