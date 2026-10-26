@@ -8,7 +8,9 @@
 // What is guarded:
 //   - the tab draws the Player type & tier card (the archetype panel) FIRST, then Overall, Positions, Style and roles, Attributes, PlayStyles;
 //   - a coded field shows its descriptor in words: the Positions line (position_text: "ST", "RCB (internal, plays as CB)"), the Roles line
-//     (the game's role names), and one line per PlayStyle / Trait set naming the ticked boxes; a box past the name list reads "Unnamed trait N";
+//     (the game's role names), and one line per PlayStyle / Trait set naming the ticked boxes (a box past the name list reads "Unnamed trait N": not reachable in the
+//     fixture, whose trait fields are as wide as the name lists; the Roles line is checked only when the table has role fields, which the
+//     fixture world does not: both are named as untested here in the S6 report);
 //   - no help text of the tab shows a field name (trait1 ...: rule R4 / R9) and the stand-in text names no integration step;
 //   - the two grids of the tab are tables in the registry form (table_registry.h ids "##bits" and "##sl", tbl::kGrid flags).
 // Plain text is not an ImGui item, so the tab reports what it said in words through turbo_ability_words_40() (global function in
@@ -41,8 +43,10 @@
         const ItemRec* card = ui.find("###ab_typetier", W);
         const ItemRec* ovr = ui.find("###ab_ovr", W);
         const ItemRec* pos = ui.find("###ab_positions", W);
-        CHECK(card && ovr && pos, "the card, Overall and Positions are on screen");
-        if (card && ovr && pos) CHECK(card->rect.Min.y < ovr->rect.Min.y && ovr->rect.Min.y < pos->rect.Min.y, "geometry: the card is above Overall, Overall above Positions");
+        // the page is taller than the window: Positions can be below the fold, so the card must be on screen and, of the sections in view, the card is the topmost
+        CHECK(card != nullptr, "the Player type & tier card is on screen");
+        if (card && ovr) CHECK(card->rect.Min.y < ovr->rect.Min.y, "geometry: the card is above Overall");
+        if (ovr && pos) CHECK(ovr->rect.Min.y < pos->rect.Min.y, "geometry: Overall is above Positions");
         const int a = index_of("section ab_typetier"), o = index_of("section ab_ovr"), p = index_of("section ab_positions"), s = index_of("section ab_style"),
                   at = index_of("section ab_attrs"), ps = index_of("section ab_styles");
         CHECK(a == 0, "the Player type & tier card is the first section drawn: " + std::to_string(a));
@@ -63,23 +67,27 @@
             if (f) app.edit(*t, pr->rec, *f, Value::of_int(v));
             return f != nullptr;
         };
-        // a known state: main position ST, second position RCB (a code no game menu names), roles 42 and 152, two PlayStyles, one PlayStyle+,
-        // Traits bit 13 (named: Super Sub) and bit 15 (past the name list)
-        const bool set = put("preferredposition1", 25) && put("preferredposition2", 4) && put("role1", 42) && put("role2", 152) &&
-                         put("trait1", (int64_t(1) << 0) | (int64_t(1) << 21)) && put("icontrait1", int64_t(1) << 2) &&
-                         put("trait2", (int64_t(1) << 13) | (int64_t(1) << 15));
+        // a known state: main position ST, second position RCB (a code no game menu names), roles 42 and 152 (only when the table has the role
+        // fields: the GUI fixture world, gui_world.lua, has none), two PlayStyles, one PlayStyle+, Traits bit 13 (Super Sub). A box past the name
+        // list ("Unnamed trait N") cannot be built here: the fixture's trait fields are as wide as the name lists.
+        const bool has_roles = t->field("role1") != nullptr && t->field("role2") != nullptr;
+        const bool set = put("preferredposition1", 25) && put("preferredposition2", 4) && (!has_roles || (put("role1", 42) && put("role2", 152))) &&
+                         put("trait1", (int64_t(1) << 0) | (int64_t(1) << 21)) && put("icontrait1", int64_t(1) << 2) && put("trait2", int64_t(1) << 13);
         CHECK(set, "the fixture player's coded fields were set");
         profile_page_test::show(ui, profile_page_test::Which::Ability);
         CHECK(&turbo_ability_words_40 != nullptr, "the tab reports its words");
         const std::string pos = said("words positions: ");
         CHECK(pos.find("ST") != std::string::npos && pos.find("RCB (internal, plays as CB)") != std::string::npos, "positions in words: '" + pos + "'");
         const std::string roles = said("words roles: ");
-        CHECK(roles.find(labels::describe("players", "role1", 42)) != std::string::npos && roles.find("ST Poacher+") != std::string::npos &&
-                  roles.find("LW False Winger++") != std::string::npos,
-              "roles in words: '" + roles + "'");
+        if (has_roles)
+            CHECK(roles.find(labels::describe("players", "role1", 42)) != std::string::npos && roles.find("ST Poacher+") != std::string::npos &&
+                      roles.find("LW False Winger++") != std::string::npos,
+                  "roles in words: '" + roles + "'");
+        else
+            CHECK(roles.empty(), "no role fields in this table: no roles line");
         CHECK(said("words PlayStyles: ") == "Finesse Shot, Rapid", "PlayStyles in words: '" + said("words PlayStyles: ") + "'");
         CHECK(said("words PlayStyles+: ") == "Power Shot", "PlayStyles+ in words: '" + said("words PlayStyles+: ") + "'");
-        CHECK(said("words Traits: ") == "Super Sub, Unnamed trait 15", "Traits in words, a box past the name list is 'Unnamed trait N': '" + said("words Traits: ") + "'");
+        CHECK(said("words Traits: ") == "Super Sub", "Traits in words: '" + said("words Traits: ") + "'");
         CHECK(said("words Traits+: ") == "none ticked", "Traits+ with nothing ticked: '" + said("words Traits+: ") + "'");
         // help lines: no field name
         for (const char* set_title : {"PlayStyles", "PlayStyles+", "Traits", "Traits+"}) {

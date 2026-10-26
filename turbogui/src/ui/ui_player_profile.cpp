@@ -444,14 +444,16 @@ void ability_editor(App& app, void*) {
                     "gkkickstyle", "runstylecode", "growthprofile"},
                    "##ab_stylegrid", 2);
         // the roles in words, outside the tree (it is closed at first): every role slot that is set, named by the game's role table
-        std::string roles;
-        for (int k = 1; k <= 9; ++k) {
-            const int64_t rv = app.db.get_int(*t, p->rec, ("role" + std::to_string(k)).c_str(), 0);
-            if (rv != 0) roles += (roles.empty() ? "" : ", ") + labels::describe("players", "role" + std::to_string(k), rv);
+        if (t->field("role1")) {
+            std::string roles;
+            for (int k = 1; k <= 9; ++k) {
+                const int64_t rv = app.db.get_int(*t, p->rec, ("role" + std::to_string(k)).c_str(), 0);
+                if (rv != 0) roles += (roles.empty() ? "" : ", ") + labels::describe("players", "role" + std::to_string(k), rv);
+            }
+            if (roles.empty()) roles = "none set";
+            say("words roles: " + roles);
+            theme::muted_text("Roles: %s", roles.c_str());
         }
-        if (roles.empty()) roles = "none set";
-        say("words roles: " + roles);
-        theme::muted_text("Roles: %s", roles.c_str());
         if (ImGui::TreeNodeEx("Roles###ab_roles", ImGuiTreeNodeFlags_SpanAvailWidth)) {
             field_grid(app, *t, p->rec, {"role1", "role2", "role3", "role4", "role5", "role6", "role7", "role8", "role9"}, "##ab_rolegrid", 2);
             ImGui::TreePop();
