@@ -16,7 +16,10 @@
 #include "ui_club_search.h"
 #include "ui_crest_shirt.h"
 #include "ui_identity.h"
+#include "ui_career_pages.h"
+#include "ui_club_tools.h"
 #include "ui_kits.h"
+#include "ui_page.h"
 #include "ui_shell.h"
 #include "ui_theme.h"
 
@@ -157,6 +160,23 @@ struct KitsCtx {
     std::vector<size_t> which;  // ready kits of the selected slot
     bool waiting = false;       // the game's own minikit is still loading
 };
+
+// 4.0 S9 fix round 3: the ONE path of every Apply on this page (the bar Apply and "Apply all N kits"). It applies, then arms the status line:
+// draw_kits_page reads the outcome when the staging worker has ended. A button that called apply_items itself left the line at an earlier "Done".
+static bool g_apply_pending = false;  // an Apply was pressed and its result is not on the status line yet
+static std::string g_apply_why;       // why the database part of that Apply failed, read the moment apply_items returned
+void apply_and_track(App& app, int64_t team, const std::vector<size_t>& which) {
+    apply_items(app, team, which);
+    invalidate_look();
+    g_apply_pending = true;
+    // The outcome of the database part is read HERE: poll_jobs replaces the panel line with "textures staged..." when the worker ends.
+    // Only the items just applied (which) count, not a stale "not applied" item of another slot.
+    g_apply_why.clear();
+    for (size_t i : which)
+        if (g_apply_why.empty() && kit_panel_status(i).rfind("not applied", 0) == 0) g_apply_why = kit_panel_status(i);
+    // apply_kit_import returns ok=false with a line that does not start "not applied" when the import record could not be saved
+    if (g_apply_why.empty() && kit_panel_line().find("was not saved") != std::string::npos) g_apply_why = kit_panel_line();
+}
 
 void select_panel(App& app, void* user) {
     KitsCtx& c = *static_cast<KitsCtx*>(user);
@@ -497,10 +517,7 @@ void more_section(App& app, int64_t team, KitsCtx& c) {
         const bool can = !busy && !waiting && app.model.team(team);
         if (!can) ImGui::BeginDisabled();
         const std::string all = "Apply all " + std::to_string(ready.size()) + " kits##kpall";
-        if (ImGui::Button(all.c_str())) {
-            apply_items(app, team, ready);
-            invalidate_look();
-        }
+        if (ImGui::Button(all.c_str())) apply_and_track(app, team, ready);
         if (!can) ImGui::EndDisabled();
     }
     (void)c;
@@ -529,6 +546,8 @@ void editor_panel(App& app, void* user) {
         std::string msg;
         const bool ok = undo_kit_import(app, c.team, slot, &msg);
         app.notify("Kit: " + msg, !ok);
+        if (ok) page::done("kits", msg);
+        else page::couldnt(app, "kits", "restore the game's kit", msg);
         invalidate_look();
     }
     if (!can) ImGui::EndDisabled();
@@ -561,50 +580,58 @@ const KitsPageState& kits_page_state() { return g_state; }
 
 void draw_kits_page(App& app) {
     g_state = KitsPageState();
-    if (!app.connected()) {
-        not_connected_hint();
-        return;
-    }
-    poll_jobs(app);
+    const bool on = app.connected();
     KitsCtx ctx;
-    ctx.team = club_page_team(app);
-    // a zip or folder was just read: show the slot of its first kit
-    static size_t seen_items = 0;
-    if (kit_panel_count() != seen_items) {
-        seen_items = kit_panel_count();
-        if (seen_items > 0 && kit_panel_slot(0) != Slot::Unknown) kit_page_select(kit_panel_slot(0));
-        invalidate_look();
+    bool can_apply = false;
+    if (on) {
+        poll_jobs(app);
+        ctx.team = club_page_team(app);
+        // a zip or folder was just read: show the slot of its first kit
+        static size_t seen_items = 0;
+        if (kit_panel_count() != seen_items) {
+            seen_items = kit_panel_count();
+            if (seen_items > 0 && kit_panel_slot(0) != Slot::Unknown) kit_page_select(kit_panel_slot(0));
+            invalidate_look();
+        }
+        const Slot slot = kit_page_slot();
+        refresh_look(app, ctx.team, slot);
+        for (size_t i = 0; i < kit_panel_count(); ++i) {
+            if (kit_panel_slot(i) != slot || kit_panel_status(i) != "ready") continue;
+            ctx.which.push_back(i);
+            ctx.waiting = ctx.waiting || minikit_state(app, ctx.team, slot) == LegacyImages::State::Waiting;
+        }
+        g_state.teamid = ctx.team;
+        g_state.slot = slot;
+        can_apply = !ctx.which.empty() && !ctx.waiting && !kit_panel_busy() && app.model.team(ctx.team) != nullptr;
+        g_state.apply_enabled = can_apply;
     }
-    const Slot slot = kit_page_slot();
-    refresh_look(app, ctx.team, slot);
-    for (size_t i = 0; i < kit_panel_count(); ++i) {
-        if (kit_panel_slot(i) != slot || kit_panel_status(i) != "ready") continue;
-        ctx.which.push_back(i);
-        ctx.waiting = ctx.waiting || minikit_state(app, ctx.team, slot) == LegacyImages::State::Waiting;
-    }
-    g_state.teamid = ctx.team;
-    g_state.slot = slot;
-    shell::page::Primary primary;
-    primary.label = "Apply kit";
-    primary.enabled = !ctx.which.empty() && !ctx.waiting && !kit_panel_busy() && app.model.team(ctx.team) != nullptr;
-    g_state.apply_enabled = primary.enabled;
-    shell::page::frame(app, select_panel, editor_panel, &ctx, &primary);
-    if (primary.clicked && primary.enabled) {
-        apply_items(app, ctx.team, ctx.which);
-        invalidate_look();
+    // 4.0 S9: the page template (title, help, body, one status line, bar). The Apply of the bar is the page's one main button.
+    page::Frame f(app, {"kits", "Kits", "Pick a slot, read a kit file, then Apply kit. Restore puts the game's own kit back.", on ? "Apply kit" : nullptr, can_apply});
+    if (!on) not_connected_hint();
+    else shell::page::frame(app, select_panel, editor_panel, &ctx, nullptr);
+    const bool clicked = f.end();
+    if (!on) return;
+    if (clicked && can_apply) apply_and_track(app, ctx.team, ctx.which);
+    if (g_apply_pending && !kit_panel_busy()) {
+        g_apply_pending = false;
+        std::string why = g_apply_why;
+        // The worker may have ended in this very frame (a missing zip ends it at once), after apply_items and before the next frame's poll_jobs:
+        // consume its result now, so the line read below is the staging line and a texture that could not be staged ends it with "; not staged: <why>"
+        poll_jobs(app);
+        const std::string line = kit_panel_line();
+        const size_t ns = line.find("; not staged: ");
+        if (why.empty() && ns != std::string::npos) why = "the textures were not staged: " + line.substr(ns + 14);
+        if (why.empty()) page::done("kits", line);
+        else page::couldnt(app, "kits", "apply the kit", why);
     }
 }
 
-// ---------------------------------------------------------------- Club name, colours & crest
-void draw_club_identity_page(App& app) {
-    if (!app.connected()) {
-        not_connected_hint();
-        return;
-    }
-    club_page_team(app);
-    club_row(app);
-    ImGui::Separator();
-    ImGui::BeginChild("##identity", ImVec2(0, 0), ImGuiChildFlags_None);
+// ---------------------------------------------------------------- Club & crest: Identity | Stadium & crowd | Staff
+namespace {
+
+// Name, colours and crest: three cards, each with its own Save (unchanged from the Identity page)
+void identity_tab(App& app) {
+    ImGui::BeginChild("##identity", ImVec2(0, 0), ImGuiChildFlags_None);  // the id of the old Identity page, kept so the label manifest has no removed id
     const bool wide = ImGui::GetContentRegionAvail().x >= S(760.0f);
     if (wide) ImGui::Columns(2, "##kpidcols", false);
     if (card_begin("##kpname", "Name")) {
@@ -625,9 +652,46 @@ void draw_club_identity_page(App& app) {
     card_end();
     if (wide) ImGui::Columns(1);
     ImGui::PushTextWrapPos(0.0f);
-    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: change them back here if you need to.");
+    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: set them back by hand.");
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
+}
+
+// The old Stadium & extras page, as it was: stadium and kit colours, crowd and tifo, home ground, then the customisation hub
+void stadium_tab(App& app) {
+    club_stadium_section(app);
+    ImGui::Spacing();
+    ImGui::SeparatorText("More for your club");
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);  // the extras' own header
+    draw_club_tools(app);
+}
+
+}  // namespace
+
+void draw_club_identity_page(App& app) {
+    page::Frame f(app, {"club_crest", "Club & crest", "Your club's name, colours, crest, stadium and staff. Each part has its own Save.", nullptr, true, false});  // 4.0 integration (S9 merge): no bar Undo here, it would take back the last PLAYER change (gui-s9.md:41)
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    club_page_team(app);
+    club_row(app);
+    ImGui::Separator();
+    if (ImGui::BeginTabBar("##kc_tabs")) {
+        if (ImGui::BeginTabItem("Identity###kctabid")) {
+            identity_tab(app);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Stadium & crowd###kctabstadium")) {
+            stadium_tab(app);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Staff###kctabstaff")) {
+            draw_career_staff(app);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 }
 
 // ---------------------------------------------------------------- Kit diagnostics (for Advanced)

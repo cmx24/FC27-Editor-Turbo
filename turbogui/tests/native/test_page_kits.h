@@ -119,7 +119,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         for (const char* l : {"Home##kpslot", "Away##kpslot", "Third##kpslot", "Goalkeeper##kpslot", "Fourth##kpslot"})
             CHECK(ui.find(l, "##select") != nullptr, std::string("slot in the select panel: ") + l);
-        CHECK(ui.find("Apply kit", "##kitspage_test") != nullptr, "the one main button");
+        CHECK(ui.find("###pg_apply", "##kitspage_test") != nullptr, "the one main button");
         CHECK(!kits_page_state().apply_enabled, "disabled until a kit file is read");
         CHECK(ui.find("Choose kit file...##kpfile", "##editor") != nullptr && ui.find("Restore the game's kit##kprestore", "##editor") != nullptr,
               "choose a file, restore");
@@ -175,12 +175,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(kit_panel_count() == 1 && kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
         CHECK(kits_page_state().status.rfind("Ready to apply: h.zip", 0) == 0 && kits_page_state().apply_enabled, "state: " + kits_page_state().status);
         CHECK(!has_kit_import(app, 7, kits::Slot::Home), "nothing imported yet");
-        CHECK(ui.click("Apply kit", "##kitspage_test"), "Apply kit");
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit");
         CHECK(kit_wait(ui), "textures converted");
         ui.frames(3);
         CHECK(has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) != nullptr, "applied: the import record and the kept kit row exist");
         CHECK(fs::exists(kits::slot_dir(le, 7, kits::Slot::Home) / "manifest.json"), "the textures were staged: the apply path of the old page ran, not a lesser one");
         CHECK(app.reapply.kits.size() == n_before + 1, "one new kept row");
+        CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "the frame's one status line says it (4.0 S9): " + page::status_text("kits"));
         const std::string txt = page_text(ui).all;
         CHECK(has(txt, "Custom") && kits_page_state().custom, "the slot list says Custom");
         CHECK(kits_page_state().status.rfind("applied to Everton", 0) == 0, "state: " + kits_page_state().status);
@@ -204,6 +205,95 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         std::string msg;
         CHECK(!undo_kit_import(app, 7, kits::Slot::Away, &msg) && club_page_test::kept_rows(app.reapply) == before, "restoring Away is refused and changes no row: " + msg);
         CHECK(app.reapply.forget_kit(9999, 0, 9990) && app.reapply.forget_kit(7, 1, 71), "fixture rows removed");
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
+
+    // 4.0 S9 fix round 1 (P1): the status line of the Kits page must not say "Done" when the apply did not hold. poll_jobs replaces the
+    // panel line ("textures staged...") when the worker ends, so the page reads the outcome of the database part the moment apply_items returns.
+    run_case("Kits page: an Apply whose import record could not be saved, or whose textures could not be staged, never says Done; a stale item of another slot does not turn a good Apply into Couldn't", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        app.kit_swap = nullptr;
+        put_game_minikit(le);
+        const fs::path dir = g_out / "kits_src" / "page_kits_fail";
+        const fs::path zip = dir / "h.zip";
+        make_kit_zip(zip, spec);
+        make_kit_zip(dir / "a.zip", spec);
+        const std::string before = club_page_test::kept_rows(app.reapply);
+        const fs::path rec = kits::slot_dir(le, 7, kits::Slot::Home) / "import.json";
+        fs::path tmp = rec;
+        tmp += ".tmp";
+        std::error_code ec;
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);
+        // a good Apply first: its record holds the game's own values, so Restore at the end puts everything back
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
+        ui.frames(3);
+        CHECK(kit_page_slot() == kits::Slot::Home && kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit");
+        CHECK(kit_wait(ui), "textures converted");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "a good Apply says Done: " + page::status_text("kits"));
+        CHECK(fs::is_regular_file(rec, ec), "the import record is there");
+
+        // (1) the record cannot be saved: a folder stands where write_text_atomic opens its temporary file (import.json.tmp), so the write fails
+        // (a folder in import.json's own place would not do: write_text_atomic removes an empty one and renames over it)
+        fs::create_directories(tmp, ec);
+        CHECK(fs::is_directory(tmp, ec), "a folder stands in the temporary file's place");
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read again");
+        ui.frames(3);
+        CHECK(kit_panel_status(0) == "ready", "ready again: " + kit_panel_status(0));
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit, the record cannot be saved");
+        CHECK(kit_wait(ui), "textures converted");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "the status line does not say Done when Undo cannot restore the kit: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: ", 0) == 0 && has(page::status_text("kits"), "was not saved"),
+              "it says Couldn't, with the reason: " + page::status_text("kits"));
+        fs::remove_all(tmp, ec);
+        CHECK(!fs::exists(tmp, ec) && fs::is_regular_file(rec), "the folder is gone and the first record is still there");
+
+        // (2) the textures cannot be staged: the zip is gone when the worker opens it (the database part ran from the zip read earlier)
+        const fs::path gone = dir / "h.zip.gone";
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read once more");
+        ui.frames(3);
+        CHECK(kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
+        fs::rename(zip, gone, ec);
+        CHECK(!ec, "the zip is set aside: " + ec.message());
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit, the textures cannot be staged");
+        CHECK(kit_wait(ui), "the worker ended");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "a staging failure is not Done: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: the textures were not staged", 0) == 0, "it says so: " + page::status_text("kits"));
+        fs::rename(gone, zip, ec);
+        CHECK(!ec, "the zip is back");
+
+        // (3) a stale "not applied" item of another slot (Away) is not this Apply's business: Home applies cleanly and says Done
+        CHECK(kit_panel_open(app, dir) && kit_wait(ui), "both zips are read");
+        ui.frames(3);
+        size_t away = kit_panel_count(), home = kit_panel_count();
+        for (size_t i = 0; i < kit_panel_count(); ++i) {
+            if (kit_panel_slot(i) == kits::Slot::Away) away = i;
+            if (kit_panel_slot(i) == kits::Slot::Home) home = i;
+        }
+        CHECK(kit_panel_count() == 2 && away < 2 && home < 2, "an Away item and a Home item");
+        if (away < 2 && home < 2) {
+            apply_items(app, 999999, {away});  // a club that is not in the database: the Away item is left "not applied"
+            CHECK(kit_panel_status(away).rfind("not applied", 0) == 0, "the Away item is stale: " + kit_panel_status(away));
+            kit_page_select(kits::Slot::Home);
+            ui.frames(3);
+            CHECK(kit_panel_status(home) == "ready", "the Home item is ready: " + kit_panel_status(home));
+            CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit for Home");
+            CHECK(kit_wait(ui), "textures converted");
+            ui.frames(3);
+            CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "a stale item of another slot does not make a good Apply fail: " + page::status_text("kits"));
+        }
+
+        // the first Apply's record puts the club back as it was
+        std::string msg;
+        CHECK(undo_kit_import(app, 7, kits::Slot::Home, &msg), "restored: " + msg);
+        CHECK(club_page_test::kept_rows(app.reapply) == before, "the kept rows are as before: " + club_page_test::kept_rows(app.reapply));
         kit_page_select(kits::Slot::Home);
         hide(ui);
     });
@@ -243,7 +333,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // apply a kit
         CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
         ui.frames(3);
-        CHECK(ui.click("Apply kit", "##kitspage_test") && kit_wait(ui), "applied");
+        CHECK(ui.click("###pg_apply", "##kitspage_test") && kit_wait(ui), "applied");
         ui.frames(80);
         CHECK(has_kit_import(app, 7, kits::Slot::Home) && kits_page_state().pitch_enabled && !kits_page_state().pitch_tick, "applied: the tick is enabled and off");
         // a slot set to watch only is not moved by drawing the page
@@ -308,6 +398,55 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!has(pt.only, "Undo last"), "no promise of an Undo that does not exist");
         show(ui, draw_kit_diagnostics);
         CHECK(ui.find("Import kit zip...", "##kitspage_test") && ui.find("Import team folder...", "##kitspage_test"), "Kit diagnostics: the old Kits body, all of it");
+        hide(ui);
+    });
+    club_40_test::ui_cases(app, ui, le);  // test_club_40.h (4.0 S9): both pages in the page template, the Staff tab, one descriptor
+    // 4.0 S9 fix round 3 (P2, found by the round-2 reviewer): "Apply all N kits" (More) is an Apply like the bar's, so it goes through the same
+    // apply_and_track path: a staging failure after it is not left under an earlier "Done".
+    run_case("Kits page: Apply all N kits with a textures staging failure never leaves the line at an earlier Done (the one Apply path of the bar)", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        app.kit_swap = nullptr;
+        put_game_minikit(le);
+        // "Apply all" is drawn only for two ready kits and waits for the game's own minikit of every slot: Away's is set here
+        const fs::path away_mk = le / "turbo_output" / "cache" / "legacy" / kits::minikit_path(7, kits::Slot::Away);
+        {
+            DdsFormat mf;
+            mf.pixel = DdsFormat::Pixel::DXT5;
+            mf.w = mf.h = 64;
+            mf.mips = 7;
+            write(away_mk, encode_dds(solid(64, 64, 9, 9, 9), mf));
+        }
+        const std::string before = club_page_test::kept_rows(app.reapply);
+        const fs::path dir = g_out / "kits_src" / "page_kits_all";
+        make_kit_zip(dir / "h.zip", spec);
+        make_kit_zip(dir / "a.zip", spec);
+        std::error_code ec;
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);  // the exported minikits are read once a second
+        page::done("kits", "an earlier action");  // what the line says before the click
+        CHECK(kit_panel_open(app, dir) && kit_wait(ui), "both zips are read");
+        ui.frames(3);
+        CHECK(kit_panel_count() == 2 && kit_panel_status(0) == "ready" && kit_panel_status(1) == "ready", "two ready kits: " + kit_panel_status(0) + " / " + kit_panel_status(1));
+        // the zip is gone when the worker opens it (the database part ran from the zip read earlier)
+        fs::rename(dir / "h.zip", dir / "h.zip.gone", ec);
+        CHECK(!ec, "the zip is set aside: " + ec.message());
+        CHECK(ui.click("More##kpmore", "##editor"), "open More");
+        ui.frames(3);
+        CHECK(ui.click("Apply all 2 kits##kpall", "##editor"), "Apply all 2 kits");
+        CHECK(kit_wait(ui), "the worker ended");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "after a failed Apply all the line is not an old Done: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: the textures were not staged", 0) == 0, "it says why: " + page::status_text("kits"));
+        // Apply all applied both kits to the database part: put Everton back as it was
+        fs::rename(dir / "h.zip.gone", dir / "h.zip", ec);
+        std::string msg;
+        CHECK(undo_kit_import(app, 7, kits::Slot::Home, &msg), "Home restored: " + msg);
+        CHECK(undo_kit_import(app, 7, kits::Slot::Away, &msg), "Away restored: " + msg);
+        CHECK(club_page_test::kept_rows(app.reapply) == before, "the kept rows are as before: " + club_page_test::kept_rows(app.reapply));
+        fs::remove(away_mk, ec);
+        kit_page_select(kits::Slot::Home);
         hide(ui);
     });
 }

@@ -3788,6 +3788,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_minikits.h"     // 2.20 K4: a kit import makes the minikits of every slot (minikit_test::unit, ::ui_cases)
 #include "test_club_page.h"    // 2.13 T3: Club & Kits pages (club_page_test::ui_cases)
 #include "test_club_fields.h"  // 2.20 K3: club, crowd, stadium and kit fields (club_fields_test::run / ui_cases)
+#include "test_club_40.h"      // 4.0 S9: Kits and Club & crest in the page template (club_40_test::ui_cases, called from page_kits_test)
 #include "test_page_kits.h"    // 2.16 GUI pages, track kits: the tidy Team pages (page_kits_test::ui_cases)
 #include "test_page_changes.h"  // 2.16 gui/page-changes: Career > Changes and undo (changes_page_test::ui_cases)
 #include "test_page_player.h"   // 2.16 GUI revamp step 5: the Player page (player_page_test::ui_cases)
