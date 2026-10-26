@@ -241,11 +241,12 @@
             }
             return out;
         };
-        // the words of the "Ticked: " line right under the heading line `title` (a line equal to the title)
+        // the words of the "Ticked: " line right under the heading line of `title` (ImGui logs a separator text as "--- <title>",
+        // S6_FIX2\try2_pass\f2_pass.log)
         const auto ticked_under = [&](const std::string& text, const std::string& title) -> std::string {
             const std::vector<std::string> ls = lines_of(text);
             for (size_t i = 0; i < ls.size(); ++i)
-                if (ls[i] == title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
+                if (ls[i] == "--- " + title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
             return "<no heading line '" + title + "'>";
         };
         struct SetView {
