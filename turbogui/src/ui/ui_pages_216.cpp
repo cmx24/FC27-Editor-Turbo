@@ -44,7 +44,67 @@ static void draw_player_callname_tab(App& app) {
     callname_editor(app, *t, *p);
 }
 
+// 4.0 menu preview (shell::tree40(), brief 4.0-gui-pages S3 + P2): the Players page is a Players / Managers switch. Players = the same card
+// with the four 4.0 tabs: Profile | Positions, attributes & playstyles | Appearance | Player creation (the page functions are the ones the
+// tabs above call; Callname and Everything (classic) are not in this tree). shell::player_edit_tab(): 0, 1, 2 as before, 5 = Player creation;
+// 3 and 4 (the old Callname / classic tabs) show Profile. Managers = draw_managers (ui_teams.cpp), as far as it goes: its tabs are Details /
+// Appearance / Miniface (a FEATURE GAP against "Profile + Appearance": the first is not called Profile, the third is extra).
+// The card's contract actions (S8) are not here: draw_player_contract_actions does not exist on this base.
+static void draw_player_card_40(App& app) {
+    profile_team_players_page() = shell::Page::TeamPlayers;
+    draw_player_header(app);
+    if (!ImGui::BeginTabBar("##pe_tabs")) return;
+    static int s_shown = -1;
+    int& want = shell::player_edit_tab();
+    if (want == 3 || want == 4) want = 0;
+    const auto flag = [&](int i) { return (want != s_shown && want == i) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
+    int now = s_shown < 0 ? want : s_shown;
+    if (ImGui::BeginTabItem("Profile###pe40_profile", nullptr, flag(0))) {
+        now = 0;
+        draw_player_profile(app);
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Positions, attributes & playstyles###pe40_ability", nullptr, flag(1))) {
+        now = 1;
+        draw_player_ability(app);
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Appearance###pe40_appearance", nullptr, flag(2))) {
+        now = 2;
+        looks::draw_looks_studio(app);
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Player creation###pe40_creation", nullptr, flag(5))) {
+        now = 5;
+        draw_player_creation(app);
+        ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+    if (now != s_shown) {
+        const char* name = now == 0 ? "Profile" : now == 1 ? "Positions, attributes & playstyles" : now == 2 ? "Appearance" : now == 5 ? "Player creation" : nullptr;
+        if (name) app.log(std::string("Edit a player tab: ") + name);
+    }
+    s_shown = want = now;
+}
+
+static void draw_player_edit_40(App& app) {
+    if (!ImGui::BeginTabBar("##pe_who")) return;
+    if (ImGui::BeginTabItem("Players###pe_who_players")) {
+        draw_player_card_40(app);
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Managers###pe_who_managers")) {
+        draw_managers(app);
+        ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
+}
+
 static void draw_player_edit(App& app) {
+    if (shell::tree40()) {
+        draw_player_edit_40(app);
+        return;
+    }
     // the Profile's "Open Team > Players" button goes to the new page. Set where the page is drawn (not at start-up) so that the Profile's own test, which draws
     // it without the shell, still sees its default (the squad page)
     profile_team_players_page() = shell::Page::TeamPlayers;

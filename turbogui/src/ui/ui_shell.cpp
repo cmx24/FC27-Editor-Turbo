@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "ui_theme.h"
 
 namespace turbo::shell {
@@ -72,6 +73,55 @@ const PageInfo* info_of(Page p) {
     return nullptr;
 }
 
+// ---- the 4.0 tree (brief 4.0-gui-pages S3): the second table, used while tree40() is on. Three fields per row on purpose (the NAVCAP scan reads
+// the four-field rows of kPages above; this table is a preview of the target, not yet the default). A page missing here is not in the 4.0 menus.
+struct Row40 {
+    Page page;
+    Area area;
+    const char* label;
+};
+const Row40 kTree40[] = {
+    {Page::Home, Area::Home, "Home"},
+
+    // Players: the list + the card (tabs Profile | Positions, attributes & playstyles | Appearance | Player creation, ui_pages_216.cpp) and Players / Managers
+    {Page::PlayerEdit, Area::Squad, "Player"},
+    {Page::BulkEdit, Area::Squad, "Bulk edit"},
+
+    // Team (the Club area, renamed): Squad stays Page::Squad (area Club in this tree) and draws draw_teams until S4's page is wired
+    {Page::Squad, Area::Club, "Squad"},
+    {Page::TeamPlayers, Area::Club, "Players"},
+    {Page::TeamTransfers, Area::Club, "Transfers"},
+    {Page::Kits, Area::Club, "Kits"},
+    {Page::Identity, Area::Club, "Club & crest"},
+
+    {Page::TacticPresets, Area::Tactics, "Presets"},
+    {Page::TeamSheet, Area::Tactics, "Team sheet & bench"},
+    {Page::GameplayPresets, Area::Tactics, "Game sliders"},
+
+    {Page::Standings, Area::Career, "Standings"},
+    {Page::Transfers, Area::Career, "Money"},
+    {Page::JobOffer, Area::Career, "Manager jobs"},
+    {Page::CMTracker, Area::Career, "Season pack"},
+    {Page::ChangesUndo, Area::Career, "Changes & undo"},
+
+    {Page::Settings, Area::Settings, "Settings"},
+
+    {Page::AdvDatabase, Area::Advanced, "Database"},
+    {Page::AdvRawRows, Area::Advanced, "Row editor"},
+    {Page::AdvMaintenance, Area::Advanced, "Maintenance"},
+    {Page::AdvMatchSetup, Area::Advanced, "Match setup"},
+    {Page::AdvGameplayTuning, Area::Advanced, "Gameplay tuning"},
+    {Page::AdvExport, Area::Advanced, "Data export"},
+    {Page::AdvDiagnostics, Area::Advanced, "Diagnostics & logs"},
+    {Page::AdvKitDiagnostics, Area::Advanced, "Kit diagnostics"},  // q5: under Diagnostics & logs
+};
+
+const Row40* row40_of(Page p) {
+    for (const Row40& r : kTree40)
+        if (r.page == p) return &r;
+    return nullptr;
+}
+
 std::map<int, PageFn>& registry() {
     static std::map<int, PageFn> r;
     return r;
@@ -84,7 +134,18 @@ std::map<int, PageFn>& new_registry() {
 
 }  // namespace
 
+bool& tree40() {
+    static bool on = false;
+    return on;
+}
+
+bool page_has_frame(Page p) { return p == Page::AdvExport; }  // ui_diagnostics_page.cpp (page::Frame id "data_export"); add a line per converted page
+
 const char* area_label(Area a) {
+    if (tree40()) {
+        if (a == Area::Club) return "Team";
+        if (a == Area::Looks) return "";  // no Looks area in the 4.0 tree (Appearance is a card tab)
+    }
     switch (a) {
         case Area::Home: return "Home";
         case Area::Squad: return "Players";
@@ -99,16 +160,27 @@ const char* area_label(Area a) {
 }
 
 const char* page_label(Page p) {
+    if (tree40())
+        if (const Row40* r = row40_of(p)) return r->label;
     const PageInfo* i = info_of(p);
     return i ? i->label : "";
 }
 
 Area area_of(Page p) {
+    if (tree40()) {
+        const Row40* r = row40_of(p);
+        return r ? r->area : Area::Count;
+    }
     const PageInfo* i = info_of(p);
     return i ? i->area : Area::Count;
 }
 
 const std::vector<Page>& pages_of(Area a) {
+    static const std::vector<std::vector<Page>> strips40 = [] {
+        std::vector<std::vector<Page>> s(kAreaCount);
+        for (const Row40& r : kTree40) s[static_cast<int>(r.area)].push_back(r.page);
+        return s;
+    }();
     static const std::vector<std::vector<Page>> strips = [] {
         std::vector<std::vector<Page>> s(kAreaCount);
         for (const PageInfo& i : kPages) s[static_cast<int>(i.area)].push_back(i.page);
@@ -116,7 +188,7 @@ const std::vector<Page>& pages_of(Area a) {
     }();
     static const std::vector<Page> none;
     const int k = static_cast<int>(a);
-    return (k >= 0 && k < kAreaCount) ? strips[static_cast<size_t>(k)] : none;
+    return (k >= 0 && k < kAreaCount) ? (tree40() ? strips40 : strips)[static_cast<size_t>(k)] : none;
 }
 
 Page default_page(Area a) {
@@ -143,6 +215,7 @@ Place place_of(Page p) {
 
 bool area_visible(Area a, bool advanced) {
     if (a == Area::Count) return false;
+    if (a == Area::Looks && tree40()) return false;
     return a != Area::Advanced || advanced;
 }
 
@@ -159,7 +232,7 @@ Place area_for(int legacy_tab) {
     switch (legacy_tab) {
         case 0: return place_of(Page::PlayerEdit);
         case 1: return place_of(Page::Squad);
-        case 2: return place_of(Page::Staff);
+        case 2: return place_of(tree40() ? Page::PlayerEdit : Page::Staff);  // 4.0: managers are the Managers tab of the Players page
         case 3: return place_of(Page::Standings);
         case 4: return place_of(Page::AdvDatabase);
         case 5: return place_of(Page::Transfers);
@@ -184,9 +257,36 @@ PageFn registered_page(Page p) {
     return it == registry().end() ? nullptr : it->second;
 }
 
+namespace {
+
+// 4.0 S3: the switch of the preview, drawn once per ImGui frame above every Lab page (App::draw_pages calls draw_new_page and/or draw_page for
+// the page; whichever runs first draws it). The rail itself is app.cpp's, so the Lab is where the person who asked for the Lab finds it. On a
+// change the back place is cleared and the Lab opens on its first page (the page that was open may not exist in the other tree). True when it
+// changed: the caller draws nothing else this frame.
+bool draw_preview_switch(App& app, Page p) {
+    if (area_of(p) != Area::Advanced) return false;
+    const ImGuiContext* g = ImGui::GetCurrentContext();  // the pure shell tests call draw_page outside a frame / window: no widget then
+    if (!g || !g->WithinFrameScope || !g->CurrentWindow || g->CurrentWindow->SkipItems) return false;
+    static int s_frame = -1;
+    const int frame = ImGui::GetFrameCount();
+    if (frame == s_frame) return false;
+    s_frame = frame;
+    bool on = tree40();
+    const bool changed = ImGui::Checkbox("Preview the 4.0 menus###tree40_preview", &on);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Try the 4.0 menu layout. Not saved: the menus are back as they were after a restart.");
+    if (!changed) return false;
+    tree40() = on;
+    app.go(Area::Advanced, default_page(Area::Advanced));
+    return true;
+}
+
+}  // namespace
+
 bool draw_page(App& app, Page p, bool advanced) {
     if (!page_visible(p, advanced)) return false;
-    const PageFn fn = registered_page(p);
+    if (draw_preview_switch(app, p)) return true;
+    PageFn fn = registered_page(p);
+    if (tree40() && p == Page::Squad) fn = draw_teams;  // 4.0: Team > Squad is the squad table until S4's page is wired
     if (fn == nullptr) return false;
     fn(app);
     return true;
@@ -206,7 +306,9 @@ PageFn registered_new_page(Page p) {
 
 bool draw_new_page(App& app, Page p, bool advanced) {
     if (!page_visible(p, advanced)) return false;
-    const PageFn fn = registered_new_page(p);
+    if (draw_preview_switch(app, p)) return true;
+    PageFn fn = registered_new_page(p);
+    if (tree40() && p == Page::Squad) fn = draw_teams;  // 4.0: Team > Squad (the old My squad page stays the Lab's in the old tree)
     if (fn == nullptr) return false;
     fn(app);
     return true;

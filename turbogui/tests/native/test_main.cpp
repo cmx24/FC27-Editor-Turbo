@@ -3801,6 +3801,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
 #include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
 #include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
+#include "test_shell_40.h"  // 4.0 S3: the 4.0 menu tree behind shell::tree40() (shell40_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
@@ -9887,6 +9888,7 @@ static void test_ui() {
         profile_page_test::ui_cases(app, ui, le);  // test_page_profile.h: Profile and Positions, attributes & PlayStyles (2.20)
         ia222_test::ui_cases(app, ui, le);  // test_ia_222.h: Commentary names, Player type & tier card, Classic list, pcreate order, Appearance cards (2.22 G-ia)
         player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
+        shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named

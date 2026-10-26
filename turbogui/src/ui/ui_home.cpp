@@ -40,14 +40,15 @@ void section_title(const char* text) {
 struct Tile {
     shell::Area area;
     const char* line;
+    const char* line40;  // the line in the 4.0 tree (shell::tree40()); nullptr = the area has no tile there
 };
 const Tile kTiles[] = {
-    {shell::Area::Squad, "Edit a player, create and clone, callnames"},
-    {shell::Area::Looks, "Faces, hair, boots and the rest of the look"},
-    {shell::Area::Club, "Kits, name and crest, squad and transfers"},
-    {shell::Area::Tactics, "Tactic presets, team sheet and game sliders"},
-    {shell::Area::Career, "Standings, money, manager jobs, season pack"},
-    {shell::Area::Settings, "UI size, pictures, the show / hide key"},
+    {shell::Area::Squad, "Edit a player, create and clone, callnames", "Players and managers: profile, attributes, appearance, creation"},
+    {shell::Area::Looks, "Faces, hair, boots and the rest of the look", nullptr},
+    {shell::Area::Club, "Kits, name and crest, squad and transfers", "Squad, players, transfers, kits, club and crest"},
+    {shell::Area::Tactics, "Tactic presets, team sheet and game sliders", "Tactic presets, team sheet and game sliders"},
+    {shell::Area::Career, "Standings, money, manager jobs, season pack", "Standings, money, manager jobs, season pack"},
+    {shell::Area::Settings, "UI size, pictures, the show / hide key", "UI size, pictures, the show / hide key"},
 };
 
 }  // namespace
@@ -133,9 +134,11 @@ void draw_home(App& app) {
         ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
         int col = 0;
         for (const Tile& t : kTiles) {
+            const char* line = shell::tree40() ? t.line40 : t.line;
+            if (!line) continue;  // 4.0 tree: no Looks tile
             const char* name = shell::area_label(t.area);
             char lbl[160];
-            std::snprintf(lbl, sizeof(lbl), "%s\n%s###home_tile_%d", name, t.line, static_cast<int>(t.area));
+            std::snprintf(lbl, sizeof(lbl), "%s\n%s###home_tile_%d", name, line, static_cast<int>(t.area));
             if (col > 0) ImGui::SameLine();
             if (ImGui::Button(lbl, ImVec2(w > S(120.0f) ? w : S(120.0f), h))) app.go(t.area, shell::default_page(t.area));
             ++g_home.tiles;
