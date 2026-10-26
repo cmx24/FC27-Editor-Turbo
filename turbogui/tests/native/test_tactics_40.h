@@ -2,8 +2,8 @@
 // test_main.cpp after test_ui_page.h; tactics40_test::ui_cases runs in the UI block (a real App), drawing each page function in its own
 // window "##t40_page" through the Ui hook g_ui_extra (the pages are shared by the old and the 4.0 menus; no registry is needed).
 //
-// What is guarded (every case FAILS on ce664c6b / 64242633, where no Tactics page constructs a page::Frame and Game sliders is only a
-// pointer to the Lab):
+// What is guarded (the three page cases FAIL on the base 64242633 = ce664c6b plus a tools text file, where no Tactics page constructs a
+// page::Frame and Game sliders is only a pointer to the Lab; the Lab-copy case is a regression guard and PASSES on the base):
 //   - Tactics > Presets, Team sheet & bench and Game sliders each construct page::Frame with their own id and title, have no Apply
 //     (Apply preset / Prepare stay inside their panels) and carry the bar Undo, Back;
 //   - Team sheet & bench still shows the captain and takers read-out (the existing button "Read from the game") and the bench option;
