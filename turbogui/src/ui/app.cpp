@@ -1920,7 +1920,8 @@ void App::draw_pages() {
     bool back_drawn = false;
     {
         const Place bp = back_place();
-        if (bp.valid() && bp.page != place_.page && page_visible(bp.page, adv)) {
+        // 4.0 S3: a page with page::Frame draws the frame's own Back (shell::page_has_frame); the shell's must not stand above it
+        if (bp.valid() && bp.page != place_.page && page_visible(bp.page, adv) && !page_has_frame(place_.page)) {
             const std::string label = std::string("< Back to ") + page_label(bp.page) + "###nav_back";
             ImGui::PushID("##shell");
             if (ImGui::Button(label.c_str())) back();
@@ -1935,7 +1936,7 @@ void App::draw_pages() {
         bool pfirst = !back_drawn;
         const Place before_strip = place_;
         for (Page p : strip) {
-            if (p == Page::GameplayPresets) continue;  // 3.0.1 GUI30K: no slider staging on the Tactics strip (Lab > Tactics (experimental))
+            if (p == Page::GameplayPresets && !tree40()) continue;  // 3.0.1 GUI30K: no slider staging on the old Tactics strip (Lab > Tactics (experimental)); the 4.0 tree lists Game sliders (4.0 S3)
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
                 place_.page = p;
                 area_page_[static_cast<int>(place_.area)] = p;

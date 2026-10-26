@@ -75,6 +75,8 @@ const PageInfo* info_of(Page p) {
 
 // ---- the 4.0 tree (brief 4.0-gui-pages S3): the second table, used while tree40() is on. Three fields per row on purpose (the NAVCAP scan reads
 // the four-field rows of kPages above; this table is a preview of the target, not yet the default). A page missing here is not in the 4.0 menus.
+// NAVCAP (tools/nav_capability_check.py) reads kPages only and cannot see this table: the list of controls the 4.0 tree has NO home for is
+// kept by hand in turbo_dev/PITWALL/board/gui-s3.md ("UNREACHABLE IN THE 4.0 TREE") and in the S3 final report. Update it with every row change.
 struct Row40 {
     Page page;
     Area area;
@@ -261,8 +263,10 @@ namespace {
 
 // 4.0 S3: the switch of the preview, drawn once per ImGui frame above every Lab page (App::draw_pages calls draw_new_page and/or draw_page for
 // the page; whichever runs first draws it). The rail itself is app.cpp's, so the Lab is where the person who asked for the Lab finds it. On a
-// change the back place is cleared and the Lab opens on its first page (the page that was open may not exist in the other tree). True when it
-// changed: the caller draws nothing else this frame.
+// change the Lab opens on its first page (the page that was open may not exist in the other tree). The back place is NOT cleared here: a page
+// draw cannot clear it (App::draw_pages note_leave overwrites it after the page draws), so Back after a toggle returns to the Lab page the
+// person came from. The checkbox is also drawn above the old tree's Lab pages, on purpose: that is the only way into the preview. True when
+// it changed: the caller draws nothing else this frame.
 bool draw_preview_switch(App& app, Page p) {
     if (area_of(p) != Area::Advanced) return false;
     const ImGuiContext* g = ImGui::GetCurrentContext();  // the pure shell tests call draw_page outside a frame / window: no widget then
