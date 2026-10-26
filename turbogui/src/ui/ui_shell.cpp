@@ -116,6 +116,13 @@ const Row40 kTree40[] = {
     {Page::AdvExport, Area::Advanced, "Data export"},
     {Page::AdvDiagnostics, Area::Advanced, "Diagnostics & logs"},
     {Page::AdvKitDiagnostics, Area::Advanced, "Kit diagnostics"},  // q5: under Diagnostics & logs
+
+    // 4.0 S3 fix round 2: the controls with no named home in the 4.0 tree stay reachable from the Lab (no silent regression: the Pit wall default
+    // for unreachable rows 5, 7, 8, see the board gui-s3.md). Last in the strip, so the Lab still opens on Database. Each is the same page function
+    // the old tree registers; the club_stadium_section is not moved (S9 owns Club & crest) and "More for your club" (draw_club_tools) lives here.
+    {Page::AdvBulkEdit, Area::Advanced, "Bulk edit"},                     // the Lua tool page_adv_bulk (ui_tools.cpp:756), not Players > Bulk edit
+    {Page::AdvTactics, Area::Advanced, "Tactics (experimental)"},         // the live tactics controls + the offline slider file; also the target of the "Open Lab > Tactics" button on Game sliders
+    {Page::StadiumExtras, Area::Advanced, "Stadium & extras"},            // club_stadium_section + "More for your club" (ui_club_page.cpp:109-119)
 };
 
 const Row40* row40_of(Page p) {

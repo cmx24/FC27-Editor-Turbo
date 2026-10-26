@@ -14,6 +14,8 @@
 //   - a page that uses page::Frame is listed in shell::page_has_frame (its own Back "###pg_back"); the shell's "< Back" ("###nav_back") is not
 //     drawn above it, in either tree, while it is drawn above the pages without a frame (a back place exists on every page reached from another);
 //   - the checkbox "Preview the 4.0 menus" is on the Lab pages only, turns the tree on and off and lands on the Lab's first page;
+//   - fix round 2 ("S3 lab rows"): Stadium & extras, Lab > Bulk edit and Lab > Tactics (experimental) are Lab rows of the 4.0 tree (unreachable rows 5, 7, 8 of
+//     the board), so "Open Lab > Tactics (experimental)" on Tactics > Game sliders works again; the Career database copy is in Lab > Maintenance (row 11);
 //   - with the flag off the old tree is exactly what it was (the existing cases keep passing; the strips are checked again here).
 // These cases FAIL on the base without tree40 (ce664c6b); the throwaway run that shows it is in the board row.
 #pragma once
@@ -66,7 +68,8 @@ static const std::vector<Row>& tree() {
         {Area::Career, "Career", {{Page::Standings, "Standings"}, {Page::Transfers, "Money"}, {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"}}},
         {Area::Settings, "Settings", {{Page::Settings, "Settings"}}},
         {Area::Advanced, "Lab", {{Page::AdvDatabase, "Database"}, {Page::AdvRawRows, "Row editor"}, {Page::AdvMaintenance, "Maintenance"}, {Page::AdvMatchSetup, "Match setup"},
-                                 {Page::AdvGameplayTuning, "Gameplay tuning"}, {Page::AdvExport, "Data export"}, {Page::AdvDiagnostics, "Diagnostics & logs"}, {Page::AdvKitDiagnostics, "Kit diagnostics"}}},
+                                 {Page::AdvGameplayTuning, "Gameplay tuning"}, {Page::AdvExport, "Data export"}, {Page::AdvDiagnostics, "Diagnostics & logs"}, {Page::AdvKitDiagnostics, "Kit diagnostics"},
+                                 {Page::AdvBulkEdit, "Bulk edit"}, {Page::AdvTactics, "Tactics (experimental)"}, {Page::StadiumExtras, "Stadium & extras"}}},
     };
     return t;
 }
@@ -113,8 +116,8 @@ static void ui_cases(App& app, Ui& ui) {
             }
             CHECK(default_page(ar) == row->pages.front().first, std::string(row->label) + " opens on " + row->pages.front().second);
         }
-        // the pages the 4.0 tree does not have (the old table keeps them)
-        for (Page gone : {Page::CreatePlayer, Page::Staff, Page::CommentaryNames, Page::LooksStudio, Page::StadiumExtras, Page::AdvBulkEdit, Page::AdvTactics})
+        // the pages the 4.0 tree does not have (the old table keeps them); Stadium & extras, Lab > Bulk edit and Lab > Tactics are Lab rows since S3 fix round 2
+        for (Page gone : {Page::CreatePlayer, Page::Staff, Page::CommentaryNames, Page::LooksStudio})
             CHECK(area_of(gone) == Area::Count && !page_visible(gone, true), std::string("not in the 4.0 tree: ") + page_label(gone));
         tree40() = false;
         CHECK(std::string(area_label(Area::Club)) == "Club" && std::string(area_label(Area::Looks)) == "Looks", "flag off: the old names are back");
@@ -264,6 +267,54 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(!tree40(), "the old tree is back");
         CHECK(ui.find("Club", "##rail", "##shell") != nullptr && ui.find("Looks", "##rail", "##shell") != nullptr, "the rail follows: Club and Looks again");
         CHECK(ui.find("###tree40_preview") != nullptr, "and the switch is still where it was");
+    });
+
+    run_case("Shell 4.0: S3 lab rows keep Stadium & extras, Bulk edit and Tactics (experimental) reachable; the Game sliders button works; the database copy is in Maintenance", [&] {
+        State st(app, ui);
+        app.legacy_pages = false;
+        app.prefs.advanced_mode = true;
+        tree40() = true;
+        auto drawn = [&](const char* label) {  // an item submitted in the last frame, on screen or scrolled out of view
+            for (const auto& kv : g_items)
+                if (kv.second.frame == g_frame && kv.second.label == label) return true;
+            return false;
+        };
+        struct LabRow {
+            Page page;
+            const char* label;
+        };
+        static const LabRow rows[] = {{Page::AdvBulkEdit, "Bulk edit"}, {Page::AdvTactics, "Tactics (experimental)"}, {Page::StadiumExtras, "Stadium & extras"}};
+        for (const LabRow& r : rows) {
+            CHECK(area_of(r.page) == Area::Advanced && page_visible(r.page, true) && std::string(page_label(r.page)) == r.label, std::string(r.label) + " is a Lab row of the 4.0 tree");
+            const auto& strip = pages_of(Area::Advanced);
+            CHECK(std::find(strip.begin(), strip.end(), r.page) != strip.end(), std::string(r.label) + " is in the Lab strip");
+            CHECK(!page_visible(r.page, false), std::string(r.label) + " needs the Lab like the other Lab pages");
+            app.go(Page::Home);
+            ui.frames(4);
+            CHECK(ui.open_page("Lab", r.label), std::string("Lab > ") + r.label + " opens by the clicks");
+            CHECK(app.place() == place_of(r.page), std::string("place after Lab > ") + r.label);
+            CHECK(ui.find("###tree40_preview") != nullptr, std::string(r.label) + ": drawn as a Lab page (the preview switch is above it)");
+            app.go(Page::Home);
+            ui.frames(3);
+            app.go(r.page);
+            ui.frames(4);
+            CHECK(app.place() == place_of(r.page), std::string("go(") + r.label + ") lands on it");
+            if (r.page == Page::AdvBulkEdit) CHECK(drawn("Bulk edit players"), "Lab > Bulk edit draws the Lua bulk tool");
+            if (r.page == Page::AdvTactics) CHECK(ui.find("###gsrefresh") != nullptr && ui.find("Prepare###gsprepare") != nullptr, "Lab > Tactics draws the live tactics controls and the offline slider file");
+        }
+        CHECK(default_page(Area::Advanced) == Page::AdvDatabase, "the Lab still opens on Database");
+        // the dead link: Tactics > Game sliders says where the section went and its button opens Lab > Tactics (experimental) (ui_tactics_page.cpp:575)
+        app.go(Page::GameplayPresets);
+        ui.frames(5);
+        CHECK(app.place() == place_of(Page::GameplayPresets), "on Tactics > Game sliders");
+        CHECK(ui.find("###gsmoved") != nullptr, "the button 'Open Lab > Tactics (experimental)' is drawn");
+        CHECK(ui.click("###gsmoved"), "click it");
+        ui.frames(4);
+        CHECK(app.place() == place_of(Page::AdvTactics), "it opened Lab > Tactics (experimental): App::go no longer returns early");
+        // row 11: the Career database copy stays in Lab > Maintenance
+        CHECK(ui.open_page("Lab", "Maintenance") && app.place() == place_of(Page::AdvMaintenance), "Lab > Maintenance opens");
+        ui.frames(3);
+        CHECK(drawn("Career database copy"), "Lab > Maintenance has the Career database copy");
     });
 
     run_case("Shell 4.0: with the flag off the old tree is unchanged", [&] {
