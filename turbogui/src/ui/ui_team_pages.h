@@ -47,6 +47,7 @@ struct SquadTableState {
     bool table_drawn = false;   // false when the game has no teamplayerlinks table or the table was clipped away
     int sort_column = -1;       // the column the sort is on (-1 = database order)
     bool sort_ascending = true;
+    bool stale_notice = false;  // 4.0 S4: Team > Squad showed "The database changed ... Press Refresh" instead of the table
 };
 const SquadTableState& squad_table_state();
 
