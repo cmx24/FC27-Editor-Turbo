@@ -209,6 +209,95 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         hide(ui);
     });
 
+    // 4.0 S9 fix round 1 (P1): the status line of the Kits page must not say "Done" when the apply did not hold. poll_jobs replaces the
+    // panel line ("textures staged...") when the worker ends, so the page reads the outcome of the database part the moment apply_items returns.
+    run_case("Kits page: an Apply whose import record could not be saved, or whose textures could not be staged, never says Done; a stale item of another slot does not turn a good Apply into Couldn't", [&] {
+        const auto& spec = small_spec();
+        kit_panel_spec(&spec);
+        app.kit_swap = nullptr;
+        put_game_minikit(le);
+        const fs::path dir = g_out / "kits_src" / "page_kits_fail";
+        const fs::path zip = dir / "h.zip";
+        make_kit_zip(zip, spec);
+        make_kit_zip(dir / "a.zip", spec);
+        const std::string before = club_page_test::kept_rows(app.reapply);
+        const fs::path rec = kits::slot_dir(le, 7, kits::Slot::Home) / "import.json";
+        fs::path tmp = rec;
+        tmp += ".tmp";
+        std::error_code ec;
+        app.sel_team = 7;
+        show(ui, draw_kits_page);
+        ui.frames(80);
+        // a good Apply first: its record holds the game's own values, so Restore at the end puts everything back
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
+        ui.frames(3);
+        CHECK(kit_page_slot() == kits::Slot::Home && kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit");
+        CHECK(kit_wait(ui), "textures converted");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "a good Apply says Done: " + page::status_text("kits"));
+        CHECK(fs::is_regular_file(rec, ec), "the import record is there");
+
+        // (1) the record cannot be saved: a folder stands where write_text_atomic opens its temporary file (import.json.tmp), so the write fails
+        // (a folder in import.json's own place would not do: write_text_atomic removes an empty one and renames over it)
+        fs::create_directories(tmp, ec);
+        CHECK(fs::is_directory(tmp, ec), "a folder stands in the temporary file's place");
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read again");
+        ui.frames(3);
+        CHECK(kit_panel_status(0) == "ready", "ready again: " + kit_panel_status(0));
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit, the record cannot be saved");
+        CHECK(kit_wait(ui), "textures converted");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "the status line does not say Done when Undo cannot restore the kit: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: ", 0) == 0 && has(page::status_text("kits"), "was not saved"),
+              "it says Couldn't, with the reason: " + page::status_text("kits"));
+        fs::remove_all(tmp, ec);
+        CHECK(!fs::exists(tmp, ec) && fs::is_regular_file(rec), "the folder is gone and the first record is still there");
+
+        // (2) the textures cannot be staged: the zip is gone when the worker opens it (the database part ran from the zip read earlier)
+        const fs::path gone = dir / "h.zip.gone";
+        CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read once more");
+        ui.frames(3);
+        CHECK(kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
+        fs::rename(zip, gone, ec);
+        CHECK(!ec, "the zip is set aside: " + ec.message());
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit, the textures cannot be staged");
+        CHECK(kit_wait(ui), "the worker ended");
+        ui.frames(3);
+        CHECK(page::status_text("kits").rfind("Done", 0) != 0, "a staging failure is not Done: " + page::status_text("kits"));
+        CHECK(page::status_text("kits").rfind("Couldn't apply the kit: the textures were not staged", 0) == 0, "it says so: " + page::status_text("kits"));
+        fs::rename(gone, zip, ec);
+        CHECK(!ec, "the zip is back");
+
+        // (3) a stale "not applied" item of another slot (Away) is not this Apply's business: Home applies cleanly and says Done
+        CHECK(kit_panel_open(app, dir) && kit_wait(ui), "both zips are read");
+        ui.frames(3);
+        size_t away = kit_panel_count(), home = kit_panel_count();
+        for (size_t i = 0; i < kit_panel_count(); ++i) {
+            if (kit_panel_slot(i) == kits::Slot::Away) away = i;
+            if (kit_panel_slot(i) == kits::Slot::Home) home = i;
+        }
+        CHECK(kit_panel_count() == 2 && away < 2 && home < 2, "an Away item and a Home item");
+        if (away < 2 && home < 2) {
+            apply_items(app, 999999, {away});  // a club that is not in the database: the Away item is left "not applied"
+            CHECK(kit_panel_status(away).rfind("not applied", 0) == 0, "the Away item is stale: " + kit_panel_status(away));
+            kit_page_select(kits::Slot::Home);
+            ui.frames(3);
+            CHECK(kit_panel_status(home) == "ready", "the Home item is ready: " + kit_panel_status(home));
+            CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit for Home");
+            CHECK(kit_wait(ui), "textures converted");
+            ui.frames(3);
+            CHECK(page::status_text("kits").rfind("Done: ", 0) == 0, "a stale item of another slot does not make a good Apply fail: " + page::status_text("kits"));
+        }
+
+        // the first Apply's record puts the club back as it was
+        std::string msg;
+        CHECK(undo_kit_import(app, 7, kits::Slot::Home, &msg), "restored: " + msg);
+        CHECK(club_page_test::kept_rows(app.reapply) == before, "the kept rows are as before: " + club_page_test::kept_rows(app.reapply));
+        kit_page_select(kits::Slot::Home);
+        hide(ui);
+    });
+
     run_case("Kits page: the one 3D tick drives the public Runtime (switch, slot, share choices) and never moves a slot by drawing", [&] {
         const auto& spec = small_spec();
         kit_panel_spec(&spec);

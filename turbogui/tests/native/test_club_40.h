@@ -3,9 +3,10 @@
 // (same UI block, a real connected App, Everton = club 7). Both pages are drawn through the Ui hook g_ui_extra in a window of their own.
 //   - both pages construct a page::Frame (page::last_record has their id and title; Kits has Apply, Club & crest has none);
 //   - Club & crest has the tabs Identity | Stadium & crowd | Staff, and the Staff tab draws the existing draw_career_staff;
-//   - a coded field is shown as a descriptor: Everton's tifo code 2 reads "Style 2" (the name table of ui_club_fields.cpp), never a bare 2;
+//   - a coded field is shown as a descriptor: Everton's default weather code 0 reads "Clear" (Live Editor's name table, core/club_fields.h), never a bare 0;
 //   - nothing is written: the cases only look (the club fields keep their values).
 #pragma once
+#include "core/club_fields.h"
 #include "ui/ui_club_page.h"
 #include "ui/ui_kits.h"
 #include "ui/ui_kits_page.h"
@@ -117,22 +118,43 @@ static void ui_cases(App& app, Ui& ui, const fs::path& /*le*/) {
         hide(ui);
     });
 
-    run_case("Club 40: Club & crest > Stadium & crowd shows a coded field as a descriptor (tifo code 2 reads Style 2), and writes nothing", [&] {
+    run_case("Club 40: Club & crest > Stadium & crowd shows a coded field as the name Live Editor ships (Everton's default weather 0 reads Clear), and writes nothing", [&] {
+        // not tifo: its values have no name source (core/club_fields.h: every value is "Style N"). Weather has a real Live Editor name table
+        // (weather_0..4), so a bare code on the page, or a "Style 0" in its place, is a failure of the descriptor and this case catches it.
         app.sel_team = 7;
-        const Table* t = app.db.table("teams");
-        const uint64_t rec = t ? app.db.find(*t, "teamid", 7) : 0;
-        const bool have = t && t->field("hastifo");
-        CHECK(have, "the test world's teams table has the tifo column");
-        const int before = have ? (int)app.db.get_int(*t, rec, "hastifo") : -1;
+        const Table* st = app.db.table("stadiums");
+        const uint64_t rec = st ? app.db.find(*st, "stadiumid", 10) : 0;  // Everton's ground in the test world (gui_world.lua)
+        const bool have = st && rec && st->field("defaultweather");
+        CHECK(have, "the test world has Everton's stadium with the default weather column");
+        const int code = have ? (int)app.db.get_int(*st, rec, "defaultweather") : -1;
+        const clubfields::Def* d = nullptr;
+        for (const clubfields::Def& x : clubfields::defs())
+            if (std::string(x.table) == "stadiums" && std::string(x.field) == "defaultweather") d = &x;
+        CHECK(d != nullptr && code == 0, "the stored default weather is code 0");
+        const std::string want = d ? clubfields::value_label(*d, code).text : std::string();
+        CHECK(want == "Clear", "the descriptor names code 0 from Live Editor's table: " + want);
         show(ui, draw_club_identity_page);
         CHECK(ui.click("###kctabstadium", "##club40_test"), "click the Stadium & crowd tab");
         ui.frames(3);
-        CHECK(ui.find("Crowd & presentation###cfcrowd", "##club40_test") != nullptr, "the Crowd & presentation section is drawn");
         CHECK(ui.find("Home ground###cfhome", "##club40_test") != nullptr, "the Home ground section is drawn");
-        CHECK(ui.find("##cf", "##club40_test", "hastifo") != nullptr, "the tifo picker is a named-choice combo");
+        // the Home ground section is below the crowd rows: scroll with the mouse wheel until the weather picker is on screen
+        const ItemRec* combo = ui.find("##cf", "##club40_test", "defaultweather");
+        for (int i = 0; i < 14 && !combo; ++i) {
+            ImGui::GetIO().AddMousePosEvent(30.0f, 60.0f);
+            ImGui::GetIO().AddMouseWheelEvent(0.0f, -6.0f);
+            ui.frames(3);
+            combo = ui.find("##cf", "##club40_test", "defaultweather");
+        }
+        CHECK(combo != nullptr, "the default weather picker is a named-choice combo");
         const std::string txt = page_text(ui);
-        CHECK(has(txt, "Style 2"), "the stored tifo code 2 is shown as its name Style 2");
-        if (have) CHECK((int)app.db.get_int(*t, rec, "hastifo") == before, "looking at the tab wrote nothing");
+        CHECK(has(txt, "Clear"), "the stored weather code 0 is shown as its name Clear");
+        CHECK(!has(txt, "Style 0") && !has(txt, "Weather 0"), "no bare or placeholder name stands in for a name Live Editor has");
+        if (have) CHECK((int)app.db.get_int(*st, rec, "defaultweather") == code, "looking at the tab wrote nothing");
+        for (int i = 0; i < 14; ++i) {
+            ImGui::GetIO().AddMousePosEvent(30.0f, 60.0f);
+            ImGui::GetIO().AddMouseWheelEvent(0.0f, 6.0f);
+            ui.frames(2);
+        }
         CHECK(ui.click("###kctabid", "##club40_test"), "back to the Identity tab");
         ui.frames(3);
         hide(ui);
