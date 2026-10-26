@@ -119,7 +119,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         for (const char* l : {"Home##kpslot", "Away##kpslot", "Third##kpslot", "Goalkeeper##kpslot", "Fourth##kpslot"})
             CHECK(ui.find(l, "##select") != nullptr, std::string("slot in the select panel: ") + l);
-        CHECK(ui.find("Apply kit", "##kitspage_test") != nullptr, "the one main button");
+        CHECK(ui.find("###pg_apply", "##kitspage_test") != nullptr, "the one main button");
         CHECK(!kits_page_state().apply_enabled, "disabled until a kit file is read");
         CHECK(ui.find("Choose kit file...##kpfile", "##editor") != nullptr && ui.find("Restore the game's kit##kprestore", "##editor") != nullptr,
               "choose a file, restore");
@@ -175,7 +175,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(kit_panel_count() == 1 && kit_panel_status(0) == "ready", "ready: " + kit_panel_status(0));
         CHECK(kits_page_state().status.rfind("Ready to apply: h.zip", 0) == 0 && kits_page_state().apply_enabled, "state: " + kits_page_state().status);
         CHECK(!has_kit_import(app, 7, kits::Slot::Home), "nothing imported yet");
-        CHECK(ui.click("Apply kit", "##kitspage_test"), "Apply kit");
+        CHECK(ui.click("###pg_apply", "##kitspage_test"), "Apply kit");
         CHECK(kit_wait(ui), "textures converted");
         ui.frames(3);
         CHECK(has_kit_import(app, 7, kits::Slot::Home) && app.reapply.kit(7, 0, 70) != nullptr, "applied: the import record and the kept kit row exist");
@@ -243,7 +243,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // apply a kit
         CHECK(kit_panel_open(app, zip) && kit_wait(ui), "the zip is read");
         ui.frames(3);
-        CHECK(ui.click("Apply kit", "##kitspage_test") && kit_wait(ui), "applied");
+        CHECK(ui.click("###pg_apply", "##kitspage_test") && kit_wait(ui), "applied");
         ui.frames(80);
         CHECK(has_kit_import(app, 7, kits::Slot::Home) && kits_page_state().pitch_enabled && !kits_page_state().pitch_tick, "applied: the tick is enabled and off");
         // a slot set to watch only is not moved by drawing the page
@@ -310,6 +310,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.find("Import kit zip...", "##kitspage_test") && ui.find("Import team folder...", "##kitspage_test"), "Kit diagnostics: the old Kits body, all of it");
         hide(ui);
     });
+    club_40_test::ui_cases(app, ui, le);  // test_club_40.h (4.0 S9): both pages in the page template, the Staff tab, one descriptor
 }
 
 }  // namespace page_kits_test

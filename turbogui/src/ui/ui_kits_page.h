@@ -7,8 +7,11 @@
 //   draw_kits_page             Kits: which kit does my club wear? [slot list | editor], ONE main button "Apply kit". Preview, "In matches"
 //                              (one 3D tick, the honest line, the share choices, the per-match option shown as "planned"), the kit maker's
 //                              colours and numbers folded away, the team-folder import under More. No developer controls, no ids.
-//   draw_club_identity_page    Club name, colours & crest: three cards (the Identity merge), each with its own Save, built from the
-//                              public club_*_section functions of ui_club_page.h.
+//   draw_club_identity_page    Club & crest (4.0 S9): tabs Identity (name, colours, crest cards, each with its own Save) | Stadium & crowd
+//                              (club_stadium_section + the customisation hub) | Staff (draw_career_staff). Built from the public
+//                              club_*_section functions of ui_club_page.h.
+//   (4.0 S9) draw_kits_page and draw_club_identity_page construct a page::Frame (ui_page.h): ids "kits" and "club_crest"; the Kits Apply is
+//   the frame's bar Apply, and the bar's Undo is the Changes list's.
 //   draw_kit_diagnostics       The old Teams > Kits body with every developer control (texture trees, watch only, hook line ...) for the
 //                              wiring builder to put under Advanced > Kit diagnostics. Nothing is lost.
 //
