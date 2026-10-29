@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -43,6 +44,10 @@ struct Gv {
     bool have_pending = false;
     Pending pending;
     std::string pending_err;
+    // 4.0 sliders-rw (c): the block the last live write found (reused while it still holds what Turbo wrote: the newest file does not
+    // until the game saves)
+    uint64_t live_addr = 0;
+    std::vector<uint8_t> live_bytes;
 };
 Gv g;
 GameSettingsViewState g_state;
@@ -50,7 +55,13 @@ GameSettingsViewState g_state;
 fs::path out_dir(App& app) { return app.bridge.root() / "turbo_output"; }
 fs::path preset_dir(App& app) { return out_dir(app) / presets_dir(); }
 fs::path settings_dir() { return g.settings_override.empty() ? mhm::default_save_dir() : g.settings_override; }
-fs::path map_path(App& app) { return g.map_override.empty() ? app.bridge.root() / "turbo" / map_dir() / map_file() : g.map_override; }
+// 4.0 sliders-rw (a): the map of the running game's build (map_file_for); "" = no map for that build (first_look refuses it)
+std::string game_build(App& app) { return app.hook_report ? app.hook_report_cached().build : std::string(); }
+fs::path map_path(App& app) {
+    if (!g.map_override.empty()) return g.map_override;
+    const std::string f = map_file_for(game_build(app));
+    return f.empty() ? fs::path() : app.bridge.root() / "turbo" / map_dir() / f;
+}
 
 std::string stamp(const char* f) {
     std::time_t t = std::time(nullptr);
@@ -102,10 +113,21 @@ void select_named(const std::string& name) {
         if (same_name(g.presets[i].name, name)) g.preset_sel = int(i);
 }
 
+void load_map_now(App& app) {
+    const fs::path mp = map_path(app);
+    if (mp.empty()) {
+        g.map_ok = false;
+        g.map = SliderMap();
+        g.map_err = "no slider map for game build " + game_build(app) + " (Turbo knows 6AC07E31 and 6AD922D1): nothing is read or written";
+    } else {
+        g.map_ok = load_map(mp, g.map, &g.map_err);
+    }
+}
+
 void first_look(App& app) {
     if (g.loaded) return;
     g.loaded = true;
-    g.map_ok = load_map(map_path(app), g.map, &g.map_err);
+    load_map_now(app);
     read_file_now(app);
     load_presets_now(app);
     read_pending(app);
@@ -150,15 +172,81 @@ void save_current(App& app) {
     select_named(p.name);
 }
 
+// 4.0 sliders-rw (c): writes the preset into the running game's Custom sliders (gsettings::live, route 1 of
+// evidence\2026-10-28\SLIDERS_WRITE\PLAN.md). Needs the host's region lister (Turbo inside FC 27); the old staging is left alone.
+bool load_preset_live(App& app, const Preset& p, std::string& msg) {
+    if (!app.regions_hook) {
+        msg = "not inside FC 27 (no memory access)";
+        return false;
+    }
+    if (!g.map_ok || g.map.custom_count <= 0) {
+        msg = "no slider map with a Custom block (" + g.map_err + ")";
+        return false;
+    }
+    const Plan plan = plan_preset(p, g.map);
+    if (plan.values.empty()) {
+        msg = "no slider of \"" + p.name + "\" can be written (" + std::to_string(plan.skipped.size()) + " read-only or not mapped)";
+        return false;
+    }
+    uint64_t addr = 0;
+    const size_t n = size_t(g.map.custom_count);
+    if (g.live_addr && g.live_bytes.size() == n) {
+        const std::vector<::turbo::Region> regs = app.regions_hook();
+        for (const ::turbo::Region& r : regs)
+            if (g.live_addr >= r.start && g.live_addr + n <= r.end &&
+                std::memcmp(reinterpret_cast<const void*>(static_cast<uintptr_t>(g.live_addr)), g.live_bytes.data(), n) == 0)
+                addr = g.live_addr;
+    }
+    if (!addr) {
+        read_file_now(app);  // the newest file the game wrote
+        if (!g.snap.ok || g.snap.custom_slots.size() != n) {
+            msg = "the Settings file has no readable Custom block (" + g.snap.why + ")";
+            return false;
+        }
+        std::vector<uint8_t> expect(n);
+        for (size_t k = 0; k < n; ++k) expect[k] = uint8_t(g.snap.custom_slots[k].second);
+        std::vector<live::Span> spans;
+        for (const ::turbo::Region& r : app.regions_hook()) spans.push_back({r.start, r.end});
+        const live::Found f = live::find_block(spans, expect.data(), n);
+        if (!f.ok) {
+            msg = f.why;
+            return false;
+        }
+        addr = f.addr;
+    }
+    const live::Result r = live::write_block(addr, g.map, plan.values);
+    if (!r.ok) {
+        msg = r.message;
+        return false;
+    }
+    g.live_addr = addr;
+    g.live_bytes.assign(reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr)), reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr)) + n);
+    std::string err;
+    const std::string st = stamp("%Y-%m-%dT%H:%M:%S");
+    write_text(out_dir(app) / "settings_live_journal.json", live::journal_json(r, p.name, st), &err);
+    msg = "Applied in game now: \"" + p.name + "\", " + r.message + ". The game writes them to its Settings file at its next save (open "
+          "Customise > Game Settings > Game Type Settings, check, Back). NOT proven in game yet.";
+    for (const std::string& l : r.lines) log_line(app, "game settings live: " + l);
+    return true;
+}
+
 void load_preset(App& app) {
     if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
     const Preset& p = g.presets[size_t(g.preset_sel)];
+    std::string why;
+    if (load_preset_live(app, p, why)) {
+        g.preset_line = why;
+        log_line(app, "game settings: " + why);
+        app.notify(why);
+        return;
+    }
+    // not applied in the game: say so, and stage it for the apply tool (game closed) - never a silent stage
     std::string msg;
     const bool ok = stage_pending(out_dir(app), p, g.map, stamp("%Y-%m-%dT%H:%M:%S"), &msg);
-    g.preset_line = msg;
-    log_line(app, "game settings: " + msg);
-    if (!ok) app.notify(msg, true);
-    else app.notify("Staged: close FC 27 and run turbo_settings_apply.exe --apply (not proven in game yet)");
+    g.preset_line = "NOT applied in the game: " + why + ". " + msg +
+                    (ok ? ". It applies only when you close FC 27 and run turbo\\turbo_settings_apply.exe --apply." : "");
+    log_line(app, "game settings: " + g.preset_line);
+    app.notify(g.preset_line, true);
     read_pending(app);
 }
 
@@ -348,11 +436,12 @@ void draw_presets(App& app) {
     const bool have = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size());
     ImGui::SameLine();
     ImGui::BeginDisabled(!have);
-    if (ImGui::Button("Install when I close the game###gsload")) load_preset(app);
+    if (ImGui::Button("Load into the game###gsload")) load_preset(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Apply at next launch: writes turbo_output\\%s (the verified sliders of the preset). Nothing changes in the game until you close it and run "
-                          "turbo\\turbo_settings_apply.exe --apply. NOT proven in game yet: on 10-24 the game showed 50 after an apply.",
+        ImGui::SetTooltip("Writes the preset's sliders into the running game now (use it at the Main Menu or later, not at Press Any Key). The game "
+                          "saves them in its Settings file at its next save. If the game's sliders are not found, it says so and stages turbo_output\\%s "
+                          "for turbo\\turbo_settings_apply.exe --apply (game closed). NOT proven in game yet.",
                           pending_file());
     if (have) {
         const Plan pl = plan_preset(g.presets[size_t(g.preset_sel)], g.map);
@@ -570,10 +659,11 @@ void draw_game_settings(App& app) {
     try {
         first_look(app);
         ImGui::TextWrapped("FC 27's own game settings (Settings > Game Settings: match, player, and the User / CPU sliders), as the game saved them "
-                           "in its settings file. Read-only here: presets of these values are applied OUTSIDE the game, at the NEXT LAUNCH (no live store is proven).");
+                           "in its settings file. Load writes a preset into the running game (not proven in game yet).");
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
-        ImGui::TextWrapped("Apply = applies at next launch: Load stages the VERIFIED rows only, then close FC 27 and run "
-                           "turbo\\turbo_settings_apply.exe --apply (it backs the file up, checks it, and --undo puts it back). Turbo never touches "
+        ImGui::TextWrapped("Load = applies the VERIFIED rows to the running game now (the game saves them at its next save); when that is not "
+                           "possible it says why and stages them for turbo\\turbo_settings_apply.exe --apply with the game closed (it backs the file up, "
+                           "checks it, and --undo puts it back). Turbo never touches "
                            "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*. NOT proven in game yet: on 10-24 the game showed 50 after an apply; --apply refuses a Settings file "
                            "it does not recognise and then says the sliders were NOT applied (turbo_settings_apply.exe --status shows why).");
         ImGui::PopStyleColor();
@@ -592,7 +682,7 @@ void draw_game_settings(App& app) {
         // it does not fit after it (it was drawn past the right edge there, unclickable; P213 triage)
         if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Refresh").x + ImGui::GetStyle().FramePadding.x * 2.0f) ImGui::NewLine();
         if (ImGui::SmallButton("Refresh##gsrefresh")) {
-            g.map_ok = load_map(map_path(app), g.map, &g.map_err);
+            load_map_now(app);
             read_file_now(app);
             load_presets_now(app);
             read_pending(app);

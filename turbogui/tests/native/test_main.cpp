@@ -3761,6 +3761,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_tuning.h"      // gameplay tuning: the engine tuning tables on a simulated table (tuning_test::run, ::ui_cases)
 #include "test_settings_presets.h"  // 2.10: evidence guard of turbo_settings_apply --undo, verified-only flow (settings_presets_test::run)
 #include "test_game_settings.h"  // 2.8: the game's own settings file, presets, the apply tool's core (gsettings_test::run, ::ui_cases)
+#include "test_sliders_rw.h"  // 4.0 sliders-rw: map per build, live write, Load applies in game
 #include "test_tactic_presets.h"  // 2.12: tactic presets (tactic_presets_test::run, ::ui_cases)
 #include "test_gameplay_page.h"  // 2.13 T4: the Gameplay presets page, the page registrations, the amber line (gameplay_page_test::ui_cases)
 #include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
@@ -9916,6 +9917,7 @@ static void test_ui() {
         devpage_test::ui_cases(app, ui);  // test_dev_open_page.h: dev service open_page {area, page} (4.0 S0a)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
+        sliders_rw_test::ui_case(app, ui, le);  // test_sliders_rw.h (4.0 sliders-rw)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
         gameplay_page_test::ui_cases(app, ui, le);  // test_gameplay_page.h: Gameplay presets page (2.13 T4)
         page_tactics_test::ui_cases(app, ui, le);  // test_page_tactics.h: Tactic presets frame, Team sheet & bench, Game sliders (2.16)
@@ -15721,6 +15723,9 @@ int main(int argc, char** argv) {
     tuning_test::run();
     gsettings_test::run();  // test_game_settings.h (2.8)
     gsettings_test::run_custom();  // test_game_settings.h (2.10: the Custom u8 block)
+#ifndef SLIDERS_RW_OLD_CODE
+    sliders_rw_test::core();  // test_sliders_rw.h (4.0 sliders-rw)
+#endif
     settings_presets_test::run();  // test_settings_presets.h (2.10)
     tactic_presets_test::run();  // test_tactic_presets.h (2.12)
     tactics_page_test::run();  // test_tactics_page.h (2.20)

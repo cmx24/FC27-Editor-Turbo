@@ -83,6 +83,11 @@ bool read_bytes(const std::filesystem::path& p, std::vector<uint8_t>& out, size_
 // ------------------------------------------------------------------------------------------------ the slider map (data)
 inline const char* map_dir() { return "settings"; }                       // <Live Editor>\turbo\settings
 inline const char* map_file() { return "slider_map_6AC07E31.json"; }
+// 4.0 sliders-rw (a): the map per game build. The Settings file of 6AD922D1 (title update 10-27) has the 6AC07E31 layout: same size
+// 772790, same CRC rule, the Custom block at the same file offset 0xB8DDC ([O] live 8E82B111 on 10-28,
+// evidence\2026-10-28\SLIDERS_WRITE\PLAN.md). "" (build not known: the apply tool with the game closed) = map_file();
+// an unknown build = "" (refused: never read another build's file with this map)
+std::string map_file_for(const std::string& build);
 struct Region {
     std::string id, label, candidate;  // "block_a", "Block A (44 values)", "CPU sliders?"
     int first = 0, count = 0;          // array indices
@@ -210,6 +215,39 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
 Outcome apply_pending(const Env& env, const SliderMap& m);
 // Puts the newest backup back (refused when the file is no longer the one Turbo wrote, unless force)
 Outcome undo_last(const Env& env, bool force);
+
+// ------------------------------------------------------------------------------------------------ 4.0 sliders-rw (c): the live write
+// Route 1 of evidence\2026-10-28\SLIDERS_WRITE\PLAN.md: since 10-21 the game re-initialises the Custom block at the first save after
+// Press Any Key (file writes before that point are lost), so the preset is written into the game's own displayed store,
+// GameplayTypeCustomData::mSimulationSliders (u8[0x7D], a heap allocation whose count sits at block - 0x10 [A, V on 6AB9813C only:
+// settings_store_6AC07E31.md section 4]), while the game runs at the Main Menu or later. The game's next Settings save writes it.
+// NOT proven in game. Locator: the one block that holds exactly the Custom bytes of the Settings file the game wrote last AND has
+// the count 0x7D at -0x10; zero or several hits = refused (never a guess).
+namespace live {
+struct Span {
+    uint64_t start = 0, end = 0;  // [start, end): readable + writable private memory of this process
+};
+inline constexpr size_t kCountAt = 0x10;
+struct Found {
+    bool ok = false;
+    std::string why;
+    uint64_t addr = 0;  // the block (ok only)
+    int hits = 0;
+};
+// expect = the n Custom bytes of the newest file (n = the map's custom_count). Steps of 8 bytes (heap blocks are 8-aligned or more)
+Found find_block(const std::vector<Span>& spans, const uint8_t* expect, size_t n);
+struct Result {
+    bool ok = false;
+    std::string message;
+    std::vector<std::string> lines;               // "user.sprint_speed (0x50): 50 -> 37"
+    std::map<int, std::pair<int, int>> changed;  // custom index -> (old, new)
+    std::vector<std::string> skipped;             // ids without a Custom index (the u32 service view is not what the screen shows)
+};
+// Writes plan.values (entry id -> 0..100) into the block at addr (custom entries only), reads every byte back
+Result write_block(uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values);
+// The journal (old bytes) as JSON: what the next Settings save will change, and what to load back
+std::string journal_json(const Result& r, const std::string& preset, const std::string& stamp);
+}  // namespace live
 
 // ------------------------------------------------------------------------------------------------ the marker test (one launch)
 // set "blocks": block A = 1..44, block B = 56..99 (disjoint, never 50), the run untouched; set "run": the 36-value run = 1..36, the

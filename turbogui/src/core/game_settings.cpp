@@ -1315,5 +1315,93 @@ Outcome install_markers(const Env& env, const SliderMap& m, const fs::path& mark
     return o;
 }
 
+// ------------------------------------------------------------------------------------------------ 4.0 sliders-rw (a): the map per build
+std::string map_file_for(const std::string& build) {
+    if (build.empty()) return map_file();
+    std::string b = build;
+    for (char& c : b) c = char(std::toupper(static_cast<unsigned char>(c)));
+    // 6AD922D1: the 6AC07E31 Settings layout unchanged ([O] 8E82B111, evidence\2026-10-28\SLIDERS_WRITE\PLAN.md section 0)
+    if (b == "6AC07E31" || b == "6AD922D1") return map_file();
+    return std::string();
+}
+
+// ------------------------------------------------------------------------------------------------ 4.0 sliders-rw (c): the live write
+namespace live {
+
+Found find_block(const std::vector<Span>& spans, const uint8_t* expect, size_t n) {
+    Found f;
+    if (!expect || n == 0) {
+        f.why = "no Custom bytes to look for (the Settings file has no Custom block)";
+        return f;
+    }
+    for (const Span& s : spans) {
+        if (s.end <= s.start || s.end - s.start < kCountAt + n) continue;
+        uint64_t p = (s.start + kCountAt + 7) & ~uint64_t(7);  // the block; its count at p - 0x10 is inside the span
+        for (; p + n <= s.end; p += 8) {
+            const uint8_t* blk = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(p));
+            uint32_t count = 0;
+            std::memcpy(&count, blk - kCountAt, sizeof(count));
+            if (count != uint32_t(n) || blk[0] != expect[0] || std::memcmp(blk, expect, n) != 0) continue;
+            if (++f.hits == 1) f.addr = p;
+        }
+    }
+    if (f.hits == 1) {
+        f.ok = true;
+        return f;
+    }
+    if (f.hits == 0)
+        f.why = "the game's Custom sliders were not found in memory (no block with the newest Settings file's values and the count " +
+                std::to_string(n) + "); open Game Type Settings once, Back, then Refresh and Load again";
+    else
+        f.why = std::to_string(f.hits) + " blocks look like the game's Custom sliders: refused (never a guess)";
+    f.addr = 0;
+    return f;
+}
+
+Result write_block(uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values) {
+    Result r;
+    if (addr == 0 || m.custom_count <= 0) {
+        r.message = "nothing written: no block address or the map has no Custom block";
+        return r;
+    }
+    uint8_t* blk = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(addr));
+    for (const auto& [id, value] : values) {
+        const Entry* e = m.entry(id);
+        if (!e || e->custom_index < 0 || e->custom_index >= m.custom_count) {
+            r.skipped.push_back(id);
+            continue;
+        }
+        const int v = std::clamp(value, e->min, e->max);
+        const int old = blk[e->custom_index];
+        blk[e->custom_index] = uint8_t(v);
+        if (blk[e->custom_index] != uint8_t(v)) {
+            blk[e->custom_index] = uint8_t(old);
+            r.message = "read-back differs at " + id + ": nothing more written";
+            return r;
+        }
+        char hx[16];
+        std::snprintf(hx, sizeof(hx), "0x%02X", e->custom_index);
+        r.lines.push_back(id + " (" + hx + "): " + std::to_string(old) + " -> " + std::to_string(v));
+        r.changed[e->custom_index] = {old, v};
+    }
+    r.ok = !r.changed.empty();
+    r.message = r.ok ? std::to_string(r.changed.size()) + " slider(s) written in the running game" : std::string("no slider of the preset has a Custom index");
+    return r;
+}
+
+std::string journal_json(const Result& r, const std::string& preset, const std::string& stamp) {
+    json j;
+    j["turbo_sliders_live"] = 1;
+    j["preset"] = preset;
+    j["written"] = stamp;
+    json c = json::object();
+    for (const auto& [ci, ov] : r.changed) c[std::to_string(ci)] = {{"old", ov.first}, {"new", ov.second}};
+    j["custom"] = c;
+    j["skipped"] = r.skipped;
+    return j.dump(1);
+}
+
+}  // namespace live
+
 }  // namespace gsettings
 }  // namespace turbo
