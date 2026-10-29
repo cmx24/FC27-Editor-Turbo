@@ -567,7 +567,6 @@ ui_game_settings.cpp	SmallButton	Import...##gsimp	1
 ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
 ui_home.cpp	-	###home_preset_season	1
-ui_home.cpp	-	###home_preset_sliders	1
 ui_home.cpp	-	###home_preset_tactics	1
 ui_home.cpp	-	###home_preset_team	1
 ui_home.cpp	-	###home_tile_%d	1
@@ -1262,7 +1261,6 @@ ui_tactic_presets.cpp	Button	Save current##tpsave	1
 ui_tactic_presets.cpp	Checkbox	###tpunver	1
 ui_tactic_presets.cpp	Checkbox	###tpwithsliders	1
 ui_tactic_presets.cpp	Checkbox	with the set pieces##tpwithsp	1
-ui_tactic_presets.cpp	CollapsingHeader	Game settings file and slider values (Advanced)##gpadv	1
 ui_tactic_presets.cpp	CollapsingHeader	Limits and safety##tpsec_limits	1
 ui_tactic_presets.cpp	CollapsingHeader	Live now##tpsec_live	1
 ui_tactic_presets.cpp	CollapsingHeader	More##tpmore	1
@@ -1351,14 +1349,12 @@ ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
 ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
 ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
 ui_tactics_page.cpp	-	###gsel	1
-ui_tactics_page.cpp	-	###gsmoved	1
 ui_tactics_page.cpp	-	###gsprepare	1
 ui_tactics_page.cpp	BeginChild	##labtaclive	1
 ui_tactics_page.cpp	BeginChild	##labtacoff	1
 ui_tactics_page.cpp	BeginChild	##offslbody	1
 ui_tactics_page.cpp	BeginChild	##tsbenchlist	1
 ui_tactics_page.cpp	Button	###gsdiscard	1
-ui_tactics_page.cpp	CollapsingHeader	###gsadv	1
 ui_tactics_page.cpp	PushID	##offsl	1
 ui_tactics_page.cpp	SmallButton	###gsrefresh	1
 ui_tactics_page.cpp	SmallButton	###tsreadsp	1
