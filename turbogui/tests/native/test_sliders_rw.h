@@ -5,6 +5,10 @@
 // cc02b820) compiles only the UI case, which uses no new API.
 #pragma once
 
+#ifdef _WIN32
+#include <windows.h>  // VirtualAlloc / VirtualProtect for live_write_readonly_page_refused
+#endif
+
 namespace sliders_rw_test {
 
 using namespace turbo;
@@ -141,7 +145,7 @@ static void core() {
         std::error_code ec;
         fs::remove_all(d.parent_path(), ec);
         gsettings_test::write_file(d / nm, f);
-        const Snapshot s = read_current(d, m);
+        const gsettings::Snapshot s = read_current(d, m);
         CHECK(s.ok && s.custom_slots.size() == 125, s.why);
         if (!s.ok || s.custom_slots.size() != 125) return;
         CHECK(s.custom_slots[0x24].second == 42 && s.custom_slots[0x50].second == 41 && s.custom_slots[0x51].second == 43,

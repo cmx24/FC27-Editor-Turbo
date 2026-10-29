@@ -54,6 +54,7 @@ bool attrib_ebx_uses_minhook();  // attrib_ebx_win.cpp
 #include "core/hotkey.h"
 #include "core/wheel.h"
 #include "core/frame_cost.h"
+#include "core/game_settings.h"  // 4.0 sliders-rw: live::page_writable
 #include "ui/ui_shell.h"
 #include "core/edit_unlock.h"
 #include "core/hub_customise.h"
