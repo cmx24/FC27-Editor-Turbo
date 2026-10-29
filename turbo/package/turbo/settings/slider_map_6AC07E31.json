@@ -1765,8 +1765,8 @@
  "verified_by_build": {
   "6AD922D1": {
    "note": "4.0 sliders-rw: the sliders Cassio confirms on his screens (evidence/2026-10-28/SLIDERS_READ/SLIDER_CHECK_FOR_CASSIO.md, values from marker_2041) go in ids, with proof = his answer; empty until the Pit wall relays it. The entries' own verified flags (6AC07E31) are not changed.",
-   "proof": "",
-   "ids": []
+   "proof": "evidence/2026-10-28/SLIDERS_READ/marker_2041_status.txt (Cassio set 42/41/43 on screen; read back at custom 0x24/0x50/0x51 on 6AD922D1)",
+   "ids": ["cpu.sprint_speed", "user.sprint_speed", "user.acceleration"]
   }
  }
 }
