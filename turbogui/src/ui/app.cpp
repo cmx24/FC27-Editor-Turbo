@@ -1684,10 +1684,6 @@ static void draw_legacy_page(App& app, shell::Page p) {
         draw_log_section(app, "diagnostics.log");
         return;
     }
-    if (p == shell::Page::GameplayPresets) {
-        if (app.prefs.advanced_mode) draw_unproven_banner();
-        else theme::muted_text("Presets write the EA Custom slider block; the effect on play is not yet measured.");
-    }
     switch (lt) {
         case 0: draw_players(app); break;
         case 1: draw_teams(app); break;

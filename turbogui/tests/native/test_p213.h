@@ -85,7 +85,7 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(3);
-        for (const char* area : {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings"})  // 3.0 rail names (ui_shell.cpp area_label): Appearance Editor is now Looks, Team is Club
+        for (const char* area : {"Home", "Players", "Looks", "Club", "Tactics", "Game settings", "Career", "Turbo settings"})  // 3.0 rail names (ui_shell.cpp area_label): Appearance Editor is now Looks, Team is Club
             CHECK(ui.find(area, "FC 27 LE Turbo", "##shell") != nullptr, std::string("area tab: ") + area);
         CHECK(ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr, "no Advanced tab in Simple");
         app.legacy_pages = was_legacy_nav;  // 3.0.1: the rest of the case is about the old pages (signpost, Transfers & money sections), which only the old panels draw
@@ -224,7 +224,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(!ui.open_page("Tactics", "Game sliders") && ui.find("Apply preset##gpload") == nullptr, "Tactics: no Game sliders page in the strip");
         CHECK(ui.open_page("Career", "Changes & undo") && ui.find("###keptedits") != nullptr, "Career tools > Changes & undo");
         CHECK(ui.open_page("Career", "Season pack") && ui.find("Season pack...##page") != nullptr, "Career tools > CMTracker: the season pack");
-        CHECK(ui.click("Settings", "FC 27 LE Turbo", "##shell") && ui.find("Look and feel") != nullptr, "Settings (one page, no strip)");
+        CHECK(ui.click("Turbo settings", "FC 27 LE Turbo", "##shell") && ui.find("Look and feel") != nullptr, "Settings (one page, no strip)");
     });
 
     run_case("P213: every page button is on screen; no page is a dead end or names a place the revamp removed (Simple and Advanced views)", [&] {

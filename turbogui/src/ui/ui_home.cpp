@@ -46,7 +46,8 @@ const Tile kTiles[] = {
     {shell::Area::Squad, "Edit a player, create and clone, callnames", "Players and managers: profile, attributes, appearance, creation"},
     {shell::Area::Looks, "Faces, hair, boots and the rest of the look", nullptr},
     {shell::Area::Club, "Kits, name and crest, squad and transfers", "Squad, players, transfers, kits, club and crest"},
-    {shell::Area::Tactics, "Tactic presets, team sheet and game sliders", "Tactic presets, team sheet and game sliders"},
+    {shell::Area::Tactics, "Tactic presets and team sheet", "Tactic presets and team sheet"},
+    {shell::Area::GameSettings, "Game Type Settings, CPU Sliders, presets", "Game Type Settings, CPU Sliders, presets"},
     {shell::Area::Career, "Standings, money, manager jobs, season pack", "Standings, money, manager jobs, season pack"},
     {shell::Area::Settings, "UI size, pictures, the show / hide key", "UI size, pictures, the show / hide key"},
 };
@@ -81,6 +82,8 @@ void draw_home(App& app) {
         g_home.status_chip = true;
         ++g_home.sections;
     }
+    // 10-28 findability (override 6): first row of Home, one click to the Game Type Settings and CPU Sliders page
+    if (theme::primary_button("Game settings & CPU sliders###home_game_settings")) app.go(shell::Page::GameplayPresets);
 
     // (b) My squad
     section_title("My squad");
@@ -108,8 +111,6 @@ void draw_home(App& app) {
     }
     ImGui::SameLine();
     if (theme::primary_button("Tactic presets###home_preset_tactics")) app.go(shell::Page::TacticPresets);
-    ImGui::SameLine();
-    if (theme::primary_button("Game sliders###home_preset_sliders")) app.go(shell::Page::GameplayPresets);
     ImGui::SameLine();
     if (theme::primary_button("Season pack###home_preset_season")) app.go(shell::Page::CMTracker);
 

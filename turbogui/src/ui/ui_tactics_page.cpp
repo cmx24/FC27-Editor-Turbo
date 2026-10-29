@@ -491,7 +491,7 @@ void sliders_editor_panel(App& app, void*) {
         ImGui::TextWrapped("%s", s3.message.c_str());
         if (app.prefs.advanced_mode && ImGui::IsItemHovered() && !sl.raw_message.empty()) ImGui::SetTooltip("%s", sl.raw_message.c_str());
     }
-    if (app.prefs.advanced_mode && ImGui::CollapsingHeader("Game settings file and slider values (Advanced)###gsadv")) draw_game_settings(app);
+    game_settings_link_line(app, "gslink_tac");  // 10-28: was the Advanced header ###gsadv (a second copy)
 }
 
 }  // namespace
@@ -564,29 +564,31 @@ const char* const kOfflineSlidersHeading = "Offline slider file (experimental)";
 const char* const kOfflineSlidersLabel =
     "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
 
-// 3.0.1 (GUI30K), kept in 4.0 S10 (Pit wall decision 2026-10-25: `turbo_settings_apply.exe --apply` fails at cold boot, F9 row of
-// reviews/triage_consolidated_2026-10-25.md:42): the Tactics area shows no slider staging. The page stays registered (Home's Game sliders
-// button and Changes & undo open it), sits in page::Frame, and says where the section went; nothing on it stages. The offline slider
-// section stays Lab-only (draw_lab_tactics_page below).
+// 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): Game settings > Game settings & CPU sliders is
+// the ONE place for the Game Type Settings, the CPU Sliders and their presets. It draws the Game settings view (ui_game_settings.cpp: preset
+// row Save current / Load into the game first, then the values) with no Advanced gate and no Lab pointer. Load writes the game's live
+// block (4.0/sliders-rw route 1) and says so; the old pointer to the Lab ("moved to the Lab") is gone.
 void draw_game_sliders_page(App& app) {
     s3.drawn = true;
-    s3.moved_note = true;
-    page::Frame frame(app, {"game_sliders", "Game sliders", "The slider file moved to the Lab: it had no effect in the game when last tried.", nullptr});
+    s3.moved_note = false;
+    page::Frame frame(app, {"game_sliders", "Game settings & CPU sliders",
+                            "Game Type Settings and CPU Sliders: save them as a preset, and load a preset into the game.", nullptr});
     try {
-        const bool adv = app.prefs.advanced_mode;
-        ImGui::TextWrapped("Game sliders moved to the Lab: Tactics (experimental), section \"%s\".", kOfflineSlidersHeading);
-        ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
-        ImGui::TextWrapped("%s", kOfflineSlidersLabel);
-        ImGui::PopStyleColor();
-        if (!adv) theme::muted_text("Settings > \"Show the Lab (tools not proven in game)\" adds the Lab to the left menu.");
-        const std::string go = std::string(adv ? "Open Lab > Tactics (experimental)" : "Open Settings") + "###gsmoved";
-        if (ImGui::Button(go.c_str())) app.go(adv ? shell::Page::AdvTactics : shell::Page::Settings);
+        draw_game_settings(app);
     } catch (const std::exception& e) {
-        theme::err_text("Game sliders error: %s", e.what());
+        theme::err_text("Game settings error: %s", e.what());
     } catch (...) {
-        theme::err_text("Game sliders error");
+        theme::err_text("Game settings error");
     }
     frame.end();
+}
+
+// One line in the old places (Tactics header, Lab section): the feature lives on its own page now; a button opens it.
+void game_settings_link_line(App& app, const char* id) {
+    theme::muted_text("Game Type Settings, CPU Sliders and their presets are on their own page.");
+    ImGui::SameLine();
+    const std::string lbl = std::string("Open Game settings & CPU sliders###") + id;
+    if (ImGui::SmallButton(lbl.c_str())) app.go(shell::Page::GameplayPresets);
 }
 
 // The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,
@@ -602,6 +604,7 @@ void draw_offline_slider_section(App& app) {
     ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
     ImGui::TextWrapped("%s", kOfflineSlidersLabel);
     ImGui::PopStyleColor();
+    game_settings_link_line(app, "gslink_lab");  // 10-28 findability: the live sliders and presets are on their own page
     ImGui::BeginChild("##offslbody", ImVec2(0, 0), ImGuiChildFlags_None);
     try {
         update_sliders_state(app);

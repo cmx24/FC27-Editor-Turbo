@@ -716,7 +716,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     run_case("resize UI: Settings > Look and feel - the Row height slider (no second control), rows get taller live, and the status line has Refresh", [&] {
         fresh_settings(nullptr);
-        ui.click("Settings", "FC 27 LE Turbo", "##shell");
+        ui.click("Turbo settings", "FC 27 LE Turbo", "##shell");
         ui.frames(4);
         CHECK(app.prefs.section_open("settings.look", true), "the Look and feel section is open by default on the Settings page");
         CHECK(ui.find("##rowheight") != nullptr, "the Row height slider is visible without scrolling or opening anything");

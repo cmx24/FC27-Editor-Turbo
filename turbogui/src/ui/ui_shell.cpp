@@ -44,7 +44,10 @@ const PageInfo kPages[] = {
 
     {Page::TacticPresets, Area::Tactics, "Presets", 1},
     {Page::TeamSheet, Area::Tactics, "Team sheet & bench", -1},
-    {Page::GameplayPresets, Area::Tactics, "Game sliders", 7},
+
+    // 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): Game Type Settings + CPU Sliders + presets on
+    // their own area and page, never under Tactics, the Lab or an Advanced header.
+    {Page::GameplayPresets, Area::GameSettings, "Game settings & CPU sliders", 7},
 
     {Page::Standings, Area::Career, "Standings", 3},
     {Page::Transfers, Area::Career, "Money & transfers", 5},
@@ -101,7 +104,8 @@ const Row40 kTree40[] = {
 
     {Page::TacticPresets, Area::Tactics, "Presets"},
     {Page::TeamSheet, Area::Tactics, "Team sheet & bench"},
-    {Page::GameplayPresets, Area::Tactics, "Game sliders"},
+
+    {Page::GameplayPresets, Area::GameSettings, "Game settings & CPU sliders"},
 
     {Page::Standings, Area::Career, "Standings"},
     {Page::Transfers, Area::Career, "Money"},
@@ -185,8 +189,9 @@ const char* area_label(Area a) {
         case Area::Looks: return "Looks";
         case Area::Club: return "Club";
         case Area::Tactics: return "Tactics";
+        case Area::GameSettings: return "Game settings";
         case Area::Career: return "Career";
-        case Area::Settings: return "Settings";
+        case Area::Settings: return "Turbo settings";  // 10-28: was "Settings", clashed with the game's own settings
         case Area::Advanced: return "Lab";
         default: return "";
     }

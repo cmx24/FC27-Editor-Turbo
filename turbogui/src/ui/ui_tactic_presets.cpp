@@ -24,6 +24,7 @@
 #include "ui_game_settings.h"
 #include "ui_live_tactic.h"
 #include "ui_shell.h"
+#include "ui_tactics_page.h"
 #include "ui_tactics_pages.h"
 #include "ui_theme.h"
 
@@ -968,10 +969,8 @@ void gameplay_editor_panel(App& app, void*) {
     }
     // the game's settings file and its own slider presets (was the Game settings tab): the Advanced view only
     g_gp.advanced_section = false;
-    if (app.prefs.advanced_mode && ImGui::CollapsingHeader("Game settings file and slider values (Advanced)##gpadv")) {
-        g_gp.advanced_section = true;
-        draw_game_settings(app);
-    }
+    // 10-28 findability: no second copy here; one line opens Game settings > Game settings & CPU sliders
+    game_settings_link_line(app, "gslink_gp");
 }
 
 void draw_gameplay_body(App& app) {

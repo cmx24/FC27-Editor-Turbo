@@ -70,9 +70,10 @@ static const std::vector<Row>& tree() {
         {Area::Home, "Home", {{Page::Home, "Home"}}},
         {Area::Squad, "Players", {{Page::PlayerEdit, "Player"}, {Page::BulkEdit, "Bulk edit"}}},
         {Area::Club, "Team", {{Page::Squad, "Squad"}, {Page::TeamPlayers, "Players"}, {Page::TeamTransfers, "Transfers"}, {Page::Kits, "Kits"}, {Page::Identity, "Club & crest"}}},
-        {Area::Tactics, "Tactics", {{Page::TacticPresets, "Presets"}, {Page::TeamSheet, "Team sheet & bench"}, {Page::GameplayPresets, "Game sliders"}}},
+        {Area::Tactics, "Tactics", {{Page::TacticPresets, "Presets"}, {Page::TeamSheet, "Team sheet & bench"}}},
+        {Area::GameSettings, "Game settings", {{Page::GameplayPresets, "Game settings & CPU sliders"}}},
         {Area::Career, "Career", {{Page::Standings, "Standings"}, {Page::Transfers, "Money"}, {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"}}},
-        {Area::Settings, "Settings", {{Page::Settings, "Settings"}}},
+        {Area::Settings, "Turbo settings", {{Page::Settings, "Settings"}}},
         {Area::Advanced, "Lab", {{Page::AdvDatabase, "Database"}, {Page::AdvRawRows, "Row editor"}, {Page::AdvMaintenance, "Maintenance"}, {Page::AdvMatchSetup, "Match setup"},
                                  {Page::AdvGameplayTuning, "Gameplay tuning"}, {Page::AdvExport, "Data export"}, {Page::AdvDiagnostics, "Diagnostics & logs"}, {Page::AdvKitDiagnostics, "Kit diagnostics"},
                                  {Page::AdvBulkEdit, "Bulk edit"}, {Page::AdvTactics, "Tactics (experimental)"}, {Page::StadiumExtras, "Stadium & extras"}}},
@@ -155,7 +156,7 @@ static void ui_cases(App& app, Ui& ui) {
         tree40() = true;
         app.go(Page::Home);
         ui.frames(4);
-        for (const char* a : {"Home", "Players", "Team", "Tactics", "Career", "Settings", "Lab"})
+        for (const char* a : {"Home", "Players", "Team", "Tactics", "Game settings", "Career", "Turbo settings", "Lab"})
             CHECK(ui.find(a, "##rail", "##shell") != nullptr, std::string("the rail button ") + a);
         for (const Row& r : tree()) {
             for (const auto& pg : r.pages) {

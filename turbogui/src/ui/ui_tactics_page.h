@@ -78,6 +78,7 @@ struct GameSlidersPageState {
 const GameSlidersPageState& game_sliders_page_state();
 // Tactics > Game sliders: since 3.0.1 only a pointer to the Lab section (the page stays registered: Home and Changes & undo link to it)
 void draw_game_sliders_page(App& app);
+void game_settings_link_line(App& app, const char* id);  // 10-28: the one-line link to Game settings > Game settings & CPU sliders
 // 3.0.1 (GUI30K): the offline slider file section - heading, label, the list, Prepare / Discard, the steps (Lab > Tactics (experimental))
 extern const char* const kOfflineSlidersHeading;  // "Offline slider file (experimental)"
 extern const char* const kOfflineSlidersLabel;    // "No effect seen in game on 2026-10-24: ... Kept for diagnosis."

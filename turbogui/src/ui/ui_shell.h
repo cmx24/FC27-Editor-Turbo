@@ -23,7 +23,7 @@ namespace turbo::shell {
 // 3.0 shell: Home, Players, Looks, Club, Tactics, Career, Settings, Lab (the left rail, top to bottom; Settings and Lab pinned at the bottom).
 // The identifiers keep their 2.13 names (Squad = Players, Club = Club, Advanced = Lab) so that no caller changes; only the labels in ui_shell.cpp
 // are new. Home is first (3.0: the page the app opens on).
-enum class Area : int { Home = 0, Squad, Looks, Club, Tactics, Career, Settings, Advanced, Count };
+enum class Area : int { Home = 0, Squad, Looks, Club, Tactics, GameSettings, Career, Settings, Advanced, Count };  // 10-28: GameSettings = "Game settings" (findability, NEXT_GUI_FINDABILITY.md step 1)
 
 // One id per page, unique across areas. Order inside an area = order of the page strip (see pages_of).
 enum class Page : int {
@@ -58,7 +58,7 @@ constexpr int kAreaCount = static_cast<int>(Area::Count);
 constexpr int kPageCount = static_cast<int>(Page::Count);
 
 // ---- labels (sentence case, as drawn on the tab and the page strip)
-const char* area_label(Area a);  // "Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings", "Lab"
+const char* area_label(Area a);  // "Home", "Players", "Looks", "Club", "Tactics", "Game settings", "Career", "Turbo settings", "Lab"
 const char* page_label(Page p);  // "Player", "Kits", "Presets", ...
 const char* page_key(Page p);    // 2.22: the enumerator's name ("PlayerEdit"), the stable key of a page's saved pane widths (ui_split.h)
 

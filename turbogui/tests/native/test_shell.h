@@ -51,12 +51,12 @@ static void shell_other_page(turbo::App&) { g_shell_calls += 100; }
 static void test_shell() {
     run_case("shell: areas and pages (labels, one area per page, strips in order, defaults)", [&] {
         using namespace turbo::shell;
-        CHECK(kAreaCount == 8, "3.0: Home, six areas and the Lab");
-        const char* labels[] = {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings", "Lab"};
+        CHECK(kAreaCount == 9, "10-28: Home, seven areas (Game settings added) and the Lab");
+        const char* labels[] = {"Home", "Players", "Looks", "Club", "Tactics", "Game settings", "Career", "Turbo settings", "Lab"};
         for (int a = 0; a < kAreaCount; ++a) CHECK(std::string(area_label(static_cast<Area>(a))) == labels[a], std::string("area label ") + labels[a]);
         CHECK(std::string(area_label(Area::Count)).empty(), "no label for Count");
         CHECK(static_cast<int>(Area::Home) == 0 && pages_of(Area::Home).size() == 1, "Home is first and has one page");
-        const Page defaults[] = {Page::Home, Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
+        const Page defaults[] = {Page::Home, Page::PlayerEdit, Page::LooksStudio, Page::Kits, Page::TacticPresets, Page::GameplayPresets, Page::Standings, Page::Settings, Page::AdvDatabase};
         std::set<int> seen;
         for (int a = 0; a < kAreaCount; ++a) {
             const auto& strip = pages_of(static_cast<Area>(a));
@@ -84,7 +84,7 @@ static void test_shell() {
                              {Page::Staff, "Staff"}, {Page::CommentaryNames, "Callnames"}, {Page::LooksStudio, "Appearance Editor"}, {Page::Kits, "Kits"},
                              {Page::Identity, "Name, colours & crest"}, {Page::TeamPlayers, "Squad"}, {Page::TeamTransfers, "Transfers"},
                              {Page::StadiumExtras, "Stadium & extras"}, {Page::TacticPresets, "Presets"}, {Page::TeamSheet, "Team sheet & bench"},
-                             {Page::GameplayPresets, "Game sliders"}, {Page::Standings, "Standings"}, {Page::Transfers, "Money & transfers"},
+                             {Page::GameplayPresets, "Game settings & CPU sliders"}, {Page::Standings, "Standings"}, {Page::Transfers, "Money & transfers"},
                              {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"},
                              {Page::Squad, "My squad (old page)"}};
         for (const L& l : names30) CHECK(std::string(page_label(l.p)) == l.label, std::string("3.0 label: ") + l.label);
@@ -252,7 +252,7 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         app.prefs.advanced_mode = false;
         app.request_tab = 0;
         settle();
-        for (const char* a : {"Home", "Players", "Looks", "Club", "Tactics", "Career", "Settings"})
+        for (const char* a : {"Home", "Players", "Looks", "Club", "Tactics", "Game settings", "Career", "Turbo settings"})
             CHECK(ui.find(a, "##rail", "##shell") != nullptr, std::string("the rail button ") + a);
         CHECK(ui.find("Lab", "FC 27 LE Turbo", "##shell") == nullptr, "no Lab in the rail while the Lab is off");
         CHECK(app.place() == area_for(0), "request_tab 0 -> Players / Player");
@@ -372,10 +372,10 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(app.place() == place_of(Page::Home), "on Home");
         CHECK(ui.find("Home", "##rail", "##shell") != nullptr, "Home is in the rail");
         const turbo::HomeState& h = turbo::home_state();
-        CHECK(h.sections == 5 && h.status_chip && h.squad && h.presets && h.recent && h.tiles == 6,
-              "five sections, six tiles: sections " + std::to_string(h.sections) + ", tiles " + std::to_string(h.tiles));
+        CHECK(h.sections == 5 && h.status_chip && h.squad && h.presets && h.recent && h.tiles == 7,
+              "five sections, seven tiles: sections " + std::to_string(h.sections) + ", tiles " + std::to_string(h.tiles));
         CHECK(h.squad_table == h.in_career, "the squad table exactly when a career is loaded");
-        for (const char* id : {"###home_preset_team", "###home_preset_tactics", "###home_preset_sliders", "###home_preset_season", "###home_changes"})
+        for (const char* id : {"###home_preset_team", "###home_preset_tactics", "###home_preset_season", "###home_changes"})
             CHECK(ui.find(id) != nullptr, std::string("Home button ") + id);
         CHECK(ui.find("##gsearch") != nullptr, "the global search box in the top bar");
         CHECK(ui.click("###home_tile_" + std::to_string(static_cast<int>(Area::Tactics))), "click the Tactics tile");
@@ -388,9 +388,9 @@ static void test_shell_ui(turbo::App& app, Ui& ui) {
         CHECK(app.place() == place_of(Page::ChangesUndo), "it opened Career > Changes & undo");
         app.go(Page::Home);
         settle();
-        CHECK(ui.click("###home_preset_sliders"), "click Game sliders");
+        CHECK(ui.click("###home_game_settings"), "click Game settings & CPU sliders (first row)");
         settle(2);
-        CHECK(app.place() == place_of(Page::GameplayPresets), "it opened Tactics > Game sliders");
+        CHECK(app.place() == place_of(Page::GameplayPresets), "it opened Game settings > Game settings & CPU sliders");
     });
 
     run_case("shell UI 3.0: a rail click changes the area; the narrow rail keeps working and is saved; the search opens a player", [&] {

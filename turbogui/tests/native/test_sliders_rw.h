@@ -429,6 +429,34 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         app.request_tab = 0;
         ui.frames(2);
     });
+
+    // 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): the left menu has a "Game settings" area that holds
+    // the page; Home's first row opens it in one click; with the Lab and Advanced mode OFF the page shows the preset row with "Load into the game";
+    // "Settings" is "Turbo settings". Fails on cc02b820 (no such area, Home has no such button, the page is a pointer to the Lab).
+    run_case("sliders-rw UI: findability_game_settings_area (left menu 'Game settings', Home 1 click, Load into the game with advanced_mode=false)", [&] {
+        namespace sh = turbo::shell;
+        const bool adv = app.prefs.advanced_mode;
+        app.prefs.advanced_mode = false;
+        app.go(sh::Page::Home);
+        ui.frames(3);
+        CHECK(ui.find("Game settings", "##rail", "##shell") != nullptr, "the left menu lists 'Game settings'");
+        CHECK(ui.find("Turbo settings", "##rail", "##shell") != nullptr, "Turbo's own settings are 'Turbo settings' in the left menu");
+        CHECK(std::string(sh::area_label(sh::area_of(sh::Page::GameplayPresets))) == "Game settings", "the page is in the Game settings area, not under Tactics");
+        CHECK(ui.click("###home_game_settings"), "Home: the 'Game settings & CPU sliders' button");
+        ui.frames(3);
+        CHECK(app.place() == sh::place_of(sh::Page::GameplayPresets), "one click from Home opens the page");
+        CHECK(ui.find("Load into the game###gsload") != nullptr && ui.find("Save current##gssave") != nullptr,
+              "the preset row (Save current, Load into the game) is on the page with Advanced mode off");
+        CHECK(ui.find("###gsmoved") == nullptr, "no pointer to the Lab");
+        app.go(sh::Page::Home);
+        ui.frames(2);
+        CHECK(ui.click("Game settings", "##rail", "##shell") || ui.click("Game settings"), "left menu: Game settings");
+        ui.frames(3);
+        CHECK(app.place() == sh::place_of(sh::Page::GameplayPresets), "the left menu opens the page (1 click)");
+        app.prefs.advanced_mode = adv;
+        app.go(sh::Page::Home);
+        ui.frames(2);
+    });
 }
 
 }  // namespace sliders_rw_test
