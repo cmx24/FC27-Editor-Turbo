@@ -6,7 +6,8 @@ bank and lists the FC 27 team ids that have rows for at least one parameter of C
 voice-swap hook rewrites (turbogui/src/core/callname_voice.cpp is_club_param; team_venue_ID and *_gID are left out).
 
 Output: turbo\\callnames\\clubs\\<lang>.json  {"lang", "game_build", "params": {name: count}, "ids": [...]}
-The Turbo GUI offers these ids as donors in Team edit > Name, colours & crest > Commentary name.
+The Turbo GUI offers these ids as donors in Club > Name, colours & crest > Commentary name (4.0 menus: Club & crest >
+Identity > Commentary name).
 
     python -I club_ids.py --lang fre_fr --out ...\\turbo\\callnames\\clubs\\fre_fr.json
     python -I club_ids.py --selftest

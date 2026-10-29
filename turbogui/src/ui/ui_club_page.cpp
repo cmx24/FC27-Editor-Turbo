@@ -76,6 +76,8 @@ void colours_box(App& app) {
     ImGui::EndChild();
 }
 void crest_box(App& app) { identity_box(app, "##tcrest", 440.0f, club_crest_section); }
+// what the commentator calls the club in matches (ui_club_voice.cpp); also on the 4.0 Club & crest page
+void voice_box(App& app) { identity_box(app, "##tvoice", 420.0f, club_voice_section); }
 
 void identity_page_fn(App& app) {
     if (!page_header(app)) return;
@@ -99,7 +101,9 @@ void identity_page_fn(App& app) {
         theme::muted_text("Crest");
         crest_box(app);
     }
-    theme::muted_text("Each part has its own Save; every change can be undone from the status line (Undo last).");
+    theme::muted_text("Commentary name (what the commentator calls your club in matches)");
+    voice_box(app);
+    theme::muted_text("Each part has its own Save; every change can be undone from the status line (Undo last). The commentary name goes back with \"Use its own name\".");
 }
 
 void stadium_page_fn(App& app) {
