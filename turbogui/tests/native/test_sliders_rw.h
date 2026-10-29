@@ -32,6 +32,10 @@ static void core() {
         CHECK(map_file_for("6AC07E31") == map_file(), "6AC07E31");
         CHECK(map_file_for("").compare(map_file()) == 0, "build not known (the apply tool, game closed) = the default map");
         CHECK(map_file_for("DEADBEEF").empty(), "an unknown build has no map");
+        // 10-28: game_build_key() is "<exe id>-<image size>"; the full key matched nothing (Cassio's page: "no slider map")
+        CHECK(map_file_for("6AD922D1-221A8000") == map_file(), "the running game's key 6AD922D1-221A8000 -> " + map_file_for("6AD922D1-221A8000"));
+        CHECK(map_file_for("6AC07E31-2145C000") == map_file(), "6AC07E31-2145C000");
+        CHECK(map_file_for("DEADBEEF-221A8000").empty(), "an unknown build with a size suffix has no map");
     });
 
     run_case("sliders-rw: live_locator_unique_hit (count 0x7D at -0x10 + the file's 125 bytes; a copy without the count is ignored; a block across a 1 MiB chunk edge is found once)", [] {
@@ -358,7 +362,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         put_block(mem, blk, std::vector<uint8_t>(125, 50), 125);
         const auto saved_hook = app.regions_hook;
         const auto saved_report = app.hook_report;
-        std::string build = "6AC07E31";
+        std::string build = "6AC07E31-2145C000";
         app.regions_hook = []() { return std::vector<::turbo::Region>{{kBase, kBase + 0x2000}}; };
         app.hook_report = [&]() {
             HookReport r;
@@ -392,7 +396,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         const Preset a = save_as("B6AC");
         CHECK(a.values.size() == 3 && a.values.count("user.sprint_speed") && a.values.count("user.acceleration") && a.values.count("cpu.sprint_speed"),
               fmt("6AC07E31: the 3 TEST_31 sliders only (%zu)", a.values.size()));
-        build = "6AD922D1";
+        build = "6AD922D1-221A8000";  // the key the hook report carries in game (10-28: the bare id hid the mismatch)
         open_tab();
         Preset b = save_as("B6AD");
         CHECK(b.values.size() == 125, fmt("6AD922D1: every listed slider is verified and saved (%zu of 125)", b.values.size()));

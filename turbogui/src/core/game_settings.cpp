@@ -442,9 +442,16 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
     return true;
 }
 
-int SliderMap::apply_build(const std::string& build) {
-    std::string b = build;
+// The running game's build key is "6AD922D1-221A8000" (exe id - image size, game_build_key()); maps and verified_by_build are keyed by
+// the id alone. 10-28 22:3x: the full key matched nothing, so Cassio's page said "no slider map" and Load wrote nothing.
+static std::string build_id(const std::string& build) {
+    std::string b = build.substr(0, build.find('-'));
     for (char& c : b) c = char(std::toupper(static_cast<unsigned char>(c)));
+    return b;
+}
+
+int SliderMap::apply_build(const std::string& build) {
+    const std::string b = build_id(build);
     const auto it = by_build.find(b);
     if (b.empty() || it == by_build.end()) return 0;
     int n = 0;
@@ -1370,8 +1377,7 @@ Outcome install_markers(const Env& env, const SliderMap& m, const fs::path& mark
 // ------------------------------------------------------------------------------------------------ 4.0 sliders-rw (a): the map per build
 std::string map_file_for(const std::string& build) {
     if (build.empty()) return map_file();
-    std::string b = build;
-    for (char& c : b) c = char(std::toupper(static_cast<unsigned char>(c)));
+    const std::string b = build_id(build);
     // 6AD922D1: the 6AC07E31 Settings layout unchanged ([O] 8E82B111, evidence\2026-10-28\SLIDERS_WRITE\PLAN.md section 0)
     if (b == "6AC07E31" || b == "6AD922D1") return map_file();
     return std::string();
