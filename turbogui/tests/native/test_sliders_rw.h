@@ -307,6 +307,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
                   !fs::exists(out / pending_file(), ec),
               s.preset_line);
         app.regions_hook = saved_hook;
+        for (uint64_t p = kBase / SimMemory::kPage; p <= (kBase + 0x2000) / SimMemory::kPage; ++p) mem.pages.erase(p);  // free the test heap: the next case checks it is free
         fs::remove(out / pending_file(), ec);
         fs::remove(out / "settings_live_journal.json", ec);
         fs::remove_all(out / presets_dir(), ec);
@@ -419,6 +420,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
               fmt("Load wrote every verified slider (%d of %zu wrong, first at 0x%X): %s", wrong, want.size(), unsigned(first_wrong), s.preset_line.c_str()));
         CHECK(s.preset_line.find("Applied in game now") != std::string::npos && !fs::exists(out / pending_file(), ec), s.preset_line);
         app.regions_hook = saved_hook;
+        for (uint64_t p = kBase / SimMemory::kPage; p <= (kBase + 0x2000) / SimMemory::kPage; ++p) mem.pages.erase(p);  // free the test heap: the next case checks it is free
         app.hook_report = saved_report;
         app.tick(app.now + 3.0);
         fs::remove(out / pending_file(), ec);
