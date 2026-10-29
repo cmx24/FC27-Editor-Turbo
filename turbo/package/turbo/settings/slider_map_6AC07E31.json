@@ -1761,5 +1761,12 @@
    "0x51": "user.acceleration (0xB8E2D)",
    "0x24": "cpu.sprint_speed (0xB8E00)"
   }
+ },
+ "verified_by_build": {
+  "6AD922D1": {
+   "note": "4.0 sliders-rw: the sliders Cassio confirms on his screens (evidence/2026-10-28/SLIDERS_READ/SLIDER_CHECK_FOR_CASSIO.md, values from marker_2041) go in ids, with proof = his answer; empty until the Pit wall relays it. The entries' own verified flags (6AC07E31) are not changed.",
+   "proof": "",
+   "ids": []
+  }
  }
 }

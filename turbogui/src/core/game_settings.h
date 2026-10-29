@@ -117,6 +117,15 @@ struct SliderMap {
     size_t custom_offset_of(int index) const { return custom_base + size_t(index); }
     std::vector<Region> regions;
     std::vector<Entry> entries;
+    // 4.0 sliders-rw: per-build screen proof, "verified_by_build": {"6AD922D1": {"proof": "...", "ids": [...]}} (ids = entries with an
+    // index, each once; a non-empty list needs its proof). apply_build(build) marks those entries verified for that build only; the
+    // entries' own verified flags (6AC07E31, TEST_31 G-S1) stay as they are. Returns how many entries it marked.
+    struct BuildProof {
+        std::string proof;
+        std::vector<std::string> ids;
+    };
+    std::map<std::string, BuildProof> by_build;  // key = build id, upper case
+    int apply_build(const std::string& build);
     const Entry* entry(const std::string& id) const;
     const Region* region_of(int index) const;
     size_t offset_of(int index) const { return base + 4u * size_t(index); }

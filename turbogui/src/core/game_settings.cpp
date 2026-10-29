@@ -413,8 +413,50 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
         if (e.verified && e.proof.empty()) return fail(e.id + ": verified needs its proof (where the in-game check is)");
         m.entries.push_back(e);
     }
+    if (j.contains("verified_by_build")) {  // 4.0 sliders-rw: per-build screen proof (SliderMap::apply_build)
+        const auto& vb = j["verified_by_build"];
+        if (!vb.is_object()) return fail("verified_by_build is not an object");
+        for (auto it = vb.begin(); it != vb.end(); ++it) {
+            std::string b = it.key();
+            for (char& c : b) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (b.size() != 8 || b.find_first_not_of("0123456789ABCDEF") != std::string::npos) return fail("verified_by_build: \"" + it.key() + "\" is not a build id");
+            const auto& x = it.value();
+            if (!x.is_object() || !x.contains("ids") || !x["ids"].is_array()) return fail("verified_by_build " + b + ": ids is not a list");
+            SliderMap::BuildProof bp;
+            bp.proof = str_of(x, "proof");
+            std::set<std::string> seen;
+            for (const auto& v : x["ids"]) {
+                if (!v.is_string()) return fail("verified_by_build " + b + ": an id is not text");
+                const std::string id = v.get<std::string>();
+                const Entry* e = m.entry(id);
+                if (!e) return fail("verified_by_build " + b + ": " + id + " is not an entry");
+                if (e->index < 0 && e->custom_index < 0) return fail("verified_by_build " + b + ": " + id + " has no index");
+                if (!seen.insert(id).second) return fail("verified_by_build " + b + ": " + id + " is listed twice");
+                bp.ids.push_back(id);
+            }
+            if (!bp.ids.empty() && bp.proof.empty()) return fail("verified_by_build " + b + ": needs its proof (where the in-game check is)");
+            m.by_build[b] = bp;
+        }
+    }
     out = std::move(m);
     return true;
+}
+
+int SliderMap::apply_build(const std::string& build) {
+    std::string b = build;
+    for (char& c : b) c = char(std::toupper(static_cast<unsigned char>(c)));
+    const auto it = by_build.find(b);
+    if (b.empty() || it == by_build.end()) return 0;
+    int n = 0;
+    for (const std::string& id : it->second.ids)
+        for (Entry& e : entries)
+            if (e.id == id && !e.verified) {
+                e.verified = true;
+                e.evidence = "screen";
+                e.proof = it->second.proof + " (build " + b + ")";
+                ++n;
+            }
+    return n;
 }
 
 bool load_map(const fs::path& file, SliderMap& out, std::string* err) {

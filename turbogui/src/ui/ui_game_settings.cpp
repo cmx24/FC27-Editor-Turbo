@@ -121,6 +121,7 @@ void load_map_now(App& app) {
         g.map_err = "no slider map for game build " + game_build(app) + " (Turbo knows 6AC07E31 and 6AD922D1): nothing is read or written";
     } else {
         g.map_ok = load_map(mp, g.map, &g.map_err);
+        if (g.map_ok) g.map.apply_build(game_build(app));  // 4.0 sliders-rw: the running build's screen-proven sliders (verified_by_build)
     }
 }
 

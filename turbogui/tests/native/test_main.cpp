@@ -15726,6 +15726,7 @@ int main(int argc, char** argv) {
 #ifndef SLIDERS_RW_OLD_CODE
     sliders_rw_test::core();  // test_sliders_rw.h (4.0 sliders-rw)
 #endif
+    sliders_rw_test::vbb_parse();  // test_sliders_rw.h (all-sliders prep: verified_by_build)
     settings_presets_test::run();  // test_settings_presets.h (2.10)
     tactic_presets_test::run();  // test_tactic_presets.h (2.12)
     tactics_page_test::run();  // test_tactics_page.h (2.20)

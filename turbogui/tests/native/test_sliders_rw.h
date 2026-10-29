@@ -203,6 +203,34 @@ static void core() {
 }
 #endif
 
+// all-sliders prep: the "verified_by_build" key is checked when the map is read (a bad list is refused, never half-used); only SliderMap::parse,
+// so it also runs on 2f16eb08, where every refusal below is accepted (the key was ignored) and fails.
+static void vbb_parse() {
+    run_case("sliders-rw: verified_by_build_parse_refusals (unknown id, twice, no proof, bad build id, not a list)", [&] {
+        auto with = [](const std::string& vb) {
+            std::string t = gsettings_test::custom_map(true);
+            const size_t at = t.rfind('}');
+            return t.substr(0, at) + ", \"verified_by_build\": " + vb + "}";
+        };
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(with(R"({"6AD922D1": {"proof": "", "ids": []}})"), m, &err), "an empty list (the shipped state) reads: " + err);
+        CHECK(SliderMap::parse(with(R"({"6ad922d1": {"proof": "check sheet", "ids": ["cpu.acceleration"]}})"), m, &err), "a valid list reads: " + err);
+        const Entry* e = m.entry("cpu.acceleration");
+        CHECK(e && !e->verified, "reading the list changes no entry's own flag (6AC07E31 stays as it is)");
+        auto refused = [&](const std::string& vb, const char* want) {
+            SliderMap x;
+            std::string er;
+            CHECK(!SliderMap::parse(with(vb), x, &er) && er.find(want) != std::string::npos, std::string(want) + ": " + er);
+        };
+        refused(R"({"6AD922D1": {"proof": "p", "ids": ["cpu.nope"]}})", "is not an entry");
+        refused(R"({"6AD922D1": {"proof": "p", "ids": ["cpu.acceleration", "cpu.acceleration"]}})", "listed twice");
+        refused(R"({"6AD922D1": {"proof": "", "ids": ["cpu.acceleration"]}})", "needs its proof");
+        refused(R"({"6AD922": {"proof": "p", "ids": []}})", "not a build id");
+        refused(R"({"6AD922D1": {"proof": "p", "ids": "cpu.acceleration"}})", "not a list");
+    });
+}
+
 // (b): the tab's Load writes into the running game (regions_hook = the host's memory lister) and stages nothing; on today's code
 // (cc02b820) Load only staged turbo_output\settings_pending.json and the game's memory was never written. The file holds 00 before
 // the Custom block, as Cassio's files do (marker_2041): with no game memory nothing is staged either (--apply refuses such a file).
@@ -279,6 +307,120 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
                   !fs::exists(out / pending_file(), ec),
               s.preset_line);
         app.regions_hook = saved_hook;
+        fs::remove(out / pending_file(), ec);
+        fs::remove(out / "settings_live_journal.json", ec);
+        fs::remove_all(out / presets_dir(), ec);
+        game_settings_set_paths({}, {});
+        game_settings_reset();
+        app.request_tab = 0;
+        ui.frames(2);
+    });
+
+    // all-sliders prep (Pit wall 21:15): the 6AD922D1 proof list in the map ("verified_by_build", one data edit) makes every listed slider
+    // verified for that build only. Save current on 6AC07E31 still holds the 3 TEST_31 sliders; on 6AD922D1 it holds all 125 and Load
+    // writes all 125 into the game's block. Fails on 2f16eb08 (the key is ignored: 3 saved, 3 written).
+    run_case("sliders-rw UI: verified_by_build_load_writes_every_verified_slider (6AD922D1 list: all 125 saved and written; 6AC07E31 keeps its 3)", [&] {
+        const fs::path root = g_out / "gsettings" / "ui_vbb";
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        fs::create_directories(root, ec);
+        const fs::path settings = root / "settings";
+        std::vector<uint8_t> fx = gsettings_test::fixture();  // Custom block 125 x 50
+        fx[kPayloadOff + 0xB8976 - 1] = 0;
+        fix_crc(fx);
+        gsettings_test::write_file(settings / gsettings_test::kName, fx);
+        std::string text, err;
+        {
+            std::ifstream in(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file_for("6AD922D1"), std::ios::binary);
+            text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+        CHECK(j.is_object() && j.contains("entries") && j["entries"].is_array(), "the shipped map reads");
+        if (!j.is_object() || !j.contains("entries")) return;
+        nlohmann::json ids = nlohmann::json::array();
+        for (const auto& e : j["entries"])
+            if (e.contains("custom_index") && !e["custom_index"].is_null()) ids.push_back(e["id"]);
+        CHECK(ids.size() == 125, fmt("125 Custom-block entries in the shipped map (%zu)", ids.size()));
+        j["verified_by_build"] = {{"6AD922D1", {{"proof", "test: the check sheet answer"}, {"ids", ids}}}};
+        const fs::path map = root / "slider_map.json";
+        std::ofstream(map, std::ios::binary) << j.dump(1);
+        SliderMap m;
+        CHECK(load_map(map, m, &err), err);
+        const fs::path out = le / "turbo_output";
+        fs::remove_all(out / presets_dir(), ec);
+        fs::remove(out / pending_file(), ec);
+        fs::remove(out / "settings_live_journal.json", ec);
+        SimMemory& mem = static_cast<SimMemory&>(app.mem);
+        const uint64_t blk = kBase + 0x400;
+        CHECK(!mem.pages.count(kBase / SimMemory::kPage), "the test heap is free in the simulated memory");
+        mem.map(kBase, 0x2000);
+        put_block(mem, blk, std::vector<uint8_t>(125, 50), 125);
+        const auto saved_hook = app.regions_hook;
+        const auto saved_report = app.hook_report;
+        std::string build = "6AC07E31";
+        app.regions_hook = []() { return std::vector<::turbo::Region>{{kBase, kBase + 0x2000}}; };
+        app.hook_report = [&]() {
+            HookReport r;
+            r.build = build;
+            return r;
+        };
+        auto open_tab = [&]() {
+            app.tick(app.now + 3.0);  // the hook report is cached for 1 s
+            game_settings_set_paths(settings, map);
+            game_settings_reset();
+            app.request_tab = 7;
+            ui.frames(3);
+            if (!game_settings_view_state().drawn) {
+                parity_test::scroll_into_view(ui, "Game settings file and slider values (Advanced)##gpadv");
+                CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv"), "open the Game settings section");
+                ui.frames(3);
+            }
+        };
+        auto save_as = [&](const char* name) -> Preset {
+            const ItemRec* box = ui.find("##gsname");
+            CHECK(box && ui.type_into(box, name), "name typed");
+            CHECK(ui.click("Save current##gssave"), "Save current");
+            ui.frames(2);
+            for (const Preset& p : load_presets(out / presets_dir(), nullptr))
+                if (p.name == name) return p;
+            CHECK(false, std::string("preset saved: ") + name + ": " + game_settings_view_state().preset_line);
+            return Preset();
+        };
+        open_tab();
+        const Preset a = save_as("B6AC");
+        CHECK(a.values.size() == 3 && a.values.count("user.sprint_speed") && a.values.count("user.acceleration") && a.values.count("cpu.sprint_speed"),
+              fmt("6AC07E31: the 3 TEST_31 sliders only (%zu)", a.values.size()));
+        build = "6AD922D1";
+        open_tab();
+        Preset b = save_as("B6AD");
+        CHECK(b.values.size() == 125, fmt("6AD922D1: every listed slider is verified and saved (%zu of 125)", b.values.size()));
+        std::map<int, int> want;  // custom index -> the value Load must write
+        b.values.clear();
+        for (const Entry& e : m.entries)
+            if (e.custom_index >= 0) {
+                const int v = e.min + ((e.custom_index * 7 + 3) % (e.max - e.min + 1));
+                b.values[e.id] = v;
+                want[e.custom_index] = v;
+            }
+        CHECK(write_preset_file(out / presets_dir(), b, &err), err);
+        parity_test::scroll_into_view(ui, "Refresh##gsrefresh");
+        CHECK(ui.click("Refresh##gsrefresh"), "Refresh");
+        ui.frames(2);
+        CHECK(ui.click("###gsload"), "Load");
+        ui.frames(2);
+        int wrong = 0, first_wrong = -1;
+        for (const auto& [k, v] : want) {
+            uint8_t got = 0;
+            mem.read(blk + uint64_t(k), &got, 1);
+            if (int(got) != v && wrong++ == 0) first_wrong = k;
+        }
+        const GameSettingsViewState& s = game_settings_view_state();
+        CHECK(want.size() == 125 && wrong == 0,
+              fmt("Load wrote every verified slider (%d of %zu wrong, first at 0x%X): %s", wrong, want.size(), unsigned(first_wrong), s.preset_line.c_str()));
+        CHECK(s.preset_line.find("Applied in game now") != std::string::npos && !fs::exists(out / pending_file(), ec), s.preset_line);
+        app.regions_hook = saved_hook;
+        app.hook_report = saved_report;
+        app.tick(app.now + 3.0);
         fs::remove(out / pending_file(), ec);
         fs::remove(out / "settings_live_journal.json", ec);
         fs::remove_all(out / presets_dir(), ec);
