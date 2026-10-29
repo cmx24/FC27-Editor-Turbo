@@ -967,10 +967,11 @@ void gameplay_editor_panel(App& app, void*) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Dismiss##gpdismiss")) dismiss_prompt(app);
     }
-    // the game's settings file and its own slider presets (was the Game settings tab): the Advanced view only
+    // 10-28 findability: Page::GameplayPresets IS this page on the default (legacy) tree, so the game's settings and their presets
+    // (Save current / Load into the game) are drawn here in full, with no Advanced gate; a link line here would point at itself
     g_gp.advanced_section = false;
-    // 10-28 findability: no second copy here; one line opens Game settings > Game settings & CPU sliders
-    game_settings_link_line(app, "gslink_gp");
+    ImGui::SeparatorText("Game Type Settings and CPU Sliders");
+    draw_game_settings(app);
 }
 
 void draw_gameplay_body(App& app) {

@@ -130,7 +130,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.prefs.advanced_mode = true;
         ui.frames(3);
         // 10-28 findability: no second copy; one link line to Game settings > Game settings & CPU sliders
-        CHECK(ui.find("###gslink_gp", "T4 test page") != nullptr && !gameplay_page_state().advanced_section, "Advanced view: one link line, no Game settings copy");
+        CHECK(game_settings_view_state().drawn && ui.find("###gslink_gp", "T4 test page") == nullptr && !gameplay_page_state().advanced_section,
+              "the page draws Game settings & CPU sliders itself, no Advanced gate and no link to itself");
         // the Tactic presets page lists both presets; the same Apply button id family, one primary action
         app.prefs.advanced_mode = false;
         show_page(ui, draw_tactic_presets);

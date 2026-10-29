@@ -4169,7 +4169,7 @@ static void test_ui() {
                 app.request_tab = tab;
                 ui.frames(3);
             }
-            CHECK(ui.find("Players") && ui.find("Looks") && ui.find("Club") && ui.find("Tactics") && ui.find("Career") && ui.find("Settings"), "area tabs present");
+            CHECK(ui.find("Players") && ui.find("Looks") && ui.find("Club") && ui.find("Tactics") && ui.find("Career") && ui.find("Game settings") && ui.find("Turbo settings"), "area tabs present (10-28: Game settings, Turbo settings)");
             // Status tab: the game-hook report (filled by the Windows host) renders in every state
             int reports = 0;
             app.hook_report = [&]() {

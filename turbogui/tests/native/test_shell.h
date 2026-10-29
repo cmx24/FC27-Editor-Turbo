@@ -110,7 +110,7 @@ static void test_shell() {
             {turbo::TabDatabase, Area::Advanced, Page::AdvDatabase},
             {turbo::TabTools, Area::Career, Page::Transfers},
             {turbo::TabStatus, Area::Settings, Page::Settings},
-            {turbo::TabGameSettings, Area::Tactics, Page::GameplayPresets},
+            {turbo::TabGameSettings, Area::GameSettings, Page::GameplayPresets},  // 10-28 findability: its own left-menu area
         };
         CHECK(turbo::TabCount == 8 && sizeof(rows) / sizeof(rows[0]) == 8, "eight legacy tabs, all covered");
         for (const Row& r : rows) {

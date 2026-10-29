@@ -220,14 +220,14 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.find("Profile###pe40_profile") != nullptr, "the player card is back");
     });
 
-    run_case("Shell 4.0: Home has five tiles (no Looks) and Team; the old Home has six", [&] {
+    run_case("Shell 4.0: Home has six tiles (no Looks; 10-28 + Game settings) and Team; the old Home has seven", [&] {
         State st(app, ui);
         app.legacy_pages = false;
         app.prefs.advanced_mode = false;
         tree40() = true;
         app.go(Page::Home);
         ui.frames(5);
-        CHECK(home_state().tiles == 5, "5 tiles with the 4.0 tree: " + std::to_string(home_state().tiles));
+        CHECK(home_state().tiles == 6, "6 tiles with the 4.0 tree: " + std::to_string(home_state().tiles));
         CHECK(ui.find("###home_tile_2") == nullptr, "no Looks tile");
         CHECK(ui.find("###home_tile_3") != nullptr, "the Team tile");
         CHECK(ui.click("###home_tile_3"), "click the Team tile");
@@ -236,7 +236,7 @@ static void ui_cases(App& app, Ui& ui) {
         tree40() = false;
         app.go(Page::Home);
         ui.frames(5);
-        CHECK(home_state().tiles == 6 && ui.find("###home_tile_2") != nullptr, "flag off: six tiles with Looks");
+        CHECK(home_state().tiles == 7 && ui.find("###home_tile_2") != nullptr, "flag off: seven tiles with Looks");
     });
 
     run_case("Shell 4.0: Team > Squad is Page::Squad in the Team area; the old tree keeps My squad (old page) in the Lab", [&] {
