@@ -229,6 +229,8 @@ public:
     // ---- spoken-set capture from the loaded commentary bank (core/commentary_bank.h) on a background thread:
     // the host lists the game's readable private regions; tests give a synthetic list over the simulated memory
     std::function<std::vector<Region>()> regions_hook;
+    // 4.0 sliders-rw: the host's "is [addr, addr+n) a writable page of the game" (VirtualQuery); unset in tests (simulated memory)
+    std::function<bool(uint64_t, size_t)> writable_hook;
     bool start_bank_capture(bool automatic = false);  // false when one is running or no region lister is set
     std::unordered_set<int64_t> commentary_ids();     // commentaryid of every commentarynames row (else playernames' ids)
     bool bank_capture_running() const { return bank_running_.load(); }

@@ -1173,6 +1173,7 @@ bool start_overlay(HMODULE) {
     turbo::mhm::set_signature_lookup([](const char* n) { return host::game_signature(n); });  // club customisation hub
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
     g_app->regions_hook = []() { return private_regions(64 * 1024); };  // commentary-bank capture (Callname tab)
+    g_app->writable_hook = [](uint64_t a, size_t n) { return turbo::gsettings::live::page_writable(a, n); };  // 4.0 sliders-rw live write
     g_app->callname_player.set_player(callname_wav_player());  // Callname tab play buttons (callname_audio_win.cpp)
     if (g_app->mailbox) start_memmap(reinterpret_cast<uint64_t>(mailbox));
     g_toggle_vk = g_app->toggle_vk;

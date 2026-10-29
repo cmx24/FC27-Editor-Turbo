@@ -11,6 +11,16 @@
 
 #include "nlohmann/json.hpp"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace turbo {
 namespace gsettings {
 
@@ -1328,21 +1338,35 @@ std::string map_file_for(const std::string& build) {
 // ------------------------------------------------------------------------------------------------ 4.0 sliders-rw (c): the live write
 namespace live {
 
-Found find_block(const std::vector<Span>& spans, const uint8_t* expect, size_t n) {
+Found find_block(Memory& mem, const std::vector<Span>& spans, const uint8_t* expect, size_t n) {
     Found f;
     if (!expect || n == 0) {
         f.why = "no Custom bytes to look for (the Settings file has no Custom block)";
         return f;
     }
+    std::vector<uint8_t> buf;
     for (const Span& s : spans) {
         if (s.end <= s.start || s.end - s.start < kCountAt + n) continue;
-        uint64_t p = (s.start + kCountAt + 7) & ~uint64_t(7);  // the block; its count at p - 0x10 is inside the span
-        for (; p + n <= s.end; p += 8) {
-            const uint8_t* blk = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(p));
-            uint32_t count = 0;
-            std::memcpy(&count, blk - kCountAt, sizeof(count));
-            if (count != uint32_t(n) || blk[0] != expect[0] || std::memcmp(blk, expect, n) != 0) continue;
-            if (++f.hits == 1) f.addr = p;
+        // chunks overlap by kCountAt + n so a block across a chunk edge is still seen whole
+        uint64_t p = (s.start + kCountAt + 7) & ~uint64_t(7);  // the next block start to examine (each once, across chunks)
+        for (uint64_t at = s.start; at + kCountAt + n <= s.end;) {
+            const uint64_t len = std::min<uint64_t>(kChunk, s.end - at);
+            buf.resize(size_t(len));
+            if (p < at + kCountAt) p = (at + kCountAt + 7) & ~uint64_t(7);
+            if (!mem.read(at, buf.data(), size_t(len))) {
+                p = (at + len + 7) & ~uint64_t(7);  // an unreadable chunk: skip it
+            } else {
+                for (; p + n <= at + len; p += 8) {
+                    const uint8_t* blk = buf.data() + size_t(p - at);
+                    if (blk[0] != expect[0]) continue;
+                    uint32_t count = 0;
+                    std::memcpy(&count, blk - kCountAt, sizeof(count));
+                    if (count != uint32_t(n) || std::memcmp(blk, expect, n) != 0) continue;
+                    if (++f.hits == 1) f.addr = p;
+                }
+            }
+            if (at + len >= s.end) break;
+            at += len - (kCountAt + n + 8);  // overlap: the next chunk still holds the count of a block that starts at p
         }
     }
     if (f.hits == 1) {
@@ -1358,31 +1382,60 @@ Found find_block(const std::vector<Span>& spans, const uint8_t* expect, size_t n
     return f;
 }
 
-Result write_block(uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values) {
+bool page_writable(uint64_t addr, size_t n) {
+    if (addr == 0 || n == 0) return false;
+#ifdef _WIN32
+    for (uint64_t p = addr; p < addr + n;) {
+        MEMORY_BASIC_INFORMATION mb{};
+        if (VirtualQuery(reinterpret_cast<LPCVOID>(static_cast<uintptr_t>(p)), &mb, sizeof(mb)) != sizeof(mb)) return false;
+        if (mb.State != MEM_COMMIT || (mb.Protect & (PAGE_GUARD | PAGE_NOACCESS)) || !(mb.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)))
+            return false;
+        const uint64_t end = reinterpret_cast<uint64_t>(mb.BaseAddress) + mb.RegionSize;
+        if (end <= p) return false;
+        p = end;
+    }
+    return true;
+#else
+    return false;
+#endif
+}
+
+Result write_block(Memory& mem, uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values, const WritableFn& writable) {
     Result r;
     if (addr == 0 || m.custom_count <= 0) {
         r.message = "nothing written: no block address or the map has no Custom block";
         return r;
     }
-    uint8_t* blk = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(addr));
+    const size_t n = size_t(m.custom_count);
+    if (writable && !writable(addr, n)) {
+        r.message = "nothing written: the block found is not on a writable page (refused, never a guess)";
+        return r;
+    }
+    std::vector<uint8_t> blk;
+    if (!mem.read_block(addr, n, blk)) {
+        r.message = "nothing written: the block can no longer be read";
+        return r;
+    }
     for (const auto& [id, value] : values) {
         const Entry* e = m.entry(id);
         if (!e || e->custom_index < 0 || e->custom_index >= m.custom_count) {
             r.skipped.push_back(id);
             continue;
         }
-        const int v = std::clamp(value, e->min, e->max);
-        const int old = blk[e->custom_index];
-        blk[e->custom_index] = uint8_t(v);
-        if (blk[e->custom_index] != uint8_t(v)) {
-            blk[e->custom_index] = uint8_t(old);
+        const uint8_t v = uint8_t(std::clamp(value, e->min, e->max));
+        const int old = blk[size_t(e->custom_index)];
+        const uint64_t at = addr + uint64_t(e->custom_index);
+        uint8_t back = 0;
+        if (!mem.write(at, &v, 1) || !mem.read(at, &back, 1) || back != v) {
+            const uint8_t o = uint8_t(old);
+            mem.write(at, &o, 1);
             r.message = "read-back differs at " + id + ": nothing more written";
             return r;
         }
         char hx[16];
         std::snprintf(hx, sizeof(hx), "0x%02X", e->custom_index);
-        r.lines.push_back(id + " (" + hx + "): " + std::to_string(old) + " -> " + std::to_string(v));
-        r.changed[e->custom_index] = {old, v};
+        r.lines.push_back(id + " (" + hx + "): " + std::to_string(old) + " -> " + std::to_string(int(v)));
+        r.changed[e->custom_index] = {old, int(v)};
     }
     r.ok = !r.changed.empty();
     r.message = r.ok ? std::to_string(r.changed.size()) + " slider(s) written in the running game" : std::string("no slider of the preset has a Custom index");

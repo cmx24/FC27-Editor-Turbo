@@ -190,12 +190,9 @@ bool load_preset_live(App& app, const Preset& p, std::string& msg) {
     }
     uint64_t addr = 0;
     const size_t n = size_t(g.map.custom_count);
-    if (g.live_addr && g.live_bytes.size() == n) {
-        const std::vector<::turbo::Region> regs = app.regions_hook();
-        for (const ::turbo::Region& r : regs)
-            if (g.live_addr >= r.start && g.live_addr + n <= r.end &&
-                std::memcmp(reinterpret_cast<const void*>(static_cast<uintptr_t>(g.live_addr)), g.live_bytes.data(), n) == 0)
-                addr = g.live_addr;
+    if (g.live_addr && g.live_bytes.size() == n) {  // the block Turbo wrote last, if it still holds what Turbo wrote
+        std::vector<uint8_t> now;
+        if (app.mem.read_block(g.live_addr, n, now) && now == g.live_bytes) addr = g.live_addr;
     }
     if (!addr) {
         read_file_now(app);  // the newest file the game wrote
@@ -207,20 +204,20 @@ bool load_preset_live(App& app, const Preset& p, std::string& msg) {
         for (size_t k = 0; k < n; ++k) expect[k] = uint8_t(g.snap.custom_slots[k].second);
         std::vector<live::Span> spans;
         for (const ::turbo::Region& r : app.regions_hook()) spans.push_back({r.start, r.end});
-        const live::Found f = live::find_block(spans, expect.data(), n);
+        const live::Found f = live::find_block(app.mem, spans, expect.data(), n);
         if (!f.ok) {
             msg = f.why;
             return false;
         }
         addr = f.addr;
     }
-    const live::Result r = live::write_block(addr, g.map, plan.values);
+    const live::Result r = live::write_block(app.mem, addr, g.map, plan.values, app.writable_hook);
     if (!r.ok) {
         msg = r.message;
         return false;
     }
     g.live_addr = addr;
-    g.live_bytes.assign(reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr)), reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr)) + n);
+    if (!app.mem.read_block(addr, n, g.live_bytes)) g.live_bytes.clear();
     std::string err;
     const std::string st = stamp("%Y-%m-%dT%H:%M:%S");
     write_text(out_dir(app) / "settings_live_journal.json", live::journal_json(r, p.name, st), &err);
@@ -240,7 +237,18 @@ void load_preset(App& app) {
         app.notify(why);
         return;
     }
-    // not applied in the game: say so, and stage it for the apply tool (game closed) - never a silent stage
+    // not applied in the game: say so. Stage for the apply tool only where --apply would take the file: the game's own files hold 00
+    // before the Custom block (10-24 8F10EEB9, 10-28 marker_2041) and --apply refuses those (GUI30J), so nothing is staged for them
+    if (!g.snap.ok) read_file_now(app);
+    const bool apply_refuses = g.snap.ok && g.snap.custom_prefix.size() == sizeof(kCustomPrefix) &&
+                               std::memcmp(g.snap.custom_prefix.data(), kCustomPrefix, sizeof(kCustomPrefix)) != 0;
+    if (apply_refuses) {
+        g.preset_line = "NOT applied in the game: " + why + ". Nothing staged: turbo_settings_apply.exe --apply refuses your Settings file "
+                        "(the byte before the Custom block is 00), so today a preset is applied only inside the game.";
+        log_line(app, "game settings: " + g.preset_line);
+        app.notify(g.preset_line, true);
+        return;
+    }
     std::string msg;
     const bool ok = stage_pending(out_dir(app), p, g.map, stamp("%Y-%m-%dT%H:%M:%S"), &msg);
     g.preset_line = "NOT applied in the game: " + why + ". " + msg +
@@ -440,9 +448,8 @@ void draw_presets(App& app) {
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Writes the preset's sliders into the running game now (use it at the Main Menu or later, not at Press Any Key). The game "
-                          "saves them in its Settings file at its next save. If the game's sliders are not found, it says so and stages turbo_output\\%s "
-                          "for turbo\\turbo_settings_apply.exe --apply (game closed). NOT proven in game yet.",
-                          pending_file());
+                          "saves them in its Settings file at its next save. If the game's sliders are not found, it says so and changes nothing "
+                          "in the game. NOT proven in game yet.");
     if (have) {
         const Plan pl = plan_preset(g.presets[size_t(g.preset_sel)], g.map);
         ImGui::TextDisabled("%s: %zu value(s), %zu would be staged, %zu read-only or not mapped", g.presets[size_t(g.preset_sel)].name.c_str(),
@@ -662,8 +669,9 @@ void draw_game_settings(App& app) {
                            "in its settings file. Load writes a preset into the running game (not proven in game yet).");
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
         ImGui::TextWrapped("Load = applies the VERIFIED rows to the running game now (the game saves them at its next save); when that is not "
-                           "possible it says why and stages them for turbo\\turbo_settings_apply.exe --apply with the game closed (it backs the file up, "
-                           "checks it, and --undo puts it back). Turbo never touches "
+                           "possible it says why. A Settings file saved by the game (the byte before the Custom block is 00) is refused by "
+                           "turbo_settings_apply.exe --apply, so nothing is staged for it; any other file is staged for --apply with the game closed "
+                           "(it backs the file up, checks it, and --undo puts it back). Turbo never touches "
                            "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*. NOT proven in game yet: on 10-24 the game showed 50 after an apply; --apply refuses a Settings file "
                            "it does not recognise and then says the sliders were NOT applied (turbo_settings_apply.exe --status shows why).");
         ImGui::PopStyleColor();

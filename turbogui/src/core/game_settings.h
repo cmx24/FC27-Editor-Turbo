@@ -35,6 +35,8 @@
 #include <utility>
 #include <vector>
 
+#include "mem.h"
+
 namespace turbo {
 namespace gsettings {
 
@@ -225,17 +227,19 @@ Outcome undo_last(const Env& env, bool force);
 // the count 0x7D at -0x10; zero or several hits = refused (never a guess).
 namespace live {
 struct Span {
-    uint64_t start = 0, end = 0;  // [start, end): readable + writable private memory of this process
+    uint64_t start = 0, end = 0;  // [start, end): private memory of this process (the host's region lister)
 };
 inline constexpr size_t kCountAt = 0x10;
+inline constexpr size_t kChunk = 1u << 20;  // the scan reads 1 MiB at a time through Memory (a page the game frees = a failed read, never a crash)
 struct Found {
     bool ok = false;
     std::string why;
     uint64_t addr = 0;  // the block (ok only)
     int hits = 0;
 };
-// expect = the n Custom bytes of the newest file (n = the map's custom_count). Steps of 8 bytes (heap blocks are 8-aligned or more)
-Found find_block(const std::vector<Span>& spans, const uint8_t* expect, size_t n);
+// expect = the n Custom bytes of the newest file (n = the map's custom_count). Steps of 8 bytes (heap blocks are 8-aligned or more).
+// Every byte is read through mem (in the game: ReadProcessMemory on itself), never by a raw pointer.
+Found find_block(Memory& mem, const std::vector<Span>& spans, const uint8_t* expect, size_t n);
 struct Result {
     bool ok = false;
     std::string message;
@@ -243,8 +247,13 @@ struct Result {
     std::map<int, std::pair<int, int>> changed;  // custom index -> (old, new)
     std::vector<std::string> skipped;             // ids without a Custom index (the u32 service view is not what the screen shows)
 };
-// Writes plan.values (entry id -> 0..100) into the block at addr (custom entries only), reads every byte back
-Result write_block(uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values);
+// true when every byte of [addr, addr+n) of THIS process is committed PAGE_READWRITE / PAGE_EXECUTE_READWRITE (Windows; else false).
+// The host's lister (private_regions) also returns read-only pages, and WriteProcessMemory would unprotect them: this refuses those.
+bool page_writable(uint64_t addr, size_t n);
+using WritableFn = std::function<bool(uint64_t, size_t)>;
+// Writes plan.values (entry id -> 0..100) into the block at addr through mem (custom entries only), reads every byte back.
+// writable (when set) must say yes for the whole block first, else nothing is written.
+Result write_block(Memory& mem, uint64_t addr, const SliderMap& m, const std::map<std::string, int>& values, const WritableFn& writable = {});
 // The journal (old bytes) as JSON: what the next Settings save will change, and what to load back
 std::string journal_json(const Result& r, const std::string& preset, const std::string& stamp);
 }  // namespace live
