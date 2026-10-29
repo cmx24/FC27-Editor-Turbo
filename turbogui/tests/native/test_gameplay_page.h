@@ -129,9 +129,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // Advanced: the old Game settings view appears under a section of the page
         app.prefs.advanced_mode = true;
         ui.frames(3);
-        CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv", "T4 test page"), "the Advanced section header");
-        ui.frames(3);
-        CHECK(gameplay_page_state().advanced_section && game_settings_view_state().drawn, "Advanced view: the Game settings view is drawn inside the page");
+        // 10-28 findability: no second copy; one link line to Game settings > Game settings & CPU sliders
+        CHECK(ui.find("###gslink_gp", "T4 test page") != nullptr && !gameplay_page_state().advanced_section, "Advanced view: one link line, no Game settings copy");
         // the Tactic presets page lists both presets; the same Apply button id family, one primary action
         app.prefs.advanced_mode = false;
         show_page(ui, draw_tactic_presets);

@@ -204,9 +204,10 @@ static void ui_cases(turbo::App& app, Ui& ui) {
             app.go(Page::GameplayPresets);
             ui.frames(4);
             const std::string txt = logged_frame(ui);
-            CHECK(turbo::game_sliders_page_state().moved_note && ui.find("Prepare###gsprepare") == nullptr && ui.find("###gsel0") == nullptr,
-                  std::string("Game sliders is a pointer, no list or Prepare (Lab ") + (adv ? "on)" : "off)"));
-            CHECK(txt.find(label) != std::string::npos && ui.find("###gsmoved") != nullptr, "the pointer says why and links on");
+            // 10-28 findability: the page is Game settings & CPU sliders (preset row + values), no pointer, still no offline Prepare
+            CHECK(!turbo::game_sliders_page_state().moved_note && ui.find("Prepare###gsprepare") == nullptr && ui.find("Load into the game###gsload") != nullptr,
+                  std::string("Game settings & CPU sliders: Load into the game, no pointer, no offline Prepare (Lab ") + (adv ? "on)" : "off)"));
+            CHECK(ui.find("###gsmoved") == nullptr && !txt.empty(), "no pointer to the Lab");
         }
         app.legacy_pages = was_legacy;
         app.prefs.advanced_mode = was_adv;

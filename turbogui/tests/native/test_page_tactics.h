@@ -123,9 +123,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // Advanced: the old Game settings view hangs under the page (so its one call site survives the wiring)
         app.prefs.advanced_mode = true;
         ui.frames(3);
-        CHECK(ui.click("Game settings file and slider values (Advanced)###gsadv", kWin), "the Advanced section header");
-        ui.frames(3);
-        CHECK(game_settings_view_state().drawn, "Advanced view: the Game settings view is drawn inside the page");
+        // 10-28 findability: no second copy; one link line to Game settings > Game settings & CPU sliders
+        CHECK(ui.find("###gslink_tac", kWin) != nullptr, "one link line to the Game settings page");
         app.prefs.advanced_mode = was_advanced;
         ui.extra_draw = nullptr;
         ui.frames(2);

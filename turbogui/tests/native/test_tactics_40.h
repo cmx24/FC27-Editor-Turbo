@@ -89,7 +89,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         page::reset_for_tests();
     });
 
-    run_case("S10 Tactics > Game sliders: the GUI30K pointer inside page::Frame; no slider staging on the Tactics page", [&] {
+    run_case("S10 + 10-28 findability: Game settings & CPU sliders inside page::Frame draws the preset row (no Lab pointer, no Tactics staging)", [&] {
         const bool was_adv = app.prefs.advanced_mode;
         for (bool adv : {false, true}) {
             changes_page_test::Sandbox sb(app, ui);
@@ -98,17 +98,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             page::reset_for_tests();
             show(ui, draw_game_sliders_page, 8);
             const std::string how = adv ? " (Lab on)" : " (Lab off)";
-            check_frame("game_sliders", "Game sliders");
+            check_frame("game_sliders", "Game settings & CPU sliders");
             const GameSlidersPageState& s = game_sliders_page_state();
             CHECK(s.drawn, "the page body ran" + how);
-            CHECK(s.moved_note, "the pointer says where the section went" + how);
-            CHECK(find(ui, "###gsmoved") != nullptr, "the link to the Lab / Settings is there" + how);
+            CHECK(!s.moved_note && find(ui, "###gsmoved") == nullptr, "no pointer to the Lab" + how);
+            CHECK(find(ui, "Load into the game###gsload") != nullptr, "the preset row: Load into the game" + how);
             CHECK(find(ui, "###gsrefresh") == nullptr && find(ui, "Prepare###gsprepare") == nullptr && find(ui, "###gsel0") == nullptr,
                   "no list, no Refresh, no Prepare on the Tactics page" + how);
             CHECK(s.lab_heading.empty() && s.lab_label.empty(), "the offline slider section was not drawn here" + how);
             const std::string& txt = g_text;
-            CHECK(txt.find(kOfflineSlidersLabel) != std::string::npos, "the honest 'no effect seen in game' label is on screen, verbatim" + how);
-            CHECK(txt.find("Game sliders moved to the Lab") != std::string::npos, "the page says where the sliders went" + how);
+            CHECK(txt.find("Game sliders moved to the Lab") == std::string::npos, "no 'moved to the Lab' pointer text" + how);
             hide(ui);
             page::reset_for_tests();
         }

@@ -313,11 +313,9 @@ static void ui_cases(App& app, Ui& ui) {
         // the dead link: Tactics > Game sliders says where the section went and its button opens Lab > Tactics (experimental) (ui_tactics_page.cpp:575)
         app.go(Page::GameplayPresets);
         ui.frames(5);
-        CHECK(app.place() == place_of(Page::GameplayPresets), "on Tactics > Game sliders");
-        CHECK(ui.find("###gsmoved") != nullptr, "the button 'Open Lab > Tactics (experimental)' is drawn");
-        CHECK(ui.click("###gsmoved"), "click it");
-        ui.frames(4);
-        CHECK(app.place() == place_of(Page::AdvTactics), "it opened Lab > Tactics (experimental): App::go no longer returns early");
+        // 10-28 findability: the page is Game settings > Game settings & CPU sliders, with no pointer to the Lab
+        CHECK(app.place() == place_of(Page::GameplayPresets), "on Game settings > Game settings & CPU sliders");
+        CHECK(ui.find("###gsmoved") == nullptr && ui.find("Load into the game###gsload") != nullptr, "no Lab pointer; the preset row is drawn");
         // row 11: the Career database copy stays in Lab > Maintenance
         CHECK(ui.open_page("Lab", "Maintenance") && app.place() == place_of(Page::AdvMaintenance), "Lab > Maintenance opens");
         ui.frames(3);
