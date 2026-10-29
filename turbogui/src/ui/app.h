@@ -19,6 +19,7 @@
 #include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/career_faces.h"
+#include "core/club_voice.h"
 #include "core/commentary_audio.h"
 #include "core/edit_unlock_hook.h"
 #include "core/fce_standings.h"
@@ -353,7 +354,17 @@ public:
     bool voice_forget(int64_t playerid);      // false = no entry
     bool voice_forget_all();
     void voice_publish();                     // build_table(voice_store) to the service (nothing without one)
-    std::string voice_status_line() const;    // "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2"
+    std::string voice_status_line() const;    // "Voice swaps: on | 3 swaps | lines changed 57 | kick-off set 2" (+ " | club lines N")
+    // ---- club commentary names (core/club_voice.h, Club & crest > Identity > Commentary name, ui_club_voice.cpp): in
+    // matches only, a club is spoken with another club's recorded name, or with none. The store
+    // (turbo_output\callnames\club_voice.json) is loaded at start-up; the entries in effect in the loaded career go out
+    // with the voice-swap table (voice_publish), again at every career load (maybe_reapply).
+    clubvoice::Store club_voice;
+    std::string club_voice_error;             // the store's last load / save note ("" = fine)
+    // Add or replace the club's entry of e.scope (stamped now), publish, save. false (club_voice_error set) when not
+    // saved; the change is published for this session anyway
+    bool club_voice_keep(clubvoice::Entry e);
+    bool club_voice_forget(int64_t teamid, const std::string& scope);  // false = no such entry
     // ---- live team names (core/teamname_override.h, Teams > Name): the names saved there are given to the game by the
     // host's hook at once (no restart). The store (turbo_output\team_names.json, all careers) is loaded at start-up and
     // published to the service then and after every save; the GUI tick refreshes the kill switches every 2 s.
@@ -501,6 +512,9 @@ private:
     const voice::Service* voice_published_to_ = nullptr;  // the service the store was last published to
     double voice_next_switches_ = 0.0;                    // next refresh_switches() (every 2 s)
     bool voice_unreadable_ = false;  // the store could not be read at start-up: never overwritten
+    void load_club_voice();          // constructor: turbo_output\callnames\club_voice.json
+    bool save_club_voice();
+    bool club_voice_unreadable_ = false;  // the store could not be read at start-up: never overwritten
     void load_team_names();          // constructor: turbo_output\team_names.json
     const tnames::Service* team_names_published_to_ = nullptr;  // the service the store was last published to
     double team_names_next_switches_ = 0.0;                     // next refresh_switches() (every 2 s)

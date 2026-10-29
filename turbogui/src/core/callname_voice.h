@@ -72,11 +72,14 @@ bool parse_entries_json(const std::string& text, VoiceStore& out, std::string* e
 struct Table {
     struct Voice { int32_t pid; int32_t to; bool names_only; };
     struct Kick { int32_t pid; int32_t id; };
+    struct Team { int32_t id; int32_t to; };   // club `id` is spoken with club `to`'s recorded name; to 0 = no club name
     std::vector<Voice> voices;            // sorted by pid
     std::vector<Kick> kickoffs;           // sorted by pid
+    std::vector<Team> teams;              // sorted by id (core/club_voice.h build_teams)
     const Voice* voice(int32_t pid) const;     // binary search; nullptr = none
     const Kick* kickoff(int32_t pid) const;
-    bool empty() const { return voices.empty() && kickoffs.empty(); }
+    const Team* team(int32_t id) const;
+    bool empty() const { return voices.empty() && kickoffs.empty() && teams.empty(); }
 };
 // voice_of set -> Voice{pid, to}; kickoff set -> Kick; a voice swap (voice_of > 0) with no kickoff gets kickoff -1
 // (the game's own pattern for real-name players); voice_of == 0 with no kickoff keeps the game's rule.
@@ -90,14 +93,18 @@ struct Stats {
     std::atomic<uint64_t> own_skips{0};     // Turbo's own audit queries left alone
     std::atomic<uint64_t> kickoffs{0};      // GetCallname results replaced
     std::atomic<uint64_t> bounded{0};       // queries skipped for a parameter count above kMaxParams
+    std::atomic<uint64_t> club_rewrites{0}; // club-id values rewritten (Table::teams)
 };
-struct StatsSnapshot { uint64_t queries = 0, rewrites = 0, guard_skips = 0, own_skips = 0, kickoffs = 0, bounded = 0; };
+struct StatsSnapshot { uint64_t queries = 0, rewrites = 0, guard_skips = 0, own_skips = 0, kickoffs = 0, bounded = 0, club_rewrites = 0; };
 StatsSnapshot snapshot(const Stats& s);
 
 // ---------------------------------------------------------------- the rewrite, on raw query memory (testable)
 // Names of the name events (PLAYER_LOW_SIMPLE, PLAYER_LOW_LINK, ...): is_name_event(event id) for names_only.
 bool is_name_event(uint32_t event_id);
 bool contains_pid(const char* name);     // the parameter name contains "_pID"
+// The club-id parameters a club's spoken name is selected by, exactly (home_ID, away_ID, asset_team_ID, ... 16 names;
+// turbo_dev/PITWALL/briefs/4.0-club-callnames.md). team_venue_ID and *_gID are never club names. Null-safe.
+bool is_club_param(const char* name);
 // Thread-local double-pass guard: the pre-runner may run Preprocess twice over the same query; a value already
 // rewritten on this thread (same query, same ParamValue, holding the id it got) is not rewritten again, so a swap pair
 // (A -> B, B -> 0) never chains. Keyed on more than the query pointer: a new query at a reused address is still
@@ -105,7 +112,7 @@ bool contains_pid(const char* name);     // the parameter name contains "_pID"
 // query at the same address that legitimately holds that id loses at most one line (counted in guard_skips).
 struct Guard {
     struct Mark { const void* query = nullptr; const void* pv = nullptr; int32_t to = 0; };
-    static constexpr int kMarks = 8;      // the last 8 rewrites on this thread
+    static constexpr int kMarks = 32;     // the last 32 rewrites on this thread (players and clubs of one query fit)
     Mark marks[kMarks];
     int next = 0;
     void reset() { for (Mark& m : marks) m = Mark{}; next = 0; }
@@ -114,6 +121,9 @@ struct Guard {
 };
 // Rewrites the query in place per the table. Reads only what the original Preprocess just dereferenced. Returns the
 // number of values rewritten. own_query = Turbo's own audit is running on this thread (nothing changes).
+// Clubs: every club-id parameter that holds a club of `teams` is rewritten to its `to`, all together. The whole query is
+// left alone (guard_skips) when a value is one this thread already wrote, or when two clubs would end up with the same
+// id (B -> A in a match against A: the commentator would name one club twice).
 int process_query(uint8_t* query, const Table& t, Guard& g, Stats& st, bool own_query);
 // GetCallname override: kickoff(pid) when set, else game_result.
 int32_t kickoff_override(const Table& t, int32_t pid, int32_t game_result, Stats& st);

@@ -136,6 +136,7 @@ App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
         }
     }
     load_voice();    // voice swaps (ui_callnames.cpp): no career needed; published once the host gives the service
+    load_club_voice();  // club commentary names (ui_club_voice.cpp): published with the voice swaps
     folder_store(bridge.dir() / "gui_folders.json");  // last folder of each in-overlay file picker (file_picker.cpp)
     load_team_names();  // live team names (ui_identity.cpp): published once the host gives the service
     if (const char* tt = std::getenv("TURBO_GUI_TEST_TEXTURES")) texture_test = tt[0] == '1';

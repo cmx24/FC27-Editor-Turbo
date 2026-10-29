@@ -380,6 +380,7 @@ void App::maybe_reapply() {
         update_career_identity();
         check_compdata_profile();  // 2.21: read-only; one log line, a red line on a mismatch (core/compdata_profile.h)
         team_names_publish();  // the club names in effect in this career (a career's names only in it)
+        voice_publish();       // the club commentary names in effect in this career, with the voice swaps
     }
     // only a career database: the tables outside a career are not the ones the edits were made in
     if (!bridge.state().in_cm) return;
