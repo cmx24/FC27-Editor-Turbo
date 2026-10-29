@@ -366,7 +366,8 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
             return r;
         };
         auto open_tab = [&]() {
-            app.tick(app.now + 3.0);  // the hook report is cached for 1 s
+            ui.t += 3.0;  // the hook report is cached for 1 s of the UI clock (Ui::frame sets app.now = ui.t, so app.tick(app.now + 3) alone is undone by the next frame)
+            app.tick(ui.t);
             game_settings_set_paths(settings, map);
             game_settings_reset();
             app.request_tab = 7;
@@ -422,7 +423,8 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         app.regions_hook = saved_hook;
         for (uint64_t p = kBase / SimMemory::kPage; p <= (kBase + 0x2000) / SimMemory::kPage; ++p) mem.pages.erase(p);  // free the test heap: the next case checks it is free
         app.hook_report = saved_report;
-        app.tick(app.now + 3.0);
+        ui.t += 3.0;  // the next case reads its own hook report, not this one's cached 6AD922D1
+        app.tick(ui.t);
         fs::remove(out / pending_file(), ec);
         fs::remove(out / "settings_live_journal.json", ec);
         fs::remove_all(out / presets_dir(), ec);
