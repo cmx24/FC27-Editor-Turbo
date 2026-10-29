@@ -35,6 +35,13 @@ constexpr uint32_t kNameEvents[] = {
     0x232D915F,  // PLAYER_NAME_HIGH
 };
 
+// The club-id parameters (turbo/tools/fc27_commentary/club_ids.py CLUB_PARAMS lists the same 16; keep them in step)
+constexpr const char* kClubParams[] = {
+    "asset_team_ID",       "home_ID",          "away_ID",           "winning_team_ID",     "losing_team_ID",        "ta_focus_team1_ID",
+    "ta_focus_team2_ID",   "ttp_team_a_ID",    "lae_focus_team_1_ID", "lae_focus_team_2_ID", "lae_against_team_1_ID", "lae_against_team_2_ID",
+    "lb_against_team_ID",  "news_recap_team_ID", "tr_team_b_ID",    "opposite_team_ID",
+};
+
 constexpr size_t kMaxNameScan = 64;  // parameter names are short ("ptw_player_db_pID"); never scan further
 
 // Unaligned-safe reads and writes of the game's memory (plain moves once compiled)
@@ -294,6 +301,11 @@ const Table::Voice* Table::voice(int32_t pid) const { return find_pid(voices, pi
 
 const Table::Kick* Table::kickoff(int32_t pid) const { return find_pid(kickoffs, pid); }
 
+const Table::Team* Table::team(int32_t id) const {
+    auto it = std::lower_bound(teams.begin(), teams.end(), id, [](const Team& a, int32_t x) { return a.id < x; });
+    return it != teams.end() && it->id == id ? &*it : nullptr;
+}
+
 Table build_table(const VoiceStore& s) {
     Table t;
     for (const Entry& e : s.entries) {
@@ -320,6 +332,7 @@ StatsSnapshot snapshot(const Stats& s) {
     o.own_skips = s.own_skips.load(std::memory_order_relaxed);
     o.kickoffs = s.kickoffs.load(std::memory_order_relaxed);
     o.bounded = s.bounded.load(std::memory_order_relaxed);
+    o.club_rewrites = s.club_rewrites.load(std::memory_order_relaxed);
     return o;
 }
 
@@ -335,6 +348,16 @@ bool contains_pid(const char* name) {
     if (!name) return false;
     for (size_t i = 0; i + 4 <= kMaxNameScan && name[i]; ++i)
         if (name[i] == '_' && name[i + 1] == 'p' && name[i + 2] == 'I' && name[i + 3] == 'D') return true;
+    return false;
+}
+
+bool is_club_param(const char* name) {
+    if (!name) return false;
+    for (const char* c : kClubParams) {
+        size_t i = 0;
+        while (c[i] && name[i] == c[i]) ++i;  // stops at the first difference: never reads past name's NUL
+        if (!c[i] && !name[i]) return true;
+    }
     return false;
 }
 
@@ -390,6 +413,45 @@ int process_query(uint8_t* query, const Table& t, Guard& g, Stats& st, bool own_
         pv[kPvIsSet] = 1;
         if (e->to > 0) g.remember(query, pv, e->to);
         bump(st.rewrites);
+        ++done;
+    }
+    if (t.teams.empty()) return done;
+    // Clubs: every club-id parameter of the query, then all of them or none
+    struct Club { uint8_t* pv; int32_t from; int32_t to; bool hit; };
+    Club clubs[kMaxParams];
+    uint32_t nc = 0;
+    bool any = false, again = false;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint8_t* pv = rdptr(arr + i * sizeof(void*));
+        if (!pv) continue;
+        const uint8_t* desc = rdptr(pv + kPvDesc);
+        if (!desc) continue;
+        if (!is_club_param(reinterpret_cast<const char*>(rdptr(desc + kDescName)))) continue;
+        if (rd32(desc + kDescType) != 1 || desc[kDescMulti] != 0) continue;
+        const int32_t v = rdi32(pv + kPvValue);
+        const Table::Team* e = v > 0 ? t.team(v) : nullptr;
+        clubs[nc++] = Club{pv, v, e ? e->to : v, e != nullptr};
+        if (!e) continue;
+        any = true;
+        again = g.seen(query, pv, v) || again;  // every hit is asked, so no mark of this query is left for a later one
+    }
+    if (!any) return done;
+    if (again) {  // a second pass over a query this thread already rewrote: never chained
+        bump(st.guard_skips);
+        return done;
+    }
+    for (uint32_t a = 0; a < nc; ++a)
+        for (uint32_t b = a + 1; b < nc; ++b)
+            if (clubs[a].from != clubs[b].from && clubs[a].to > 0 && clubs[a].to == clubs[b].to) {
+                bump(st.guard_skips);  // two clubs would be named alike (B spoken as A in a match against A)
+                return done;
+            }
+    for (uint32_t k = 0; k < nc; ++k) {
+        if (!clubs[k].hit) continue;
+        std::memcpy(clubs[k].pv + kPvValue, &clubs[k].to, 4);
+        clubs[k].pv[kPvIsSet] = 1;
+        if (clubs[k].to > 0) g.remember(query, clubs[k].pv, clubs[k].to);
+        bump(st.club_rewrites);
         ++done;
     }
     return done;

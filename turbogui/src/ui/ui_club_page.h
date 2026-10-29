@@ -19,6 +19,8 @@ int64_t club_page_team(App& app);
 // the club or its table is not there.
 void club_name_section(App& app);
 void club_crest_section(App& app);
+// The club's spoken name in matches: another club's recorded name or none (ui_club_voice.cpp, core/club_voice.h)
+void club_voice_section(App& app);
 // The club's colours. `legacy` true (the Teams > Colours tab) also draws the stadium colours and the kit colours below
 // them, as that tab always did; the Identity page draws the club colours only (stadium: Stadium & extras, kits: Kits).
 void club_colours_section(App& app, bool legacy);

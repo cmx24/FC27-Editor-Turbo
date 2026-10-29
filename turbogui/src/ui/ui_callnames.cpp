@@ -1745,7 +1745,9 @@ bool App::save_voice() {
 
 void App::voice_publish() {
     if (!voice_service) return;
-    voice_service->publish(voice::build_table(voice_store));
+    voice::Table t = voice::build_table(voice_store);
+    t.teams = clubvoice::build_teams(club_voice, reapply.career);  // the club entries in effect in the loaded career
+    voice_service->publish(t);
     voice_published_to_ = voice_service;
 }
 
@@ -1788,7 +1790,8 @@ std::string App::voice_status_line() const {
     const voice::StatsSnapshot st = voice_service->stats();
     const size_t n = voice_store.entries.size();
     return "Voice swaps: on | " + std::to_string(n) + (n == 1 ? " swap" : " swaps") + " | lines changed " + std::to_string(st.rewrites) +
-           " | kick-off set " + std::to_string(st.kickoffs);
+           " | kick-off set " + std::to_string(st.kickoffs) +
+           (club_voice.entries.empty() ? std::string() : " | club lines " + std::to_string(st.club_rewrites));
 }
 
 }  // namespace turbo

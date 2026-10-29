@@ -650,9 +650,14 @@ void identity_tab(App& app) {
         club_crest_section(app);
     }
     card_end();
+    if (card_begin("##kpvoice", "Commentary name")) {
+        theme::muted_text("What the commentator calls your club in matches.");
+        club_voice_section(app);
+    }
+    card_end();
     if (wide) ImGui::Columns(1);
     ImGui::PushTextWrapPos(0.0f);
-    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: set them back by hand.");
+    theme::muted_text("Each part has its own Save. Name and colour changes have no Undo yet: set them back by hand. The commentary name goes back with \"Use its own name\".");
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
 }

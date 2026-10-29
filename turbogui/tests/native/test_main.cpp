@@ -36,6 +36,7 @@
 
 #include "core/callname_voice.h"
 #include "core/callname_voice_host.h"
+#include "core/club_voice.h"
 #include "core/callnames.h"
 #include "core/commentary_bank.h"
 #include "core/comp_list.h"
@@ -2469,6 +2470,8 @@ voice::Entry voice_entry(int64_t pid, std::optional<int64_t> voice_of, std::opti
     return e;
 }
 }  // namespace
+
+#include "test_club_voice.h"
 
 static void test_callname_voice() {
     constexpr uint32_t kLowSimple = 0x9D0D5E6C, kGoal = 0x1D7F2C11;  // PLAYER_LOW_SIMPLE; any other event
@@ -15731,6 +15734,7 @@ int main(int argc, char** argv) {
     season_pack_test::run();  // test_season_pack.h (2.10 B3)
     std::printf("native voice swaps\n");
     test_callname_voice();
+    test_club_voice();
     test_callname_voice_host();
     std::printf("native game editors unlock\n");
     test_edit_unlock();
