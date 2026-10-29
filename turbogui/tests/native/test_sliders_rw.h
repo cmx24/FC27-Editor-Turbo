@@ -98,6 +98,31 @@ static void core() {
     });
 
     // private_regions lists READ-ONLY private pages too (memmap_win.cpp readable()), and WriteProcessMemory would unprotect them
+    // a write that fails half-way puts back every slider written before it (the page must never say NOT applied over a changed game)
+    run_case("sliders-rw: live_write_partial_failure_restores_all (2nd write fails: the 1st is put back, nothing reported changed)", [] {
+        struct FailAt : Memory {
+            SimMemory& in;
+            uint64_t bad;
+            FailAt(SimMemory& m, uint64_t b) : in(m), bad(b) {}
+            bool read(uint64_t a, void* o, size_t n) override { return in.read(a, o, n); }
+            bool write(uint64_t a, const void* i, size_t n) override { return a <= bad && bad < a + n ? false : in.write(a, i, n); }
+        };
+        SliderMap m;
+        std::string err;
+        CHECK(SliderMap::parse(gsettings_test::custom_map(true), m, &err), err);
+        SimMemory sim;
+        sim.map(kBase, 0x2000);
+        std::vector<uint8_t> want(125, 50);
+        const uint64_t a = kBase + 0x400;
+        put_block(sim, a, want, 125);
+        FailAt mem(sim, a + 0x51);  // user.acceleration; values are written in key order: cpu.sprint_speed (0x24) first
+        const live::Result r = live::write_block(mem, a, m, {{"user.sprint_speed", 37}, {"user.acceleration", 41}, {"cpu.sprint_speed", 63}});
+        std::vector<uint8_t> b;
+        CHECK(sim.read_block(a, 125, b), "read back");
+        CHECK(!r.ok && r.changed.empty(), "not ok, nothing reported changed: " + r.message);
+        CHECK(b == want, fmt("every slider is back at its old value (0x24=%u 0x50=%u 0x51=%u)", b[0x24], b[0x50], b[0x51]));
+    });
+
     run_case("sliders-rw: live_write_readonly_page_refused (page_writable on a real read-only page; write_block writes nothing)", [] {
         SliderMap m;
         std::string err;

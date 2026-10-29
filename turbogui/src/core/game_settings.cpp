@@ -1427,9 +1427,16 @@ Result write_block(Memory& mem, uint64_t addr, const SliderMap& m, const std::ma
         const uint64_t at = addr + uint64_t(e->custom_index);
         uint8_t back = 0;
         if (!mem.write(at, &v, 1) || !mem.read(at, &back, 1) || back != v) {
+            // put back this byte and every slider written before it: a failed Load leaves the game as it was
             const uint8_t o = uint8_t(old);
             mem.write(at, &o, 1);
-            r.message = "read-back differs at " + id + ": nothing more written";
+            for (const auto& [idx, ov] : r.changed) {
+                const uint8_t pb = uint8_t(ov.first);
+                mem.write(addr + uint64_t(idx), &pb, 1);
+            }
+            r.message = "read-back differs at " + id + ": every slider put back, nothing changed";
+            r.changed.clear();
+            r.lines.clear();
             return r;
         }
         char hx[16];
