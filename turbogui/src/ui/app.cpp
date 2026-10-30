@@ -169,6 +169,46 @@ void App::log(const std::string& text) {
     while (log_lines.size() > 300) log_lines.pop_front();
 }
 
+// ---- 5.0b-B Settings > Layout (ui_settings.cpp)
+bool App::reset_layout() {
+    if (!layout.reset(LayoutStore::stamp_now())) {
+        notify("The layout could not be reset", true);
+        return false;
+    }
+    // the panes kept in gui_settings.json (gui.splits: the Appearance and Players panes, the shell's) go back to their defaults with the rest
+    layout_splits_parked_ = prefs.splits.widths;
+    prefs.splits.widths.clear();
+    prefs.splits.dirty = true;
+    notify("Layout reset. The default sizes apply the next time the game starts; Undo reset puts yours back.");
+    return true;
+}
+
+bool App::undo_reset_layout() {
+    const bool was_reset = layout.can_undo();
+    const bool restored = layout.undo_reset(now);
+    if (was_reset) {  // the pane widths come back whether or not the ini could be written back
+        prefs.splits.widths = layout_splits_parked_;
+        layout_splits_parked_.clear();
+        prefs.splits.dirty = true;
+    }
+    if (!restored) {
+        notify("The old layout could not be put back", true);
+        return false;
+    }
+    notify("Your layout is back");
+    return true;
+}
+
+void App::restore_window_default() {
+    WindowTracker& wt = prefs.window_rt;
+    prefs.window.has_rect = false;  // window_plan(restoring) then returns the first-use size (never the stored one) and is never maximized
+    wt.restoring = true;
+    wt.apply_pending = true;
+    wt.save_on_apply = true;  // written once the placement has settled; the log line "window placed by Restore" / "window saved" says so
+    wt.fell_back = false;
+    log("window: restoring the default size (Settings > Layout)");
+}
+
 void App::notify(const std::string& text, bool error) {
     log((error ? "ERROR: " : "") + text);
     toasts.push_back({text, error, now + (error ? 6.0 : 3.5)});
@@ -2041,6 +2081,8 @@ void App::draw() {
     tick_faces3d_preview(*this);  // Players > Appearance > 3D hair: the live preview's own picture (ui_faces3d_gate.cpp)
     tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
     looks::tick_looks_studio(*this);  // 2.17 looks U: a picture answer that arrives after the person left the page frees the capture service
+
+    layout.frame(visible, now);  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden
 
     if (!visible) return;
 

@@ -25,6 +25,7 @@
 #include "ui_faces3d_gate.h"
 #include "ui_images.h"
 #include "ui_shell.h"
+#include "ui_split.h"
 #include "ui_theme.h"
 #include "ui_visual_picker.h"
 
@@ -1232,17 +1233,20 @@ void draw_looks_studio(App& app) {
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float list_w = std::min(S(260.0f), avail.x * 0.25f);
     const float preview_w = std::max(S(220.0f), (avail.x - list_w) * 0.45f);
-    ImGui::BeginChild("##lslist", ImVec2(list_w, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    // 5.0b-B: the three panes keep their width in gui_settings.json gui.splits (split::pane_x, key "<page>/<id>"), so a restart brings them back.
+    // The child IDs are the same literals, so the ini blocks of earlier versions still seed them. Defaults (unscaled px) = the old first-use sizes.
+    const float un = g_ui_scale > 0.0f ? 1.0f / g_ui_scale : 1.0f;
+    split::pane_x("##lslist", list_w * un, 160.0f);
     person_list(app, s);
     ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("##lspreview", ImVec2(preview_w, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    split::pane_x("##lspreview", preview_w * un, 220.0f);
     preview_pane(app, s, who);
     ImGui::EndChild();
     ImGui::SameLine();
     // 2.22: the cards' pane is as tall as the page; its right edge is the page's, so the divider to the preview is the one that drags (the preview's
     // ResizeX); this pane is resizable too (ResizeX of a child on the right edge widens it into the window's scroll)
-    ImGui::BeginChild("##lscards", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+    split::pane_x("##lscards", std::max(220.0f, ImGui::GetContentRegionAvail().x * un), 220.0f, 2.0f);  // max 2x the rest: it may widen into the page's scroll
     cards_pane(app, s, who, t, rec);
     ImGui::EndChild();
     s.st.requests = s.body.requests() + s.big.requests();

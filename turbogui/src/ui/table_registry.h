@@ -3,7 +3,8 @@
 //
 // Policy: every table (but the one inside a popup, `popup`) has resizable, reorderable and hideable columns (drag a header border / drag a header / right-click
 // a header). Dear ImGui keeps column widths, order and visibility per table ID in the layout file
-// (turbo_output\turbo_gui_layout_v2.ini, io.IniFilename in win/overlay_dx12.cpp) when the ID is stable across sessions
+// (turbo_output\turbo_gui_layout_v2.ini, written by core/layout_store.h since 5.0b-B, loaded at start; the overlay sets io.IniFilename = nullptr)
+// when the ID is stable across sessions
 // and the column count does not change; the Database tab therefore pushes the table's name on the ID stack.
 // Row height is not a table flag: it follows the "Row density" setting (gui_settings.json gui.row_density, ui/gui_prefs.h).
 //
