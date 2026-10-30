@@ -111,7 +111,8 @@ inline const char* unproven_banner_text() {
 //   missing block / maximized true / a rectangle that is off-screen or smaller than 800x600  ->  the window covers the whole
 //   viewport ("maximized"); maximized false with a usable rectangle  ->  that rectangle. x,y,w,h are the last NON-maximized
 //   rectangle (what Restore returns to). THE SETTING WINS over Dear ImGui's turbo_gui_layout_v2.ini for the main panel: the
-//   panel is created with NoSavedSettings and App::draw_main sets its place and size with ImGuiCond_Always on the first frame.
+//   panel has no NoSavedSettings (its tables would lose their saved column widths), so the ini also holds a position and size for it,
+//   but App::draw_main sets its place and size from this block with ImGuiCond_Always on the first frame, which overrides the ini's.
 // Pure (no ImGui), so the native tests check the round trip and the fall-backs.
 struct WindowRect {
     float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;

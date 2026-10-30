@@ -96,7 +96,7 @@ static bool flag(const json& o, const char* k, bool dflt) { return o.is_object()
 
 // ---- pure (window_plan, Restore)
 static void run() {
-    run_case("gui50 window rect: Restore never returns to a rectangle that covers the screen, and moves one that sticks out back on (D3)", [&] {
+    run_case("test_gui50_window_rect: Restore never returns to a rectangle that covers the screen, and moves one that sticks out back on (D3)", [&] {
         const WindowRect dflt{102, 80, 2124, 1368};
         WindowPrefs p;
         p.maximized = true;
@@ -168,7 +168,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const json small_rect = json{{"x", 150}, {"y", 90}, {"w", 640}, {"h", 480}, {"maximized", false}};
     const json big_rect = json{{"x", 150}, {"y", 90}, {"w", 1400}, {"h", 900}, {"maximized", false}};
 
-    run_case("gui50 window rect W1: his maximized panel, the corner dragged to 1480x900, rests, is saved; a reload places 1480x900", [&] {
+    run_case("test_gui50_window_rect W1: his maximized panel, the corner dragged to 1480x900, rests, is saved; a reload places 1480x900", [&] {
         load_his(json(), ImVec2(2560.0f, 1600.0f));
         ImGuiWindow* w = panel();
         CHECK(w && app.prefs.window.maximized && near(w->Pos.x, 0) && near(w->Pos.y, 0) && near(w->Size.x, 2560) && near(w->Size.y, 1600),
@@ -187,7 +187,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w && !app.prefs.window.maximized && near(w->Size.x, 1480, 2.0f) && near(w->Size.y, 900, 2.0f), "reloaded and applied: " + rect_of(w));
     });
 
-    run_case("gui50 window rect W2: Restore on his file (17,5 2560x1600) gives a panel that fits the screen, its bottom-right corner on it", [&] {
+    run_case("test_gui50_window_rect W2: Restore on his file (17,5 2560x1600) gives a panel that fits the screen, its bottom-right corner on it", [&] {
         load_his(json(), ImVec2(2560.0f, 1600.0f));
         const ItemRec* b = ui.find("###winmax", "FC 27 LE Turbo");
         CHECK(b != nullptr, "the Restore button is drawn");
@@ -213,7 +213,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!flag(s, "maximized", true) && near(num(s, "w"), w->Size.x) && near(num(s, "h"), w->Size.y), "Restore is saved: " + (s.is_null() ? std::string("no window block") : s.dump()));
     });
 
-    run_case("gui50 window rect W3: a stored rectangle the start cannot use keeps maximized false through a save; a screen that comes back places it again", [&] {
+    run_case("test_gui50_window_rect W3: a stored rectangle the start cannot use keeps maximized false through a save; a screen that comes back places it again", [&] {
         load_his(small_rect, ImVec2(2560.0f, 1600.0f));
         ImGuiWindow* w = panel();
         CHECK(w && app.prefs.window.maximized && near(w->Size.x, 2560) && near(w->Size.y, 1600), "640x480 is under 800x600: the start falls back to the whole screen: " + rect_of(w));
@@ -235,7 +235,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
               "2560x1600 came back: the stored 1400x900 at 150,90 is placed: " + rect_of(w));
     });
 
-    run_case("gui50 window rect W4: the window log lines (placed, saved, shown) carry the rectangle, the game screen and the verdict; none per frame", [&] {
+    run_case("test_gui50_window_rect W4: the window log lines (placed, saved, shown) carry the rectangle, the game screen and the verdict; none per frame", [&] {
         hooked.clear();
         load_his(json(), ImVec2(2560.0f, 1600.0f));
         const std::string placed = last_line("window placed:");
