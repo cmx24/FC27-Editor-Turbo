@@ -3341,6 +3341,8 @@ struct FakeCapture : capture::CaptureService {
 #include "test_compdata_profile.h"  // 2.21: compdata guard (record, disk, seeded careers, decision) + launcher-hint rank
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
+#include "test_miniface_oneclick.h"  // 5.0b-C: one-click minifaces (background removal never ticked by code, preview follows every change, Undo)
+#include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 
@@ -6213,6 +6215,8 @@ static void test_ui() {
         });
 
         ui_cases_miniface_show(app, ui, le);  // test_miniface_show.h
+        fcl_ui_cases(app, ui);  // test_face_chooser_layout.h (5.0b-C)
+        mo_ui_cases(app, ui, le);  // test_miniface_oneclick.h (5.0b-C)
 
         run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
             // the simulated game has minifaces for the real faces and two tattoo previews
@@ -15727,6 +15731,8 @@ int main(int argc, char** argv) {
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();
+    test_miniface_oneclick();  // 5.0b-C
+    test_face_chooser_layout();  // 5.0b-C
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");
