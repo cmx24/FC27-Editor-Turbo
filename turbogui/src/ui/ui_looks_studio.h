@@ -46,6 +46,11 @@ struct Subject {
     bool valid() const { return id > 0; }
 };
 
+// 5.0b-A: the Look card of one person (the registry's rows: ui_visual_picker.cpp vp::look_rows; a fold "All fields" with every look column typed).
+// The studio draws it in its cards pane; the Manager tab of the Player page calls it for a manager (the integrator wires that call).
+// `rec` is the record of the person in his table (players / manager); nothing is drawn for nobody.
+void look_card(App& app, const Subject& who, uint64_t rec);
+
 // Where the large preview comes from. The page asks the sources in order and draws the first one that is ready.
 class PreviewSource {
 public:
@@ -95,7 +100,7 @@ struct StudioState {
     int thumbs = 0;            // of them with their picture drawn
     int fields = 0;            // field editors in Accessories and Kit fit
     int look_cards = 0;        // 5.0b-A: Look cards drawn this frame (the registry's card: ONE)
-    int look_rows = 0;         // 5.0b-A: picker rows the Look card drew (one per registry column of the person, minus the dedicated cards')
+    int look_rows = 0;         // 5.0b-A: picker rows the Look card lists (one per registry column of the person, minus the dedicated cards'); counted when the card is out of view too
     int look_all = 0;          // 5.0b-A: editors of the "All fields" fold drawn this frame (0 while it is closed)
     int cards = 0;             // cards drawn
     bool tattoo_card = false;  // 2.22: the Tattoos card (tattoo_editor, players) was drawn this frame

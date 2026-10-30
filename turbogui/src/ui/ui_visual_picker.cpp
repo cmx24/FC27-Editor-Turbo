@@ -1171,6 +1171,33 @@ void window(App& app, const Table& t, uint64_t rec) {
     ImGui::PopID();
 }
 
+int look_rows(App& app, const Table& t, uint64_t rec, bool manager) {
+    new_frame(app);
+    int drawn = 0;
+    ImGui::PushID("lookrows");
+    if (resources(app).empty()) ImGui::TextDisabled("%s", pictures_line(app, false).c_str());
+    const std::vector<const look::LookPicker*> all = look::pickers_for(manager ? look::kManager : look::kPlayer);
+    for (const char* g : look::kGroups) {
+        std::vector<const look::LookPicker*> rows;
+        for (const look::LookPicker* p : all)
+            if (std::strcmp(p->group, g) == 0 && t.has(p->column) && !look::dedicated_card(p->column)) rows.push_back(p);
+        if (rows.empty()) continue;
+        ImGui::SeparatorText(g);
+        ImGui::PushID(g);
+        drawn += static_cast<int>(rows.size());  // the rows the card lists; ImGui draws them while the card is on screen (BeginTable is false when it is scrolled out)
+        if (ImGui::BeginTable("##vrows", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+            begin_rows();
+            for (const look::LookPicker* p : rows) draw_row(app, t, rec, p->column, manager);
+            ImGui::EndTable();
+        }
+        ImGui::PopID();
+    }
+    st().want_open = false;
+    draw_picker_window(app, t, rec);
+    ImGui::PopID();
+    return drawn;
+}
+
 bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, float side) {
     new_frame(app);
     if (!t.has(field)) return false;

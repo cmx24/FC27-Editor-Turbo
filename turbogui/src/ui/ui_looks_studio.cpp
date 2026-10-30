@@ -17,6 +17,7 @@
 #include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/legacy.h"
+#include "core/look_pickers.h"
 #include "core/looks_fields_data.h"
 #include "core/player_capture.h"
 #include "imgui.h"
@@ -363,6 +364,7 @@ struct BodyTile {
 struct Studio {
     bool managers = false;
     bool force_all_fields = false;  // tests: the Look card's "All fields" fold opens on its own
+    bool fold_was_forced = false;   // ... and closes again on the next frame it is drawn without it (also after a reset: ImGui keeps the open state)
     char search[64] = "";
     bool my_club = false;
     std::vector<int64_t> rows;  // players: playerid; managers: index into model.managers()
@@ -469,17 +471,17 @@ void note_write(Studio& s, const Subject& who, uint64_t rec, const std::string& 
     if (s.manager_undo.size() > kManagerUndoSteps) s.manager_undo.erase(s.manager_undo.begin());
 }
 
-// One field through the existing combo editor (App::edit, App's Undo for players)
-bool field_combo(App& app, Studio& s, const Table& t, uint64_t rec, const Subject& who, const char* field, const char* label) {
-    const Field* f = t.field(field);
+// 5.0b-A: one look column typed in the Look card's "All fields" fold - today's field editor (App::edit, App's Undo for players, the page's own
+// Undo for managers). The registry's words where the column has a picker, else the column's own name.
+bool fold_field(App& app, Studio& s, const Table& t, uint64_t rec, const Subject& who, const char* column) {
+    const Field* f = t.field(column);
     if (!f) return false;
     Value before;
     const bool have = app.db.get(t, rec, *f, before);
-    ++s.st.fields;
-    // 2.22 G-pickers: a field with a picture or swatch (RDBM26 or the game's own preview) shows it inline, its grid behind Change
-    const bool wrote = vp::has_picture(app, t, field, who.manager) ? vp::inline_field(app, t, rec, field, label, who.manager)
-                                                                  : enum_editor(app, t, rec, *f, label, S(220.0f));
-    if (wrote) note_write(s, who, rec, field, before, have);
+    ++s.st.look_all;
+    const look::LookPicker* lp = look::find(column);
+    const bool wrote = enum_editor(app, t, rec, *f, lp ? lp->label : column, S(220.0f));
+    if (wrote) note_write(s, who, rec, column, before, have);
     return wrote;
 }
 
@@ -867,14 +869,9 @@ void hair_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
             faces3d_manager_section(app, t, mgrs[static_cast<size_t>(app.sel_manager)]);  // ui_faces3d_gate.cpp
     }
     const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
-    if (hc != 0) {
-        // a generic head takes the hair and beard of the fields
-        for (const auto& f : {std::make_pair("hairtypecode", "Hair"), std::make_pair("haircolorcode", "Hair colour"),
-                              std::make_pair("facialhairtypecode", "Beard"), std::make_pair("facialhaircolorcode", "Beard colour")})
-            field_combo(app, s, t, rec, who, f.first, f.second);
-    } else {
-        hint_line("Hair & beard has its own way back: His own hair & beard.");
-    }
+    // a generic head takes the game's hairstyles: they are rows of the Look card below (ONE picker for each, 5.0b-A)
+    if (hc != 0) hint_line("This is a generic head: pick his hair and beard in the Look card below.");
+    else hint_line("Hair & beard has its own way back: His own hair & beard.");
     ImGui::TreePop();
     card_end();
 }
@@ -1069,9 +1066,32 @@ void miniface_card(App& app, Studio& s, const Subject& who, const Table& t, uint
     card_end();
 }
 
+// 5.0b-A: the Look card - ONE card for a player and for a manager, drawn FROM the registry (core/look_pickers.h): a row for every look attribute
+// the person's table holds (picture, in-game name, Change; hair and beard are one row each), except those a card of their own draws (Face,
+// Body type, Tattoos). The fold "All fields" is today's field grid: every look column of the registry and the typed-only ones, typed.
+void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+    card_begin(s, "##lslook", "Look");
+    ++s.st.look_cards;
+    s.st.look_rows += vp::look_rows(app, t, rec, who.manager);
+    if (s.force_all_fields) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+    else if (s.fold_was_forced) ImGui::SetNextItemOpen(false, ImGuiCond_Always);
+    else ImGui::SetNextItemOpen(false, ImGuiCond_Once);
+    s.fold_was_forced = s.force_all_fields;
+    if (ImGui::TreeNode("All fields###lslookall")) {
+        const look::Subject sj = who.manager ? look::kManager : look::kPlayer;
+        for (const look::LookPicker* p : look::pickers_for(sj))
+            if (t.has(p->column)) fold_field(app, s, t, rec, who, p->column);
+        for (const char* c : look::typed_only(sj))
+            if (t.has(c)) fold_field(app, s, t, rec, who, c);
+        ImGui::TreePop();
+    }
+    card_end();
+}
+
 void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_t rec) {
     s.st.tattoo_card = false;
     s.st.miniface_card = false;
+    s.st.look_cards = s.st.look_rows = s.st.look_all = 0;
     if (!who.valid() || !t) {
         hint_line("The cards show once you pick someone.");
         return;
@@ -1085,7 +1105,10 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     miniface_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
     fields_card(app, s, who, *t, rec, Card::KitFit);
-    visual_pickers_section(app, *t, rec, who.manager);  // ui_visual_picker.cpp (2.20 V): looks by picture and animation
+    look_card_body(app, s, who, *t, rec);  // 5.0b-A: ONE Look card, its rows from the registry (core/look_pickers.h)
+    // tests (looks_studio_open_all_fields_for_tests): the card is the last one and a test cannot scroll; ImGui skips the items of a card that is
+    // out of the pane's view, so the pane goes to its end while the test holds the fold open
+    if (s.force_all_fields) ImGui::SetScrollY(ImGui::GetScrollMaxY());
 }
 
 }  // namespace
@@ -1095,6 +1118,13 @@ std::unique_ptr<PreviewSource> make_capture_preview(int camera) {
     return std::make_unique<CapturePreview>(camera, camera == kCameraBody ? "Head and shoulders" : "Full body", "looks_studio_made");
 }
 std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique<GameScreenHint>(); }
+
+// ---------------------------------------------------------------- public: the Look card
+void look_card(App& app, const Subject& who, uint64_t rec) {
+    const Table* t = app.db.table(who.manager ? "manager" : "players");
+    if (!t || !who.valid()) return;
+    look_card_body(app, studio(), who, *t, rec);
+}
 
 // ---------------------------------------------------------------- public: body-type grid
 std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manager) {
@@ -1187,6 +1217,7 @@ void looks_studio_reset_for_tests() {
     s.list_key.clear();
     s.list_version = ~uint64_t(0);
     s.force_all_fields = false;
+    s.fold_was_forced = true;  // ImGui keeps the fold's open state: the next draw closes it once
     s.last = Subject();
     s.signature_dirty = true;
     s.baseline = true;
