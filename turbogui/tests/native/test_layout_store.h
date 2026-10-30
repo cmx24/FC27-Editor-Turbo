@@ -518,8 +518,32 @@ static void run() {
         CHECK(has(slurp(src / "ui" / "app.cpp"), "layout.frame("), "App::draw pumps the store every frame");
     });
 
+    // (d2) the load order in the overlay (found 10-30 02:00 reading overlay_dx12.cpp: the first version called layout.load() in
+    // start_overlay, which runs on the DLL init thread BEFORE ImGui::CreateContext() (init_imgui, first rendered frame) and before
+    // g_ini_path is set: LoadIniSettingsFromMemory with no context, an empty path). Offline tests cannot run the DX12 overlay, so the
+    // order is pinned in the source: the sink and the load come after g_ini_path and CreateContext, inside init_imgui, once.
+    run_case("test_layout_store (d2): the overlay loads the layout file after ImGui::CreateContext and g_ini_path, inside init_imgui, once", [&] {
+        const std::string o = slurp(turbogui_root() / "src" / "win" / "overlay_dx12.cpp");
+        const size_t init_at = o.find("static Init init_imgui(");
+        const size_t ctx = o.find("ImGui::CreateContext()");
+        const size_t path = o.find("g_ini_path = ");
+        const size_t nofile = o.find("IniFilename = nullptr");
+        const size_t sink = o.find("layout.set_sink");
+        const size_t load = o.find("layout.load()");
+        const size_t end = o.find("static bool retarget(");  // the first function after init_imgui
+        const size_t npos = std::string::npos;
+        CHECK(init_at != npos && ctx != npos && path != npos && nofile != npos && sink != npos && load != npos && end != npos,
+              "init_imgui, CreateContext, g_ini_path, IniFilename = nullptr, layout.set_sink, layout.load() and retarget all found in overlay_dx12.cpp");
+        if (init_at == npos || ctx == npos || path == npos || nofile == npos || sink == npos || load == npos || end == npos) return;
+        CHECK(init_at < ctx && ctx < path && path < nofile && nofile < sink && sink < load && load < end,
+              "order inside init_imgui: CreateContext, g_ini_path, IniFilename = nullptr, layout.set_sink, layout.load() (before retarget): "
+              "a load in start_overlay (DLL init thread) runs with no ImGui context and an empty path");
+        CHECK(o.find("layout.load()", load + 1) == npos && o.find("layout.set_sink", sink + 1) == npos,
+              "one sink and one load in the overlay (init_imgui runs once per process; retarget does not load again)");
+    });
+
     // (e) the four converted panes
-    run_case("test_layout_store (e): the four converted panes are split::pane_x calls in the sources", [&] {
+    run_case("test_layout_store (e):the four converted panes are split::pane_x calls in the sources", [&] {
         const std::string looks = slurp(turbogui_root() / "src" / "ui" / "ui_looks_studio.cpp");
         const std::string players = slurp(turbogui_root() / "src" / "ui" / "ui_players.cpp");
         for (const char* id : {"##lslist", "##lspreview", "##lscards"}) {
@@ -602,10 +626,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 #ifdef TURBO_HAVE_LAYOUT_STORE
     const GuiPrefs keep_prefs = app.prefs;
     const bool keep_visible = app.visible;
+    const bool keep_legacy = app.legacy_pages;
     const std::function<void(const std::string&)> keep_hook = app.log_hook;
     const float keep_rate = ImGui::GetIO().IniSavingRate;
     const std::map<std::string, float> keep_parked = app.layout_splits_parked_;
     app.visible = true;
+    app.legacy_pages = false;  // the suite runs the old pages by default (test_nav_220.h:121): they draw the old Settings panel, which has no Layout section; the game default is the new pages
     ImGui::GetIO().IniSavingRate = 0.1f;
     ImGui::GetCurrentContext()->SettingsDirtyTimer = 0.0f;  // an earlier case may have left a 5 s countdown running (MarkIniSettingsDirty keeps a running timer)
     MemSink m;
@@ -618,6 +644,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(m.has_text && m.count("layout saved:") >= 1, "App::draw saved ImGui's ini to the sink: " + m.last("layout saved:"));
         const std::vector<std::string> before = window_headers(m.stored);
         CHECK(!before.empty(), fmt("the stored ini has window blocks: %d", int(before.size())));
+        CHECK(turbo::shell::registered_page(turbo::shell::Page::Settings) != nullptr, "the new Settings page is still registered here (a case placed after test_shell_app / test_gameplay_page sees the old panels, which have no Layout section)");
         CHECK(ui.click("Turbo settings", "FC 27 LE Turbo", "##shell"), "open Turbo settings");
         ui.frames(3);
         CHECK(ui.click("###layout_reset", "FC 27 LE Turbo"), "click Reset layout");
@@ -690,6 +717,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     app.prefs = keep_prefs;
     app.prefs.window_rt = WindowTracker();
     app.visible = keep_visible;
+    app.legacy_pages = keep_legacy;
     ui.frames(3);
 #else
     (void)app;

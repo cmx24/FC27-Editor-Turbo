@@ -9912,6 +9912,7 @@ static void test_ui() {
         calc_ovr_test::ui_cases(app, ui, le);  // test_calc_ovr.h: Calc OVR / Delta columns (2.22 calc-ovr)
         ovr_mask_test::ui_cases(app, ui);  // test_ovr_mask.h: Shown OVR (display only) store + header field (3.2 calc-ovr)
         shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
+        layout_store_test::ui_cases(app, ui, le);  // test_layout_store.h (5.0b-B): Settings > Layout on the real App (before test_shell_app clears the registry; test_gameplay_page leaves it empty)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
@@ -9942,7 +9943,6 @@ static void test_ui() {
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
         resize_ui_test::ui_cases(app, ui, le);  // test_ux_resize.h (2.22 G-resize): divider, window drags with the mouse; Row height; Refresh
         gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
-        layout_store_test::ui_cases(app, ui, le);  // test_layout_store.h (5.0b-B): Settings > Layout on the real App
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 

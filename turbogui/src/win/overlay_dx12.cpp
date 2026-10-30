@@ -639,6 +639,13 @@ static Init init_imgui(IDXGISwapChain3* sc) {
     // IniSavingRate seconds of no change); App::draw writes the file atomically and logs "layout saved:". The same file as before.
     io.IniFilename = nullptr;
     io.IniSavingRate = 1.0f;
+    // The layout file (column widths, pane sizes, window blocks) is read once here: the context exists, g_ini_path is set, and the
+    // first NewFrame has not run yet (render_frame_impl calls init_imgui once, before NewFrame; Retry returns above never get here).
+    g_app->layout.set_sink(turbo::LayoutStore::file_sink(g_ini_path, [](const std::string& s) {
+        if (g_app) g_app->log(s);
+        log("%s", s.c_str());
+    }));
+    g_app->layout.load();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     // Colours and sizes: App::update_style (scaled to the window height and the user's UI size) on the first tick
     wchar_t windir[MAX_PATH];
@@ -1176,12 +1183,8 @@ bool start_overlay(HMODULE) {
     g_app->fce_anchors_hook = []() { return host::fce_anchors(); };
     turbo::mhm::set_signature_lookup([](const char* n) { return host::game_signature(n); });  // club customisation hub
     g_app->log_hook = [](const std::string& s) { log("%s", s.c_str()); };
-    // 5.0b-B: the layout file (column widths, pane sizes, window blocks), read once here, before the first NewFrame
-    g_app->layout.set_sink(turbo::LayoutStore::file_sink(g_ini_path, [](const std::string& s) {
-        if (g_app) g_app->log(s);
-        log("%s", s.c_str());
-    }));
-    g_app->layout.load();
+    // 5.0b-B: the layout store's sink and load are NOT here: start_overlay runs on the DLL init thread before ImGui::CreateContext()
+    // (init_imgui, first rendered frame) and before g_ini_path is known; LoadIniSettingsFromMemory needs a context. See init_imgui.
     g_app->regions_hook = []() { return private_regions(64 * 1024); };  // commentary-bank capture (Callname tab)
     g_app->writable_hook = [](uint64_t a, size_t n) { return turbo::gsettings::live::page_writable(a, n); };  // 4.0 sliders-rw live write
     g_app->callname_player.set_player(callname_wav_player());  // Callname tab play buttons (callname_audio_win.cpp)
