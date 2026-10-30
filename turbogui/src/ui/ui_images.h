@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/asset_catalog.h"
+#include "core/career_faces.h"
 #include "core/legacy.h"
 #include "core/t3db.h"
 
@@ -22,7 +23,43 @@ struct MinifaceTarget {
     int64_t id = 0;           // players: playerid; managers: managerid (the 3D-model capture renders the head id for managers)
     int64_t teamid = 0;       // players: club (0 = none); passed to the 3D-model capture as the second id
     std::string shown;        // managers: the picture shown now (first of legacy_path::staff_pictures; "" = path)
+    // 5.0b-C: the record whose picture this is, so the editor can draw the Body type row beside the picture (players = managers);
+    // nullptr = no row (a caller without the record)
+    const Table* table = nullptr;
+    uint64_t rec = 0;
 };
+
+// 5.0b-C (Cassio 10-29: "assigning of minifaces should be a one-click"): a click on a source (catalog, a player's or a
+// manager's miniface, head model / youth face, an image file, the 3D result) writes the miniface at once in a career,
+// through App::write_face_picture (that career's own copy). Where a miniface goes and what Undo / Restore original use:
+struct MinifaceWritePlan {
+    std::filesystem::path path;      // the file written: careers\<id>\heads(_staff)\... in a career, else the shared mods\legacy one
+    std::string rel;                 // its legacy path (data/ui/imgAssets/heads/p<id>.dds or heads_staff/heads_staff_<managerid>.dds)
+    bool career_scoped = false;      // true: the file is that career's own copy (turbo_output\careers\<id>\)
+    std::filesystem::path undo_dir;  // where the previous copies are kept for Undo / Restore original (careers\<id>\_undo); empty outside a career
+    int size = 0;                    // 256 (players) or 512 (managers)
+};
+MinifaceWritePlan miniface_write_plan(const career_faces::Paths& paths, bool manager, int64_t id, int64_t headassetid,
+                                      const std::string& career);
+
+// What the tests read of a miniface editor (the editors themselves are file-local statics)
+#define TURBO_MINIFACE_PROBE 1
+struct MinifaceEditorProbe {
+    uint64_t version = 0;             // bumps on every change of the editor (source, framing, background, capture fields)
+    bool remove_bg = false;           // the "Remove plain background" box
+    bool has_source = false;          // a picture is chosen
+    int capture_id = 0;               // the "Game id" of the 3D model tab
+    int auto_writes = 0;              // files written by a click on a source in this editor session
+    int rewrites = 0;                 // re-writes after framing changes (0.6 s after the last one)
+    std::string written_path;         // the last file written (full path)
+    std::string prev_path;            // the copy Undo brings back (kept in the career's _undo; empty: Undo removes the file)
+    size_t undo_steps = 0;            // sources assigned in this session and not undone
+    bool original_available = false;  // "Restore original" is offered
+};
+MinifaceEditorProbe miniface_editor_probe(bool manager);
+// The capture fields of the 3D model tab; each real change counts as a change of the editor (the preview and the file follow)
+enum class MinifaceCaptureParam { GameId, Camera, UseTemplate, Advanced, Mode, Extra };
+void miniface_set_capture_param(bool manager, MinifaceCaptureParam p, int value);
 
 // What the real-face chooser copies besides the head; the miniface always comes with the head (never a mixed result)
 struct RealFaceOptions {

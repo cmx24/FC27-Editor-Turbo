@@ -215,9 +215,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(ui.click("###lsface"), "Choose a real face...");
         ui.frames(3);  // with 3.1/render R4 the click opens the chooser at once: no question (###lsaskok) before it (merge 3.1/gui)
-        // "the chooser is open" is read from the radio "Manager heads" (top of the modal), not from Close: Close is the last row of the fixed-size modal and
-        // Ui::find skips an item whose centre is outside its clip, so a header grown by state an earlier case left (a filter) hid it (3.1 merge check)
-        CHECK(ui.find("Manager heads") != nullptr, "the manager chooser is open");
+        // 5.0b-C: "the chooser is open" is read from Close: it sits in the bar under the grid, outside the scrolling part (the radio "Manager heads"
+        // moved into the Filters popover)
+        CHECK(ui.find("Close##mfaces") != nullptr, "the manager chooser is open");
         CHECK(manager_chooser_on_manager_heads(), "the chooser shows Manager heads");
         if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
         ui.frames(2);
@@ -251,17 +251,18 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         };
         open_it = true;
         ui.frames(3);
-        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (first time)");
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (first time)");
         CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
-        CHECK(ui.click("Player heads"), "Player heads");
+        CHECK(fcl_open_filters(ui) && ui.click("Player heads"), "Filters, then Player heads");
         ui.frames(2);
         CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        fcl_close_filters(ui);
         CHECK(ui.click("Close##mfaces"), "Close");
         ui.frames(3);
-        CHECK(ui.find("Manager heads") == nullptr, "the chooser is closed");
+        CHECK(ui.find("Close##mfaces") == nullptr, "the chooser is closed");
         open_it = true;
         ui.frames(3);
-        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (second time)");
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (second time)");
         CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the second time");
         if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
         ui.frames(3);
@@ -295,16 +296,17 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         };
         open_it = true;
         ui.frames(3);
-        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open (first time)");
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open (first time)");
         CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads the first time");
-        CHECK(ui.click("Player heads"), "Player heads");
+        CHECK(fcl_open_filters(ui) && ui.click("Player heads"), "Filters, then Player heads");
         ui.frames(2);
         CHECK(!manager_chooser_on_manager_heads(), "Player heads was picked");
+        fcl_close_filters(ui);
         reopen_on_close = true;
         CHECK(ui.click("Close##mfaces"), "Close");
         ui.frames(3);
         CHECK(!reopen_on_close, "the chooser was closed and reopened on consecutive frames");
-        CHECK(ui.find("Manager heads") != nullptr, "the chooser is open again");
+        CHECK(ui.find("Close##mfaces") != nullptr, "the chooser is open again");
         CHECK(manager_chooser_on_manager_heads(), "it shows Manager heads again after a reopen on the very next frame");
         if (ui.find("Close##mfaces")) ui.click("Close##mfaces");
         ui.frames(3);

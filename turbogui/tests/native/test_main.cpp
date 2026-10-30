@@ -3348,6 +3348,8 @@ struct FakeCapture : capture::CaptureService {
 #include "test_compdata_profile.h"  // 2.21: compdata guard (record, disk, seeded careers, decision) + launcher-hint rank
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
+#include "test_miniface_oneclick.h"  // 5.0b-C: one-click minifaces (background removal never ticked by code, preview follows every change, Undo)
+#include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 
@@ -6072,7 +6074,7 @@ static void test_ui() {
             CHECK(ui.toast_contains("miniface written"), "toast");
             ui.frames(2);
             CHECK(app.legacy.locate(legacy_path::player_miniface(1002), nullptr) == LegacyImages::State::Custom, "now custom");
-            CHECK(ui.click("Save as miniface"), "save again");
+            CHECK(ui.click("Save again"), "5.0b-C: after the first write the button reads Save again");
             size_t backups = 0;
             // 2.19: in a career the earlier copy is that career's (turbo_outputreers<id>_undo)
             for (auto& e : fs::directory_iterator(le / "turbo_output" / "careers" / app.career_faces_wanted() / "_undo")) { (void)e; ++backups; }
@@ -6147,8 +6149,10 @@ static void test_ui() {
             CHECK(ui.toast_contains("3D model rendered"), "toast");
             CHECK(!fake->pending, "consumed");
             fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads" / "p1002.dds";
+            // 5.0b-C: the rendered head is written at once (one-click); Save again re-writes it
+            CHECK(fs::exists(out), "5.0b-C: p1002.dds written the moment the capture arrived (no Save click)");
             fs::remove(out);
-            CHECK(ui.click("Save as miniface"), "Save as miniface");
+            CHECK(ui.click("Save again"), "Save again");
             Rgba img;
             CHECK(load_image_file(out, img) && img.w == 256 && img.h == 256, "p1002.dds written from the capture");
             if (!img.empty()) {
@@ -6212,14 +6216,17 @@ static void test_ui() {
             ui.frames(3);
             CHECK(ui.toast_contains("3D model rendered for manager head 7501"), "toast names the manager head");
             fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_501.dds";
+            CHECK(fs::exists(out), "5.0b-C: heads_staff_501.dds written the moment the capture arrived (no Save click)");
             fs::remove(out);
-            CHECK(ui.click("Save as miniface"), "save");
+            CHECK(ui.click("Save again"), "save again");
             Rgba img;
             CHECK(load_image_file(out, img) && img.w == 512 && img.h == 512, "512 x 512 heads_staff_501.dds (managerid) from the capture");
             app.capture.reset();
         });
 
         ui_cases_miniface_show(app, ui, le);  // test_miniface_show.h
+        fcl_ui_cases(app, ui);  // test_face_chooser_layout.h (5.0b-C)
+        mo_ui_cases(app, ui, le);  // test_miniface_oneclick.h (5.0b-C)
 
         run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
             // the simulated game has minifaces for the real faces and two tattoo previews
@@ -6257,7 +6264,7 @@ static void test_ui() {
             {
                 // 2.20: he has no miniface (the game says so), so the head's comes with it; one he had would be kept
                 career_faces_test::NoGamePicture none(app, {legacy_path::player_miniface(3001)});
-                CHECK(ui.click("face1003", "Choose a real face"), "pick head 1003");
+                CHECK(fcl_pick(ui, "face1003", "Choose a real face"), "pick head 1003");
                 CHECK(app.db.get_int(*t, rec, "headassetid") == 1003 && app.db.get_int(*t, rec, "headclasscode") == 0, "head given");
                 CHECK(app.db.get_int(*t, rec, "headtypecode") == 103, "head type copied");
                 CHECK(app.db.get_int(*t, rec, "skintonecode") == app.db.get_int(*t, rec1003, "skintonecode"),
@@ -6319,13 +6326,13 @@ static void test_ui() {
             app.legacy.refresh_missing();
             CHECK(ui.click("Choose a real face..."), "open the chooser again");
             ui.frames(3);
-            CHECK(ui.click("face1006", "Choose a real face"), "pick head 1006 (the game has no miniface for it)");
+            CHECK(fcl_pick(ui, "face1006", "Choose a real face"), "pick head 1006 (the game has no miniface for it)");
             CHECK(app.db.get_int(*t, rec, "headassetid") == 1006, "head 1006 given");
             CHECK(ui.toast_contains("ships no miniface for this head, so his miniface p3001.dds still shows the old face"),
                   "toast: his old miniface stays, said plainly");
             CHECK(ui.click("Choose a real face..."), "open the chooser again");
             ui.frames(3);
-            CHECK(ui.click("face1005", "Choose a real face"), "pick head 1005 (its miniface has not arrived)");
+            CHECK(fcl_pick(ui, "face1005", "Choose a real face"), "pick head 1005 (its miniface has not arrived)");
             CHECK(app.db.get_int(*t, rec, "headassetid") == 1006, "nothing written while its miniface loads");
             CHECK(ui.toast_contains("nothing written: the head's miniface is still loading"), "toast: click again in a moment");
             CHECK(ui.click("Close##faces"), "close");
@@ -6581,7 +6588,7 @@ static void test_ui() {
             CHECK(ui.click("Choose a real face..."), "open the chooser");
             ui.frames(3);
             CHECK(ui.find("face1001", "Choose a real face") && ui.find("face1003", "Choose a real face"), "every real face listed");
-            CHECK(ui.click("Hair colour: Any##facet2", "Choose a real face"), "hair colour filter");
+            CHECK(fcl_open_filters(ui) && ui.click("Hair colour: Any##facet2", "##Popup_"), "5.0b-C: the Filters popover, then the hair colour filter");
             ui.frames(2);
             // at most 5 choices per menu: Dark Brown (3), Light Brown (5) and Medium Brown (6) are the group Brown (key 2)
             int browns = 0;
@@ -6595,31 +6602,31 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("face1003", "Choose a real face") && (ui.find("face1001", "Choose a real face") != nullptr) == brown1001,
                   "filtered to the Brown group");
-            CHECK(ui.click("Clear filters", "Choose a real face"), "clear");
+            CHECK(ui.click("Clear filters", "##Popup_"), "clear");
             ui.frames(2);
-            CHECK(ui.click("Gender: Any##facet7", "Choose a real face"), "gender filter");
+            CHECK(ui.click("Gender: Any##facet7", "##Popup_"), "gender filter");
             ui.frames(2);
             CHECK(ui.click("Female (1)##v1"), "Female: 1005");
             ui.frames(2);
             CHECK(ui.find("face1005", "Choose a real face") && !ui.find("face1001", "Choose a real face"), "filtered to female heads");
-            CHECK(ui.click("Clear filters", "Choose a real face"), "clear gender");
+            CHECK(ui.click("Clear filters", "##Popup_"), "clear gender");
             ui.frames(2);
             CHECK(ui.find("face1001", "Choose a real face") != nullptr, "all back");
-            CHECK(ui.click("Facial hair: Any##facet4", "Choose a real face"), "facial hair filter");
+            CHECK(ui.click("Facial hair: Any##facet4", "##Popup_"), "facial hair filter");
             ui.frames(2);
             int clean = 0;  // 1003 and 1006 (3001 too when the list was rebuilt after it got 1003's real face)
             for (const auto& f : player_faces(app)) clean += (f.real && f.raw[faces::kBeard] == 0) ? 1 : 0;
             CHECK(clean >= 2 && ui.find(fmt("Clean-shaven (%d)##v0", clean)) != nullptr, fmt("clean-shaven heads counted (%d)", clean));
-            CHECK(ui.find("Any facial hair", "Choose a real face") == nullptr, "no Any facial hair bucket any more");
+            CHECK(ui.find("Any facial hair") == nullptr, "no Any facial hair bucket any more");
             int moustache = 0;  // 1001 (style 241) and 1002 (242): Moustache & goatee
             for (const auto& f : player_faces(app)) moustache += (f.real && f.raw[faces::kBeard] >= 0 && faces::facet_key(faces::kBeard, f.raw[faces::kBeard]) == 2) ? 1 : 0;
             CHECK(moustache >= 1 && ui.click(fmt("Moustache & goatee (%d)##v2", moustache)), fmt("moustache & goatee (%d)", moustache));
             ui.frames(2);
             CHECK(ui.find("face1002", "Choose a real face") && !ui.find("face1003", "Choose a real face") && !ui.find("face1006", "Choose a real face"),
                   "moustache & goatee heads only");
-            CHECK(ui.find("Facial hair: Moustache & goatee##facet4", "Choose a real face") != nullptr, "the button shows the filter");
-            CHECK(ui.click("Clear filters", "Choose a real face"), "clear again");
-            CHECK(ui.click("Close##faces"), "close");
+            CHECK(ui.find("Facial hair: Moustache & goatee##facet4", "##Popup_") != nullptr, "the button shows the filter");
+            CHECK(ui.click("Clear filters", "##Popup_"), "clear again");
+            fcl_close_chooser(ui, "Close##faces");
 
             // Managers > Appearance: Chivu (generic head) gets player 1004's real face
             app.request_tab = 2;
@@ -6630,7 +6637,7 @@ static void test_ui() {
             ui.frames(3);
             // 3.1 N3: a manager's chooser opens on Manager heads; giving a manager a PLAYER's head (2.20) is the Player heads radio, one click away
             CHECK(ui.find("mface501", "Choose a real face##mgr") != nullptr, "3.1 N3: the manager chooser opens on Manager heads");
-            CHECK(ui.click("Player heads", "Choose a real face##mgr"), "Player heads radio");
+            CHECK(fcl_open_filters(ui, "Choose a real face##mgr") && ui.click("Player heads", "##Popup_"), "5.0b-C: Filters, then the Player heads radio");
             ui.frames(2);
             CHECK(ui.find("face1004", "Choose a real face##mgr") != nullptr, "player heads listed for managers");
             const Table* mt = app.db.table("manager");
@@ -6640,7 +6647,7 @@ static void test_ui() {
             // 2.20: he has no picture (the game says so), so the head's comes with it; one he had would be kept
             career_faces_test::NoGamePicture no_staff(app, {legacy_path::staff_miniface_for(503, 0)});
             const int64_t mskin0 = app.db.get_int(*mt, mrec, "skintonecode");
-            CHECK(ui.click("face1004", "Choose a real face##mgr"), "pick 1004's head");
+            CHECK(fcl_pick(ui, "face1004", "Choose a real face##mgr", "Apply##mfaces"), "pick 1004's head");
             CHECK(app.db.get_int(*mt, mrec, "headassetid") == 1004 && app.db.get_int(*mt, mrec, "headclasscode") == 0 &&
                       app.db.get_int(*mt, mrec, "headtypecode") == 104, "manager head fields written");
             {
@@ -6655,12 +6662,12 @@ static void test_ui() {
             // manager heads: another manager's real face (heads_staff shows the same picture, nothing copied)
             CHECK(ui.click("Choose a real face...", "##mapp"), "reopen");
             ui.frames(2);
-            CHECK(ui.click("Manager heads", "Choose a real face##mgr"), "manager heads");
+            CHECK(fcl_open_filters(ui, "Choose a real face##mgr") && ui.click("Manager heads", "##Popup_"), "5.0b-C: Filters, then the Manager heads radio");
             ui.frames(2);
             CHECK(ui.find("mface502", "Choose a real face##mgr") && ui.find("mface504", "Choose a real face##mgr"), "real-face managers listed");
-            CHECK(ui.find("Hair: Any##facet3", "Choose a real face##mgr") != nullptr && ui.find("Skin tone: Any##facet1", "Choose a real face##mgr"),
+            CHECK(ui.find("Hair: Any##facet3", "##Popup_") != nullptr && ui.find("Skin tone: Any##facet1", "##Popup_"),
                   "filters of the fields the manager table has (hair since 2.16: the fake manager table has hairtypecode, as FC 27's)");
-            CHECK(ui.click("Skin tone: Any##facet1", "Choose a real face##mgr"), "skin filter");
+            CHECK(ui.click("Skin tone: Any##facet1", "##Popup_"), "skin filter");
             ui.frames(2);
             // skin 30 (Caucasian 3) is in the group Light (key 2) with Latin Asian 1
             int lights = 0;
@@ -6674,8 +6681,23 @@ static void test_ui() {
                   fmt("skin tone group Light (Caucasian 3: Arteta; %d heads)", lights));
             ui.frames(2);
             CHECK(ui.find("mface501", "Choose a real face##mgr") && (ui.find("mface502", "Choose a real face##mgr") != nullptr) == light502, "filtered");
-            CHECK(ui.click("mface501", "Choose a real face##mgr"), "pick the head of Arteta");
-            CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7501 && app.db.get_int(*mt, mrec, "headtypecode") == 1501, "head of Arteta given");
+            // 5.0b-C: this case needs Arteta's own picture (the source the head brings along). It no longer relies on a
+            // heads_staff_501.dds left in the career by an earlier case: test_miniface_oneclick resets the career overlay
+            {
+                std::string werr;
+                CHECK(app.write_face_picture(legacy_path::staff_miniface_for(501, 7501), encode_dds_dxt5(solid(512, 512, 40, 90, 160)), &werr, nullptr),
+                      "Arteta's picture heads_staff_501.dds is in the career: " + werr);
+                ui.frames(4);
+            }
+            CHECK(fcl_pick(ui, "mface501", "Choose a real face##mgr", "Apply##mfaces"), "pick the head of Arteta");
+            {
+                std::string tt;
+                for (const auto& x : app.toasts) tt += " [" + x.text + "]";
+                CHECK(app.db.get_int(*mt, mrec, "headassetid") == 7501 && app.db.get_int(*mt, mrec, "headtypecode") == 1501,
+                      fmt("head of Arteta given (headassetid %lld; Done shown %d, Apply shown %d, Selected shown %d; toasts:%s)",
+                          static_cast<long long>(app.db.get_int(*mt, mrec, "headassetid")), int(ui.find("Done##facefilters") != nullptr),
+                          int(ui.find("Apply##mfaces") != nullptr), int(ui.find("Selected: ") != nullptr), tt.c_str()));
+            }
             CHECK(ui.toast_contains("the manager's picture heads_staff_503.dds now shows heads_staff_501.dds"),
                   "toast: Arteta's own picture comes with his head");
             CHECK(app.db.set_int(*mt, mrec, "headassetid", 7503) && app.db.set_int(*mt, mrec, "headclasscode", 1) &&
@@ -6708,7 +6730,7 @@ static void test_ui() {
             CHECK(ui.click("Appearance", "##pedit"), "Appearance tab");
             CHECK(ui.click("Choose a real face..."), "open the chooser");
             ui.frames(3);
-            CHECK(ui.click("face1004", "Choose a real face"), "pick 1004's head");
+            CHECK(fcl_pick(ui, "face1004", "Choose a real face"), "pick 1004's head");
             ui.frames(2);
             CHECK(app.db.get_int(*pt, prec, "headassetid", -1) == app.db.get_int(*pt, app.model.player(1004)->rec, "headassetid", -2),
                   "head of 1004 given to 3001");
@@ -6747,7 +6769,7 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
             ui.frames(3);
-            CHECK(ui.click("face1004", "Choose a real face"), "pick 1004's head");
+            CHECK(fcl_pick(ui, "face1004", "Choose a real face"), "pick 1004's head");
             ui.frames(2);
             std::ifstream a(custom, std::ios::binary);
             std::vector<uint8_t> mid((std::istreambuf_iterator<char>(a)), std::istreambuf_iterator<char>());
@@ -6837,19 +6859,21 @@ static void test_ui() {
             CHECK(ui.click("Choose a real face..."), "open the chooser");
             ui.frames(3);
             const char* W = "Choose a real face";
-            CHECK(ui.find("Only heads with a 3D look", W) != nullptr, "the checkbox (off: fewer than 200 looks)");
+            CHECK(fcl_open_filters(ui), "5.0b-C: the Filters popover (the 3D facets and the checkbox live in it)");
+            const char* P = "##Popup_";  // the popover's window
+            CHECK(ui.find("Only heads with a 3D look", P) != nullptr, "the checkbox (off: fewer than 200 looks)");
             CHECK(ui.find("face1001", W) && ui.find("face1005", W), "heads with and without a look listed");
-            CHECK(ui.find("Gender: Any##facet7", W) && ui.find("Skin tone: Any##facet8", W) && ui.find("Hair colour: Any##facet9", W) &&
-                      ui.find("Hair length: Any##facet10", W) && ui.find("Hair type: Any##facet11", W) && ui.find("Facial hair: Any##facet12", W) &&
-                      ui.find("Beard colour: Any##facet13", W) && ui.find("Headwear: Any##facet14", W) &&
-                      ui.find("Eyes (database): Any##facet6", W) && ui.find("Ethnicity (database): Any##facet0", W),
+            CHECK(ui.find("Gender: Any##facet7", P) && ui.find("Skin tone: Any##facet8", P) && ui.find("Hair colour: Any##facet9", P) &&
+                      ui.find("Hair length: Any##facet10", P) && ui.find("Hair type: Any##facet11", P) && ui.find("Facial hair: Any##facet12", P) &&
+                      ui.find("Beard colour: Any##facet13", P) && ui.find("Headwear: Any##facet14", P) &&
+                      ui.find("Eyes (database): Any##facet6", P) && ui.find("Ethnicity (database): Any##facet0", P),
                   "the 3D facets, Eyes / Ethnicity (database)");
-            CHECK(!ui.find("Hair colour: Any##facet2", W) && !ui.find("Hair: Any##facet3", W) && !ui.find("Facial hair: Any##facet4", W) &&
-                      !ui.find("Skin tone: Any##facet1", W),
+            CHECK(!ui.find("Hair colour: Any##facet2", P) && !ui.find("Hair: Any##facet3", P) && !ui.find("Facial hair: Any##facet4", P) &&
+                      !ui.find("Skin tone: Any##facet1", P),
                   "no database skin / hair / facial hair facets");
             int unc = 0;  // real heads without a look: 1005, 1006 (3001 too when it holds 1003's real face)
             for (const auto& f : player_faces(app)) unc += (f.real && !f.look) ? 1 : 0;
-            CHECK(ui.click("Hair length: Any##facet10", W), "hair length filter");
+            CHECK(ui.click("Hair length: Any##facet10", P), "hair length filter");
             ui.frames(2);
             CHECK(ui.find("Bald (1)##v0") && ui.find("Buzz cut (0)##v1") && ui.find("Short (2)##v2") && !ui.find(fmt("not classified yet (%d)##v255", unc)),
                   fmt("every group with its count; the %d heads without a look are no choice (at most 5 per menu)", unc));
@@ -6857,10 +6881,10 @@ static void test_ui() {
             ui.frames(2);
             CHECK(ui.find("face1003", W) && !ui.find("face1001", W) && !ui.find("face1005", W) && !ui.find("face1006", W),
                   "only the long-haired look; heads without a look never match");
-            CHECK(ui.find("Hair length: Long##facet10", W) != nullptr, "the button shows the filter");
-            CHECK(ui.click("Clear filters", W), "clear");
+            CHECK(ui.find("Hair length: Long##facet10", P) != nullptr, "the button shows the filter");
+            CHECK(ui.click("Clear filters", P), "clear");
             ui.frames(2);
-            CHECK(ui.click("Facial hair: Any##facet12", W), "facial hair filter");
+            CHECK(ui.click("Facial hair: Any##facet12", P), "facial hair filter");
             ui.frames(2);
             int real_heads = 0;
             for (const auto& f : player_faces(app)) real_heads += f.real ? 1 : 0;
@@ -6868,21 +6892,21 @@ static void test_ui() {
                   "facial hair: no 'not classified yet' choice; Any");
             ui.frames(2);
             CHECK(ui.find("face1005", W) && ui.find("face1006", W) && ui.find("face1001", W), "Any: every head");
-            CHECK(ui.click("Hair type: Any##facet11", W), "hair type filter");
+            CHECK(ui.click("Hair type: Any##facet11", P), "hair type filter");
             ui.frames(2);
             CHECK(ui.find("Wavy & curly (1)##v1") && ui.find("Afro (0)##v2") && !ui.find("unsure (1)##v254"),
                   "1002's afro is unsure: no group counts it, and unsure is no choice (at most 5 per menu)");
             CHECK(ui.click("Wavy & curly (1)##v1"), "wavy & curly: 1001");
             ui.frames(2);
             CHECK(ui.find("face1001", W) && !ui.find("face1002", W) && !ui.find("face1005", W), "the unsure head does not match");
-            CHECK(ui.click("Clear filters", W), "clear");
+            CHECK(ui.click("Clear filters", P), "clear");
             ui.frames(2);
-            CHECK(ui.click("Only heads with a 3D look", W), "only heads with a 3D look");
+            CHECK(ui.click("Only heads with a 3D look", P), "only heads with a 3D look");
             ui.frames(2);
             CHECK(ui.find("face1001", W) && ui.find("face1004", W) && !ui.find("face1005", W) && !ui.find("face1006", W), "heads without a look hidden");
-            CHECK(ui.click("Only heads with a 3D look", W), "off again");
+            CHECK(ui.click("Only heads with a 3D look", P), "off again");
             ui.frames(2);
-            CHECK(ui.click("Close##faces"), "close");
+            fcl_close_chooser(ui, "Close##faces");
             face3d::use_table(nullptr, 0);
             ui.frames(2);
         });
@@ -15738,6 +15762,8 @@ int main(int argc, char** argv) {
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();
+    test_miniface_oneclick();  // 5.0b-C
+    test_face_chooser_layout();  // 5.0b-C
     std::printf("native mouse wheel source\n");
     test_wheel_sources();
     std::printf("native club customisation and career settings\n");

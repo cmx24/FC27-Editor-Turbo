@@ -448,14 +448,15 @@ inline void ui_cases_safety(App& app, Ui& ui, const fs::path& le) {
                  CHECK(ui.click("3001", "##plist") && ui.click("Appearance", "##pedit") && ui.click("Choose a real face..."), "chooser");
                  ui.frames(3);
                  CHECK(ui.find("His own head##faces") != nullptr, "the chooser has the His own head button");
-                 // 3.2 f3 (charter 19.17, Amendment B1/B2): hair and beard are given by their own pickers, not by copy boxes here. Eyes and Skin
-                 // stay (q6-nopicker) while the card has no eye colour / skin tone picker, i.e. without an RDBM26 folder (it is never shipped)
+                 // 3.2 f3 (charter 19.17, Amendment B1/B2): hair and beard are given by their own pickers, not by copy boxes here.
+                 // 5.0b-C: the Eyes / Skin boxes became ONE "What to copy" control (Head only / Head + eyes + skin / ... + body type): the capability
+                 // stays (q6-nopicker) with or without an RDBM26 folder, the four boxes are gone
                  if (const auto* own_btn = ui.find("His own head##faces")) {
                      const std::string win = own_btn->window;
                      CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr,
                            "ONE PICKER: the player's real-face chooser has no Hair / Beard copy boxes (their pickers are in Appearance)");
-                     CHECK(ui.find("Eyes", win) != nullptr && ui.find("Skin", win) != nullptr,
-                           "NO LOST CAPABILITY: with no RDBM26 folder the player's Eyes and Skin boxes stay (no picker on his card gives them)");
+                     CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
+                           "NO LOST CAPABILITY: the Eyes and Skin boxes became the What to copy control (Head + eyes + skin)");
                      // a picture source: the card draws the eye colour / skin tone rows, the boxes go
                      const fs::path pics = test_tmp_dir("cf_chooser_rdbm") / "Resources";
                      for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
@@ -465,8 +466,8 @@ inline void ui_cases_safety(App& app, Ui& ui, const fs::path& le) {
                      visual_pictures_override(pics.u8string());
                      visual_pictures_refresh(app);
                      ui.frames(3);
-                     CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr,
-                           "with an RDBM26 folder the card has the pickers (eye colour, skin tone rows) and the chooser has no Eyes / Skin boxes");
+                     CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
+                           "with an RDBM26 folder too: no Eyes / Skin boxes, What to copy stays");
                  }
                  visual_pictures_override("");
                  visual_pictures_refresh(app);

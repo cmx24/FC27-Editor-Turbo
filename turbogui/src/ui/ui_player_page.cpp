@@ -233,6 +233,8 @@ void looks_card(App& app, const Table& t, const PlayerRow& p) {
         mt.headassetid = app.db.get_int(t, p.rec, "headassetid", 0);
         mt.id = p.playerid;
         mt.teamid = p.club;
+        mt.table = &t;
+        mt.rec = p.rec;
         miniface_editor(app, mt);
         ImGui::TreePop();
     }

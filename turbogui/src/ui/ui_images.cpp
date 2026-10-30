@@ -24,6 +24,7 @@
 #include "file_picker.h"
 #include "imgui.h"
 #include "ui_asset_browser.h"
+#include "ui_bodytypes.h"
 #include "ui_images.h"
 #include "ui_visual_picker.h"
 
@@ -309,11 +310,88 @@ struct MinifaceEditor {
     bool capture_pending = false;
     int capture_pending_id = 0;
     std::string capture_note;      // last outcome, shown under the button
+    // 5.0b-C one-click (Cassio 10-29): a click on a source writes the miniface at once (identified career only)
+    bool assign_wanted = false;     // the source just chosen is to be written as soon as its preview is built
+    bool pending_assign = true;     // the game picture being waited for (pending_legacy) is to be written too
+    bool auto_active = false;       // the last source was written by a click: framing changes re-write the file
+    bool wrote = false;             // something was written in this session ("Save as miniface" reads "Save again")
+    bool rewrite_due = false;       // the framing changed since the last write
+    double rewrite_at = 0.0;        // ImGui time before which the file is not re-written (0.6 s after the last change)
+    int auto_writes = 0, rewrites = 0;
+    std::string written_path;       // the last file written (full path)
+    std::vector<App::UndoStep::Picture> steps;  // one per write by a click or by the button, newest last: Undo pops, Restore original pops all
 };
 
 static MinifaceEditor g_player_ed, g_manager_ed;
 
-static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label) {
+// 5.0b-C: where a miniface goes (ui_images.h); the editor and the tests ask the same function
+MinifaceWritePlan miniface_write_plan(const career_faces::Paths& paths, bool manager, int64_t id, int64_t headassetid, const std::string& career) {
+    MinifaceWritePlan pl;
+    pl.rel = manager ? legacy_path::staff_miniface_for(id, headassetid) : legacy_path::player_miniface(id);
+    pl.size = manager ? kStaffMinifaceSize : kPlayerMinifaceSize;
+    if (career_faces::is_career_id(career) && career_faces::is_face_path(pl.rel)) {
+        pl.career_scoped = true;
+        pl.path = career_faces::overlay_file(paths, career, pl.rel);
+        pl.undo_dir = career_faces::careers_dir(paths) / career / "_undo";
+    } else {
+        pl.path = career_faces::mods_file(paths, pl.rel);
+    }
+    return pl;
+}
+
+// 5.0b-C: what the tests read of an editor (ui_images.h)
+MinifaceEditorProbe miniface_editor_probe(bool manager) {
+    const MinifaceEditor& ed = manager ? g_manager_ed : g_player_ed;
+    MinifaceEditorProbe p;
+    p.version = ed.version;
+    p.remove_bg = ed.remove_bg;
+    p.has_source = !ed.source.empty();
+    p.capture_id = ed.capture_id;
+    p.auto_writes = ed.auto_writes;
+    p.rewrites = ed.rewrites;
+    p.written_path = ed.written_path;
+    p.prev_path = ed.steps.empty() ? std::string() : ed.steps.back().backup.u8string();
+    p.undo_steps = ed.steps.size();
+    p.original_available = ed.steps.size() >= 2;
+    return p;
+}
+
+// 5.0b-C: every change of a 3D model field counts as a change of the editor (the preview follows); the widgets and the tests use this one
+static void set_capture_param(MinifaceEditor& ed, MinifaceCaptureParam p, int value) {
+    auto set_int = [&](int& f) {
+        if (f != value) {
+            f = value;
+            ++ed.version;
+        }
+    };
+    auto set_flag = [&](bool& f) {
+        if (f != (value != 0)) {
+            f = value != 0;
+            ++ed.version;
+        }
+    };
+    switch (p) {
+        case MinifaceCaptureParam::GameId: set_int(ed.capture_id); break;
+        case MinifaceCaptureParam::Camera: set_int(ed.capture_camera); break;
+        case MinifaceCaptureParam::UseTemplate: set_flag(ed.capture_use_template); break;
+        case MinifaceCaptureParam::Advanced: set_flag(ed.capture_advanced); break;
+        case MinifaceCaptureParam::Mode: set_int(ed.capture_mode); break;
+        case MinifaceCaptureParam::Extra: set_int(ed.capture_extra); break;
+    }
+}
+void miniface_set_capture_param(bool manager, MinifaceCaptureParam p, int value) { set_capture_param(manager ? g_manager_ed : g_player_ed, p, value); }
+
+// 5.0b-C: a change of the framing / background redraws the preview at once and (after a click on a source wrote the file) re-writes it
+// 0.6 s after the last change, once the mouse is up
+static void framing_changed(MinifaceEditor& ed) {
+    ++ed.version;
+    ed.rewrite_due = ed.auto_active;
+    ed.rewrite_at = ImGui::GetTime() + 0.6;
+}
+
+// assign: a click on a source (catalog, a player's miniface, the 3D result ...) writes the miniface once its preview is built; false for an
+// image file and for "start from the current one": the preview shows at once and "Save as miniface" writes
+static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, bool assign = true) {
     ed.source = fit_image(img, 1024);
     ed.source_label = label;
     ed.fr = Framing();
@@ -322,6 +400,9 @@ static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label) {
     ed.error.clear();
     ++ed.source_version;
     ++ed.version;
+    ed.assign_wanted = assign;
+    ed.rewrite_due = false;
+    if (!assign) ed.auto_active = false;
 }
 
 // A finished capture the editor has not consumed yet (the service answers whichever editor polls first)
@@ -343,8 +424,8 @@ static void poll_capture(App& app, MinifaceEditor& ed) {
     g_capture_result_ready = false;
     ed.capture_pending = false;
     if (r.ok) {
+        // 5.0b-C (Cassio 10-29: "remove plain background always unchecked"): the capture used to tick it; only he ticks it now
         set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")");
-        ed.remove_bg = true;
         ed.capture_note = "rendered: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
         app.notify("3D model rendered for " + r.label + " (" + r.format + ")");
     } else {
@@ -371,7 +452,10 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
     capture::Status st = svc->status();
     if (ed.capture_id == 0) ed.capture_id = static_cast<int>(t.manager ? t.headassetid : t.id);
     ImGui::SetNextItemWidth(S(110.0f));
-    ImGui::InputInt("Game id", &ed.capture_id, 0, 0);
+    {
+        int gid = ed.capture_id;
+        if (ImGui::InputInt("Game id", &gid, 0, 0)) set_capture_param(ed, MinifaceCaptureParam::GameId, gid);  // 5.0b-C: a field change redraws the preview
+    }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", t.manager ? "the manager's head id (heads_staff); change it to try the managerid" : "the player id; change it to render someone else into this miniface");
     ImGui::SameLine();
@@ -380,22 +464,31 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
     ImGui::SetNextItemWidth(S(330.0f));
     if (ImGui::BeginCombo("Camera", cam_label.c_str())) {
         for (size_t i = 0; i < cams.size(); ++i)
-            if (ImGui::Selectable(cams[i].label, ed.capture_camera == int(i))) ed.capture_camera = int(i);
-        if (st.learned && ImGui::Selectable("Learned from the game", ed.capture_camera == capture::kCameraLearned)) ed.capture_camera = capture::kCameraLearned;
+            if (ImGui::Selectable(cams[i].label, ed.capture_camera == int(i))) set_capture_param(ed, MinifaceCaptureParam::Camera, int(i));
+        if (st.learned && ImGui::Selectable("Learned from the game", ed.capture_camera == capture::kCameraLearned))
+            set_capture_param(ed, MinifaceCaptureParam::Camera, capture::kCameraLearned);
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game's camera / size choice is not decoded yet: these are the (mode, extra) pairs the game's own screens use. Try them.");
     if (!st.learned) ImGui::BeginDisabled();
-    ImGui::Checkbox("Start from the descriptor the game used itself", &ed.capture_use_template);
+    {
+        bool use_template = ed.capture_use_template;
+        if (ImGui::Checkbox("Start from the descriptor the game used itself", &use_template))
+            set_capture_param(ed, MinifaceCaptureParam::UseTemplate, use_template ? 1 : 0);
+    }
     if (!st.learned) ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::Checkbox("Advanced", &ed.capture_advanced);
+    {
+        bool adv = ed.capture_advanced;
+        if (ImGui::Checkbox("Advanced", &adv)) set_capture_param(ed, MinifaceCaptureParam::Advanced, adv ? 1 : 0);
+    }
     if (ed.capture_advanced) {
+        int mode = ed.capture_mode, extra = ed.capture_extra;
         ImGui::SetNextItemWidth(S(80.0f));
-        ImGui::InputInt("mode (-1 = preset)", &ed.capture_mode, 0, 0);
+        if (ImGui::InputInt("mode (-1 = preset)", &mode, 0, 0)) set_capture_param(ed, MinifaceCaptureParam::Mode, mode);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(80.0f));
-        ImGui::InputInt("extra (-1 = preset)", &ed.capture_extra, 0, 0);
+        if (ImGui::InputInt("extra (-1 = preset)", &extra, 0, 0)) set_capture_param(ed, MinifaceCaptureParam::Extra, extra);
     }
     const bool can = st.installed && st.available && !st.busy && !ed.capture_pending && ed.capture_id > 0;
     if (!can) ImGui::BeginDisabled();
@@ -443,27 +536,29 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
     }
 }
 
-static bool load_source_file(MinifaceEditor& ed, const fs::path& f, const std::string& label) {
+static bool load_source_file(MinifaceEditor& ed, const fs::path& f, const std::string& label, bool assign = true) {
     Rgba img;
     std::string err;
     if (!load_image_file(f, img, &err)) {
         ed.error = f.filename().string() + ": " + err;
         return false;
     }
-    set_source(ed, std::move(img), label);
+    set_source(ed, std::move(img), label, assign);
     return true;
 }
 
 // Use a game picture (or the custom file) as the source; waits for it when it is still being exported
-static void source_from_legacy(App& app, MinifaceEditor& ed, const std::string& path, const std::string& label, bool custom_first) {
+static void source_from_legacy(App& app, MinifaceEditor& ed, const std::string& path, const std::string& label, bool custom_first,
+                               bool assign = true) {
     fs::path f;
     switch (app.legacy.locate(path, &f, custom_first)) {
         case LegacyImages::State::Custom:
-        case LegacyImages::State::Game: load_source_file(ed, f, label); break;
+        case LegacyImages::State::Game: load_source_file(ed, f, label, assign); break;
         case LegacyImages::State::Waiting:
             ed.pending_legacy = path;
             ed.pending_label = label;
             ed.pending_custom_first = custom_first;
+            ed.pending_assign = assign;
             ed.error.clear();
             break;
         case LegacyImages::State::Missing: ed.error = label + ": the game has no such picture"; break;
@@ -485,6 +580,78 @@ static void rebuild_result(MinifaceEditor& ed, int size) {
     }
     ed.result = frame_image(*src, size, ed.fr);
     ed.built = ed.version;
+}
+
+// 5.0b-C one-click. A click on a source sets it, rebuilds the preview and writes the file at once through App::write_face_picture (inside an
+// identified career: that career's own copy under turbo_output\careers\<id>\; nothing is written outside a career, the button does it there).
+// Each write keeps the file it replaced in the career's _undo folder (App::UndoStep::Picture); Undo / Restore original use them.
+static bool can_auto_write(App& app, const MinifaceTarget& t) {
+    return career_faces::is_career_id(app.career_faces_wanted()) && career_faces::is_face_path(t.path);
+}
+
+static void service_writes(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
+    if (ed.source.empty() || ed.result.empty() || ed.built != ed.version) return;
+    if (!ed.assign_wanted && !(ed.rewrite_due && ed.auto_active)) return;
+    if (!can_auto_write(app, t)) {
+        ed.assign_wanted = false;
+        ed.rewrite_due = false;
+        return;
+    }
+    const bool assign = ed.assign_wanted;
+    if (!assign && (ImGui::GetTime() < ed.rewrite_at || ImGui::IsMouseDown(0))) return;  // framing: after the last change, once the mouse is up
+    ed.assign_wanted = false;
+    ed.rewrite_due = false;
+    std::vector<uint8_t> dds = encode_dds_dxt5(ed.result);
+    std::string err;
+    App::UndoStep::Picture rec;
+    if (dds.empty()) {
+        app.notify("the new miniface could not be encoded", true);
+        return;
+    }
+    if (!app.write_face_picture(t.path, dds, &err, &rec)) {
+        ed.auto_active = false;
+        app.notify("miniface: " + err, true);
+        return;
+    }
+    app.textures.forget(app.legacy.custom_file(t.path));
+    const MinifaceWritePlan pl = miniface_write_plan(app.career_faces_paths(), t.manager, t.id, t.headassetid, app.career_faces_wanted());
+    ed.written_path = career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), t.path).u8string();
+    ed.wrote = true;
+    if (assign) {
+        ed.steps.push_back(rec);
+        ed.auto_active = true;
+        ++ed.auto_writes;
+        app.notify("Miniface set for this career (Undo is under the picture)");
+    } else {
+        // a re-write after a framing change: the step of the click keeps the file it replaced; this write's own backup is not needed
+        if (!rec.backup.empty()) {
+            std::error_code ec;
+            fs::remove(rec.backup, ec);
+        }
+        ++ed.rewrites;
+    }
+}
+
+// Undo the last `n` writes of this session (n = steps: Restore original)
+static void undo_writes(App& app, MinifaceEditor& ed, const MinifaceTarget& t, size_t n) {
+    ed.rewrite_due = false;
+    ed.assign_wanted = false;
+    ed.auto_active = false;  // the file is not the preview any more: a framing change must not write it back
+    size_t done = 0;
+    while (done < n && !ed.steps.empty()) {
+        std::string err;
+        if (!app.undo_face_picture(ed.steps.back(), &err)) {
+            app.notify("miniface: " + err, true);
+            break;
+        }
+        ed.steps.pop_back();
+        ++done;
+    }
+    ed.wrote = !ed.steps.empty();
+    if (done) {
+        app.textures.forget(app.legacy.custom_file(t.path));
+        app.notify(ed.steps.empty() ? "Miniface back to what it was before" : "Miniface put back");
+    }
 }
 
 // Small searchable list of players; returns the chosen player id or 0
@@ -595,7 +762,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         LegacyImages::State st = app.legacy.locate(ed.pending_legacy, &f, ed.pending_custom_first);
         if (st == LegacyImages::State::Game || st == LegacyImages::State::Custom) {
             std::string lbl = ed.pending_label;
-            load_source_file(ed, f, lbl);
+            load_source_file(ed, f, lbl, ed.pending_assign);
         } else if (st == LegacyImages::State::Missing) {
             ed.error = ed.pending_label + ": the game has no such picture";
             ed.pending_legacy.clear();
@@ -623,11 +790,14 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         ImGui::SetTooltip("%s", now_state == LegacyImages::State::Custom
                                     ? "Read the custom file again"
                                     : "Ask the game for its picture again (the cached copy is dropped and exported anew)");
+    // 5.0b-C: the body type goes with the picture (players and managers alike): one button, the same gallery as the Details page
+    if (t.table != nullptr) bodytype_gallery_button(app, *t.table, t.rec, t.manager);
     ImGui::EndGroup();
     ImGui::SameLine(0, S(24.0f));
 
     // ---- new miniface preview
     rebuild_result(ed, size);
+    service_writes(app, ed, t);  // 5.0b-C: a click on a source wrote nothing yet: now (the preview is built)
     ImGui::BeginGroup();
     ImGui::TextUnformatted("New");
     if (ed.source.empty()) {
@@ -651,11 +821,11 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             ImVec2 d = ImGui::GetIO().MouseDelta;
             ed.fr.dx = std::clamp(ed.fr.dx + d.x / big, -1.5f, 1.5f);
             ed.fr.dy = std::clamp(ed.fr.dy + d.y / big, -1.5f, 1.5f);
-            if (d.x != 0.0f || d.y != 0.0f) ++ed.version;
+            if (d.x != 0.0f || d.y != 0.0f) framing_changed(ed);
         }
         if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f) {
             ed.fr.zoom = std::clamp(ed.fr.zoom * std::pow(1.1f, ImGui::GetIO().MouseWheel), 0.2f, 6.0f);
-            ++ed.version;
+            framing_changed(ed);
         }
         ImGui::TextDisabled("%s", ed.source_label.c_str());
     }
@@ -665,24 +835,24 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
     ImGui::BeginGroup();
     ImGui::TextUnformatted("Framing");
     ImGui::SetNextItemWidth(S(180.0f));
-    if (ImGui::SliderFloat("Size", &ed.fr.zoom, 0.2f, 6.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) ++ed.version;
+    if (ImGui::SliderFloat("Size", &ed.fr.zoom, 0.2f, 6.0f, "%.2f", ImGuiSliderFlags_Logarithmic)) framing_changed(ed);
     ImGui::SetNextItemWidth(S(180.0f));
-    if (ImGui::SliderFloat("Left-right", &ed.fr.dx, -1.5f, 1.5f, "%.2f")) ++ed.version;
+    if (ImGui::SliderFloat("Left-right", &ed.fr.dx, -1.5f, 1.5f, "%.2f")) framing_changed(ed);
     ImGui::SetNextItemWidth(S(180.0f));
-    if (ImGui::SliderFloat("Up-down", &ed.fr.dy, -1.5f, 1.5f, "%.2f")) ++ed.version;
-    if (ImGui::Checkbox("Remove plain background", &ed.remove_bg)) ++ed.version;
+    if (ImGui::SliderFloat("Up-down", &ed.fr.dy, -1.5f, 1.5f, "%.2f")) framing_changed(ed);
+    if (ImGui::Checkbox("Remove plain background", &ed.remove_bg)) framing_changed(ed);  // 5.0b-C: only he ticks it; no code does
     if (ed.remove_bg) {
         ImGui::SetNextItemWidth(S(180.0f));
-        if (ImGui::SliderInt("Tolerance", &ed.tolerance, 5, 120)) ++ed.version;
+        if (ImGui::SliderInt("Tolerance", &ed.tolerance, 5, 120)) framing_changed(ed);
     }
     if (ImGui::SmallButton("Reset framing")) {
         ed.fr = Framing();
-        ++ed.version;
+        framing_changed(ed);
     }
     ImGui::Spacing();
     bool can_save = !ed.source.empty() && !ed.result.empty();
     if (!can_save) ImGui::BeginDisabled();
-    if (ImGui::Button("Save as miniface")) {
+    if (ImGui::Button(ed.wrote ? "Save again" : "Save as miniface")) {
         std::vector<uint8_t> dds = encode_dds_dxt5(ed.result);
         std::string err;
         App::UndoStep::Picture rec;
@@ -691,6 +861,9 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         } else if (app.write_face_picture(t.path, dds, &err, &rec)) {  // 2.19: in a career, that career's own copy only
             fs::path written = app.legacy.custom_file(t.path);
             app.textures.forget(written);
+            ed.steps.push_back(rec);  // 5.0b-C: the button's write can be undone like a click's
+            ed.wrote = true;
+            ed.rewrite_due = false;
             if (!rec.career.empty())
                 app.notify("miniface written for this career only; other careers and the squad file keep theirs");
             else
@@ -700,6 +873,16 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         }
     }
     if (!can_save) ImGui::EndDisabled();
+    // 5.0b-C: Undo of the last write of this session; Restore original brings back what the career had before the first one
+    if (!ed.steps.empty()) {
+        if (ImGui::Button("Undo##mfundo")) undo_writes(app, ed, t, 1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Put the miniface back as it was before the last change");
+        if (ed.steps.size() >= 2) {
+            ImGui::SameLine();
+            if (ImGui::Button("Restore original##mforig")) undo_writes(app, ed, t, ed.steps.size());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Undo every change made in this editor since it opened");
+        }
+    }
     // a custom file under the path this editor writes (a manager's "Now" can be another of his pictures)
     bool has_custom = now_state == LegacyImages::State::Custom && now_path == t.path;
     if (!has_custom) ImGui::BeginDisabled();
@@ -778,7 +961,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             fs::path chosen;
             if (file_browser_modal("##browser", ed.browse_dir, chosen)) {
                 ed.browse_dir = chosen.parent_path();
-                load_source_file(ed, chosen, chosen.filename().string());
+                load_source_file(ed, chosen, chosen.filename().string(), false);  // 5.0b-C: a picture file is framed first; "Save as miniface" writes it
             }
             ImGui::SameLine();
             ImGui::TextDisabled("Turbo minifaces folder:");
@@ -796,7 +979,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             ImGui::BeginChild("##mffiles", ImVec2(0, S(140.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
             if (files.empty()) ImGui::TextDisabled("(empty)");
             for (const auto& f : files) {
-                if (ImGui::Selectable(f.filename().string().c_str())) load_source_file(ed, f, f.filename().string());
+                if (ImGui::Selectable(f.filename().string().c_str())) load_source_file(ed, f, f.filename().string(), false);
             }
             ImGui::EndChild();
             ImGui::EndTabItem();
@@ -829,8 +1012,17 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             }
             ImGui::EndTabItem();
         }
+        if (t.manager && ImGui::BeginTabItem("Head model / youth face")) {
+            ImGui::BeginDisabled();
+            ImGui::Button("From his head model's miniface");
+            ImGui::SameLine();
+            ImGui::Button("From his youth face");
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Not for managers: the game has no head-model miniface or youth face for them. Use A player's miniface, the catalog or The 3D model.");
+            ImGui::EndTabItem();
+        }
         if (t.manager && ImGui::BeginTabItem("The current one")) {
-            if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, now_path, "current miniface", true);
+            if (ImGui::Button("Start from the current miniface")) source_from_legacy(app, ed, now_path, "current miniface", true, false);  // a starting point to frame, not a new miniface
             ImGui::EndTabItem();
         }
         // catalog sources (none when the catalog is off or not loaded: the tabs are exactly 2.0's)
@@ -847,13 +1039,24 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         }
         ImGui::EndTabBar();
     }
+    {
+        // 5.0b-C: where the file goes (the old line said mods\legacy even inside a career, where the career's own folder is written)
+        std::string why;
+        const MinifaceWritePlan pl = miniface_write_plan(app.career_faces_paths(), t.manager, t.id, t.headassetid, app.career_faces_wanted());
+        if (career_faces::is_face_path(t.path) && app.career_faces_refused(&why))
+            ImGui::TextColored(kWarn, "%s", why.c_str());
+        else if (pl.career_scoped)
+            ImGui::TextDisabled("%s miniface, %d x %d DXT5. Saved for this career only: %s. Other careers and the squad file keep theirs.%s",
+                                t.manager ? "Manager" : "Player", pl.size, pl.size,
+                                career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), t.path).string().c_str(),
+                                t.manager ? " Now showing the manager's own picture." : "");
+        else
+            ImGui::TextDisabled("%s miniface, %d x %d DXT5. No career is loaded: saved to the shared Live Editor file %s (every career and the squad file).",
+                                t.manager ? "Manager" : "Player", pl.size, pl.size, career_faces::mods_file(app.career_faces_paths(), t.path).string().c_str());
+    }
     if (t.manager)
-        ImGui::TextDisabled("manager miniface (512 x 512): saved as %s, his own picture (the game ships its staff pictures under "
-                            "the managerid); now showing %s",
-                            t.path.c_str(), now_path.c_str());
-    else
-        ImGui::TextDisabled("Saved to <Live Editor>\\mods\\legacy\\%s (256 x 256 DXT5). The game shows it the next time the screen is drawn.",
-                            t.path.c_str());
+        ImGui::TextDisabled("Changing headassetid on the Details page leaves his miniface as it is: Choose a real face changes both together. Now showing %s.",
+                            now_path.c_str());
 }
 
 
