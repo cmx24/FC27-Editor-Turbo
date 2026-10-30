@@ -19,6 +19,7 @@
 // their own code in App::load_gui_settings / save_gui_settings.
 #pragma once
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <string>
 
@@ -110,7 +111,8 @@ inline const char* unproven_banner_text() {
 //   missing block / maximized true / a rectangle that is off-screen or smaller than 800x600  ->  the window covers the whole
 //   viewport ("maximized"); maximized false with a usable rectangle  ->  that rectangle. x,y,w,h are the last NON-maximized
 //   rectangle (what Restore returns to). THE SETTING WINS over Dear ImGui's turbo_gui_layout_v2.ini for the main panel: the
-//   panel is created with NoSavedSettings and App::draw_main sets its place and size with ImGuiCond_Always on the first frame.
+//   panel has no NoSavedSettings (its tables would lose their saved column widths), so the ini also holds a position and size for it,
+//   but App::draw_main sets its place and size from this block with ImGuiCond_Always on the first frame, which overrides the ini's.
 // Pure (no ImGui), so the native tests check the round trip and the fall-backs.
 struct WindowRect {
     float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
@@ -122,15 +124,23 @@ constexpr float kWindowSoftMinW = 480.0f, kWindowSoftMinH = 320.0f;  // what the
 
 // A rectangle worth restoring on a viewport dw x dh: finite, at least 800x600, not bigger than the viewport (a layout saved on a
 // bigger screen), and its title strip reachable (top edge inside the viewport, at least 200 px of width and 100 px of height visible)
-inline bool window_rect_usable(const WindowRect& r, float dw, float dh, float min_w = kWindowMinW, float min_h = kWindowMinH) {
-    if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) || !std::isfinite(r.h)) return false;
-    if (!(dw > 0.0f) || !(dh > 0.0f)) return false;
-    if (r.w < min_w || r.h < min_h) return false;
-    if (r.w > dw + 2.0f || r.h > dh + 2.0f) return false;
-    if (r.y < 0.0f || r.y > dh - 100.0f) return false;
-    if (r.x + r.w < 200.0f || r.x > dw - 200.0f) return false;
-    return true;
+// 5.0 T7: the reason a rectangle is not usable (nullptr = usable), for the window log line; window_rect_usable is exactly "no reason"
+inline const char* window_rect_reject_reason(const WindowRect& r, float dw, float dh, float min_w = kWindowMinW, float min_h = kWindowMinH) {
+    if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) || !std::isfinite(r.h)) return "not a number";
+    if (!(dw > 0.0f) || !(dh > 0.0f)) return "no game screen size yet";
+    if (r.w < min_w || r.h < min_h) return "smaller than the minimum";
+    if (r.w > dw + 2.0f || r.h > dh + 2.0f) return "larger than the game screen";
+    if (r.y < 0.0f || r.y > dh - 100.0f) return "title strip off the screen";
+    if (r.x + r.w < 200.0f || r.x > dw - 200.0f) return "too little of it on the screen";
+    return nullptr;
 }
+inline bool window_rect_usable(const WindowRect& r, float dw, float dh, float min_w = kWindowMinW, float min_h = kWindowMinH) {
+    return window_rect_reject_reason(r, dw, dh, min_w, min_h) == nullptr;
+}
+// 5.0 T7 D3: a rectangle as big as the viewport (within the 2 px the usable check allows). Restore never returns to one: the panel would
+// look unchanged, and with any offset its right and bottom edges and its resize grip are off the screen (Cassio's 10-26 file holds
+// {17, 5, 2560, 1600} on a 2560x1600 screen)
+inline bool window_rect_covers(const WindowRect& r, float dw, float dh) { return r.w >= dw - 2.0f && r.h >= dh - 2.0f; }
 
 struct WindowPrefs {
     bool maximized = true;   // default: the whole viewport
@@ -183,12 +193,19 @@ struct WindowPlan {
 };
 // What to put on screen. `restoring` = the Restore button: the stored rectangle if usable, else `dflt`, and never maximized.
 // (Restore accepts any rectangle the panel allows, 480x320 and up.) Otherwise (start): maximized unless the stored choice is a usable rectangle.
+// 5.0 T7 D3: Restore never returns to a rectangle that covers the viewport (window_rect_covers: `dflt` instead), and a stored rectangle that
+// sticks out past the right or bottom edge is moved back onto the screen, so its bottom-right resize grip can be reached. The start plan is unchanged.
 inline WindowPlan window_plan(const WindowPrefs& p, float dw, float dh, bool restoring, const WindowRect& dflt) {
     WindowPlan out;
     const WindowRect full{0.0f, 0.0f, dw, dh};
     if (restoring) {
         out.maximized = false;
-        out.rect = p.has_rect && window_rect_usable(p.rect, dw, dh, kWindowSoftMinW, kWindowSoftMinH) ? p.rect : dflt;
+        out.rect = dflt;
+        if (p.has_rect && window_rect_usable(p.rect, dw, dh, kWindowSoftMinW, kWindowSoftMinH) && !window_rect_covers(p.rect, dw, dh)) {
+            out.rect = p.rect;
+            if (out.rect.x + out.rect.w > dw) out.rect.x = std::fmax(0.0f, dw - out.rect.w);
+            if (out.rect.y + out.rect.h > dh) out.rect.y = std::fmax(0.0f, dh - out.rect.h);
+        }
         return out;
     }
     if (p.maximized || !p.has_rect || !window_rect_usable(p.rect, dw, dh)) {
@@ -216,6 +233,11 @@ struct WindowTracker {
     bool pending_save = false;
     double changed_at = 0.0;
     static constexpr double kDebounce = 0.6;  // seconds the rectangle must rest (and the mouse button be up) before the file is written
+    // 5.0 T7 D1: the start plan fell back to maximized because the stored rectangle is not usable on this screen (a smaller game resolution,
+    // a rectangle under 800x600). The stored choice (maximized false + the rectangle) is kept: GuiPrefs::save writes maximized false while
+    // this holds, and a later viewport change tries the rectangle again. Cleared by Restore and by a move or resize out of maximized.
+    bool fell_back = false;
+    int last_frame = -1;  // the Dear ImGui frame the panel was last drawn in: a gap = it was hidden and is shown again (the "window shown" log line)
 
     // Does the window need to be placed this frame?
     bool need_apply(bool maximized, float dw, float dh) const {
@@ -237,6 +259,28 @@ struct WindowTracker {
         return false;
     }
 };
+
+// 5.0 T7 (Cassio 10-26 14:33: "window resizing not being saved"; no build had a window log line): one line for the in-app Log and
+// turbo_gui.log, written when the panel is placed (start, Maximize / Restore, a new game screen size), saved, or shown again after being
+// hidden. Never per frame. `on_screen` is the panel's rectangle, `stored` + `fell_back` what the file holds (GuiPrefs::save), and the
+// verdict is window_rect_usable at start for that stored rectangle on the dw x dh game screen (the overlay's work area), with its reason.
+//   window placed: 2560x1600 at 0,0, maximized; game screen 2560x1600; stored 2560x1600 at 17,5, maximized yes; stored rectangle usable
+inline std::string window_log_line(const char* what, const WindowRect& on_screen, bool on_screen_maximized, float dw, float dh,
+                                   const WindowPrefs& stored, bool fell_back) {
+    char buf[384];
+    const bool stored_max = stored.maximized && !fell_back;
+    char st[128];
+    if (stored.has_rect)
+        std::snprintf(st, sizeof st, "stored %.0fx%.0f at %.0f,%.0f, maximized %s", stored.rect.w, stored.rect.h, stored.rect.x, stored.rect.y,
+                      stored_max ? "yes" : "no");
+    else
+        std::snprintf(st, sizeof st, "no rectangle stored, maximized %s", stored_max ? "yes" : "no");
+    const char* why = stored.has_rect ? window_rect_reject_reason(stored.rect, dw, dh) : "nothing stored";
+    std::snprintf(buf, sizeof buf, "%s: %.0fx%.0f at %.0f,%.0f, %s; game screen %.0fx%.0f; %s; stored rectangle %s%s%s", what, on_screen.w, on_screen.h,
+                  on_screen.x, on_screen.y, on_screen_maximized ? "maximized" : "not maximized", dw, dh, st, why ? "not usable: " : "usable",
+                  why ? why : "", fell_back ? " (the panel covers the screen; the file keeps the rectangle)" : "");
+    return buf;
+}
 
 // "3.0.0" < "3.0.1" < "3.10.0": numeric per dot-separated part; a missing part is 0, non-digits end a part
 inline int gui_version_compare(const std::string& a, const std::string& b) {
@@ -369,7 +413,10 @@ struct GuiPrefs {
         g["sections_open"] = so;
         g["rail_collapsed"] = rail_collapsed;
         g["version"] = kShellGuiVersion;
-        window.save(gui_settings);
+        // 5.0 T7 D1: a start that fell back to maximized does not overwrite the stored choice (WindowTracker::fell_back)
+        WindowPrefs w = window;
+        if (window_rt.fell_back) w.maximized = false;
+        w.save(gui_settings);
     }
 };
 

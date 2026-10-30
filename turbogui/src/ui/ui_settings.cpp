@@ -1,4 +1,4 @@
-// FC 27 LE Turbo GUI - Settings area, the one page (3.0 track C): Look and feel, Pictures, Show / hide key, the connection and
+// FC 27 LE Turbo GUI - Settings area, the one page (3.0 track C): Look and feel, Pictures, Show / hide key, Layout (5.0b-B), the connection and
 // health summary (technical details collapsed), the log (collapsed), and at the bottom the switch that shows the Lab and the
 // one for the old pages. The health pieces are the old Status tab's, drawn by ui_tools.cpp.
 #include "app.h"
@@ -57,6 +57,51 @@ void draw_show_hide_key(App& app) {
     note("The key that shows and hides Turbo while you play.");
 }
 
+// 5.0b-B "Layout": Turbo remembers the window, every table column and every resizable pane (core/layout_store.h writes the ini, the log says
+// "layout saved:"). Reset layout asks first (Cancel is the default button) and keeps the old file as a backup, so Undo reset can put it back.
+// Restore window to default is the Restore path of the title strip with the first-use size (App::restore_window_default).
+void draw_layout(App& app) {
+    const float bh = S(44.0f);  // buttons >= 44 px (accessibility), plain words
+    ImGui::PushTextWrapPos(0.0f);  // the sentences wrap in a narrow panel instead of running off its edge
+    note("Turbo remembers the size and place of this window, the width of every table column and the panes you drag, and brings them back when the game starts again.");
+    if (app.layout.configured()) ImGui::TextDisabled("Layout saved %d time%s since the game started.", app.layout.saves_written(), app.layout.saves_written() == 1 ? "" : "s");
+    ImGui::Spacing();
+    if (ImGui::Button("Restore window to default###layout_window", ImVec2(0, bh))) app.restore_window_default();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The Turbo window goes back to its first-use size and place, not maximized");
+    note("Puts only this window back to its first-use size and place. Columns and panes stay as you set them.");
+    ImGui::Spacing();
+    const bool can_reset = app.layout.configured() && !app.layout.can_undo();
+    ImGui::BeginDisabled(!can_reset);
+    if (ImGui::Button("Reset layout###layout_reset", ImVec2(0, bh))) ImGui::OpenPopup("Reset layout?###layout_reset_confirm");
+    ImGui::EndDisabled();
+    if (app.layout.can_undo()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Undo reset###layout_undo", ImVec2(0, bh))) app.undo_reset_layout();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Puts your saved column widths and pane sizes back");
+        theme::warn_text("Layout reset. The default sizes apply the next time the game starts. Until then your changes are not saved; Undo reset brings your layout back.");
+    } else if (!app.layout.configured()) {
+        note("Layout saving is not running, so there is nothing to reset.");
+    } else {
+        note("Puts every column width and pane size back to the default. Your current layout is kept as a backup file, and Undo reset brings it back.");
+    }
+    ImGui::PopTextWrapPos();
+    ImVec2 centre = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(centre, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Reset layout?###layout_reset_confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Every column width and pane size goes back to the default the next time the game starts.");
+        ImGui::TextUnformatted("Your current layout is kept as a backup. Undo reset puts it back while Turbo is open.");
+        ImGui::Spacing();
+        if (ImGui::Button("Cancel###layout_reset_cancel", ImVec2(S(140.0f), bh))) ImGui::CloseCurrentPopup();
+        ImGui::SetItemDefaultFocus();  // the safe button has the keyboard focus
+        ImGui::SameLine();
+        if (ImGui::Button("Reset layout###layout_reset_go", ImVec2(S(160.0f), bh))) {
+            app.reset_layout();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 // The two switches at the bottom: the Lab and the old pages
 void draw_lab_switches(App& app) {
     ImGui::Separator();
@@ -79,6 +124,10 @@ void draw_settings_page(App& app) {
     }
     if (collapsing_section(app, "settings.hotkey", "Show / hide key", true)) {
         draw_show_hide_key(app);
+        ImGui::Spacing();
+    }
+    if (collapsing_section(app, "settings.layout", "Layout", true)) {
+        draw_layout(app);
         ImGui::Spacing();
     }
     if (collapsing_section(app, "settings.link", "Connection to the game", true)) {

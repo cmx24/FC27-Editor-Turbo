@@ -25,6 +25,7 @@
 #include "core/fce_standings.h"
 #include "core/kit_swap.h"
 #include "core/lua_loader.h"
+#include "core/layout_store.h"
 #include "core/legacy.h"
 #include "core/match_setup.h"
 #include "core/mem.h"
@@ -461,6 +462,15 @@ public:
 
     void load_gui_settings();
     bool save_gui_settings();
+
+    // ---- 5.0b-B layout (core/layout_store.h): the Dear ImGui ini text (column widths, pane sizes, window blocks) is owned here, not by ImGui.
+    // The overlay gives it a file sink (turbo_output/turbo_gui_layout_v2.ini, the same file as before) and loads it once; draw() pumps it every
+    // frame. Settings > Layout: reset_layout() (after its confirm; the file is parked as .bak-<stamp>), undo_reset_layout(), restore_window_default().
+    LayoutStore layout;
+    bool reset_layout();
+    bool undo_reset_layout();
+    std::map<std::string, float> layout_splits_parked_;  // the pane widths (gui.splits) set aside by Reset layout, put back by Undo reset
+    void restore_window_default();  // the Restore path (gui_prefs.h window_plan, T7 D3) with no stored rectangle: the first-use size, not maximized
 
     // ---- game asset catalog (core/asset_catalog.h, docs/asset-catalog.md): loaded on a worker thread at the first tick
     // and again when turbo_output\asset_catalog changes (a rebuilt catalog, a switch file added or removed; polled every

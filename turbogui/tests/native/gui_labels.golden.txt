@@ -775,17 +775,17 @@ ui_looks_studio.cpp	-	###lsdraw	1
 ui_looks_studio.cpp	-	###lsundo	1
 ui_looks_studio.cpp	-	##bt	1
 ui_looks_studio.cpp	-	##lsbody	1
+ui_looks_studio.cpp	-	##lscards	1
 ui_looks_studio.cpp	-	##lsface	1
 ui_looks_studio.cpp	-	##lsgear	1
 ui_looks_studio.cpp	-	##lshair	1
 ui_looks_studio.cpp	-	##lskit	1
+ui_looks_studio.cpp	-	##lslist	1
 ui_looks_studio.cpp	-	##lsm	1
 ui_looks_studio.cpp	-	##lsminiface	1
 ui_looks_studio.cpp	-	##lsp	1
+ui_looks_studio.cpp	-	##lspreview	1
 ui_looks_studio.cpp	-	##lstattoo	1
-ui_looks_studio.cpp	BeginChild	##lscards	1
-ui_looks_studio.cpp	BeginChild	##lslist	1
-ui_looks_studio.cpp	BeginChild	##lspreview	1
 ui_looks_studio.cpp	BeginChild	##lsrows	1
 ui_looks_studio.cpp	BeginCombo	##lv	1
 ui_looks_studio.cpp	Button	###lsface	1
@@ -994,6 +994,7 @@ ui_players.cpp	-	##fteam	1
 ui_players.cpp	-	##hl	1
 ui_players.cpp	-	##ovrgrid	1
 ui_players.cpp	-	##pall	1
+ui_players.cpp	-	##plist	1
 ui_players.cpp	-	##pos	1
 ui_players.cpp	-	##profgrid	1
 ui_players.cpp	-	##rolegrid	1
@@ -1012,7 +1013,6 @@ ui_players.cpp	BeginChild	##con	1
 ui_players.cpp	BeginChild	##mface	1
 ui_players.cpp	BeginChild	##pedit	1
 ui_players.cpp	BeginChild	##pgrowth	1
-ui_players.cpp	BeginChild	##plist	1
 ui_players.cpp	BeginChild	##pnames	1
 ui_players.cpp	BeginChild	##prof	1
 ui_players.cpp	BeginChild	##ps	1
@@ -1207,10 +1207,17 @@ ui_role_rules.cpp	Selectable	Leave alone	1
 ui_role_rules.cpp	checkbox_right	Re-apply after season reset	1
 ui_setpiece_card.cpp	PushID	setpiece_card	1
 ui_settings.cpp	BeginChild	##settings_log	1
+ui_settings.cpp	BeginPopupModal	###layout_reset_confirm	1
+ui_settings.cpp	Button	###layout_reset	1
+ui_settings.cpp	Button	###layout_reset_cancel	1
+ui_settings.cpp	Button	###layout_reset_go	1
+ui_settings.cpp	Button	###layout_undo	1
+ui_settings.cpp	Button	###layout_window	1
 ui_settings.cpp	Button	###reload	1
 ui_settings.cpp	Checkbox	###advview	1
 ui_settings.cpp	Checkbox	###legacypages	1
 ui_settings.cpp	Checkbox	###preload	1
+ui_settings.cpp	OpenPopup	###layout_reset_confirm	1
 ui_shell.cpp	-	##select	1
 ui_shell.cpp	BeginChild	##editor	1
 ui_shell.cpp	BeginChild	##selectrail	1

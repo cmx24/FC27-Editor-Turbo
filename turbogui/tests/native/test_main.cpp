@@ -3050,6 +3050,10 @@ const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*, ImGuiID id) {
 // 2026-10-16: a page test draws its own window after the app (test_club_page.h); null = nothing
 static void (*g_ui_extra)(turbo::App&) = nullptr;
 
+// 5.0 T7 (test_gui50_window_rect.h): the game screen size a case runs on. ImGui_ImplNullPlatform_NewFrame sets io.DisplaySize to 1920x1080 at
+// every frame (third_party/imgui/backends/imgui_impl_null.cpp), so a size set before Ui::frames() was lost after one frame; 0,0 = the backend's size.
+static ImVec2 g_display_override(0.0f, 0.0f);
+
 // 3.0.1: the label match of Ui::find, shared with Ui::find_scrolling: the exact label, the "###stable_id" form of "Text###stable_id", or a widget that
 // reports no label (a combo) whose ID the label hashes to. find_scrolling matched only the exact label, so a header below the fold of a 3.0 page
 // (taller than the 2.x pages) was found by "###ab_attrs" when visible and not found, instead of scrolled to, when hidden.
@@ -3068,6 +3072,7 @@ public:
 
     void frame() {
         ImGui_ImplNull_NewFrame();
+        if (g_display_override.x > 0.0f && g_display_override.y > 0.0f) ImGui::GetIO().DisplaySize = g_display_override;  // 5.0 T7
         ImGui::NewFrame();
         ++g_frame;
         app.tick(t);
@@ -3264,6 +3269,8 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_preload_hotkey.h"  // 1.1.1: show/hide key setting, background loading
 #include "test_ux_resize.h"  // 2026-10-11: table registry + resizable panes, preload order / cancellation, gui prefs
 #include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
+#include "test_gui50_window_rect.h"  // 5.0 T7: Cassio's gui.window replayed (resize kept, Restore fits the screen, stored choice kept, window log lines)
+#include "test_layout_store.h"  // 5.0b-B: the layout store (ImGui ini owned by Turbo), converted panes, Settings > Layout
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -9905,6 +9912,7 @@ static void test_ui() {
         calc_ovr_test::ui_cases(app, ui, le);  // test_calc_ovr.h: Calc OVR / Delta columns (2.22 calc-ovr)
         ovr_mask_test::ui_cases(app, ui);  // test_ovr_mask.h: Shown OVR (display only) store + header field (3.2 calc-ovr)
         shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
+        layout_store_test::ui_cases(app, ui, le);  // test_layout_store.h (5.0b-B): Settings > Layout on the real App (before test_shell_app clears the registry; test_gameplay_page leaves it empty)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
@@ -9934,6 +9942,7 @@ static void test_ui() {
         test_bodytypes_ui(app, ui, le);  // test_bodytypes.h
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
         resize_ui_test::ui_cases(app, ui, le);  // test_ux_resize.h (2.22 G-resize): divider, window drags with the mouse; Row height; Refresh
+        gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 
@@ -15716,6 +15725,8 @@ int main(int argc, char** argv) {
     test_hotkey_and_background();
     test_ux_resize();  // test_ux_resize.h
     window_settings_test::run();  // test_window_settings.h (pure cases)
+    gui50_window_rect_test::run();  // test_gui50_window_rect.h (pure cases, D3)
+    layout_store_test::run();  // test_layout_store.h (5.0b-B: own-context cases, file sink, source scans)
     test_shell();  // test_shell.h: shell contract (pure cases)
     nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)

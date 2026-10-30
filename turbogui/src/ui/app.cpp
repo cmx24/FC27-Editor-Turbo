@@ -169,6 +169,46 @@ void App::log(const std::string& text) {
     while (log_lines.size() > 300) log_lines.pop_front();
 }
 
+// ---- 5.0b-B Settings > Layout (ui_settings.cpp)
+bool App::reset_layout() {
+    if (!layout.reset(LayoutStore::stamp_now())) {
+        notify("The layout could not be reset", true);
+        return false;
+    }
+    // the panes kept in gui_settings.json (gui.splits: the Appearance and Players panes, the shell's) go back to their defaults with the rest
+    layout_splits_parked_ = prefs.splits.widths;
+    prefs.splits.widths.clear();
+    prefs.splits.dirty = true;
+    notify("Layout reset. The default sizes apply the next time the game starts; Undo reset puts yours back.");
+    return true;
+}
+
+bool App::undo_reset_layout() {
+    const bool was_reset = layout.can_undo();
+    const bool restored = layout.undo_reset(now);
+    if (was_reset) {  // the pane widths come back whether or not the ini could be written back
+        prefs.splits.widths = layout_splits_parked_;
+        layout_splits_parked_.clear();
+        prefs.splits.dirty = true;
+    }
+    if (!restored) {
+        notify("The old layout could not be put back", true);
+        return false;
+    }
+    notify("Your layout is back");
+    return true;
+}
+
+void App::restore_window_default() {
+    WindowTracker& wt = prefs.window_rt;
+    prefs.window.has_rect = false;  // window_plan(restoring) then returns the first-use size (never the stored one) and is never maximized
+    wt.restoring = true;
+    wt.apply_pending = true;
+    wt.save_on_apply = true;  // written once the placement has settled; the log line "window placed by Restore" / "window saved" says so
+    wt.fell_back = false;
+    log("window: restoring the default size (Settings > Layout)");
+}
+
 void App::notify(const std::string& text, bool error) {
     log((error ? "ERROR: " : "") + text);
     toasts.push_back({text, error, now + (error ? 6.0 : 3.5)});
@@ -2042,6 +2082,8 @@ void App::draw() {
     tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
     looks::tick_looks_studio(*this);  // 2.17 looks U: a picture answer that arrives after the person left the page frees the capture service
 
+    layout.frame(visible, now);  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden
+
     if (!visible) return;
 
     // First use: 1180x760 or 90% of the screen, whichever is smaller; never larger than the screen (smaller windowed
@@ -2061,15 +2103,31 @@ void App::draw() {
     if (win_known && wtrack.need_apply(wprefs.maximized, ds.x, ds.y)) {
         const WindowRect dflt{std::min(S(60.0f), max_w * 0.04f), std::min(S(60.0f), max_h * 0.05f),
                               std::min(S(1180.0f), max_w * 0.9f), std::min(S(760.0f), max_h * 0.88f)};
-        const WindowPlan plan = window_plan(wprefs, ds.x, ds.y, wtrack.restoring, dflt);
+        // 5.0 T7 D1: a start that falls back to maximized (the stored rectangle is not usable on this screen) keeps the stored choice
+        // (WindowTracker::fell_back: the file keeps maximized false, and a later viewport change tries the rectangle again)
+        WindowPrefs choice = wprefs;
+        if (wtrack.fell_back) choice.maximized = false;
+        const bool by_restore = wtrack.restoring;
+        const WindowPlan plan = window_plan(choice, ds.x, ds.y, by_restore, dflt);
+        wtrack.fell_back = !by_restore && !choice.maximized && plan.maximized;
         wprefs.maximized = plan.maximized;
         if (!plan.maximized) { wprefs.rect = plan.rect; wprefs.has_rect = true; }
         ImGui::SetNextWindowPos(ImVec2(plan.rect.x, plan.rect.y), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(plan.rect.w, plan.rect.h), ImGuiCond_Always);
         wtrack.applied(ds.x, ds.y);
+        {   // 5.0 T7: the window log line (turbo_gui.log + the in-app Log), once per placement
+            const std::string wl = window_log_line(by_restore ? "window placed by Restore" : "window placed", plan.rect, plan.maximized, ds.x, ds.y, wprefs,
+                                                   wtrack.fell_back);
+            log(wl);
+            if (log_hook) log_hook(wl);
+        }
         if (wtrack.save_on_apply) {
             wtrack.save_on_apply = false;
-            if (!save_gui_settings()) notify("cannot save the window size", true);
+            const bool saved = save_gui_settings();
+            if (!saved) notify("cannot save the window size", true);
+            const std::string wl = window_log_line(saved ? "window saved" : "window not saved", plan.rect, plan.maximized, ds.x, ds.y, wprefs, wtrack.fell_back);
+            log(wl);
+            if (log_hook) log_hook(wl);
         }
     } else if (ui_scale_changed_from > 0.0f && main_window_size_.x > 0.0f && !wprefs.maximized) {
         // UI size changed: the window grows or shrinks with its contents (clamped below)
@@ -2127,10 +2185,20 @@ void App::draw() {
     }
     {
         const WindowRect cur{ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, main_window_size_.x, main_window_size_.y};
+        {   // 5.0 T7: shown again after being hidden (a gap in the frames the panel was drawn in): one log line with its place and size
+            const int frame_no = ImGui::GetFrameCount();
+            if (wtrack.last_frame >= 0 && frame_no > wtrack.last_frame + 1 && win_known) {
+                const std::string wl = window_log_line("window shown", cur, wprefs.maximized, ds.x, ds.y, wprefs, wtrack.fell_back);
+                log(wl);
+                if (log_hook) log_hook(wl);
+            }
+            wtrack.last_frame = frame_no;
+        }
         if (wprefs.maximized) {
             // moved or resized from code (a test, another feature): it is no longer maximized
             if (!window_is_full(cur, ds.x, ds.y) && !wtrack.apply_pending && win_known) {
                 wprefs.maximized = false;
+                wtrack.fell_back = false;  // 5.0 T7 D1: the person chose a new rectangle
                 wprefs.rect = cur;
                 wprefs.has_rect = true;
                 // start the debounce now: a drag that ends right here (a one-pixel nudge) must still be written once it has rested
@@ -2142,7 +2210,11 @@ void App::draw() {
         } else if (wtrack.observe(cur, now, ImGui::IsMouseDown(0))) {
             wprefs.rect = cur;  // the last place and size the person left it at (written once, not per frame)
             wprefs.has_rect = true;
-            if (!save_gui_settings()) notify("cannot save the window size", true);
+            const bool saved = save_gui_settings();
+            if (!saved) notify("cannot save the window size", true);
+            const std::string wl = window_log_line(saved ? "window saved" : "window not saved", cur, false, ds.x, ds.y, wprefs, wtrack.fell_back);
+            log(wl);
+            if (log_hook) log_hook(wl);
         }
     }
 

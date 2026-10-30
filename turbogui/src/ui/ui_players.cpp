@@ -22,6 +22,7 @@
 #include "ui_club_search.h"
 #include "ui_images.h"
 #include "ui_names.h"
+#include "ui_split.h"
 #include "ui_archetype.h"
 #include "ui_archetype_populate.h"
 #include "ui_presets.h"
@@ -1536,7 +1537,8 @@ void draw_players(App& app) {
     }
     // list width: up to 560 (room for the Nationality column) but never more than ~45% of the window, so the editor's tabs keep their room
     const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
-    ImGui::BeginChild("##plist", ImVec2(list_w, 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
+    // 5.0b-B: the list pane keeps its width in gui_settings.json gui.splits (split::pane_x, key "<page>/##plist"); same child ID as before
+    split::pane_x("##plist", g_ui_scale > 0.0f ? list_w / g_ui_scale : list_w, 300.0f);
     draw_classic_player_list(app);
     ImGui::EndChild();
     ImGui::SameLine();
