@@ -10,6 +10,7 @@
 //   (b2) no dead button: every picker the card would draw opens a non-empty list (the fixture's tables) or has a static catalogue
 //   (d) parity: the hair and beard popup offers the union of what the three pickers it replaced offered (the Gallery list, the visual
 //       picker's list, the 3D band), the band codes round-trip, the reason line of a greyed section is today's text
+//   (e) Home's first row has "Player looks" and "Manager looks": one click opens the Appearance tab with that subject (old tree and 4.0 tree)
 //   (c) is added with the duplicate removal (commit 3 of the track): the number of places that offer a hair or beard choice is 1
 {
     namespace lpk = turbo::look;
@@ -266,5 +267,64 @@
         CHECK(std::strlen(lpk::section_reason(lpk::Section::Game, 1)) == 0, "the Game section is never greyed by the head");
         CHECK(lpk::render_changes("hairtypecode") && lpk::render_changes("skintonecode") && lpk::render_changes("bodytypecode") && !lpk::render_changes("shoetypecode"),
               "the columns that change the 3D head forget its render, the boots do not");
+    });
+
+    // (e) Home tiles (commit 2 of the track): "Player looks" and "Manager looks" on the first row of Home open the Appearance tab with the
+    // subject preset, in ONE click, in the old tree (the Appearance Editor page) and in the 4.0 tree (the Player card's Appearance tab under
+    // its Players / Managers switch). BEHAVIOURAL: each start state is the OTHER subject, so a click that presets nothing is caught.
+    run_case("test_look_pickers (e): Home has Player looks and Manager looks tiles; one click opens the Appearance tab for that subject (old tree and 4.0 tree)", [&] {
+        const bool was_tree = shell::tree40();
+        const bool was_legacy = app.legacy_pages;
+        const bool was_adv = app.prefs.advanced_mode;
+        const int was_tab = shell::player_edit_tab();
+        // Inherited state: test_gameplay_page.h:74 ends its first case with clear_registry_for_tests() and never puts the start-up pages back, so in the
+        // UNFILTERED suite App::draw_pages draws no Home body (Home has no legacy panel) and no studio. The case clears the registry itself, registers what it needs
+        // (Home, the studio) and restores the registry afterwards (c2d_native.txt:1543: Home is the place, only the Back button is submitted).
+        shell::PageFn saved[shell::kPageCount] = {};
+        for (int i = 1; i < shell::kPageCount; ++i) saved[i] = shell::registered_page(static_cast<shell::Page>(i));
+        shell::clear_registry_for_tests();  // always start from the unfiltered suite's state, so a filtered run proves the same path
+        shell::register_page(shell::Page::Home, draw_home);
+        shell::register_page(shell::Page::LooksStudio, looks::draw_looks_studio);
+        app.legacy_pages = false;
+        app.prefs.advanced_mode = false;
+        ui.big_window();  // the cases that change the UI size leave the window small (test_main.cpp:3208): a button past the edge is "not on screen"
+        for (const bool tree : {false, true}) {
+            const std::string where = tree ? "4.0 tree: " : "old tree: ";
+            shell::tree40() = tree;
+            for (const bool managers : {false, true}) {
+                const std::string id = managers ? "###home_manager_looks" : "###home_player_looks";
+                const std::string who = where + (managers ? "Manager looks" : "Player looks") + ": ";
+                looks::looks_studio_show_managers(!managers);  // the studio list starts on the other subject
+                shell::player_edit_tab() = 0;                  // and the Player card on Profile
+                app.go(shell::Page::Home);
+                ui.frames(5);
+                CHECK(ui.find(id.c_str()) != nullptr, who + "the tile is on Home's first row");
+                CHECK(ui.click(id.c_str()), who + "click the tile");
+                ui.frames(6);
+                if (!tree) {
+                    CHECK(app.place() == shell::place_of(shell::Page::LooksStudio), who + "it opened the Appearance Editor");
+                    CHECK((ui.find("###lsmine") != nullptr) == !managers, who + "the list shows " + (managers ? "managers (no My club box)" : "players (My club box)"));
+                } else {
+                    CHECK(app.place() == shell::place_of(shell::Page::PlayerEdit), who + "it opened the Player page");
+                    CHECK(shell::player_edit_tab() == 2, who + "on the Appearance tab, not the one that was left open");
+                    if (managers) {
+                        CHECK(ui.find("###pe40_profile") == nullptr, who + "the Managers tab is selected (the player card is not drawn)");
+                    } else {
+                        CHECK(ui.find("###pe40_profile") != nullptr && ui.find("###lsmine") != nullptr,
+                              who + "the Players tab shows the player card on Appearance, with the players list");
+                    }
+                }
+            }
+        }
+        shell::clear_registry_for_tests();
+        for (int i = 1; i < shell::kPageCount; ++i)
+            if (saved[i]) shell::register_page(static_cast<shell::Page>(i), saved[i]);
+        shell::tree40() = was_tree;
+        app.legacy_pages = was_legacy;
+        app.prefs.advanced_mode = was_adv;
+        shell::player_edit_tab() = was_tab;
+        looks::looks_studio_show_managers(false);
+        app.go(shell::Page::Home);
+        ui.frames(3);
     });
 }

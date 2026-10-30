@@ -8,6 +8,7 @@
 #include "app.h"
 #include "imgui.h"
 #include "ui_changes.h"
+#include "ui_looks_studio.h"
 #include "ui_shell.h"
 #include "ui_team_pages.h"
 #include "ui_theme.h"
@@ -17,6 +18,30 @@ namespace turbo {
 namespace {
 
 HomeState g_home;
+
+// 5.0b-A: "Player looks" / "Manager looks" go to the Appearance tab with that subject, in one click. The 4.0 tree has the Appearance tab on
+// the Player card (tab 2) under its Players / Managers switch; the old tree has the Appearance Editor page, whose list has its own switch.
+void open_looks(App& app, bool managers) {
+    if (shell::tree40()) {
+        shell::player_edit_tab() = 2;
+        shell::player_edit_who() = managers ? 1 : 0;
+        shell::manager_edit_tab() = managers ? 1 : 0;
+        looks::looks_studio_show_managers(false);  // the Players tab's Appearance is the players list; managers have their own tab
+        app.go(shell::Page::PlayerEdit);
+    } else {
+        looks::looks_studio_show_managers(managers);
+        app.go(shell::Page::LooksStudio);
+    }
+}
+
+// 5.0b-A: the next button goes on the same line when it fits in the window, else on the next line (a narrow window, a big UI size, must not clip it:
+// the test harness finds only items whose centre is inside the visible part)
+void same_line_if_fits(const char* label) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::CalcTextSize(label, nullptr, true).x + st.FramePadding.x * 2.0f;
+    const float used = ImGui::GetItemRectMax().x - ImGui::GetCursorScreenPos().x;
+    if (used + st.ItemSpacing.x + w <= ImGui::GetContentRegionAvail().x) ImGui::SameLine();
+}
 
 // A rounded, filled label that is not a button (the status chip)
 void chip(const char* text, const ImVec4& col) {
@@ -84,6 +109,11 @@ void draw_home(App& app) {
     }
     // 10-28 findability (override 6): first row of Home, one click to the Game Type Settings and CPU Sliders page
     if (theme::primary_button("Game settings & CPU sliders###home_game_settings")) app.go(shell::Page::GameplayPresets);
+    // 5.0b-A: the look pickers are one click from Home (the same Look card for a player and for a manager)
+    same_line_if_fits("Player looks");
+    if (theme::primary_button("Player looks###home_player_looks")) open_looks(app, false);
+    same_line_if_fits("Manager looks");
+    if (theme::primary_button("Manager looks###home_manager_looks")) open_looks(app, true);
 
     // (b) My squad
     section_title("My squad");

@@ -93,15 +93,23 @@ static void draw_player_card_40(App& app) {
 
 static void draw_player_edit_40(App& app) {
     if (!ImGui::BeginTabBar("##pe_who")) return;
-    if (ImGui::BeginTabItem("Players###pe_who_players")) {
+    // 5.0b-A: Home's "Manager looks" selects the Managers tab once (shell::player_edit_who(), the SetSelected pattern of the bars below)
+    static int s_who = -1;
+    int& want_who = shell::player_edit_who();
+    const auto who_flag = [&](int i) { return (want_who != s_who && want_who == i) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
+    int now_who = s_who < 0 ? want_who : s_who;
+    if (ImGui::BeginTabItem("Players###pe_who_players", nullptr, who_flag(0))) {
+        now_who = 0;
         draw_player_card_40(app);
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Managers###pe_who_managers")) {
+    if (ImGui::BeginTabItem("Managers###pe_who_managers", nullptr, who_flag(1))) {
+        now_who = 1;
         draw_managers(app);
         ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
+    s_who = want_who = now_who;
 }
 
 static void draw_player_edit(App& app) {
