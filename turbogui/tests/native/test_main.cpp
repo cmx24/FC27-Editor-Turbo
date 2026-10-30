@@ -15641,6 +15641,17 @@ int main(int argc, char** argv) {
     g_out = argv[1];
     g_lua = argv[2];
     turbo::locale_reader_for_tests() = test_locale_it;  // 2.21 CHANGE 8: the native suite never reads the real registry
+    // 2.8: the Game settings tab reads %LOCALAPPDATA%\EA SPORTS FC 27\settings when no test folder is set: never the real one here
+    // (4.0 lang-settings: hoisted to the suite start - the App reads the newest Settings file for the commentary language on every callnames refresh)
+    {
+        const std::string la = (g_out / "tmp" / "localappdata").string();
+        fs::create_directories(la);
+#ifdef _WIN32
+        _putenv_s("LOCALAPPDATA", la.c_str());
+#else
+        setenv("LOCALAPPDATA", la.c_str(), 1);
+#endif
+    }
     std::printf("native core\n");
     test_core();
     test_field_labels();
@@ -15761,16 +15772,6 @@ int main(int argc, char** argv) {
     std::printf("native live team names\n");
     test_team_names_live();
     std::printf("native UI\n");
-    // 2.8: the Game settings tab reads %LOCALAPPDATA%\EA SPORTS FC 27\settings when no test folder is set: never the real one here
-    {
-        const std::string la = (g_out / "tmp" / "localappdata").string();
-        fs::create_directories(la);
-#ifdef _WIN32
-        _putenv_s("LOCALAPPDATA", la.c_str());
-#else
-        setenv("LOCALAPPDATA", la.c_str(), 1);
-#endif
-    }
     g_case = "UI setup";
     try {
         test_ui();

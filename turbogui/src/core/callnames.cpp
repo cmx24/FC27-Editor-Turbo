@@ -10,6 +10,7 @@
 #include <iterator>
 #include <sstream>
 
+#include "game_settings.h"
 #include "nlohmann/json.hpp"
 
 #ifdef _WIN32
@@ -116,9 +117,115 @@ LanguageMatch match_loaded_language(const std::unordered_set<int64_t>& game_spok
     return m;
 }
 
+// ---- 4.0 lang-settings, step b: the commentary language field of the game's Settings file (callnames.h has the table's evidence)
+std::string settings_lang_for_value(uint32_t value) {
+    switch (value) {
+        case 2: return "eng_us";
+        case 1: return "dut_nl";
+        case 3: return "fre_fr";
+        default: return "";  // 5, 10, ...: not known yet, never guessed
+    }
+}
+
+std::string settings_value_proof(uint32_t value) {
+    switch (value) {
+        case 1:
+        case 2: return "controlled in-game switches";
+        case 3: return "Cassio's statement that his loaded language is French and the live Settings20261029212252375";
+        default: return "";
+    }
+}
+
+std::string SettingsLang::note() const {
+    if (!read) return "game settings file: not read (" + why + ")";
+    if (lang.empty())
+        return "game settings file " + file + ": Settings file value " + std::to_string(value) + ": language not known yet (not in the proven table 1 dut_nl, 2 eng_us, 3 fre_fr); "
+               "the next evidence decides: running game, launcher hint, saved answer, registry Locale, eng_us";
+    if (!pack_live)
+        return "game settings file " + file + ": commentary field = " + std::to_string(value) + " -> " + lang + ", its pack is not live in Data\\Win32 (" + pack_why + ")";
+    return "game settings file " + file + ": commentary field = " + std::to_string(value) + " -> " + lang;
+}
+
+void newest_settings_stamp(const fs::path& dir, std::string* file, int64_t* mtime) {
+    if (file) file->clear();
+    if (mtime) *mtime = 0;
+    std::error_code ec;
+    if (dir.empty() || !fs::is_directory(dir, ec)) return;
+    std::string best;
+    int64_t best_t = 0;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fec;
+        if (!it->is_regular_file(fec) || fec) continue;
+        const std::string n = it->path().filename().u8string();
+        if (!gsettings::is_settings_name(n)) continue;
+        const auto lw = it->last_write_time(fec);
+        if (fec) continue;
+        const int64_t t = static_cast<int64_t>(lw.time_since_epoch().count());
+        // newest by last-write time; equal times (files written in the same tick) fall back to the name (a time stamp: later = larger)
+        if (best.empty() || t > best_t || (t == best_t && n > best)) {
+            best = n;
+            best_t = t;
+        }
+    }
+    if (file) *file = best;
+    if (mtime) *mtime = best_t;
+}
+
+SettingsLang read_settings_language(const fs::path& dir) {
+    SettingsLang r;
+    if (dir.empty()) {
+        r.why = "the game's settings folder is not known";
+        return r;
+    }
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) {
+        r.why = "the settings folder is not there: " + dir.u8string();
+        return r;
+    }
+    newest_settings_stamp(dir, &r.file, &r.mtime);
+    if (r.file.empty()) {
+        r.why = "no Settings file in " + dir.u8string();
+        return r;
+    }
+    std::vector<uint8_t> b;
+    if (!gsettings::read_bytes(dir / fs::u8path(r.file), b)) {
+        r.why = "cannot read " + r.file + " (the game may be writing it)";
+        return r;
+    }
+    // size, header, tag, CRC'd length, constant words and the stored CRC: a file that fails any of them is not read (a half-written
+    // one, another layout); the format is gsettings's, not parsed again here
+    const gsettings::Check c = gsettings::validate(b);
+    if (!c.ok) {
+        r.why = r.file + " is not a valid Settings file: " + c.why;
+        return r;
+    }
+    if (!gsettings::get_u32(b, kSettingsLangPayloadOff, r.value)) {
+        r.why = r.file + ": the commentary field is outside the payload";
+        return r;
+    }
+    r.read = true;
+    r.lang = settings_lang_for_value(r.value);
+    r.why = r.file + ": commentary field = " + std::to_string(r.value) + (r.lang.empty() ? std::string() : " -> " + r.lang);
+    return r;
+}
+
+SettingsLang settings_language_from(const fs::path& dir, const fs::path& game_root) {
+    SettingsLang r = read_settings_language(dir);
+    if (r.read && !r.lang.empty()) {
+        if (r.lang == "eng_us") {
+            r.pack_live = true;  // the base game's language: no pack to find
+        } else if (game_root.empty()) {
+            r.pack_why = "game folder unknown";
+        } else {
+            r.pack_live = launcher_pack_live(game_root, r.lang, &r.pack_why);
+        }
+    }
+    return r;
+}
+
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
                                        const std::string& saved_lang_in, const std::string& saved_why, const RegistryLocale& reg,
-                                       std::string* why, bool* proven, const LauncherHint* hint) {
+                                       std::string* why, bool* proven, const LauncherHint* hint, const SettingsLang* settings) {
     auto set = [&](const std::string& s) { if (why) *why = s; };
     if (proven) *proven = true;
     const std::string ov = lower(override_lang);
@@ -128,14 +235,32 @@ std::string detect_commentary_language(const std::string& override_lang, const s
             (hl.empty() ? std::string() : " (launcher hint " + hl + " not used: the manual override wins)"));
         return ov;
     }
+    // 4.0 lang-settings, step b: the language the game saved in its Settings file decides before the running game's answer
+    // (Cassio 2026-10-29); a value outside the table, an unreadable file or a pack that is not live falls through, with the reason
+    const std::string rl = lower(runtime_lang);
+    const std::string settings_note = settings ? settings->note() : std::string("game settings file: not read (no settings folder given)");
+    if (settings && settings->usable()) {
+        const bool agrees = !rl.empty() && rl == settings->lang;
+        std::string w = "game Settings file " + settings->file + ": commentary language field = " + std::to_string(settings->value) + " -> " + settings->lang +
+                        " (proven by " + settings_value_proof(settings->value) + ")";
+        if (agrees)
+            w += "; the running game agrees (" + runtime_why + ")";
+        else if (!rl.empty())
+            w += "; the running game answered " + rl + " (" + runtime_why + ") - they disagree: the Settings file decides";
+        if (!hl.empty() && hl != settings->lang) w += " [launcher hint " + hl + " differs: the Settings file decides]";
+        set(w);
+        return settings->lang;
+    }
     if (!runtime_lang.empty()) {
         std::string w = "detected in the running game: " + runtime_why;
         if (!hl.empty() && hl != lower(runtime_lang))
             w += " [launcher hint " + hl + " differs: the running game decides (the in-game Audio setting picks the commentary)]";
+        w += " [" + settings_note + "]";
         set(w);
         return lower(runtime_lang);
     }
     std::string pre = runtime_why.empty() ? std::string("no runtime evidence yet") : "runtime: " + runtime_why;
+    pre += "; " + settings_note;
     // 2.21 CHANGE 8: with a usable registry Locale the game offers English + that Locale's language only (PLAN H.1 (b));
     // an earlier answer outside those two was heard under another Locale and is not used
     auto offered = [&](const std::string& l) { return !reg.usable() || l == "eng_us" || l == reg.lang; };
@@ -176,7 +301,7 @@ std::string detect_commentary_language(const std::string& override_lang, const s
     }
     if (proven) *proven = false;
     pre += "; " + (saved_why.empty() ? std::string("no saved answer") : "saved answer not used: " + saved_why);
-    pre += "; game settings file: not read (field not proven); NOT PROVEN (automatic callname writes wait)";
+    pre += "; NOT PROVEN (automatic callname writes wait)";
     // step c: the registry Locale, its pack live in Data\Win32
     if (reg.usable()) {
         set("registry Locale " + reg.locale + ", pack present (" + reg.pack_why + "; " + reg.read_why + "); the game offers English + " + reg.lang +
@@ -705,6 +830,14 @@ static bool read_text(const fs::path& p, std::string& out) {
     return true;
 }
 
+bool Callnames::settings_changed() const {
+    if (settings_dir.empty()) return false;
+    std::string file;
+    int64_t mtime = 0;
+    newest_settings_stamp(settings_dir, &file, &mtime);
+    return file != settings_lang.file || mtime != settings_lang.mtime;
+}
+
 void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, const std::string& chosen) {
     no_game_root = game_root.empty();
     packs = installed_commentary_packs(game_root);
@@ -744,13 +877,15 @@ void Callnames::refresh(const fs::path& le_root, const fs::path& game_root, cons
         const std::string loc = tr ? tr(&rw) : read_registry_locale(&rw);
         reg_locale = registry_locale_from(loc, rw, game_root);
     }
+    // 4.0 lang-settings: step b, the game's Settings file (read only; the App gave the folder)
+    settings_lang = settings_language_from(settings_dir, game_root);
     lang_proven = false;
     if (no_game_root && override_lang.empty() && runtime_lang.empty()) {
         lang.clear();  // no game: nothing to detect (tests, a host without the game folder)
         lang_why = "game folder unknown: no commentary language detected";
     } else {
         lang = detect_commentary_language(override_lang, runtime_lang, runtime_why, saved_lang, saved_why, reg_locale, &lang_why, &lang_proven,
-                                          launcher_hint.lang.empty() ? nullptr : &launcher_hint);
+                                          launcher_hint.lang.empty() ? nullptr : &launcher_hint, &settings_lang);
         // with the kill switch the registry Locale / eng_us answer is taken as before the runtime check (the user turned it off)
         // (never a launcher-hint answer: the hint is intent, not evidence; 2.21 CHANGE 7)
         if (!lang_proven && runtime_off && lang_why.rfind("launcher hint ", 0) != 0) {

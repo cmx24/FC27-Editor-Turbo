@@ -257,6 +257,7 @@ public:
     bool detect_language_from_probe(const caudio::BuildResult& r);  // a clear probe sample answer (no build needed)
     bool spoken_lang_only_build_ = false;  // the running build asks for the language only (names, no players, not cached)
     double lang_off_check_ = -1.0;         // next check of callnames_lang_detect_off.txt (live kill switch)
+    double settings_lang_check_ = -1.0;    // next stat of the game's settings folder (4.0 lang-settings: the Settings file's language)
     const std::string& spoken_watch_line() const { return spoken_watch.line(); }
     long long game_call_seen = -1;  // last game-call outcome shown as a toast (bridge_state.json game_call.seq; -1 = none yet)
     // Job offer tab (Teams > team edit): the club picked (the selected team unless another is chosen) and the last request label
@@ -539,6 +540,7 @@ private:
     void finish_bank_capture();  // tick: take a finished capture, cache it, rebuild the pickers
     void finish_spoken_build();  // tick: take a finished audio-service build, cache it, rebuild the pickers
     void spoken_watch_tick();    // tick: run the watcher, start the probe / build it asks for
+    void settings_lang_tick();   // tick: a new Settings file (the game saved its settings) re-detects the commentary language
     bool write_id_cache(const caudio::IdCache& c);  // turbo_output\callnames\ids.json (once per session and list size)
     size_t id_cache_written_ = 0;  // names.size() of the last cache written (0 = none this session)
     double spoken_ids_check_ = -1.0;  // next time the watcher re-checks that an id list is at hand
