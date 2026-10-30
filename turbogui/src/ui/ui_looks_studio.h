@@ -94,6 +94,9 @@ struct StudioState {
     int body_tiles = 0;        // tiles of the body-type grid drawn
     int thumbs = 0;            // of them with their picture drawn
     int fields = 0;            // field editors in Accessories and Kit fit
+    int look_cards = 0;        // 5.0b-A: Look cards drawn this frame (the registry's card: ONE)
+    int look_rows = 0;         // 5.0b-A: picker rows the Look card drew (one per registry column of the person, minus the dedicated cards')
+    int look_all = 0;          // 5.0b-A: editors of the "All fields" fold drawn this frame (0 while it is closed)
     int cards = 0;             // cards drawn
     bool tattoo_card = false;  // 2.22: the Tattoos card (tattoo_editor, players) was drawn this frame
     bool miniface_card = false;  // 2.22: the Player / Manager miniface card (the whole miniface_editor) was drawn this frame
@@ -114,6 +117,7 @@ void draw_looks_studio(App& app);
 void looks_studio_reset_for_tests();                  // forget the list, the picture, the Undo steps, the question
 void looks_studio_set_timeout_for_tests(double seconds);  // the picture timeout (25 s)
 void looks_studio_show_managers(bool managers);       // the list's Players / Managers switch
+void looks_studio_open_all_fields_for_tests(bool open);   // 5.0b-A: the Look card's "All fields" fold opens on its own (a test cannot scroll to it)
 
 }  // namespace looks
 }  // namespace turbo

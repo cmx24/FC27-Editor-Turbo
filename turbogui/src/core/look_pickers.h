@@ -140,6 +140,25 @@ inline std::vector<const LookPicker*> pickers_for(Subject s) {
     return out;
 }
 
+// The columns of a subject's table that look like a look but have no picker (no catalogue, a flag, a number, a value the chooser or the
+// 3D gate sets with the head): they are typed in the card's "All fields" fold. The registry and this list together are the card.
+inline const std::vector<const char*>& typed_only(Subject s) {
+    static const std::vector<const char*> player = {"hairstylecode", "headclasscode", "eyedetail", "faceposerpreset", "facepsdlayer0", "facepsdlayer1",
+                                                    "headvariation", "hashighqualityhead", "lipcolor", "sideburnscode", "skinmakeup", "skinsurfacepack",
+                                                    "skintypecode", "height", "weight", "muscularitycode"};
+    static const std::vector<const char*> manager = {"hairstylecode", "headclasscode", "eyedetail", "faceposerpreset", "facepsdlayer0", "facepsdlayer1",
+                                                     "headvariation", "hashighqualityhead", "lipcolor", "sideburnscode", "skinmakeup", "skinsurfacepack",
+                                                     "skintypecode", "height", "weight", "gender"};
+    return s == kManager ? manager : player;
+}
+
+// A column whose picker is drawn by a card of its own in the studio (the Face card, the Body type grid, the Tattoos body map): the Look
+// card does not draw a second row for it, so the attribute has ONE picker on the page
+inline bool dedicated_card(const char* column) {
+    if (!column) return false;
+    return std::strcmp(column, "headassetid") == 0 || std::strcmp(column, "bodytypecode") == 0 || std::strncmp(column, "tattoo", 6) == 0;
+}
+
 // Columns whose change alters the 3D render of the head (the chooser's picture, the capture): the single write path forgets that
 // render for them (faces3d_forget_render)
 inline bool render_changes(const char* column) {

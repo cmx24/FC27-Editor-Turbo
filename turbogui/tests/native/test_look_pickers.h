@@ -11,7 +11,9 @@
 //   (d) parity: the hair and beard popup offers the union of what the three pickers it replaced offered (the Gallery list, the visual
 //       picker's list, the 3D band), the band codes round-trip, the reason line of a greyed section is today's text
 //   (e) Home's first row has "Player looks" and "Manager looks": one click opens the Appearance tab with that subject (old tree and 4.0 tree)
-//   (c) is added with the duplicate removal (commit 3 of the track): the number of places that offer a hair or beard choice is 1
+//   (c) the studio draws ONE Look card FROM the registry (commit 3 of the track): one picker row per registry column of the person (player
+//       and manager, minus the columns a dedicated card draws: Face, Body type, Tattoos), the "All fields" fold reaches every registry and
+//       typed-only column, and the studio's hair card keeps no second copy of the hair / beard fields
 {
     namespace lpk = turbo::look;
     namespace lpfs = std::filesystem;
@@ -326,5 +328,82 @@
         looks::looks_studio_show_managers(false);
         app.go(shell::Page::Home);
         ui.frames(3);
+    });
+
+    // (c) the studio's Look card (commit 3 of the track). BEHAVIOURAL: the person is shown in the real page (the fixture's player 3001 and
+    // manager), and the card reports what it drew; the old studio drew the section of ui_visual_picker.cpp (hard-coded groups, no registry)
+    // and reported nothing, and its hair card carried a second copy of the hair / beard fields.
+    run_case("test_look_pickers (c): the studio draws ONE Look card from the registry for a player and for a manager; its \"All fields\" fold reaches every registry and typed-only column; no second hair / beard copy", [&] {
+        namespace lk = turbo::looks;
+        auto dedicated = [](const std::string& c) { return c == "headassetid" || c == "bodytypecode" || c.rfind("tattoo", 0) == 0; };
+        // the registry says the same as this literal definition, and its typed-only lists are the literal lists above
+        for (const std::string& c : lp_player_picked) CHECK(lpk::dedicated_card(c.c_str()) == dedicated(c), c + ": dedicated_card() agrees with the literal definition");
+        for (lpk::Subject sj : {lpk::kPlayer, lpk::kManager}) {
+            const std::vector<LpTyped>& lit = sj == lpk::kManager ? lp_manager_typed : lp_player_typed;
+            const std::vector<const char*>& reg = lpk::typed_only(sj);
+            CHECK(reg.size() == lit.size(), std::string(sj == lpk::kManager ? "manager" : "player") + ": typed_only() holds " + std::to_string(reg.size()) + " columns, the literal list " + std::to_string(lit.size()));
+            for (const LpTyped& ty : lit) {
+                bool found = false;
+                for (const char* r : reg) found = found || std::string(r) == ty.column;
+                CHECK(found, std::string(ty.column) + ": typed_only() holds it");
+            }
+        }
+        const auto cap0 = app.capture;
+        app.capture = nullptr;
+        for (const bool managers : {false, true}) {
+            const std::string who = managers ? "manager: " : "player: ";
+            const Table* t = app.db.table(managers ? "manager" : "players");
+            CHECK(t != nullptr, who + "the test world has the table");
+            if (!t) continue;
+            lk::looks_studio_reset_for_tests();
+            lk::looks_studio_show_managers(managers);
+            lk::looks_studio_open_all_fields_for_tests(false);
+            if (managers) {
+                app.sel_manager = 0;
+                page_looks_test::show(ui);
+            } else {
+                const PlayerRow* p = app.model.player(3001);
+                CHECK(p != nullptr, who + "the test world has player 3001");
+                if (!p) continue;
+                app.sel_player = 0;
+                page_looks_test::show(ui);
+                CHECK(ui.type_into(ui.find("##lsq", "##looksstudio_test"), p->name), who + "search box");
+                CHECK(ui.click(p->name + "##lsp3001", "##looksstudio_test"), who + "picked from the list");
+            }
+            ui.frames(4);
+            CHECK(lk::studio_state().subject.valid() && lk::studio_state().subject.manager == managers, who + "he is the person shown");
+            const std::vector<std::string>& picked = managers ? lp_manager_picked : lp_player_picked;
+            const std::vector<LpTyped>& typed = managers ? lp_manager_typed : lp_player_typed;
+            int want_rows = 0, want_all = 0;
+            for (const std::string& c : picked) {
+                if (!t->has(c)) continue;
+                ++want_all;
+                if (!dedicated(c)) ++want_rows;
+            }
+            for (const LpTyped& ty : typed) want_all += t->has(ty.column) ? 1 : 0;
+            CHECK(want_rows >= 8, who + "the fixture table holds enough look columns for the check: " + std::to_string(want_rows));
+            CHECK(lk::studio_state().look_cards == 1, who + "ONE Look card is drawn: " + std::to_string(lk::studio_state().look_cards));
+            CHECK(lk::studio_state().look_rows == want_rows, who + "one picker row per registry column of the person (minus the dedicated cards'): drew " + std::to_string(lk::studio_state().look_rows) + " of " + std::to_string(want_rows));
+            CHECK(lk::studio_state().look_all == 0, who + "the All fields fold is closed until opened");
+            lk::looks_studio_open_all_fields_for_tests(true);
+            ui.frames(4);
+            CHECK(lk::studio_state().look_all == want_all, who + "the All fields fold reaches every registry and typed-only column the table has: " + std::to_string(lk::studio_state().look_all) + " of " + std::to_string(want_all));
+            lk::looks_studio_open_all_fields_for_tests(false);
+            page_looks_test::hide(ui);
+        }
+        app.capture = cap0;
+        lk::looks_studio_reset_for_tests();
+        // the source: the card is drawn by the registry's rows (once), the old section is gone from the studio, and the hair card keeps no copy
+        std::ifstream in(lp_ui / "ui_looks_studio.cpp", std::ios::binary);
+        const std::string txt((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        auto count = [&](const std::string& needle) {
+            int n = 0;
+            for (size_t at = txt.find(needle); at != std::string::npos; at = txt.find(needle, at + needle.size())) ++n;
+            return n;
+        };
+        CHECK(count("vp::look_rows(") == 1, "ui_looks_studio.cpp calls vp::look_rows once: " + std::to_string(count("vp::look_rows(")));
+        CHECK(count("visual_pickers_section(") == 0, "the studio no longer draws the hard-coded section of ui_visual_picker.cpp");
+        CHECK(count("field_combo(app, s, t, rec, who, f.first") == 0, "the hair card keeps no field_combo copy of the hair / beard fields");
+        CHECK(count("void look_card(") >= 1, "look_card() is exported for the Manager tab (the integrator wires it)");
     });
 }

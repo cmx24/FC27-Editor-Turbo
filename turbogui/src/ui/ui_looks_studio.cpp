@@ -362,6 +362,7 @@ struct BodyTile {
 
 struct Studio {
     bool managers = false;
+    bool force_all_fields = false;  // tests: the Look card's "All fields" fold opens on its own
     char search[64] = "";
     bool my_club = false;
     std::vector<int64_t> rows;  // players: playerid; managers: index into model.managers()
@@ -1185,6 +1186,7 @@ void looks_studio_reset_for_tests() {
     s.rows.clear();
     s.list_key.clear();
     s.list_version = ~uint64_t(0);
+    s.force_all_fields = false;
     s.last = Subject();
     s.signature_dirty = true;
     s.baseline = true;
@@ -1206,6 +1208,7 @@ void looks_studio_reset_for_tests() {
 
 void looks_studio_set_timeout_for_tests(double seconds) { g_timeout = seconds; }
 void looks_studio_show_managers(bool managers) { studio().managers = managers; }
+void looks_studio_open_all_fields_for_tests(bool open) { studio().force_all_fields = open; }
 
 // ---------------------------------------------------------------- the page
 void draw_looks_studio(App& app) {
