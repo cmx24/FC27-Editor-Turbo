@@ -76,6 +76,8 @@
 #include "ui/ui_faces3d_gate.h"
 #include "ui/ui_identity.h"
 #include "ui/ui_images.h"
+#include "core/look_pickers.h"       // 5.0b-A: the one registry of look attributes
+#include "core/looks_fields_data.h"  // (n_values of a field, for the dead-button check)
 #include "ui/ui_presets.h"
 #include "core/teamnames.h"
 #include "fixture_player_codes.h"
@@ -9969,6 +9971,7 @@ static void test_ui() {
         gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
+#include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h

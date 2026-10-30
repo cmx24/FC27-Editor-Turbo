@@ -82,6 +82,11 @@ bool page_has_frame(Page p);
 // Edit a player is one page with tabs: 0 Profile, 1 Positions, attributes & PlayStyles, 2 Appearance, 3 All fields. The page follows this value
 // when code changes it (a link that opens the Appearance tab, a test) and writes the tab the user clicked back into it.
 int& player_edit_tab();
+// 5.0b-A: the Players / Managers switch above the Player card of the 4.0 tree (0 Players, 1 Managers), and the tab of the Managers page
+// (0 = leave it, 1 = Appearance). Home's "Player looks" / "Manager looks" set them and the pages select once; the value is written back like
+// player_edit_tab().
+int& player_edit_who();
+int& manager_edit_tab();
 
 // 3.1 N1: the place the last navigation left (go(), a cross-link, a rail or page-strip click), so a page that was opened from another
 // one can offer "< Back to <page>". One level. Place{} (invalid) = nothing to go back to. App::back() goes there and clears it; the App

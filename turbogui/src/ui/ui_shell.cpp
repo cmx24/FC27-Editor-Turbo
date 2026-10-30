@@ -239,6 +239,16 @@ int& player_edit_tab() {
     return tab;
 }
 
+int& player_edit_who() {
+    static int who = 0;
+    return who;
+}
+
+int& manager_edit_tab() {
+    static int tab = 0;
+    return tab;
+}
+
 Place& back_place() {
     static Place p;
     return p;

@@ -18,9 +18,11 @@
 #include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
+#include "core/look_pickers.h"
 #include "core/rdbm_resources.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
+#include "ui_faces.h"
 #include "ui_images.h"
 #include "ui_looks_studio.h"
 
@@ -248,7 +250,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         const vis::SetDef* d = vis::set_for_field(field);
         const bool gal = gallery_has(field, manager);
         if (!d && field == "smallsidedshoetypecode") d = vis::find_set("boots");
-        if (!d && !gal) return false;
+        // 5.0b-A: a column of the look registry (core/look_pickers.h) always opens a list. With no picture set and no gallery it is the
+        // names / numbers list of its labelled codes (the codes the save uses, the range): never a dead Change button.
+        const bool registry_only = !d && !gal && look::find(field.c_str()) != nullptr;
+        if (!d && !gal && !registry_only) return false;
         out.gallery = gal;
         out.catalog = gal && gallery_catalog_active(field, manager);
         out.kind = d ? d->kind : vis::data::kPng;
@@ -288,7 +293,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             // fix round 2 (reviewer D1): a field with labelled codes but no gallery (Sleeves 0..4, Sock length 0..3, jersey fit, hair / eye colour,
             // skin tone, accessory colours...) gets the same merge: the codes field_labels.h names (enum_defs or named codes) are offered, not only the picture
             // set's (Sleeves 4 and Sock length 3 "Low" were not offered at all). A field with no labelled code (eyebrows, tattoos) is unchanged. The offered set that changes per field is listed by the test of fix 2.
-            if (gal || labels::enum_def(field) || labels::named_codes(field))
+            if (gal || registry_only || labels::enum_def(field) || labels::named_codes(field))
                 for (int64_t c : code_value_list(app, t, *f, current)) all.push_back(c);
             for (const GalleryEntry& e : ge) all.push_back(e.id);
             if (gal) all.push_back(0);
@@ -343,7 +348,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
-            else out.src[k] = (!have_res && !gal) ? kSrcNames : kSrcBlank;
+            else out.src[k] = ((!have_res || !d) && !gal) ? kSrcNames : kSrcBlank;
             if (out.eyebrow && !file.empty()) out.tip[k] = "style picture";
             if (!light) {
                 const auto gi = gpos.find(code);
@@ -1031,13 +1036,25 @@ void visual_pickers_shutdown() {
     st().colours.clear();
 }
 
+// 5.0b-A, the single write path: a pick that changes the 3D head (look::render_changes: head, hair, beard, eyes, skin, body) drops the cached
+// render of him, so the face chooser's picture is not the old look. The faces gate already did this for its own writes; the grids did not.
+static void forget_head_render(App& app, const Table& t, uint64_t rec, const std::string& field) {
+    if (!look::render_changes(field.c_str())) return;
+    const int64_t id = who_id(app, t, rec);
+    if (id >= 0) faces3d_forget_render(app, is_manager_table(t), id);
+}
+
 bool visual_apply(App& app, const Table& t, uint64_t rec, const std::string& field, int64_t code, std::string* msg) {
     const Field* f = t.field(field);
     if (!f) {
         if (msg) *msg = std::string(field_title(field)) + " is not in this database";
         return false;
     }
-    if (field == "bodytypecode") return apply_bodytype(app, t, rec, code, false, msg);
+    if (field == "bodytypecode") {
+        const bool ok = apply_bodytype(app, t, rec, code, false, msg);
+        if (ok) forget_head_render(app, t, rec, field);
+        return ok;
+    }
     // the game's catalog gate (hair, beard, boots, gloves of players): only what FC 27 ships may be written
     const bool manager = is_manager_table(t);
     bool hidden_before = false;
@@ -1056,6 +1073,7 @@ bool visual_apply(App& app, const Table& t, uint64_t rec, const std::string& fie
     }
     if (hidden_before) gallery_log_hidden(app, t, rec, field, before, code);  // turbo_output\asset_writes.log, as the gallery did
     st().wrote_frame = ImGui::GetCurrentContext() ? ImGui::GetFrameCount() : -10;
+    forget_head_render(app, t, rec, field);
     if (msg) {
         std::string name;
         const vis::SetDef* d = vis::set_for_field(field);
@@ -1151,6 +1169,33 @@ void window(App& app, const Table& t, uint64_t rec) {
     ImGui::PushID("vpwin");
     draw_picker_window(app, t, rec);
     ImGui::PopID();
+}
+
+int look_rows(App& app, const Table& t, uint64_t rec, bool manager) {
+    new_frame(app);
+    int drawn = 0;
+    ImGui::PushID("lookrows");
+    if (resources(app).empty()) ImGui::TextDisabled("%s", pictures_line(app, false).c_str());
+    const std::vector<const look::LookPicker*> all = look::pickers_for(manager ? look::kManager : look::kPlayer);
+    for (const char* g : look::kGroups) {
+        std::vector<const look::LookPicker*> rows;
+        for (const look::LookPicker* p : all)
+            if (std::strcmp(p->group, g) == 0 && t.has(p->column) && !look::dedicated_card(p->column)) rows.push_back(p);
+        if (rows.empty()) continue;
+        ImGui::SeparatorText(g);
+        ImGui::PushID(g);
+        drawn += static_cast<int>(rows.size());  // the rows the card lists; ImGui draws them while the card is on screen (BeginTable is false when it is scrolled out)
+        if (ImGui::BeginTable("##vrows", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+            begin_rows();
+            for (const look::LookPicker* p : rows) draw_row(app, t, rec, p->column, manager);
+            ImGui::EndTable();
+        }
+        ImGui::PopID();
+    }
+    st().want_open = false;
+    draw_picker_window(app, t, rec);
+    ImGui::PopID();
+    return drawn;
 }
 
 bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, float side) {

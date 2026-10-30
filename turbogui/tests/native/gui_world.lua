@@ -344,6 +344,18 @@ local function build_world(sim)
             { name = "socklengthcode", short = "sklc", depth = 3 },           -- Sock length 0..3 (3 "Low"), no gallery; the real players table: depth 3, max 7 (fc27_db_schema.json tables/players/fields/130), sleeves depth 3 max 7 (fields/69)
             { name = "isretiring", short = "iret", depth = 1 },
             { name = "nationality", short = "nat_", depth = 8 },
+            -- 5.0b-A (look registry): the look columns the Look card draws that have no picture set, so tests/native/test_look_pickers.h opens each one
+            -- on a real row (real schema depths, fc27_db_schema.json tables/players)
+            { name = "skincomplexion", short = "scmp", depth = 7 },
+            { name = "eyebrowcode", short = "ebrw", depth = 24 },
+            { name = "shoecolorcode1", short = "sc1_", depth = 5 },
+            { name = "shoecolorcode2", short = "sc2_", depth = 5 },
+            { name = "shoedesigncode", short = "sdsg", depth = 2 },
+            { name = "smallsidedshoetypecode", short = "ssst", depth = 11 },
+            { name = "hasseasonaljersey", short = "hsjy", depth = 3 },
+            { name = "shortstyle", short = "shst", depth = 1 },
+            { name = "undershortstyle", short = "ushs", depth = 1 },
+            { name = "sockstylecode", short = "sksc", depth = 4 },
         },
         rows = prow,
     }
@@ -401,6 +413,15 @@ local function build_world(sim)
             { name = "bodytypecode", short = "btc_", depth = 5 },
             { name = "hairtypecode", short = "htyp", depth = 14 },
             { name = "facialhairtypecode", short = "fhty", depth = 10 },
+            -- 5.0b-A (look registry): the manager's other look columns (real schema, fc27_db_schema.json tables/manager)
+            { name = "eyebrowcode", short = "ebrw", depth = 24 },
+            { name = "eyecolorcode", short = "eyec", depth = 6 },
+            { name = "skincomplexion", short = "scmp", depth = 7 },
+            { name = "facialhaircolorcode", short = "fhco", depth = 6 },
+            { name = "outfitid", short = "otid", depth = 20 },
+            { name = "seasonaloutfitid", short = "sotd", depth = 20 },
+            { name = "accessorycode1", short = "acc1", depth = 11 },
+            { name = "accessorycolourcode1", short = "acl1", depth = 8 },
         },
         rows = mrows,
     })

@@ -49,6 +49,10 @@ void inline_appearance(App& app, const Table& t, uint64_t rec, bool manager = fa
 // Open the grid of `field` for the record (what "Change" does); the owner then calls window() every frame
 void open(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager = false);
 void window(App& app, const Table& t, uint64_t rec);
+// 5.0b-A: the Look card's rows, drawn FROM the registry of core/look_pickers.h: per registry group a table of rows (picture, in-game name,
+// "Choose...") for every entry the person's table holds, except the columns a card of their own draws (look::dedicated_card: Face, Body
+// type, Tattoos). Draws the picker window too. Returns the rows drawn (the studio reports it, the test compares it to the registry).
+int look_rows(App& app, const Table& t, uint64_t rec, bool manager);
 // The picture or swatch of the field's current value in side x side; false when RDBM26 has none for it (the caller shows its own)
 bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, float side);
 // An INLINE grid of the field (not a window): tiles in the page, animated where RDBM26 has a GIF, a grey "no animation yet" /
