@@ -136,7 +136,33 @@ struct KitUser {
     int slot = -1;
     std::string kind;
 };
+// 4.0 (10-29): the small compressed blocks of the game's NON-kit data. The hook recognises a block by its bytes, wherever the game reads it,
+// so a block below Options::min_csize is served only when no location outside the kit chunks (any bundle's EBX / RES / chunk, any toc
+// chunk) holds a byte-identical one: the kit census (KitIndex::users) cannot see a stadium, face or menu texture with the same plain fill.
+struct NonKitBlocks {
+    uint32_t lo = 0, hi = 0;  // the recorded window: lo <= csize < hi
+    struct Rec {
+        uint32_t csize = 0, dsize = 0;
+        uint64_t fnv = 0;
+        uint32_t where = 0;  // index in `wheres` (the first location found)
+    };
+    struct Where {
+        int32_t toc = 0;      // index in `tocs`
+        int32_t bundle = -1;  // -1 = the toc's own chunk table
+        uint32_t loc = 0;     // the location in the bundle (0 manifest, then EBX, RES, chunks), or the entry of the chunk table
+    };
+    std::vector<Rec> recs;  // sorted by (csize, dsize, fnv), one per distinct block
+    std::vector<Where> wheres;
+    std::vector<std::string> tocs;
+    uint64_t locations = 0, blocks = 0, bytes = 0;
+    int not_inline = 0;  // bundles that are not inline in their toc (not read: none in FC 27 10-29, see kit_swap.cpp)
+    double seconds = 0;
+    bool from_cache = false;
+    const Rec* find(uint32_t csize, uint32_t dsize, uint64_t fnv) const;
+};
 struct KitIndex {
+    // 4.0: set by the planner (scan_nonkit_blocks or load_nonkit_cache) before build_plan; nullptr = blocks below min_csize are never served
+    std::shared_ptr<const NonKitBlocks> nonkit;
     std::vector<std::string> tocs;
     std::vector<KitBundle> bundles;
     // physical key "cas:offset:size" of every kit chunk -> who uses it
@@ -160,6 +186,13 @@ std::string phys_key(const Loc& l);
 std::string index_signature(const GameFiles& files);
 bool save_index_cache(const GameFiles& files, const KitIndex& idx, const std::filesystem::path& file);
 bool load_index_cache(const GameFiles& files, const std::filesystem::path& file, KitIndex& out);
+// 4.0: header hops over every location of every toc that is not a kit chunk of `idx`, recording each block with lo <= csize < hi
+// (turbo_output\kits\kit_blocks.cache keeps it, valid under the same signature as the kit index)
+bool scan_nonkit_blocks(GameFiles& files, const KitIndex& idx, NonKitBlocks& out, uint32_t lo, uint32_t hi, Progress* progress = nullptr, std::string* err = nullptr);
+bool save_nonkit_cache(const GameFiles& files, const NonKitBlocks& nb, const std::filesystem::path& file);
+bool load_nonkit_cache(const GameFiles& files, const std::filesystem::path& file, NonKitBlocks& out);
+// "Data/Win32/x.toc bundle 12: res content/.../name" (reads the bundle's manifest again; for a reason text)
+std::string nonkit_where_text(GameFiles& files, const OodleFn& oodle, const NonKitBlocks& nb, uint32_t where);
 
 // ---------------------------------------------------------------- staged textures (phase 1: turbo_output\kits\<team>\<slot>)
 struct StagedTexture {
@@ -470,7 +503,7 @@ struct Status {
 // before it is ready shows the game's own picture (and stays cached). The finished table (entries, items, verdicts, watch items) is saved
 // after each build; at start it is used only when EVERY field of its key equals the current one, and every staged picture it serves is
 // read again and must hash to the bytes the build served. Any difference, damage or doubt: the table is built as before (never a wrong one).
-constexpr uint32_t kTableCacheFormat = 1;  // bump with every change to the plan rules or to the file layout
+constexpr uint32_t kTableCacheFormat = 2;  // 2 (4.0): small blocks need the non-kit list; bump with every change to the plan rules or to the file layout
 struct TableCacheKey {
     std::vector<std::pair<std::string, std::string>> fields;  // (name, value), in order; a miss names the first field that differs
     void add(const std::string& name, const std::string& value) { fields.emplace_back(name, value); }
@@ -501,7 +534,7 @@ bool load_table_cache(const std::filesystem::path& file, const TableCacheKey& ke
 // the staged DDS file, offset, size and FNV-1a 64; a patched hotspot asset inline) and the club's kit folders (the Kits page list).
 // Replaying the plans of several kits in swap_state.json order into one TableBuilder gives the same item numbers and blocks the old
 // all-kits build gave; the clash rule between kits (assemble_table) then runs as before.
-constexpr uint32_t kPlanFormat = 1;  // bump with every change to the plan rules (census, sharing, never half a kit) or to the file layout
+constexpr uint32_t kPlanFormat = 2;  // 2 (4.0): small blocks need the non-kit list; bump with every change to the plan rules (census, sharing, never half a kit) or to the file layout
 // The words a kit's row shows when its plan was made for another game build or another state of the game's files
 extern const char* const kPlanStaleReason;      // "Re-stage this kit (planned for another game version)"
 extern const char* const kPlanNoneReason;       // "Re-stage this kit (it has no swap plan yet)"
@@ -614,6 +647,7 @@ public:
     std::filesystem::path state_path() const;
     std::filesystem::path log_path() const;
     std::filesystem::path index_cache_path() const;
+    std::filesystem::path nonkit_cache_path() const;  // 4.0: turbo_output\kits\kit_blocks.cache (the game's small non-kit blocks)
     std::filesystem::path table_cache_path() const;  // 2.19: turbo_output\kits\kit_table.cache
     std::filesystem::path staged_dir(int team, int slot) const;
     // Tests: the table as published
@@ -667,6 +701,7 @@ private:
     std::map<int, std::set<std::string>> plan_kinds_;                  // per club, from its plans (kinds_of without the index)
     double last_plan_s_ = 0;                                           // the last plan's time (the "about N s")
     bool scanning_ = false;                                            // the kit index is being scanned (stage time only, after a game update)
+    bool nonkit_failed_ = false;                                       // 4.0: the non-kit block scan failed this session (not retried per plan)
     // worker only: plans already read this session (key fields + file write time), so a republish reads no staged file twice
     struct LoadedPlan {
         std::shared_ptr<SwapPlan> plan;

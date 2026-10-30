@@ -1469,6 +1469,93 @@ static int real_game(const std::string& game, int team, int slot) {
     return plan.ok ? 0 : 1;
 }
 
+// 4.0 (10-29): a block below min_csize (a chunk's small tail block) is served only when no non-kit place of the game holds a
+// byte-identical block (the hook recognises blocks by content: a stadium banner with the same tail would be recoloured too). Fixture:
+// team 95 home jersey_color in 10800-byte blocks (tail 504 bytes) and a non-kit "banner" texture whose bytes differ only in the first
+// block, so its 504-byte tail is the same block. variant 0: the tail collides -> jersey_color and its whole folder stay the game's;
+// variant 1: the banner's last byte differs -> served. On b61956c4 (census only over kit chunks) variant 0 is served: this fails there.
+static void test_nonkit_small_blocks(const fs::path& base) {
+    for (int variant = 0; variant < 2; ++variant) {
+        const std::string tag = variant == 0 ? "non-kit tail collision: " : "non-kit tail differs: ";
+        World w;
+        w.root = base / (variant == 0 ? "nonkit_hit" : "nonkit_free") / "game";
+        w.le = base / (variant == 0 ? "nonkit_hit" : "nonkit_free") / "le";
+        w.g.root = w.root;
+        using T = GameBuilder::TexSpec;
+        // BC1 sRGB 256x256, 9 mips = 43704 bytes: blocks 10800 x4 + 504 (the small tail); BC5 128x128 normal in 8 KB blocks (all >= 1024)
+        w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_95_0_0_color"), 55, 256, 256, 9, {}, -1, 10800},       // 0
+                        T{P("home_0_0", "jersey", "jersey_95_0_0_normal"), 63, 128, 128, 8, {}, -1, 8192}});  // 1
+        {
+            const auto& c = w.g.chunk_locs[0];
+            std::vector<uint8_t> raw;
+            std::vector<uint8_t> stream(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+            read_blocks(stream, stand_in_oodle(), raw, nullptr);
+            check(raw.size() == 43704 && raw.size() % 10800 == 504, tag + "fixture: jersey_color is 43704 bytes, tail block 504");
+            raw[0] ^= 0x5A;  // the first block differs: the chunk is not the kit's
+            if (variant == 1) raw.back() ^= 0x5A;
+            w.g.add_bundle({T{"content/ui/stadium/banner_ads_color", 55, 256, 256, 9, raw, -1, 10800}});  // 2: no kit path
+        }
+        w.g.write();
+        GameFiles files(w.root);
+        std::string err;
+        check(files.init(&err), tag + "GameFiles::init: " + err);
+        KitIndex idx;
+        check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), tag + "scan_kits: " + err);
+        check(idx.bundles.size() == 1, tag + "one kit bundle (the banner is not a kit)");
+        auto nb = std::make_shared<NonKitBlocks>();
+        check(scan_nonkit_blocks(files, idx, *nb, 256, 1024, nullptr, &err), tag + "scan_nonkit_blocks: " + err);
+        check(nb->find(504, 504, 0) == nullptr, tag + "find: an unknown block is not found");
+        // the cache round trip (kit_blocks.cache)
+        const fs::path cache = w.le / "turbo_output" / "kits" / "kit_blocks.cache";
+        check(save_nonkit_cache(files, *nb, cache), tag + "kit_blocks.cache written");
+        NonKitBlocks back;
+        check(load_nonkit_cache(files, cache, back) && back.from_cache && back.recs.size() == nb->recs.size() && back.wheres.size() == nb->wheres.size() &&
+                  back.lo == 256 && back.hi == 1024,
+              tag + "kit_blocks.cache read back (" + std::to_string(nb->recs.size()) + " blocks)");
+
+        const fs::path dir = w.le / "turbo_output" / "kits" / "95" / "home";
+        std::vector<json> tex;
+        stage_texture(dir, "jersey_color", 55, 256, 256, 9, tex, w.rng, &w.jersey_color_data);
+        stage_texture(dir, "jersey_normal", 63, 128, 128, 8, tex, w.rng);
+        write_manifest(dir, 95, 0, tex);
+        StagedKit sk;
+        check(load_staged(dir, sk, &err), tag + "load_staged: " + err);
+        Options opt;
+        opt.min_csize = 1024;
+        opt.watch_club = false;
+        auto plan_with = [&](std::shared_ptr<const NonKitBlocks> list) {
+            KitIndex ix = idx;
+            ix.nonkit = std::move(list);
+            TableBuilder tb;
+            return build_plan(files, stand_in_oodle(), ix, sk, opt, true, tb, nullptr);
+        };
+        const Plan plan = plan_with(std::make_shared<NonKitBlocks>(back));
+        check(plan.ok, tag + "plan ok: " + plan.error);
+        for (const auto& i : plan.items) std::printf("    %-12s %-28s %s %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : "left", i.reason.c_str());
+        const PlanItem* jc = item_named(plan, "jersey_95_0_0_color", "home_0_0");
+        const PlanItem* jn = item_named(plan, "jersey_95_0_0_normal", "home_0_0");
+        const FolderVerdict* fv = nullptr;
+        for (const auto& f : plan.folders)
+            if (f.kind == "home_0_0") fv = &f;
+        if (variant == 0) {
+            check(jc && !jc->swap && jc->reason.find("a byte-identical compressed block is also in a non-kit game texture (") != std::string::npos &&
+                      jc->reason.find("banner_ads_color") != std::string::npos,
+                  tag + "jersey_color left, the reason names the banner");
+            check(jn && !jn->swap, tag + "jersey_normal left too (never half a kit)");
+            check(fv && !fv->swapped && fv->role == "jersey_color", tag + "the home_0_0 folder stays the game's, decided by jersey_color");
+            check(plan.swapped == 0, tag + "nothing served");
+        } else {
+            check(jc && jc->swap && jc->blocks == 5, tag + "jersey_color served with its 504-byte tail (5 blocks)");
+            check(jn && jn->swap, tag + "jersey_normal served");
+            check(fv && fv->swapped, tag + "the home_0_0 folder is served");
+            // without the non-kit list a small block is never served (the runtime's fallback when the scan fails)
+            const Plan bare = plan_with(nullptr);
+            const PlanItem* jb = item_named(bare, "jersey_95_0_0_color", "home_0_0");
+            check(jb && !jb->swap && jb->reason.find("uniform fill") != std::string::npos, tag + "no non-kit list: the small tail is left");
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     std::string game;
     int team = 95, slot = 0;
@@ -1498,6 +1585,7 @@ int main(int argc, char** argv) {
     test_runtime_slots(base);
     test_guards_and_cache(base);
     test_table_cache(base);
+    test_nonkit_small_blocks(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
