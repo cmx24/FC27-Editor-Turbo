@@ -947,6 +947,10 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
             const fs::path root = test_tmp_dir("inline_rdbm");
             const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G'};
             write_bytes(root / "Resources" / "eyebrow" / "brow_60000.png", png);
+            // 5.0b-A: a picture folder is only one the app accepts when it holds a set folder (rdbm_resources.cpp holds_sets: runstyle, hairstyle or
+            // fkanim). This case never made one, so its eyebrow check was skipped for as long as the fixture had no eyebrowcode column.
+            std::error_code mk_ec;
+            fs::create_directories(root / "Resources" / "runstyle", mk_ec);
             visual_pictures_override((root / "Resources").u8string());
             visual_pictures_refresh(app);
         }

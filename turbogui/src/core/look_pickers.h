@@ -34,7 +34,7 @@ enum class Kind : uint8_t {
     Pictures,  // a picture grid (RDBM26 picture, the game's own preview, or the names)
     Enum,      // a short labelled list (sleeves, sock length, complexion ...): the same popup, names only
     BodyType,  // the body-type gallery (pictures of the body-type generator, apply_bodytype's refusal rules)
-    Tattoo,    // the tattoo editor (players only)
+    Tattoo,    // a tattoo slot: the tattoo set's picture grid (players only; the studio's tattoo_card keeps the body-map)
     Movement   // run style, free-kick and penalty run-ups: animated tiles
 };
 
@@ -43,8 +43,7 @@ enum class Kind : uint8_t {
 enum class Route : uint8_t {
     AppEdit,       // visual_apply: App::edit (undo, kept edits, scoped edits); the 3D band section writes through the faces gate's own proven path
     BodyType,      // apply_bodytype(allow_risky = false): the refusal rules stay
-    RealFace,      // the chooser (ui_faces.cpp real_face_picker / manager_real_face_picker): the head and its picture together
-    TattooEditor   // tattoo_editor (ui_images.cpp)
+    RealFace       // the chooser (ui_faces.cpp real_face_picker / manager_real_face_picker): the head and its picture together
 };
 
 // The generic ids the 3D band offers for a column (hair, beard); a pick writes faces3d::hair_band_code / beard_band_code of it
@@ -66,8 +65,61 @@ inline constexpr uint8_t kBoth = kPlayer | kManager;
 inline constexpr const char* kGroups[] = {"Face", "Hair and beard", "Eyes and skin", "Body", "Tattoos", "Movement", "Kit and boots", "Accessories", "Outfit"};
 
 inline const std::vector<LookPicker>& look_pickers() {
-    // RED COMMIT (5.0b-A): the registry is declared and EMPTY, so test_look_pickers fails on the old behaviour (no picker rows for any subject).
     static const std::vector<LookPicker> v = {
+        // ---- Face
+        {"headassetid", "Real face", kBoth, Kind::RealFace, "Face", Route::RealFace, nullptr},
+        {"headtypecode", "Generic head", kBoth, Kind::Pictures, "Face", Route::AppEdit, nullptr},
+        // ---- Hair and beard: ONE entry each, two sections in the popup
+        {"hairtypecode", "Hair", kBoth, Kind::Band3D, "Hair and beard", Route::AppEdit, faces3d::band_hair_ids},
+        {"haircolorcode", "Hair colour", kBoth, Kind::Swatch, "Hair and beard", Route::AppEdit, nullptr},
+        {"facialhairtypecode", "Beard", kBoth, Kind::Band3D, "Hair and beard", Route::AppEdit, faces3d::band_beard_ids},
+        {"facialhaircolorcode", "Beard colour", kBoth, Kind::Swatch, "Hair and beard", Route::AppEdit, nullptr},
+        {"eyebrowcode", "Eyebrows", kBoth, Kind::Pictures, "Hair and beard", Route::AppEdit, nullptr},
+        // ---- Eyes and skin
+        {"eyecolorcode", "Eye colour", kBoth, Kind::Swatch, "Eyes and skin", Route::AppEdit, nullptr},
+        {"skintonecode", "Skin tone", kBoth, Kind::Swatch, "Eyes and skin", Route::AppEdit, nullptr},
+        {"skincomplexion", "Skin complexion", kBoth, Kind::Enum, "Eyes and skin", Route::AppEdit, nullptr},
+        // ---- Body
+        {"bodytypecode", "Body type", kBoth, Kind::BodyType, "Body", Route::BodyType, nullptr},
+        // ---- Tattoos (players only: the manager table has none)
+        {"tattoohead", "Tattoo, head", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattoofront", "Tattoo, chest / front", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattooback", "Tattoo, back", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattooleftarm", "Tattoo, left arm", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattoorightarm", "Tattoo, right arm", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattooleftleg", "Tattoo, left leg", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        {"tattoorightleg", "Tattoo, right leg", kPlayer, Kind::Tattoo, "Tattoos", Route::AppEdit, nullptr},
+        // ---- Movement (players only)
+        {"runstylecode", "Run style", kPlayer, Kind::Movement, "Movement", Route::AppEdit, nullptr},
+        {"animfreekickstartposcode", "Free-kick run-up", kPlayer, Kind::Movement, "Movement", Route::AppEdit, nullptr},
+        {"animpenaltiesstartposcode", "Penalty run-up", kPlayer, Kind::Movement, "Movement", Route::AppEdit, nullptr},
+        // ---- Kit and boots (players)
+        {"shoetypecode", "Boots", kPlayer, Kind::Pictures, "Kit and boots", Route::AppEdit, nullptr},
+        {"shoecolorcode1", "Boot colour 1", kPlayer, Kind::Swatch, "Kit and boots", Route::AppEdit, nullptr},
+        {"shoecolorcode2", "Boot colour 2", kPlayer, Kind::Swatch, "Kit and boots", Route::AppEdit, nullptr},
+        {"shoedesigncode", "Boot design", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"smallsidedshoetypecode", "Small-sided boots", kPlayer, Kind::Pictures, "Kit and boots", Route::AppEdit, nullptr},
+        {"gkglovetypecode", "Goalkeeper gloves", kPlayer, Kind::Pictures, "Kit and boots", Route::AppEdit, nullptr},
+        {"jerseysleevelengthcode", "Sleeves", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"hasseasonaljersey", "Cold-weather sleeves", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"jerseyfit", "Shirt fit", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"jerseystylecode", "Shirt tucked / untucked", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"shortstyle", "Shorts style", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"undershortstyle", "Under-shorts", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"socklengthcode", "Sock length", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        {"sockstylecode", "Sock style", kPlayer, Kind::Enum, "Kit and boots", Route::AppEdit, nullptr},
+        // ---- Accessories (both tables have them)
+        {"accessorycode1", "Accessory 1", kBoth, Kind::Pictures, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycolourcode1", "Accessory 1 colour", kBoth, Kind::Swatch, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycode2", "Accessory 2", kBoth, Kind::Pictures, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycolourcode2", "Accessory 2 colour", kBoth, Kind::Swatch, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycode3", "Accessory 3", kBoth, Kind::Pictures, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycolourcode3", "Accessory 3 colour", kBoth, Kind::Swatch, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycode4", "Accessory 4", kBoth, Kind::Pictures, "Accessories", Route::AppEdit, nullptr},
+        {"accessorycolourcode4", "Accessory 4 colour", kBoth, Kind::Swatch, "Accessories", Route::AppEdit, nullptr},
+        // ---- Outfit (managers only)
+        {"outfitid", "Outfit", kManager, Kind::Pictures, "Outfit", Route::AppEdit, nullptr},
+        {"seasonaloutfitid", "Seasonal outfit", kManager, Kind::Pictures, "Outfit", Route::AppEdit, nullptr},
     };
     return v;
 }

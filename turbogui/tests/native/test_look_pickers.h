@@ -172,8 +172,7 @@
             for (const char* g : lpk::kGroups) group_ok = group_ok || std::strcmp(g, p.group) == 0;
             CHECK(group_ok, std::string(p.column) + " is in a section of the card");
             CHECK((p.kind == lpk::Kind::Band3D) == (p.band != nullptr), std::string(p.column) + ": a band catalogue exactly for the two-section pickers");
-            CHECK((p.route == lpk::Route::BodyType) == (p.kind == lpk::Kind::BodyType) && (p.route == lpk::Route::RealFace) == (p.kind == lpk::Kind::RealFace) &&
-                      (p.route == lpk::Route::TattooEditor) == (p.kind == lpk::Kind::Tattoo),
+            CHECK((p.route == lpk::Route::BodyType) == (p.kind == lpk::Kind::BodyType) && (p.route == lpk::Route::RealFace) == (p.kind == lpk::Kind::RealFace),
                   std::string(p.column) + ": the route fits the kind");
         }
         const nlohmann::json j = lp_schema();
@@ -193,7 +192,7 @@
         };
         // the routes that are not the vp grid: their opener must exist in the source (a renamed function must be updated here)
         const Opener openers[] = {{"headassetid", "ui_faces.cpp", "void real_face_picker("},  {"headassetid", "ui_faces.cpp", "void manager_real_face_picker("},
-                                  {"bodytypecode", "ui_bodytypes.cpp", "bool apply_bodytype("},  {"tattoohead", "ui_images.cpp", "void tattoo_editor("}};
+                                  {"bodytypecode", "ui_bodytypes.cpp", "bool apply_bodytype("}};
         for (const Opener& o : openers) {
             std::ifstream in(lp_ui / o.file, std::ios::binary);
             const std::string txt((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
