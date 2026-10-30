@@ -1338,7 +1338,10 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             for (const Block& b : c.blocks) {
                 raw_sum += b.dsize;
                 if (b.ctype != 0x19 && b.ctype != 0x15 && b.ctype != 0x11) { ok = false; it.reason = "stored (uncompressed) block: the decompress hook never sees it"; }
-                else if (b.csize < opt.min_csize) { ok = false; it.reason = "compressed block of " + std::to_string(b.csize) + " bytes is uniform fill, too small to recognise safely"; }
+                else if (b.csize < opt.min_csize && !(opt.census && b.csize >= opt.min_csize_unique)) {  // smaller ones only when the census proves them unique
+                    ok = false;
+                    it.reason = "compressed block of " + std::to_string(b.csize) + " bytes is uniform fill, too small to recognise safely";
+                }
             }
             if (ok && raw_sum != t.logical) { ok = false; it.reason = "block sizes do not add up to the chunk"; }
             if (!ok) { skip(it.reason); continue; }
@@ -1720,7 +1723,7 @@ TableCacheKey make_table_cache_key(const std::string& turbo_version, const std::
     k.add("kit index (the game's tocs)", index_sig);
     std::ostringstream op;
     op << "decals " << o.include_decals << " crest " << o.keep_game_crest << " share_club " << o.share_within_club << " share_other " << o.share_other_clubs << " watch "
-       << o.watch_club << " min_csize " << o.min_csize << " census " << o.census << " hotspots " << o.apply_hotspots;
+       << o.watch_club << " min_csize " << o.min_csize << " unique " << o.min_csize_unique << " census " << o.census << " hotspots " << o.apply_hotspots;
     k.add("options", op.str());
     std::ostringstream sl;
     for (const SlotState& s : slots)
@@ -2131,7 +2134,7 @@ PlanKey make_plan_key(const std::string& game_build, const std::string& index_si
     ko << "decals " << s.decals << " crest " << s.keep_crest << " share_club " << s.share_club << " share_other " << s.share_other;
     k.add("kit options", ko.str());
     std::ostringstream go;
-    go << "watch " << o.watch_club << " min_csize " << o.min_csize << " census " << o.census;
+    go << "watch " << o.watch_club << " min_csize " << o.min_csize << " unique " << o.min_csize_unique << " census " << o.census;
     // the names-and-numbers switch changes only a kit that has a hotspots file (it is not saved in swap_state.json, so keying every kit
     // to it would switch every kit off after a restart with the switch moved)
     if (hot != "missing") go << " hotspots " << o.apply_hotspots;
@@ -3029,6 +3032,7 @@ void Runtime::worker() {
         std::shared_ptr<Table> table;
         std::vector<std::string> off_lines;
         std::map<std::pair<int, int>, Status::PlanRow> rows;
+        std::vector<std::pair<int, int>> auto_q;  // kits with no plan or a stale one (a game update, an option change): planned after the publish
         int planned = 0, nothing_n = 0;  // kits from their plans; kits planned with nothing in the game to swap (not off, not a fault)
         double t_load0 = now_s();
         std::vector<SlotState> slots;
@@ -3096,6 +3100,7 @@ void Runtime::worker() {
                     row.state = why == "no plan" ? "none" : why.compare(0, 7, "damaged") == 0 ? "failed" : "stale";
                     row.reason = reason;
                     off_lines.push_back("kit swap: " + name + " is off: " + reason + " [" + why + "]");
+                    if (auto_plan && row.state != "failed") auto_q.push_back(k);  // 4.0: planned in the background below (once per session), not left off
                 } else if (!sp->plan.ok) {
                     row.state = plan_row_state(*sp);
                     nothing_n += row.state == "nothing";
@@ -3194,6 +3199,20 @@ void Runtime::worker() {
         }
         {
             std::lock_guard<std::mutex> lk(m_);
+            // 4.0 (10-29): a kit switched on whose plan is missing or stale is planned now, in the background, and the table is published
+            // once more; before, it stayed off until "Rebuild all kit plans" (52 of 65 kits after the 10-27 game update). Once per kit and
+            // session: a plan that cannot be made does not loop
+            for (const auto& k : auto_q) {
+                if (!auto_planned_.insert(k).second) continue;
+                bool found = false;
+                for (const auto& p : pending_plans_) found = found || p.first == k;
+                if (!found) pending_plans_.push_back({k, false});
+                Status::PlanRow& row = plan_rows_[k];
+                row.team = k.first;
+                row.slot = k.second;
+                row.state = "queued";
+                row.reason.clear();
+            }
             if (generation_.load() != gen || !pending_plans_.empty()) continue;
             running_ = false;
         }

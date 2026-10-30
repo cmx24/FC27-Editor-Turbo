@@ -296,6 +296,10 @@ struct Options {
     // folders (home_0_0, loc2_home_40_0, away_1_0, ...) it really loads
     bool watch_club = true;
     uint32_t min_csize = 1024;    // blocks with a smaller compressed size are uniform fill: never matched
+    // 4.0 (10-29): a smaller block (from min_csize_unique up) is matched too when the census is on and finds it in no other kit chunk. The
+    // game's plain-colour socks and shorts pictures are single blocks of 300..1000 bytes (Bordeaux home socks_color 920, GK shorts_color
+    // 329); refused, they left the whole folder to the game (never half a kit), so an imported kit never showed
+    uint32_t min_csize_unique = 256;
     bool census = true;           // the block census over every kit chunk (header hops over the whole game's kit data)
     bool apply_hotspots = true;   // also put the zip's name / number / sleeve-badge placement (hotspots.hotspot) into the game's hotspot asset
 };
@@ -550,6 +554,10 @@ public:
     void set_hook_installed(bool on, const std::string& why_not);
     // The host sets it: without turbo_output\kits3d_on.txt nothing is read, scanned or hooked (a kit left on in an old session stays inert)
     bool require_opt_in = false;
+    // 4.0 (10-29): a kit switched on whose plan is missing or stale (a game update, an option change) is planned in the background
+    // after the table from the other kits' plans is published, then published once more (once per kit and session). false = 2.20:
+    // the kit stays off until "Plan it now" / "Rebuild all kit plans" (tests that look at the first publish)
+    bool auto_plan = true;
     // Runs at the start of every worker thread (the host lowers its priority so a scan does not compete with the game)
     std::function<void()> worker_init;
     // The host's installer of the decompress hook: called ONCE, the first time a kit is activated (or restored at start-up), so a
@@ -654,6 +662,7 @@ private:
     std::string table_origin_;
     std::vector<std::pair<std::pair<int, int>, bool>> pending_plans_;  // (team, slot) -> force, in request order
     std::pair<int, int> planning_{-1, -1};                            // the kit being planned now
+    std::set<std::pair<int, int>> auto_planned_;                      // 4.0: kits queued once per session by the start path (no plan / stale)
     std::map<std::pair<int, int>, Status::PlanRow> plan_rows_;
     std::map<int, std::set<std::string>> plan_kinds_;                  // per club, from its plans (kinds_of without the index)
     double last_plan_s_ = 0;                                           // the last plan's time (the "about N s")
