@@ -184,7 +184,7 @@ static void run() {
         CHECK(ks::load_staged(dir, sk, &err), "staged: " + err);
         ks::Options base_opt;
         const ks::SlotState s = slot_state(kClub, 0, ks::Mode::Swap, false, true);
-        const ks::PlanKey key = ks::make_plan_key("BUILD-A", ks::index_signature(files), s, dir, base_opt);
+        const ks::PlanKey key = ks::make_plan_key("BUILD-A", ks::index_signature(files), s, dir, base_opt, ks::nonkit_key(idx, base_opt));
         const ks::SwapPlan sp = ks::make_swap_plan(files, oodle, idx, sk, s, base_opt, key);
         CHECK(sp.plan.ok && !sp.records.empty() && !sp.transient && sp.kinds.count("home_0_0"), "planned: " + sp.plan.error);
         const ks::PlanItem* jn = subject(sp.plan);
@@ -262,7 +262,7 @@ static void run() {
             std::string why, reason;
             ks::GameFiles files(w.root);
             files.init(nullptr);
-            const ks::PlanKey k2 = ks::make_plan_key("BUILD-B", ks::index_signature(files), slot_state(kClub, 0), dir, ks::Options());
+            const ks::PlanKey k2 = ks::make_plan_key("BUILD-B", ks::index_signature(files), slot_state(kClub, 0), dir, ks::Options(), ks::nonkit_key(ks::KitIndex(), ks::Options()));
             CHECK(!ks::load_swap_plan(plan, k2, sp, &why, &reason) && why == "stale: game build" && reason == "Re-stage this kit (planned for another game version)",
                   "load_swap_plan refuses it: " + why + " / " + reason);
         }
@@ -563,7 +563,7 @@ static void run() {
             const ks::PlanItem* it = subject(ref);
             CHECK(it && it->swap == rc.served && it->left_by == rc.by && it->reason.find(rc.words) != std::string::npos,
                   tag + ": build_plan's verdict: " + (it ? it->reason : std::string("(no item)")));
-            const ks::PlanKey key = ks::make_plan_key("BUILD-A", ks::index_signature(files), s, dir, base_opt);
+            const ks::PlanKey key = ks::make_plan_key("BUILD-A", ks::index_signature(files), s, dir, base_opt, ks::nonkit_key(idx, base_opt));
             const ks::SwapPlan sp = ks::make_swap_plan(files, oodle, idx, sk, s, base_opt, key);
             ks::SwapPlan back;
             std::string why, what;

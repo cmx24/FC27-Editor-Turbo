@@ -12,8 +12,10 @@
 //   Every row of <LE root>\turbo_output\kits\swap_state.json is planned (Runtime::replan_all) and its swap_plan_4.bin written next to the staged
 //   kit; then a second Runtime starts the way the game does and must publish the table "from plans" with every row ready. The game build is
 //   read from <FC 27 folder>\FC27.exe (TimeDateStamp-SizeOfImage, the key the running game gives) unless given. The game's files are read only.
-//   Writes under <LE root>\turbo_output: kits\<team>\<slot>\swap_plan_4.bin, kits\kit_index.cache (only when missing or stale) and
-//   kit_swap_log.txt. swap_state.json is read, never written. Exit 0 = every row planned and the start published from the plans.
+//   Writes under <LE root>\turbo_output: kits\<team>\<slot>\swap_plan_4.bin, kits\kit_index.cache (only when missing or stale),
+//   kits\kit_blocks.cache (4.0: the non-kit small-block list, scanned once when missing or stale) and kit_swap_log.txt. swap_state.json is
+//   read, never written. Exit 0 = every row planned, kit_blocks.cache written, and the start published from the plans with the non-kit
+//   list read from kit_blocks.cache (no scan) and 0 kits queued for a background plan ("kit swap: non-kit list ready (kit_blocks.cache ...); 0 kits queued").
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -114,13 +116,24 @@ static int write_plans(const std::string& le, const std::string& game, std::stri
         rt.replan_all();
         print_status("PLANNED (Rebuild all kit plans)", wait_done(rt, 3600), since(t0));
     }
+    const fs::path nk_cache = fs::path(le) / "turbo_output" / "kits" / "kit_blocks.cache";
+    std::error_code nk_ec;
+    const bool nk_written = fs::exists(nk_cache, nk_ec);
+    std::printf("kit_blocks.cache: %s\n", nk_written ? "written" : "MISSING");
     Runtime rt(le, game, oodle);
     rt.require_opt_in = false;
     rt.game_build = build;
+    std::string nk_line;  // 4.0: the start's non-kit list line (the list from kit_blocks.cache, no scan; 0 kits queued = every plan current)
+    rt.log_line = [&nk_line](const std::string& l) {
+        std::printf("  start log: %s\n", l.c_str());
+        if (nk_line.empty() && l.compare(0, 23, "kit swap: non-kit list ") == 0) nk_line = l;
+    };
     const auto t0 = std::chrono::steady_clock::now();
     rt.start();
     const Status s = wait_done(rt, 120);
     print_status("START FROM PLANS (what the next boot does)", s, since(t0));
+    const bool nk_ok = nk_written && nk_line.find("kit swap: non-kit list ready (kit_blocks.cache loaded") == 0 && nk_line.find("; 0 kits queued for a plan") != std::string::npos;
+    std::printf("START NON-KIT LIST: %s (%s)\n", nk_ok ? "from kit_blocks.cache, 0 kits queued" : "NOT OK", nk_line.empty() ? "no line" : nk_line.c_str());
     int ready = 0;
     int nothing = 0;  // planned, but the game has no 3D kit textures for that slot (nothing to swap): not a fault
     for (const auto& p : s.plans) {
@@ -128,7 +141,7 @@ static int write_plans(const std::string& le, const std::string& game, std::stri
         nothing += p.state == "nothing";
         if (p.state != "ready") std::printf("  kit team %d slot %d: %s: %s\n", p.team, p.slot, p.state.c_str(), p.reason.c_str());
     }
-    const bool ok = s.state == "ready" && s.table_origin == "from plans" && ready > 0 && ready + nothing == int(s.plans.size());
+    const bool ok = s.state == "ready" && s.table_origin == "from plans" && ready > 0 && ready + nothing == int(s.plans.size()) && nk_ok;
     // the count the in-game check expects for each club: kit_swap_log.txt "served team T from plans: X of <this> textures ..."
     std::map<int, int> per_team;
     for (const auto& it : s.items)

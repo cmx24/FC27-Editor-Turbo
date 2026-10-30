@@ -4,7 +4,8 @@
 # that the table comes "from plans" with every row ready (last line "PLAN WRITER: PASS|FAIL ...").
 #   bash scripts/msys.sh 'bash turbogui/tests/catalog/run_kit_plan_writer.sh <LE root> [game build]'
 # <LE root> = a scratch copy (a dry run) or, for the Tester ONLY, the live Live Editor folder before a boot. It writes only under
-# <LE root>\turbo_output: kits\<team>\<slot>\swap_plan_4.bin, kits\kit_index.cache (when missing or stale) and kit_swap_log.txt.
+# <LE root>\turbo_output: kits\<team>\<slot>\swap_plan_4.bin, kits\kit_index.cache and kits\kit_blocks.cache (when missing or stale)
+# and kit_swap_log.txt. 4.0: PASS also needs the start's line "kit swap: non-kit list ready (kit_blocks.cache loaded ...); 0 kits queued".
 # Builders never run it on the live folder.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

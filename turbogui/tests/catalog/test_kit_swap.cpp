@@ -176,6 +176,11 @@ static void test_scan_and_plan(const fs::path& base) {
     opt.min_csize = 1024;
     opt.keep_game_crest = false;  // the 2.6 behaviour: the zip's crest pictures are served
     opt.watch_club = false;
+    {  // 4.0: a small block is served only with the non-kit list (the runtime scans it once, kit_blocks.cache); without it see test_small_blocks' fail-safe case
+        auto nb = std::make_shared<NonKitBlocks>();
+        check(scan_nonkit_blocks(files, idx, *nb, opt.min_csize_unique, opt.min_csize, nullptr, &err), "scan_nonkit_blocks: " + err);
+        idx.nonkit = nb;
+    }
     TableBuilder tb;
     Plan plan = build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
     check(plan.ok, "plan ok: " + plan.error);
@@ -736,6 +741,13 @@ static void test_small_blocks(const fs::path& base) {
     KitIndex idx;
     check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), "small blocks: scan: " + err);
     check(first_block(w.g, 1).src.size() == 696 && first_block(w.g, 7).src.size() == 56, "small blocks: the fixture's blocks are 696 and 56 bytes");
+    const KitIndex bare = idx;  // no non-kit list: the fail-safe case below
+    {  // 4.0: the non-kit list (the runtime's kit_blocks.cache) lets a unique small block be served
+        auto nb = std::make_shared<NonKitBlocks>();
+        check(scan_nonkit_blocks(files, idx, *nb, Options().min_csize_unique, Options().min_csize, nullptr, &err), "small blocks: scan_nonkit_blocks: " + err);
+        idx.nonkit = nb;
+    }
+    const KitIndex* use = &idx;
     const RoleSpec jc = kJerseyColor, sc = {"shorts_color", 55, 32, 32, 6}, so = {"socks_color", 55, 32, 32, 6}, gsc = {"shorts_color", 55, 8, 8, 4};
     auto plan_of = [&](int slot, const char* folder, const std::vector<RoleSpec>& roles, bool census, std::map<std::string, std::vector<uint8_t>>* keep, TableBuilder& tb) {
         StagedKit sk;
@@ -744,7 +756,7 @@ static void test_small_blocks(const fs::path& base) {
         Options opt;
         opt.watch_club = false;
         opt.census = census;
-        return build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
+        return build_plan(files, stand_in_oodle(), *use, sk, opt, true, tb, nullptr);
     };
     auto folder = [](const Plan& p, const std::string& kind) -> const FolderVerdict* {
         for (const auto& f : p.folders)
@@ -766,6 +778,18 @@ static void test_small_blocks(const fs::path& base) {
         const Entry* e = table->match(b.src.data(), b.src.size(), b.dsize);
         check(e && e->dsize == keep["socks_color"].size() && std::memcmp(e->data, keep["socks_color"].data(), e->dsize) == 0,
               "small blocks: the socks block matches in the table and its replacement is the staged picture");
+    }
+    {  // fail-safe: census on but NO non-kit list (a failed or missing scan) -> the same unique 696-byte blocks are NOT served, the folder stays the game's
+        use = &bare;
+        TableBuilder tb;
+        Plan p = plan_of(0, "home", {jc, sc, so}, true, nullptr, tb);
+        use = &idx;
+        const PlanItem* s1 = item_of(p, "shorts_130_0_0_color");
+        const PlanItem* s2 = item_of(p, "socks_130_0_0_color");
+        check(s1 && !s1->swap && s1->reason.find("uniform fill") != std::string::npos && s2 && !s2->swap,
+              "small blocks: without the non-kit list a unique 696-byte block is NOT served (fail-safe)" + std::string(s1 ? " (" + s1->reason + ")" : ""));
+        const FolderVerdict* f = folder(p, "home_0_0");
+        check(f && !f->swapped, "small blocks: without the non-kit list the home folder stays the game's");
     }
     {  // census off: the old refusal stands (uniform fill), so the folder stays the game's
         TableBuilder tb;
@@ -1252,9 +1276,10 @@ static void test_table_cache(const fs::path& base) {
               "plans: switching a kit on plans it once (swap_plan.bin), the table is published from it, no kit_table.cache: " + s.cache_note);
         bool planned = false;
         for (const auto& l : lines) planned = planned || l.find("kit swap: planned team 95 home in ") != std::string::npos;
-        check(planned && lines.size() >= 2 && lines[lines.size() - 2].find("kit swap: table from plans (") != std::string::npos &&
-                  lines.back().find("kit swap: table ready (from plans, ") != std::string::npos,
-              "plans: the host log lines say planned, then table from plans, then ready: " + (lines.empty() ? "" : lines.back()));
+        check(planned && lines.size() >= 3 && lines[lines.size() - 3].find("kit swap: table from plans (") != std::string::npos &&
+                  lines[lines.size() - 2].find("kit swap: table ready (from plans, ") != std::string::npos &&
+                  lines.back() == "kit swap: non-kit list ready (in memory, no scan); 0 kits queued for a plan",
+              "plans: the host log lines say planned, then table from plans, then ready, then the non-kit list (4.0): " + (lines.empty() ? "" : lines.back()));
     }
     const std::vector<uint8_t> good = read_all(plan);
     {  // the next session publishes the table from the plan (nothing planned, scanned or built), and it answers every block as the session that planned it
@@ -1266,9 +1291,10 @@ static void test_table_cache(const fs::path& base) {
         const Status s = rt.status();
         check(s.state == "ready" && s.table_origin == "from plans" && s.ready_after_ms >= 0 && s.ready_at_ms > 0 && row_of(s).state == "ready" && read_all(plan) == good,
               "plans: second session from the plan: " + s.cache_note);
-        check(lines.size() == 2 && lines[0].find("kit swap: table from plans (") != std::string::npos && lines[0].find(" blocks, ") != std::string::npos &&
-                  lines[1].find("kit swap: table ready (from plans, ") != std::string::npos,
-              "plans: the host log line says from plans (no plan made): " + (lines.empty() ? "" : lines[0]));
+        check(lines.size() == 3 && lines[0].find("kit swap: table from plans (") != std::string::npos && lines[0].find(" blocks, ") != std::string::npos &&
+                  lines[1].find("kit swap: table ready (from plans, ") != std::string::npos &&
+                  lines[2] == "kit swap: non-kit list ready (kit_blocks.cache loaded, header matches this game, no scan); 0 kits queued for a plan",
+              "plans: the host log line says from plans (no plan made), the non-kit list from kit_blocks.cache and 0 kits queued: " + (lines.empty() ? "" : lines.back()));
         std::string why;
         Status a = ref.status(), b = s;
         a.message = b.message = "";  // the planning session's message names the plan it made
@@ -1925,6 +1951,181 @@ static int real_game(const std::string& game, int team, int slot) {
     return plan.ok ? 0 : 1;
 }
 
+// 4.0 (10-29): a block below min_csize (a chunk's small tail block) is served only when no non-kit place of the game holds a
+// byte-identical block (the hook recognises blocks by content: a stadium banner with the same tail would be recoloured too). Fixture:
+// team 95 home jersey_color in 10800-byte blocks (tail 504 bytes) and a non-kit "banner" texture whose bytes differ only in the first
+// block, so its 504-byte tail is the same block. variant 0: the tail collides -> jersey_color and its whole folder stay the game's;
+// variant 1: the banner's last byte differs -> served. On b61956c4 (census only over kit chunks) variant 0 is served: this fails there.
+static void test_nonkit_small_blocks(const fs::path& base) {
+    for (int variant = 0; variant < 2; ++variant) {
+        const std::string tag = variant == 0 ? "non-kit tail collision: " : "non-kit tail differs: ";
+        World w;
+        w.root = base / (variant == 0 ? "nonkit_hit" : "nonkit_free") / "game";
+        w.le = base / (variant == 0 ? "nonkit_hit" : "nonkit_free") / "le";
+        w.g.root = w.root;
+        using T = GameBuilder::TexSpec;
+        // BC1 sRGB 256x256, 9 mips = 43704 bytes: blocks 10800 x4 + 504 (the small tail); BC5 128x128 normal in 8 KB blocks (all >= 1024)
+        w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_95_0_0_color"), 55, 256, 256, 9, {}, -1, 10800},       // 0
+                        T{P("home_0_0", "jersey", "jersey_95_0_0_normal"), 63, 128, 128, 8, {}, -1, 8192}});  // 1
+        {
+            const auto& c = w.g.chunk_locs[0];
+            std::vector<uint8_t> raw;
+            std::vector<uint8_t> stream(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+            read_blocks(stream, stand_in_oodle(), raw, nullptr);
+            check(raw.size() == 43704 && raw.size() % 10800 == 504, tag + "fixture: jersey_color is 43704 bytes, tail block 504");
+            raw[0] ^= 0x5A;  // the first block differs: the chunk is not the kit's
+            if (variant == 1) raw.back() ^= 0x5A;
+            w.g.add_bundle({T{"content/ui/stadium/banner_ads_color", 55, 256, 256, 9, raw, -1, 10800}});  // 2: no kit path
+        }
+        w.g.write();
+        GameFiles files(w.root);
+        std::string err;
+        check(files.init(&err), tag + "GameFiles::init: " + err);
+        KitIndex idx;
+        check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), tag + "scan_kits: " + err);
+        check(idx.bundles.size() == 1, tag + "one kit bundle (the banner is not a kit)");
+        auto nb = std::make_shared<NonKitBlocks>();
+        check(scan_nonkit_blocks(files, idx, *nb, 256, 1024, nullptr, &err), tag + "scan_nonkit_blocks: " + err);
+        check(nb->find(504, 504, 0) == nullptr, tag + "find: an unknown block is not found");
+        // the cache round trip (kit_blocks.cache)
+        const fs::path cache = w.le / "turbo_output" / "kits" / "kit_blocks.cache";
+        check(save_nonkit_cache(files, *nb, cache), tag + "kit_blocks.cache written");
+        NonKitBlocks back;
+        check(load_nonkit_cache(files, cache, back) && back.from_cache && back.recs.size() == nb->recs.size() && back.wheres.size() == nb->wheres.size() &&
+                  back.lo == 256 && back.hi == 1024,
+              tag + "kit_blocks.cache read back (" + std::to_string(nb->recs.size()) + " blocks)");
+
+        const fs::path dir = w.le / "turbo_output" / "kits" / "95" / "home";
+        std::vector<json> tex;
+        stage_texture(dir, "jersey_color", 55, 256, 256, 9, tex, w.rng, &w.jersey_color_data);
+        stage_texture(dir, "jersey_normal", 63, 128, 128, 8, tex, w.rng);
+        write_manifest(dir, 95, 0, tex);
+        StagedKit sk;
+        check(load_staged(dir, sk, &err), tag + "load_staged: " + err);
+        Options opt;
+        opt.min_csize = 1024;
+        opt.watch_club = false;
+        auto plan_with = [&](std::shared_ptr<const NonKitBlocks> list) {
+            KitIndex ix = idx;
+            ix.nonkit = std::move(list);
+            TableBuilder tb;
+            return build_plan(files, stand_in_oodle(), ix, sk, opt, true, tb, nullptr);
+        };
+        const Plan plan = plan_with(std::make_shared<NonKitBlocks>(back));
+        check(plan.ok, tag + "plan ok: " + plan.error);
+        for (const auto& i : plan.items) std::printf("    %-12s %-28s %s %s\n", i.kind.c_str(), i.res.substr(i.res.rfind('/') + 1).c_str(), i.swap ? "SWAP" : "left", i.reason.c_str());
+        const PlanItem* jc = item_named(plan, "jersey_95_0_0_color", "home_0_0");
+        const PlanItem* jn = item_named(plan, "jersey_95_0_0_normal", "home_0_0");
+        const FolderVerdict* fv = nullptr;
+        for (const auto& f : plan.folders)
+            if (f.kind == "home_0_0") fv = &f;
+        if (variant == 0) {
+            check(jc && !jc->swap && jc->reason.find("a byte-identical compressed block is also in a non-kit game texture (") != std::string::npos &&
+                      jc->reason.find("banner_ads_color") != std::string::npos,
+                  tag + "jersey_color left, the reason names the banner");
+            check(jn && !jn->swap, tag + "jersey_normal left too (never half a kit)");
+            check(fv && !fv->swapped && fv->role == "jersey_color", tag + "the home_0_0 folder stays the game's, decided by jersey_color");
+            check(plan.swapped == 0, tag + "nothing served");
+        } else {
+            check(jc && jc->swap && jc->blocks == 5, tag + "jersey_color served with its 504-byte tail (5 blocks)");
+            check(jn && jn->swap, tag + "jersey_normal served");
+            check(fv && fv->swapped, tag + "the home_0_0 folder is served");
+            // without the non-kit list a small block is never served (the runtime's fallback when the scan fails)
+            const Plan bare = plan_with(nullptr);
+            const PlanItem* jb = item_named(bare, "jersey_95_0_0_color", "home_0_0");
+            check(jb && !jb->swap && jb->reason.find("uniform fill") != std::string::npos, tag + "no non-kit list: the small tail is left");
+        }
+    }
+}
+
+// 4.0 (10-29): a plan made WITHOUT the non-kit list (its scan failed: a toc that cannot be read) is keyed "non-kit list: none". The next session
+// sees no valid kit_blocks.cache ("missing"): the plan is stale, the auto queue plans it again, the scan succeeds and the kit's small blocks are
+// served. In the failing session the start sees "none" too: the plan is current, no loop. Fixture: test_nonkit_small_blocks' variant 1 (the
+// jersey's 504-byte tail is unique) plus a non-kit toc held open exclusively in session 1. On the plain merge (06de5dbf + 5b979cdd) session 1
+// serves the tail (an unreadable toc was skipped) and, with only the fail-closed scan, session 2 keeps the session-1 plan (same key): fails there.
+static void test_nonkit_replan(const fs::path& base) {
+    const std::string tag = "non-kit re-plan: ";
+    World w;
+    w.root = base / "nonkit_replan" / "game";
+    w.le = base / "nonkit_replan" / "le";
+    w.g.root = w.root;
+    using T = GameBuilder::TexSpec;
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_95_0_0_color"), 55, 256, 256, 9, {}, -1, 10800}, T{P("home_0_0", "jersey", "jersey_95_0_0_normal"), 63, 128, 128, 8, {}, -1, 8192}});
+    {
+        const auto& c = w.g.chunk_locs[0];
+        std::vector<uint8_t> raw;
+        std::vector<uint8_t> stream(w.g.cas.begin() + std::ptrdiff_t(c[0]), w.g.cas.begin() + std::ptrdiff_t(c[0] + c[1]));
+        read_blocks(stream, stand_in_oodle(), raw, nullptr);
+        raw[0] ^= 0x5A;
+        raw.back() ^= 0x5A;  // the tail differs too: the kit's 504-byte tail is unique, served once the list exists
+        w.g.add_bundle({T{"content/ui/stadium/banner_ads_color", 55, 256, 256, 9, raw, -1, 10800}});
+    }
+    w.g.write();
+    const fs::path locked = w.root / "Data" / "Win32" / "zz_other.toc";  // a non-kit toc (no bundle the kit index wants)
+    std::ofstream(locked, std::ios::binary).write("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16);
+    const fs::path dir = w.le / "turbo_output" / "kits" / "95" / "home";
+    std::vector<json> tex;
+    stage_texture(dir, "jersey_color", 55, 256, 256, 9, tex, w.rng, &w.jersey_color_data);
+    stage_texture(dir, "jersey_normal", 63, 128, 128, 8, tex, w.rng);
+    write_manifest(dir, 95, 0, tex);
+    const fs::path nk_cache = w.le / "turbo_output" / "kits" / "kit_blocks.cache";
+    auto tail_served = [&](const Status& s) {
+        for (const auto& i : s.items)
+            if (i.team == 95 && i.res.find("jersey_95_0_0_color") != std::string::npos && i.kind == "home_0_0") return i.swap && i.blocks == 5;
+        return false;
+    };
+    auto row95 = [](const Status& s) {
+        for (const auto& p : s.plans)
+            if (p.team == 95 && p.slot == 0) return p.state;
+        return std::string("(no row)");
+    };
+    // ---- session 1: the toc cannot be read -> the scan fails -> the plan is made without the list (small tail not served)
+    {
+        HANDLE h = CreateFileW(locked.wstring().c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(h != INVALID_HANDLE_VALUE, tag + "session 1: the non-kit toc is held open exclusively");
+        GameFiles probe(w.root);
+        std::vector<uint8_t> tmp;
+        check(probe.init(nullptr) && !probe.read_file("Data/Win32/zz_other.toc", tmp), tag + "session 1: the locked toc cannot be read");
+        LogSink ls;
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        ls.attach(rt);
+        std::string err;
+        check(rt.activate(95, 0, Mode::Swap, &err), tag + "session 1: activate: " + err);
+        rt.wait_idle();
+        const Status s1 = rt.status();
+        check(ls.count("kit swap: planned team 95 home") == 1 && !tail_served(s1) && !fs::exists(nk_cache),
+              tag + "session 1: planned once without the list, the 504-byte tail is NOT served, no kit_blocks.cache (" + row95(s1) + ")");
+        check(ls.count("kit swap: non-kit list none (the scan failed this session); 0 kits queued for a plan") >= 1, tag + "session 1: the start says the list is none, 0 kits queued");
+        rt.deactivate(77, 0);  // one more worker pass (the start path again): the plan is current under "none", no second plan (no loop)
+        rt.wait_idle();
+        check(ls.count("kit swap: planned team 95 home") == 1, tag + "session 1: a later pass plans nothing more (no loop in the failing session)");
+        CloseHandle(h);
+    }
+    // ---- session 2: the toc reads again -> no valid kit_blocks.cache ("missing") -> the "none" plan is stale -> planned again with the list
+    {
+        LogSink ls;
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        const Status s2 = rt.status();
+        check(ls.count("kit swap: non-kit list missing (no valid kit_blocks.cache); 1 kit queued for a plan") == 1, tag + "session 2: the start sees the list missing and queues the kit");
+        check(ls.count("kit swap: planned team 95 home") == 1 && tail_served(s2) && fs::exists(nk_cache) && row95(s2) == "ready",
+              tag + "session 2: the kit is planned again with the list, its 504-byte tail served, kit_blocks.cache written (" + row95(s2) + ")");
+    }
+    // ---- session 3: everything current: the list from kit_blocks.cache (no scan), nothing planned, the tail still served
+    {
+        LogSink ls;
+        Runtime rt(w.le, w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        check(ls.count("kit swap: non-kit list ready (kit_blocks.cache loaded, header matches this game, no scan); 0 kits queued for a plan") == 1 &&
+                  ls.count("kit swap: planned") == 0 && tail_served(rt.status()),
+              tag + "session 3: the list from kit_blocks.cache, 0 kits queued, nothing planned, the tail served");
+    }
+}
+
 int main(int argc, char** argv) {
     std::string game;
     int team = 95, slot = 0;
@@ -1956,6 +2157,8 @@ int main(int argc, char** argv) {
     test_guards_and_cache(base);
     test_table_cache(base);
     test_auto_plan(base);
+    test_nonkit_small_blocks(base);
+    test_nonkit_replan(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

@@ -747,6 +747,266 @@ bool load_index_cache(const GameFiles& files, const fs::path& file, KitIndex& ou
     }
 }
 
+// ---------------------------------------------------------------- 4.0: the small blocks of the game's non-kit data
+const NonKitBlocks::Rec* NonKitBlocks::find(uint32_t csize, uint32_t dsize, uint64_t fnv) const {
+    const auto key = std::make_tuple(csize, dsize, fnv);
+    auto it = std::lower_bound(recs.begin(), recs.end(), key, [](const Rec& r, const std::tuple<uint32_t, uint32_t, uint64_t>& k) {
+        return std::make_tuple(r.csize, r.dsize, r.fnv) < k;
+    });
+    return it != recs.end() && it->csize == csize && it->dsize == dsize && it->fnv == fnv ? &*it : nullptr;
+}
+
+// The toc's own chunk table (chunks no bundle lists): h[5] entries, GUIDs at h[4] (20 bytes: GUID reversed, u32 index), locations at
+// h[6] + (index & 0xFFFFFF) / 4 * 16 (cas id 8, offset BE32, size BE32). The layout of turbo\tools\asset_catalog\frostbite.py:160-171.
+static void toc_chunk_locs(const std::vector<uint8_t>& d, std::vector<Loc>& out) {
+    out.clear();
+    if (d.size() < kTocData + 60) return;
+    uint32_t h[15];
+    for (int i = 0; i < 15; ++i) h[i] = be32(&d[kTocData + size_t(i) * 4]);
+    const uint64_t g = kTocData + uint64_t(h[4]), e = kTocData + uint64_t(h[6]);
+    for (uint32_t k = 0; k < h[5]; ++k) {
+        const uint64_t o = g + uint64_t(k) * 20;
+        if (o + 20 > d.size()) break;
+        const uint64_t en = e + uint64_t(be32(&d[size_t(o + 16)]) & 0xFFFFFFu) / 4 * 16;
+        if (en + 16 > d.size()) continue;
+        Loc l;
+        l.cas = hex(&d[size_t(en)], 8);
+        l.off = be32(&d[size_t(en + 8)]);
+        l.size = be32(&d[size_t(en + 12)]);
+        out.push_back(l);
+    }
+}
+
+bool scan_nonkit_blocks(GameFiles& files, const KitIndex& idx, NonKitBlocks& out, uint32_t lo, uint32_t hi, Progress* progress, std::string* err) {
+    out = NonKitBlocks();
+    out.lo = lo;
+    out.hi = hi;
+    const double t0 = now_s();
+    struct L {
+        Loc loc;
+        uint32_t where;
+    };
+    std::vector<L> all;
+    {
+        std::unordered_map<std::string, uint32_t> seen;  // physical key -> where (each place read once)
+        const auto tocs = files.list_tocs();
+        for (const std::string& rel : tocs) {
+            if (progress && progress->cancel.load()) return fail(err, "cancelled");
+            std::vector<uint8_t> toc;
+            if (!files.read_file(rel, toc)) return fail(err, "cannot read " + rel);  // fail closed: a toc not read = a list that may miss a small block
+            const int32_t ti = int32_t(out.tocs.size());
+            out.tocs.push_back(rel);
+            auto add = [&](const Loc& l, int32_t bundle, uint32_t loc) {
+                if (l.size < 8 + lo) return;
+                const std::string key = phys_key(l);
+                if (idx.users.count(key) || seen.count(key)) return;  // a kit chunk: the kit census (build_plan step 3) covers it
+                seen.emplace(key, uint32_t(out.wheres.size()));
+                all.push_back({l, uint32_t(out.wheres.size())});
+                out.wheres.push_back({ti, bundle, loc});
+            };
+            std::vector<std::vector<Loc>> bundles;
+            if (parse_toc_bundles(toc, bundles, nullptr))
+                for (size_t b = 0; b < bundles.size(); ++b) {
+                    if (bundles[b].empty()) { ++out.not_inline; continue; }
+                    for (size_t k = 0; k < bundles[b].size(); ++k) add(bundles[b][k], int32_t(b), uint32_t(k));
+                }
+            std::vector<Loc> chunks;
+            toc_chunk_locs(toc, chunks);
+            for (size_t k = 0; k < chunks.size(); ++k) add(chunks[k], -1, uint32_t(k));
+        }
+    }
+    std::sort(all.begin(), all.end(), [](const L& a, const L& b) { return std::tie(a.loc.cas, a.loc.off) < std::tie(b.loc.cas, b.loc.off); });
+    if (progress) progress->total += int(all.size() / 1024 + 1);
+    std::vector<uint8_t> hdr, pay;
+    std::vector<NonKitBlocks::Rec> recs;
+    for (size_t i = 0; i < all.size(); ++i) {
+        if ((i & 1023) == 0 && progress) {
+            ++progress->done;
+            if (progress->cancel.load()) return fail(err, "cancelled");
+        }
+        const Loc& l = all[i].loc;
+        ++out.locations;
+        out.bytes += l.size;
+        uint64_t p = 0;
+        while (p + 8 <= l.size) {  // not a block stream (a raw manifest, stored data): the first implausible header ends the walk
+            if (!files.read(l.cas, l.off + p, 8, hdr)) break;
+            const uint32_t ds = be32(hdr.data()) & 0xFFFFFFu;
+            const uint16_t code = le16(&hdr[4]);
+            const uint32_t cs = uint32_t(be16(&hdr[6])) + (uint32_t((code >> 8) & 0x0F) << 16);
+            if (p + 8 + cs > l.size) break;
+            ++out.blocks;
+            if (cs >= lo && cs < hi && files.read(l.cas, l.off + p + 8, cs, pay)) recs.push_back({cs, ds, fnv1a64(pay.data(), pay.size()), all[i].where});
+            p += 8 + cs;
+        }
+    }
+    std::sort(recs.begin(), recs.end(), [](const NonKitBlocks::Rec& a, const NonKitBlocks::Rec& b) {
+        return std::tie(a.csize, a.dsize, a.fnv, a.where) < std::tie(b.csize, b.dsize, b.fnv, b.where);
+    });
+    for (const auto& r : recs)
+        if (out.recs.empty() || out.recs.back().csize != r.csize || out.recs.back().dsize != r.dsize || out.recs.back().fnv != r.fnv) out.recs.push_back(r);
+    {  // keep only the places a record names (2.7 million locations in FC 27 vs about a million small blocks)
+        std::unordered_map<uint32_t, uint32_t> remap;
+        std::vector<NonKitBlocks::Where> kept;
+        for (auto& r : out.recs) {
+            auto it = remap.find(r.where);
+            if (it == remap.end()) {
+                it = remap.emplace(r.where, uint32_t(kept.size())).first;
+                kept.push_back(out.wheres[r.where]);
+            }
+            r.where = it->second;
+        }
+        out.wheres = std::move(kept);
+    }
+    out.seconds = now_s() - t0;
+    return true;
+}
+
+namespace {
+constexpr uint32_t kNonKitMagic = 0x424E4B54;  // "TKNB"
+constexpr uint32_t kNonKitVersion = 1;
+}  // namespace
+
+bool save_nonkit_cache(const GameFiles& files, const NonKitBlocks& nb, const fs::path& file) {
+    try {
+        Wr w;
+        w.u32(kNonKitMagic);
+        w.u32(kNonKitVersion);
+        w.str(index_signature(files));
+        w.u32(nb.lo);
+        w.u32(nb.hi);
+        w.u64(nb.locations);
+        w.u64(nb.blocks);
+        w.u64(nb.bytes);
+        w.i32(nb.not_inline);
+        w.u32(uint32_t(nb.tocs.size()));
+        for (const auto& t : nb.tocs) w.str(t);
+        w.u32(uint32_t(nb.wheres.size()));
+        for (const auto& x : nb.wheres) {
+            w.i32(x.toc);
+            w.i32(x.bundle);
+            w.u32(x.loc);
+        }
+        w.u32(uint32_t(nb.recs.size()));
+        for (const auto& r : nb.recs) {
+            w.u32(r.csize);
+            w.u32(r.dsize);
+            w.u64(r.fnv);
+            w.u32(r.where);
+        }
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        const fs::path tmp = file.string() + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(w.b.data()), std::streamsize(w.b.size()));
+            if (!f) return false;
+        }
+        fs::remove(file, ec);
+        fs::rename(tmp, file, ec);
+        return !ec;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool nonkit_cache_matches(const GameFiles& files, const fs::path& file, uint32_t lo, uint32_t hi) {
+    try {
+        std::ifstream f(file, std::ios::binary | std::ios::ate);
+        if (!f) return false;
+        const std::streamoff n = f.tellg();
+        if (n < 16) return false;
+        std::vector<uint8_t> d(static_cast<size_t>(std::min<std::streamoff>(n, std::streamoff(1) << 20)));
+        f.seekg(0);
+        f.read(reinterpret_cast<char*>(d.data()), std::streamsize(d.size()));
+        if (!f) return false;
+        Rd r(d);
+        if (r.u32() != kNonKitMagic || r.u32() != kNonKitVersion || !r.ok) return false;
+        if (r.str() != index_signature(files)) return false;
+        const uint32_t l = r.u32(), h = r.u32();
+        return r.ok && l == lo && h == hi;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool load_nonkit_cache(const GameFiles& files, const fs::path& file, NonKitBlocks& out) {
+    try {
+        std::ifstream f(file, std::ios::binary | std::ios::ate);
+        if (!f) return false;
+        const std::streamoff n = f.tellg();
+        if (n < 16 || n > (std::streamoff(1) << 29)) return false;
+        std::vector<uint8_t> d(static_cast<size_t>(n));
+        f.seekg(0);
+        f.read(reinterpret_cast<char*>(d.data()), n);
+        if (!f) return false;
+        Rd r(d);
+        if (r.u32() != kNonKitMagic || r.u32() != kNonKitVersion || !r.ok) return false;
+        if (r.str() != index_signature(files)) return false;  // a patch: scan again
+        NonKitBlocks o;
+        o.lo = r.u32();
+        o.hi = r.u32();
+        o.locations = r.u64();
+        o.blocks = r.u64();
+        o.bytes = r.u64();
+        o.not_inline = r.i32();
+        const uint32_t nt = r.u32();
+        if (!r.ok || nt > 100000) return false;
+        for (uint32_t i = 0; i < nt && r.ok; ++i) o.tocs.push_back(r.str());
+        const uint32_t nw = r.u32();
+        if (!r.ok || nw > 50000000) return false;
+        o.wheres.resize(nw);
+        for (auto& x : o.wheres) {
+            x.toc = r.i32();
+            x.bundle = r.i32();
+            x.loc = r.u32();
+            if (!r.ok || x.toc < 0 || size_t(x.toc) >= o.tocs.size()) return false;
+        }
+        const uint32_t nr = r.u32();
+        if (!r.ok || nr > 50000000) return false;
+        o.recs.resize(nr);
+        for (auto& x : o.recs) {
+            x.csize = r.u32();
+            x.dsize = r.u32();
+            x.fnv = r.u64();
+            x.where = r.u32();
+            if (!r.ok || x.where >= nw) return false;
+        }
+        if (!r.ok || r.p != d.size()) return false;
+        if (!std::is_sorted(o.recs.begin(), o.recs.end(), [](const NonKitBlocks::Rec& a, const NonKitBlocks::Rec& b) {
+                return std::tie(a.csize, a.dsize, a.fnv) < std::tie(b.csize, b.dsize, b.fnv);
+            }))
+            return false;
+        o.from_cache = true;
+        out = std::move(o);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string nonkit_where_text(GameFiles& files, const OodleFn& oodle, const NonKitBlocks& nb, uint32_t where) {
+    if (where >= nb.wheres.size()) return "an unnamed game location";
+    const NonKitBlocks::Where& w = nb.wheres[where];
+    const std::string toc = size_t(w.toc) < nb.tocs.size() ? nb.tocs[size_t(w.toc)] : std::string("?");
+    if (w.bundle < 0) return toc + " chunk table entry " + std::to_string(w.loc);
+    const std::string at = toc + " bundle " + std::to_string(w.bundle);
+    std::vector<uint8_t> d, raw, blob;
+    std::vector<std::vector<Loc>> bundles;
+    if (!files.read_file(toc, d) || !parse_toc_bundles(d, bundles, nullptr) || size_t(w.bundle) >= bundles.size() || bundles[size_t(w.bundle)].empty() ||
+        !files.read_loc(bundles[size_t(w.bundle)][0], raw))
+        return at + " location " + std::to_string(w.loc);
+    Manifest m;
+    const bool ok = raw.size() > 8 && le32(&raw[4]) == kManifestMagic ? parse_manifest(raw, m, nullptr) : (read_blocks(raw, oodle, blob, nullptr) && parse_manifest(blob, m, nullptr));
+    if (!ok) return at + " location " + std::to_string(w.loc);
+    const size_t ne = m.ebx.size(), nr = m.res.size(), li = w.loc;
+    if (li == 0) return at + " manifest";
+    if (li <= ne) return at + ": ebx " + m.ebx[li - 1];
+    if (li <= ne + nr) return at + ": res " + m.res[li - 1 - ne].name;
+    if (li - 1 - ne - nr < m.chunks.size())
+        return at + ": chunk " + m.chunks[li - 1 - ne - nr].guid + (m.ebx.empty() ? std::string() : " of " + m.ebx[0]);
+    return at + " location " + std::to_string(w.loc);
+}
+
 // ---------------------------------------------------------------- staged textures
 bool load_staged(const fs::path& dir, StagedKit& out, std::string* err) {
     out = StagedKit();
@@ -1338,7 +1598,9 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
             for (const Block& b : c.blocks) {
                 raw_sum += b.dsize;
                 if (b.ctype != 0x19 && b.ctype != 0x15 && b.ctype != 0x11) { ok = false; it.reason = "stored (uncompressed) block: the decompress hook never sees it"; }
-                else if (b.csize < opt.min_csize && !(opt.census && b.csize >= opt.min_csize_unique)) {  // smaller ones only when the census proves them unique
+                else if (b.csize < opt.min_csize &&
+                         !(opt.census && b.csize >= opt.min_csize_unique && index.nonkit && b.csize >= index.nonkit->lo && b.csize < index.nonkit->hi)) {
+                    // smaller ones only when the census (kit chunks) and the non-kit list (every other place of the game) prove them unique
                     ok = false;
                     it.reason = "compressed block of " + std::to_string(b.csize) + " bytes is uniform fill, too small to recognise safely";
                 }
@@ -1454,6 +1716,25 @@ Plan build_plan(GameFiles& files, const OodleFn& oodle, const KitIndex& index, c
                     it.reason = "a byte-identical compressed block is also in another club's kit chunk (" + users_text(others) + "): left to the game (" + kOtherClubsOption + ")";
                 } else {
                     cands[ci].note += (cands[ci].note.empty() ? "" : "; ") + ("also changes " + users_text(others) + " (byte-identical blocks: " + counts + ")");
+                }
+            }
+            // 3a. (4.0) a block below min_csize is accepted only when no place outside the kit chunks holds a byte-identical one: the hook
+            //     recognises blocks by content, so a non-kit texture (a crest, a boot, a stadium banner) with the same small block would be
+            //     recoloured too. index.nonkit lists every such block of the game (scan_nonkit_blocks); a hit leaves the picture, and 3b its folder.
+            if (index.nonkit) {
+                std::map<uint32_t, std::string> where_text;  // one name lookup per place
+                for (size_t ci = 0; ci < cands.size(); ++ci) {
+                    if (bad.count(ci)) continue;
+                    const NonKitBlocks::Rec* r = nullptr;
+                    for (size_t bi = 0; bi < cands[ci].blocks.size() && !r; ++bi)
+                        if (cands[ci].blocks[bi].csize < opt.min_csize) r = index.nonkit->find(cands[ci].blocks[bi].csize, cands[ci].blocks[bi].dsize, cands[ci].fnv[bi]);
+                    if (!r) continue;
+                    auto wt = where_text.find(r->where);
+                    if (wt == where_text.end()) wt = where_text.emplace(r->where, nonkit_where_text(files, oodle, *index.nonkit, r->where)).first;
+                    PlanItem& it = plan.items[cands[ci].plan_index];
+                    bad.insert(ci);
+                    it.left_by = LeftBy::ThisClubData;
+                    it.reason = "a byte-identical compressed block is also in a non-kit game texture (" + wt->second + ")";
                 }
             }
             for (size_t ci : bad) plan.items[cands[ci].plan_index].swap = false;
@@ -2111,7 +2392,12 @@ std::string plan_row_state(const SwapPlan& sp) {
     return sp.plan.error == kNothingToSwap ? "nothing" : "failed";
 }
 
-PlanKey make_plan_key(const std::string& game_build, const std::string& index_sig, const SlotState& s, const fs::path& dir, const Options& o) {
+std::string nonkit_key(const KitIndex& index, const Options& base) {  // a list for other size bounds (min_csize_unique / min_csize changed) is not this plan's list
+    if (!base.census) return "off";
+    return index.nonkit && index.nonkit->lo == base.min_csize_unique && index.nonkit->hi == base.min_csize ? "ready" : "none";
+}
+
+PlanKey make_plan_key(const std::string& game_build, const std::string& index_sig, const SlotState& s, const fs::path& dir, const Options& o, const std::string& nonkit) {
     PlanKey k;
     k.add(kKeyFormat, std::to_string(kPlanFormat));
     k.add(kKeyBuild, game_build);
@@ -2139,6 +2425,7 @@ PlanKey make_plan_key(const std::string& game_build, const std::string& index_si
     // to it would switch every kit off after a restart with the switch moved)
     if (hot != "missing") go << " hotspots " << o.apply_hotspots;
     k.add("global options", go.str());
+    k.add("non-kit list", o.census ? nonkit : std::string("off"));
     return k;
 }
 
@@ -2590,6 +2877,7 @@ bool Runtime::opted_in() const {
 fs::path Runtime::state_path() const { return le_ / "turbo_output" / "kits" / "swap_state.json"; }
 fs::path Runtime::log_path() const { return le_ / "turbo_output" / "kit_swap_log.txt"; }
 fs::path Runtime::index_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_index.cache"; }
+fs::path Runtime::nonkit_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_blocks.cache"; }
 fs::path Runtime::table_cache_path() const { return le_ / "turbo_output" / "kits" / "kit_table.cache"; }
 fs::path Runtime::staged_dir(int team, int slot) const { return le_ / "turbo_output" / "kits" / std::to_string(team) / slot_folder_name(slot); }
 
@@ -2712,6 +3000,21 @@ std::set<std::string> Runtime::kinds_of(int team) const {
 }
 
 // 4.0: a new file name, so the plans of the builds before 4.0 stay valid for them (an Undo of a 4.0 install finds its kits planned)
+std::string Runtime::nonkit_now(const GameFiles& files, const Options& base, std::string* how) {
+    auto say = [&](const char* h, const char* v) {
+        if (how) *how = h;
+        return std::string(v);
+    };
+    if (!base.census) return say("census off", "off");
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        if (index_ && index_->nonkit && index_->nonkit->lo == base.min_csize_unique && index_->nonkit->hi == base.min_csize) return say("in memory, no scan", "ready");
+    }
+    if (nonkit_failed_) return say("the scan failed this session", "none");
+    return nonkit_cache_matches(files, nonkit_cache_path(), base.min_csize_unique, base.min_csize) ? say("kit_blocks.cache loaded, header matches this game, no scan", "ready")
+                                                                                                   : say("no valid kit_blocks.cache", "missing");
+}
+
 fs::path Runtime::plan_path(int team, int slot) const { return staged_dir(team, slot) / "swap_plan_4.bin"; }
 static std::string plan_key_text(const PlanKey& k) {
     std::string s;
@@ -2896,7 +3199,7 @@ void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Optio
             progress_.cancel = false;
         }
         const fs::path dir = staged_dir(k.first, k.second);
-        const PlanKey key = make_plan_key(game_build, sig, s, dir, base);
+        PlanKey key = make_plan_key(game_build, sig, s, dir, base, nonkit_now(files, base));
         auto finish_row = [&](const std::string& state, const std::string& reason, double secs) {
             std::lock_guard<std::mutex> lk(m_);
             Status::PlanRow& row = plan_rows_[k];
@@ -2957,6 +3260,40 @@ void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Optio
                 }
             }
         }
+        // 4.0: the small blocks of every non-kit place of the game (kit_blocks.cache, keyed like the index; scanned once after a game
+        // update, about 2 min). Without it a block below min_csize is never served (build_plan step 1), so a failed scan only plans safer.
+        if (base.census && nonkit_key(*index, base) != "ready" && !nonkit_failed_) {  // none yet, or one for other size bounds (an option change)
+            auto nb = std::make_shared<NonKitBlocks>();
+            bool ok = load_nonkit_cache(files, nonkit_cache_path(), *nb) && nb->lo == base.min_csize_unique && nb->hi == base.min_csize;
+            if (!ok) {
+                {
+                    std::lock_guard<std::mutex> lk(m_);
+                    message_ = "Planning your kit... reading the game's other textures first (about 2 min, once after a game update)";
+                    scanning_ = true;
+                }
+                std::string err;
+                nb = std::make_shared<NonKitBlocks>();
+                ok = scan_nonkit_blocks(files, *index, *nb, base.min_csize_unique, base.min_csize, &progress_, &err);
+                {
+                    std::lock_guard<std::mutex> lk(m_);
+                    scanning_ = false;
+                }
+                if (ok) save_nonkit_cache(files, *nb, nonkit_cache_path());
+                else if (err != "cancelled") nonkit_failed_ = true;
+                else if (err == "cancelled") {
+                    std::lock_guard<std::mutex> lk(m_);
+                    pending_plans_.insert(pending_plans_.begin(), {k, force});
+                    continue;
+                }
+            }
+            if (ok) {  // a copy: the published index may be read by the Kits page while this runs
+                auto ni = std::make_shared<KitIndex>(*index);
+                ni->nonkit = nb;
+                std::lock_guard<std::mutex> lk(m_);
+                if (index_ == index) index_ = ni;
+                index = ni;
+            }
+        }
         StagedKit sk;
         std::string e;
         if (!load_staged(dir, sk, &e)) {
@@ -2967,6 +3304,7 @@ void Runtime::plan_pending(GameFiles& files, const std::string& sig, const Optio
             finish_row("failed", "Re-stage this kit (the staged pictures belong to another club or slot)", 0);
             continue;
         }
+        key = make_plan_key(game_build, sig, s, dir, base, nonkit_key(*index, base));  // 4.0: the list this plan really has (none after a failed scan)
         auto sp = std::make_shared<SwapPlan>(make_swap_plan(files, oodle_, *index, sk, s, base, key, &progress_));
         if (sp->plan.error == "cancelled") {
             std::lock_guard<std::mutex> lk(m_);
@@ -3045,6 +3383,7 @@ void Runtime::worker() {
         std::map<std::pair<int, int>, Status::PlanRow> rows;
         std::vector<std::pair<std::pair<int, int>, std::string>> auto_q;  // kits with no plan or a stale one (a game update, an option change) + the key: planned after the publish
         std::map<std::pair<int, int>, std::string> auto_seen;              // auto_planned_ at the start of this pass: their off line was written once already
+        std::string nk_start, nk_start_how, line_nk;  // 4.0: the non-kit list state the start keyed the plans with (logged after the publish)
         int planned = 0, nothing_n = 0;  // kits from their plans; kits planned with nothing in the game to swap (not off, not a fault)
         double t_load0 = now_s();
         std::vector<SlotState> slots;
@@ -3083,6 +3422,10 @@ void Runtime::worker() {
                 auto_seen = auto_planned_;
             }
             // the start path: the table from the kits' plans, nothing scanned or planned
+            std::string nk_how;
+            const std::string nk = nonkit_now(files, base, &nk_how);  // 4.0: a plan made without the non-kit list is stale once the list exists
+            nk_start = nk;
+            nk_start_how = nk_how;
             TableBuilder tb;
             std::vector<Plan> plans;
             std::vector<std::string> msgs;
@@ -3091,7 +3434,7 @@ void Runtime::worker() {
                 Status::PlanRow row;
                 row.team = s.team;
                 row.slot = s.slot;
-                const PlanKey key = make_plan_key(game_build, sig, s, staged_dir(s.team, s.slot), base);
+                const PlanKey key = make_plan_key(game_build, sig, s, staged_dir(s.team, s.slot), base, nk);
                 std::error_code ec;
                 const auto mt = fs::last_write_time(plan_path(s.team, s.slot), ec);
                 std::shared_ptr<SwapPlan> sp;
@@ -3186,11 +3529,23 @@ void Runtime::worker() {
             }
         }
         publish(table);
+        if (!line.empty()) {  // 4.0: the non-kit list the start keyed the plans with, and the kits it hands to the background planner (0 = every plan current)
+            int queued_n = 0;
+            {
+                std::lock_guard<std::mutex> lk(m_);
+                for (const auto& q : auto_q) {
+                    auto it = auto_planned_.find(q.first);
+                    queued_n += it == auto_planned_.end() || it->second != q.second;
+                }
+            }
+            line_nk = "kit swap: non-kit list " + nk_start + " (" + nk_start_how + "); " + std::to_string(queued_n) + (queued_n == 1 ? " kit" : " kits") + " queued for a plan";
+        }
         if (log_line) {
             try {
                 if (!line.empty()) {
                     log_line(line);
                     log_line(ready);
+                    log_line(line_nk);
                 }
                 for (const auto& l : off_lines) log_line(l);
             } catch (...) {
