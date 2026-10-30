@@ -493,33 +493,38 @@ ui_edit_unlock.cpp	checkbox_right	Main menu editors	1
 ui_edit_unlock.cpp	checkbox_right	Unlock everything (experimental)	1
 ui_edit_unlock.cpp	checkbox_right	Unlock the game's editors	1
 ui_edit_unlock.cpp	checkbox_right	Your manager	1
+ui_faces.cpp	-	###facefilters	1
 ui_faces.cpp	-	##facescope	1
 ui_faces.cpp	-	##facet	1
 ui_faces.cpp	-	##facetpop	1
 ui_faces.cpp	-	##mappgrid	1
 ui_faces.cpp	-	%s (%d)##v%lld	1
 ui_faces.cpp	-	Any (%d)##vany	1
+ui_faces.cpp	-	Apply##faces	1
+ui_faces.cpp	-	Apply##mfaces	1
+ui_faces.cpp	-	Close##faces	1
+ui_faces.cpp	-	Close##mfaces	1
 ui_faces.cpp	-	His own head##faces	1
 ui_faces.cpp	-	His own head##mfaces	1
 ui_faces.cpp	-	Render all filtered heads (%zu)##r3dall	1
 ui_faces.cpp	BeginChild	##facegrid	1
 ui_faces.cpp	BeginChild	##fvals	1
 ui_faces.cpp	BeginChild	##mapp	1
+ui_faces.cpp	BeginCombo	##whatcopy	1
 ui_faces.cpp	BeginCombo	Sort##facesort	1
+ui_faces.cpp	BeginPopup	##facefilterspop	1
 ui_faces.cpp	BeginPopupModal	Choose a real face	1
 ui_faces.cpp	Button	Apply##gamehead	1
 ui_faces.cpp	Button	Cancel##gamehead	1
 ui_faces.cpp	Button	Choose a real face...	1
 ui_faces.cpp	Button	Clear filters	1
-ui_faces.cpp	Button	Close##faces	1
-ui_faces.cpp	Button	Close##mfaces	1
+ui_faces.cpp	Button	Done##facefilters	1
 ui_faces.cpp	Button	Stop##r3d	1
-ui_faces.cpp	Checkbox	Eyes	1
 ui_faces.cpp	Checkbox	High-quality heads only	1
 ui_faces.cpp	Checkbox	Only heads with a 3D look	1
 ui_faces.cpp	Checkbox	Real faces only	1
-ui_faces.cpp	Checkbox	Skin	1
 ui_faces.cpp	InputTextWithHint	##facesearch	1
+ui_faces.cpp	OpenPopup	##facefilterspop	1
 ui_faces.cpp	RadioButton	Manager heads	1
 ui_faces.cpp	RadioButton	Player heads	1
 ui_faces.h	-	Choose a real face##mgr	1
@@ -538,6 +543,14 @@ ui_faces3d_gate.cpp	PushID	faces3d_mgr	1
 ui_faces3d_gate.cpp	Selectable	Any length	1
 ui_faces3d_gate.cpp	SmallButton	Cancel##f3pv	1
 ui_faces3d_gate.cpp	SmallButton	Put it back	1
+ui_faces_layout.h	-	###facefilters	1
+ui_faces_layout.h	-	##facegrid	1
+ui_faces_layout.h	-	##facescope	1
+ui_faces_layout.h	-	##facesearch	1
+ui_faces_layout.h	-	##facet	1
+ui_faces_layout.h	-	##whatcopy	1
+ui_faces_layout.h	-	Apply##faces	1
+ui_faces_layout.h	-	Sort##facesort	1
 ui_game_settings.cpp	-	##gsexppick	1
 ui_game_settings.cpp	-	##gsimppick	1
 ui_game_settings.cpp	-	##gsp	1
@@ -636,7 +649,7 @@ ui_images.cpp	BeginPopupModal	##tattoopick	1
 ui_images.cpp	BeginTabBar	##mfsrc	1
 ui_images.cpp	BeginTabItem	A player's miniface	2
 ui_images.cpp	BeginTabItem	An image file	1
-ui_images.cpp	BeginTabItem	Head model / youth face	1
+ui_images.cpp	BeginTabItem	Head model / youth face	2
 ui_images.cpp	BeginTabItem	The 3D model	1
 ui_images.cpp	BeginTabItem	The current one	1
 ui_images.cpp	BeginTable	##galleries	1
@@ -648,13 +661,14 @@ ui_images.cpp	Button	Choose...##gal	1
 ui_images.cpp	Button	Close##gallery	1
 ui_images.cpp	Button	Close##tattoos	1
 ui_images.cpp	Button	Empty the cache	1
-ui_images.cpp	Button	From his head model's miniface	1
-ui_images.cpp	Button	From his youth face	1
+ui_images.cpp	Button	From his head model's miniface	2
+ui_images.cpp	Button	From his youth face	2
 ui_images.cpp	Button	Generate from 3D model	2
 ui_images.cpp	Button	Remove	1
 ui_images.cpp	Button	Remove custom miniface	1
-ui_images.cpp	Button	Save as miniface	1
+ui_images.cpp	Button	Restore original##mforig	1
 ui_images.cpp	Button	Start from the current miniface	1
+ui_images.cpp	Button	Undo##mfundo	1
 ui_images.cpp	Checkbox	Advanced	1
 ui_images.cpp	Checkbox	Favourites only	1
 ui_images.cpp	Checkbox	Remove plain background	1

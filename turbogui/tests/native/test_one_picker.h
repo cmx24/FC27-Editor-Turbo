@@ -532,8 +532,8 @@
         if (const ItemRec* own = ui.find("His own head##faces")) {
             const std::string win = own->window;
             CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr, "no Hair / Beard copy boxes (their pickers are in Appearance)");
-            CHECK(ui.find("Eyes", win) != nullptr && ui.find("Skin", win) != nullptr,
-                  "NO LOST CAPABILITY: with no RDBM26 folder the Simple page's chooser keeps its Eyes and Skin boxes (no picker on the card gives them)");
+            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
+                  "NO LOST CAPABILITY (5.0b-C): the Eyes and Skin boxes became the What to copy control (Head + eyes + skin), also on the Simple page");
             const fs::path pics = test_tmp_dir("one_picker_simple_rdbm") / "Resources";
             for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
                 fs::create_directories((pics / sub).parent_path());
@@ -542,7 +542,8 @@
             visual_pictures_override(pics.u8string());
             visual_pictures_refresh(app);
             ui.frames(3);
-            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr, "with an RDBM26 folder the card has the eye colour / skin tone pickers and the boxes go");
+            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
+                  "with an RDBM26 folder too: no Eyes / Skin boxes, What to copy stays");
         } else {
             CHECK(false, "the chooser opened from the Simple page (His own head)");
         }

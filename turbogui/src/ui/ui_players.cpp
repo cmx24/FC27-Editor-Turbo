@@ -1475,6 +1475,8 @@ static void player_editor(App& app) {
             mt.headassetid = app.db.get_int(*t, p->rec, "headassetid", 0);
             mt.id = p->playerid;
             mt.teamid = p->club;
+            mt.table = t;
+            mt.rec = p->rec;
             miniface_editor(app, mt);
             ImGui::EndChild();
             ImGui::EndTabItem();

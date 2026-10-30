@@ -23,6 +23,7 @@
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
+#include "ui_bodytypes.h"
 #include "ui_faces3d_gate.h"
 #include "ui_visual_picker.h"
 
@@ -1352,6 +1353,11 @@ struct Chooser {
     AssetScope scope = AssetScope::All;  // All / In this save / Hidden (game heads); this session only
     int64_t pending_game_head = 0;       // a game head clicked: the confirmation row asks before writing
     float confirm_h = 0.0f;              // height of that confirmation block last frame (the grid leaves room for it)
+    // 5.0b-C: a click on a tile only selects it (Apply writes); what Apply copies; the search box has the focus when the chooser opens
+    Face sel;                // the selected head, a copy: the rows are rebuilt when a filter changes
+    bool has_sel = false;
+    int what_copy = 0;       // kCopyHead / kCopyEyesSkin / kCopyBody (below)
+    bool focus_search = false;
     // 2.17 gui/perf-4: what the grid shows, kept until the list or a search / option / filter / sort changes. Rebuilt every
     // frame before, it cost the chooser 20-27 ms per frame in game (W1948: ~28,000 heads walked, filtered and sorted by name)
     struct View {
@@ -1843,13 +1849,14 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
 }
 
 // Filters, sort, what to copy, and the grid of heads. Returns the head clicked (nullptr when none).
-static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
+// 5.0b-C: header = ONE row (search, Filters (n), scope) and one counter line; every other filter is inside the Filters popover
+// (ui_faces_layout.h is the table of what sits where). A click on a tile selects it; chooser_bar (below) applies it.
+static void chooser_body(App& app, Chooser& ch, bool manager_target) {
     const bool mheads = manager_target && ch.manager_heads;
     const std::vector<Face>& list = mheads ? manager_and_match_faces(app) : player_and_game_faces(app);
     const size_t game_count = mheads ? manager_match_faces(app).size() : game_faces(app).size();
     const bool game_heads_on = game_count > 0;
     const Table* src = app.db.table(mheads ? "manager" : "players");
-    const float row_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     // 3D looks (core/face3d_looks.h): player heads classified from the game's 3D renders; manager heads have none
     // 2.17 gui/perf-4: the list is the same object until it is rebuilt (model, catalog or 3D looks changed): keyed on those
     char list_key[160];
@@ -1866,56 +1873,36 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     const bool looks3d = looked > 0;
     const bool only3d = looks3d && ch.only3d;
     faces::drop_hidden(ch.filter, looks3d);
-    if (manager_target) {
-        if (ImGui::RadioButton("Player heads", !ch.manager_heads)) {
-            ch.manager_heads = false;
-            ch.filter.clear();
-        }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Manager heads", ch.manager_heads)) {
-            ch.manager_heads = true;
-            ch.filter.clear();
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Heads of the managers in the database, and game heads whose name matches one of them (\"name match\": check before you apply)");
-        ImGui::SameLine();
+    // ---- row 1: the search box (focused when the chooser opens), the Filters (n) button, the scope. Nothing else is always on screen.
+    int nfilt = (ch.real_only ? 1 : 0) + (ch.hq_only ? 1 : 0) + (only3d ? 1 : 0);
+    for (int i = 0; i < faces::kFacetCount; ++i) nfilt += ch.filter.sel[i] != faces::kAny ? 1 : 0;
+    const std::string filters_label = "Filters (" + std::to_string(nfilt) + ")###facefilters";
+    const float filters_w = ImGui::CalcTextSize("Filters (99)").x + ImGui::GetStyle().FramePadding.x * 2.0f + S(8.0f);
+    const float scope_w = S(150.0f);
+    const float spc = ImGui::GetStyle().ItemSpacing.x;
+    if (ch.focus_search) {
+        ImGui::SetKeyboardFocusHere();
+        ch.focus_search = false;
     }
-    ImGui::SetNextItemWidth(S(200.0f));
-    ImGui::InputTextWithHint("##facesearch", "name or ID", ch.search, sizeof(ch.search));
+    ImGui::SetNextItemWidth(std::max(S(120.0f), ImGui::GetContentRegionAvail().x - filters_w - scope_w - 2.0f * spc));
+    ImGui::InputTextWithHint("##facesearch", "Search by name or ID", ch.search, sizeof(ch.search));
     ImGui::SameLine();
-    ImGui::Checkbox("Real faces only", &ch.real_only);
+    if (ImGui::Button(filters_label.c_str(), ImVec2(filters_w, 0.0f))) ImGui::OpenPopup("##facefilterspop");
+    const ImVec2 filters_min = ImGui::GetItemRectMin(), filters_max = ImGui::GetItemRectMax();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", mheads ? "Only managers with head class 0 (a real face)"
-                                       : "Only players with headclasscode 0 (a real face head model), high quality or not");
+        ImGui::SetTooltip("%s", "Real faces only, high quality, 3D look, sort and the look filters (hair, skin, gender ...).\n"
+                                "The number is how many of them narrow the list now.");
     ImGui::SameLine();
-    ImGui::Checkbox("High-quality heads only", &ch.hq_only);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Only heads with hashighqualityhead 1 (the HQ badge). A real face with 0 is a scanned head too.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(S(200.0f));
-    if (ImGui::BeginCombo("Sort##facesort", faces::sort_title(static_cast<faces::Sort>(ch.sort)))) {
-        for (int s = 0; s < faces::kSortCount; ++s)
-            if (ImGui::Selectable(faces::sort_title(static_cast<faces::Sort>(s)), ch.sort == s)) ch.sort = s;
-        ImGui::EndCombo();
-    }
-    if (game_heads_on) {
-        ImGui::SameLine();
-        asset_scope_combo("##facescope", ch.scope, S(130.0f));
-        if (ImGui::IsItemHovered())
+    ImGui::BeginDisabled(!game_heads_on);
+    asset_scope_combo("##facescope", ch.scope, scope_w);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (game_heads_on)
             ImGui::SetTooltip("All heads, the heads of this save, or Hidden: the %zu 3D heads in the game files that no player or manager\n"
                               "of this save uses%s (asset catalog %s)",
                               game_count, mheads ? " and whose name matches a manager" : "", g_heads_cat.build_key.c_str());
-    }
-    if (looks3d) {
-        bool on = only3d;
-        bool not_first = false;
-        flow(not_first, ImGui::CalcTextSize("Only heads with a 3D look").x + ImGui::GetFrameHeight() + S(8.0f), row_end);
-        if (ImGui::Checkbox("Only heads with a 3D look", &on)) ch.only3d = on;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%zu of %zu heads have a 3D look: skin, hair, facial hair and headwear judged from the game's 3D render.\n"
-                              "In those filters the other heads are \"not classified yet\", and a value the classification\n"
-                              "was unsure of (\"?\" in the head's tooltip) matches no filter value.",
-                              looked, list.size());
+        else
+            ImGui::SetTooltip("%s", "No hidden game heads in this game build: every head is in this save.");
     }
 
     // heads matching the search and "real faces only"; the filters below narrow them
@@ -1943,61 +1930,63 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
         pool.push_back(i);
     }
 
-    const float line_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-    bool first = true;
-    for (int i = 0; i < faces::facet_order_size(looks3d); ++i) {
-        const Facet fc = faces::facet_order(looks3d)[i];
-        if (!faces::facet_3d(fc) && (!src || !src->has(faces::facet_field(fc)))) continue;  // FC 27 has them all; older tables may not
-        facet_button(app, ch, list, pool, fc, first, line_end, looks3d);
-    }
-    if (ch.filter.active()) {
-        flow(first, ImGui::CalcTextSize("Clear filters").x + ImGui::GetStyle().FramePadding.x * 2.0f, line_end);
-        if (ImGui::Button("Clear filters")) ch.filter.clear();
-    }
-
-    // 3.2 f3 (brief Amendment B, Cassio's q6 "agree"): hair and beard are changed in the one picker of each look (Appearance /
-    // Looks), no longer here: the head is given with those copy options off. A player's Eyes and Skin boxes stay only while his
-    // card has no picker for them (B2, owner q6-nopicker): the card draws the eye colour and skin tone rows when there is a
-    // picture source (the user's own RDBM26 folder, which is never shipped); without one the box is the only way to give them.
-    // The managers' Eyes and Skin boxes stay (held, owner q6-nopicker): the manager card (Career / Teams > Appearance) has
-    // hair and beard galleries but no eye-colour or skin-tone picker, only the raw "Appearance fields" grid.
-    ch.opts.hair = ch.opts.beard = false;
-    bool eyes_box = true, skin_box = true;
-    if (!manager_target) {
-        const Table* pt = app.db.table("players");
-        eyes_box = !pt || !vp::has_picture(app, *pt, "eyecolorcode", false);
-        skin_box = !pt || !vp::has_picture(app, *pt, "skintonecode", false);
-        if (!eyes_box) ch.opts.eyes = false;
-        if (!skin_box) ch.opts.skin = false;
-    }
-    ImGui::TextDisabled("Also give:");
-    ImGui::SameLine();
-    if (eyes_box) {
-        ImGui::Checkbox("Eyes", &ch.opts.eyes);
-        ImGui::SameLine();
-    }
-    if (skin_box) {
-        ImGui::Checkbox("Skin", &ch.opts.skin);
+    // ---- the Filters popover: every filter of the old header, nothing dropped (ui_faces_layout.h lists them). Hair and beard are changed
+    // in the one picker of each look (3.2 f3), never copied from here: chooser_bar sets ch.opts.hair / beard to false.
+    ImGui::SetNextWindowPos(ImVec2(filters_min.x, filters_max.y + S(2.0f)), ImGuiCond_Appearing);
+    if (ImGui::BeginPopup("##facefilterspop")) {
+        if (manager_target) {
+            if (ImGui::RadioButton("Player heads", !ch.manager_heads)) {
+                ch.manager_heads = false;
+                ch.filter.clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Manager heads", ch.manager_heads)) {
+                ch.manager_heads = true;
+                ch.filter.clear();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Heads of the managers in the database, and game heads whose name matches one of them (\"name match\": check before you apply)");
+        }
+        ImGui::Checkbox("Real faces only", &ch.real_only);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s", "The skin tone always comes with the head (it goes with it).\n"
-                                    "Skin adds the skin type, complexion, surface and make-up.");
+            ImGui::SetTooltip("%s", mheads ? "Only managers with head class 0 (a real face)"
+                                           : "Only players with headclasscode 0 (a real face head model), high quality or not");
         ImGui::SameLine();
+        ImGui::Checkbox("High-quality heads only", &ch.hq_only);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Only heads with hashighqualityhead 1 (the HQ badge). A real face with 0 is a scanned head too.");
+        if (looks3d) {
+            ImGui::SameLine();
+            bool on = only3d;
+            if (ImGui::Checkbox("Only heads with a 3D look", &on)) ch.only3d = on;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%zu of %zu heads have a 3D look: skin, hair, facial hair and headwear judged from the game's 3D render.\n"
+                                  "In those filters the other heads are \"not classified yet\", and a value the classification\n"
+                                  "was unsure of (\"?\" in the head's tooltip) matches no filter value.",
+                                  looked, list.size());
+        }
+        ImGui::SetNextItemWidth(S(200.0f));
+        if (ImGui::BeginCombo("Sort##facesort", faces::sort_title(static_cast<faces::Sort>(ch.sort)))) {
+            for (int s = 0; s < faces::kSortCount; ++s)
+                if (ImGui::Selectable(faces::sort_title(static_cast<faces::Sort>(s)), ch.sort == s)) ch.sort = s;
+            ImGui::EndCombo();
+        }
+        ImGui::Separator();
+        const float line_end = ImGui::GetCursorScreenPos().x + S(520.0f);
+        bool first = true;
+        for (int i = 0; i < faces::facet_order_size(looks3d); ++i) {
+            const Facet fc = faces::facet_order(looks3d)[i];
+            if (!faces::facet_3d(fc) && (!src || !src->has(faces::facet_field(fc)))) continue;  // FC 27 has them all; older tables may not
+            facet_button(app, ch, list, pool, fc, first, line_end, looks3d);
+        }
+        flow(first, ImGui::CalcTextSize("Clear filters").x + ImGui::GetStyle().FramePadding.x * 2.0f, line_end);
+        ImGui::BeginDisabled(!ch.filter.active());
+        if (ImGui::Button("Clear filters")) ch.filter.clear();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Done##facefilters")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
-    if (!eyes_box && !skin_box) {
-        ImGui::TextDisabled("Hair, beard, eyes and skin: use their pickers (Appearance).");
-        ImGui::SameLine();
-    } else if (!manager_target && (!eyes_box || !skin_box)) {
-        ImGui::TextDisabled("(hair, beard%s: use their pickers)", !eyes_box ? ", eyes" : ", skin");
-        ImGui::SameLine();
-    }
-    ImGui::TextDisabled("| his real picture is kept; with none, one is made (careers only)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", manager_target ? "A picture he already has (the game's, or one Turbo did not make) is never replaced.\n"
-                                                 "With none, in a career, the head's picture is copied for that career only.\n"
-                                                 "Outside a career no picture is written."
-                                               : "A picture he already has (the game's, or one Turbo did not make) is never replaced.\n"
-                                                 "With none, in a career, one is made from his new head for that career only.\n"
-                                                 "Outside a career no picture is written.");
 
     // the filters may have changed in the facet popups above this frame: the key is taken again before the rows are kept
     std::string rows_key = ch.view.list_key + "|" + q + "|" + (ch.real_only ? "r" : "-") + (ch.hq_only ? "h" : "-") + (only3d ? "3" : "-") +
@@ -2012,28 +2001,31 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     }
     // the pool only depends on what view_key holds before the filters: kept under the key of this frame's end state
     ch.view.key = rows_key == view_key ? view_key : std::string();
-    if (!q.empty() && !numeric && q.size() < 2) ImGui::TextDisabled("Type at least 2 letters");
     {
+        // row 2: ONE counter line (5.0b-C: it was up to four lines)
+        char head[320];
+        std::snprintf(head, sizeof(head), "%zu of %zu heads (%s)", rows.size(), pool.size(),
+                      mheads ? "managers' heads with their minifaces"
+                             : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
+        std::string line = head;
+        if (game_heads_on)
+            line += std::string(" | ") + std::to_string(game_count) + (mheads ? " game heads match a manager's name" : " hidden game heads") +
+                    (g_heads_cat.current() ? "" : " (catalog for another game build: they cannot be given)");
+        if (!q.empty() && !numeric && q.size() < 2) line += " | Type at least 2 letters";
         size_t done = 0, total = 0;  // 2.17 gui/perf-4: the player heads are being read (a few frames), the list follows
-        if (!mheads && player_faces_loading(&done, &total)) ImGui::TextDisabled("Reading the save's heads: %zu of %zu", done, total);
-    }
-    ImGui::TextDisabled("%zu of %zu heads (%s)", rows.size(), pool.size(),
-                        mheads ? "managers' heads with their minifaces"
-                               : (ch.real_only ? "real-face players with their minifaces" : "every player with a head model"));
-    if (game_heads_on) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("| %zu %s%s", game_count, mheads ? "game heads match a manager's name" : "hidden game heads",
-                            g_heads_cat.current() ? "" : " (catalog for another game build: they cannot be given)");
+        if (!mheads && player_faces_loading(&done, &total))
+            line += " | Reading the save's heads: " + std::to_string(done) + " of " + std::to_string(total);
+        ImGui::TextDisabled("%s", line.c_str());
     }
 
     const bool use3d = capture_usable(app);
     head3d_bar(app, rows);  // the renders themselves: tick_faces3d, every frame from App::draw
     const float cell = S(96.0f);
     const Face* picked = nullptr;
-    // below the grid: the "pictures loading" line and Close, plus the game-head confirmation (Apply / Cancel and its
-    // warnings) while one is pending, so Apply is never below the fold of the fixed-size modal. Its height is measured
-    // each frame (game_head_confirm); the first frame estimates it.
-    float below = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+    // below the grid: the "pictures loading" line, the Selected line and the 44 px bar (What to copy, Apply, His own head, Close),
+    // plus the game-head confirmation (Apply / Cancel and its warnings) while one is pending, so Apply is never below the fold of
+    // the fixed-size modal. Its height is measured each frame (game_head_confirm); the first frame estimates it.
+    float below = ImGui::GetTextLineHeightWithSpacing() * 2.0f + S(44.0f) + ImGui::GetStyle().ItemSpacing.y * 3.0f + S(4.0f);
     if (ch.pending_game_head > 0)
         below += ch.confirm_h > 0.0f ? ch.confirm_h : ImGui::GetTextLineHeightWithSpacing() * 7.0f + ImGui::GetFrameHeightWithSpacing();
     // a resizable child keeps its own height (ImGui uses size.y only at first): while a confirmation is pending the grid is not
@@ -2132,6 +2124,9 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
                                                 : "3D pending: the game has not rendered this head yet, so the flat picture shows meanwhile.");
                     ImGui::EndTooltip();
                 }
+                if (ch.has_sel && ch.sel.id == f->id && ch.sel.manager == f->manager && ch.sel.game_head == f->game_head &&
+                    ch.sel.match_manager == f->match_manager)
+                    ImGui::GetWindowDrawList()->AddRect(cp, ImVec2(cp.x + cell, cp.y + cell), ImGui::GetColorU32(ImGuiCol_CheckMark), 0.0f, S(3.0f));
                 ImGui::PopID();
                 ImGui::EndGroup();
             }
@@ -2140,7 +2135,11 @@ static const Face* chooser_body(App& app, Chooser& ch, bool manager_target) {
     if (rows.empty()) ImGui::TextDisabled("No head matches. Clear filters or the search.");
     ImGui::EndChild();
     if (app.legacy.waiting() > 0) ImGui::TextDisabled("%zu pictures loading in the background", app.legacy.waiting());
-    return picked;
+    if (picked) {  // 5.0b-C: a click only selects; Apply (chooser_bar) writes
+        ch.sel = *picked;
+        ch.has_sel = true;
+        ch.pending_game_head = 0;
+    }
 }
 
 // A game head was clicked: what will be written, why it may not be, Apply / Cancel. True when it was given.
@@ -2201,24 +2200,135 @@ static bool game_head_confirm(App& app, Chooser& ch, int64_t target_id, bool tar
     return given;
 }
 
+// ---------------------------------------------------------------- the bar under the grid (5.0b-C)
+// What to copy (Cassio 10-29, logged correction 2): Head only / Head + eyes + skin / Head + eyes + skin + body type. Hair and beard are
+// never copied here (ui_faces.cpp chooser_bar: opts.hair = opts.beard = false). The body type goes through apply_bodytype with
+// allow_risky = false: a player-specific body on a generic head is refused and the refusal is shown.
+enum { kCopyHead = 0, kCopyEyesSkin = 1, kCopyBody = 2 };
+static const char* const kWhatCopy[] = {"Head only", "Head + eyes + skin", "Head + eyes + skin + body type"};
+
+// The giver's body type onto the target, after the head was written (the head class decides whether a specific body fits).
+static bool copy_bodytype(App& app, bool target_is_manager, int64_t target_id, bool owner_is_manager, int64_t owner_id, std::string* msg) {
+    const Table* tt = app.db.table(target_is_manager ? "manager" : "players");
+    const Table* ot = app.db.table(owner_is_manager ? "manager" : "players");
+    uint64_t trec = 0, orec = 0;
+    if (target_is_manager) {
+        if (const ManagerRow* m = find_manager(app, target_id)) trec = m->rec;
+    } else if (const PlayerRow* p = app.model.player(target_id)) {
+        trec = p->rec;
+    }
+    if (owner_is_manager) {
+        if (const ManagerRow* m = find_manager(app, owner_id)) orec = m->rec;
+    } else if (const PlayerRow* p = app.model.player(owner_id)) {
+        orec = p->rec;
+    }
+    if (!tt || !ot || !trec || !orec || !ot->has("bodytypecode")) {
+        if (msg) *msg = "body type not copied (the head's owner has none)";
+        return false;
+    }
+    const int64_t code = app.db.get_int(*ot, orec, "bodytypecode", -1);
+    if (code < 0) {
+        if (msg) *msg = "body type not copied (the head's owner has none)";
+        return false;
+    }
+    return apply_bodytype(app, *tt, trec, code, false, msg);
+}
+
+// Apply the selected head (not a game head: it goes through game_head_confirm)
+static bool chooser_apply(App& app, Chooser& ch, bool manager_target, int64_t target_id) {
+    const Face& f = ch.sel;
+    std::string msg;
+    bool in_step = false;
+    const bool ok = manager_target ? apply_real_face_to_manager(app, target_id, f.id, f.manager, ch.opts, &msg, &in_step)
+                                   : apply_real_face(app, target_id, f.id, ch.opts, &msg, &in_step);
+    bool warn = !ok || !in_step;
+    if (ok && ch.what_copy >= kCopyBody) {
+        std::string bm;
+        if (!copy_bodytype(app, manager_target, target_id, f.manager, f.id, &bm)) warn = true;
+        msg += "; " + bm;
+    }
+    app.notify(msg, warn);
+    return ok;
+}
+
+// The Selected line, then the 44 px row: What to copy, Apply, His own head, Close; the game-head confirmation under it.
+// True when the chooser should close (applied, his own head put back, Close).
+static bool chooser_bar(App& app, Chooser& ch, bool manager_target, int64_t target_id, const char* apply_label, const char* own_label,
+                        const char* close_label) {
+    bool close = false;
+    ch.opts.hair = ch.opts.beard = false;  // hair and beard have their own pickers (3.2 f3)
+    ch.opts.eyes = ch.opts.skin = ch.what_copy >= kCopyEyesSkin;
+    if (ch.has_sel) {
+        ImGui::Text("Selected: %s", ch.sel.name.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s %lld, face #%lld%s)", ch.sel.game_head ? "game head" : ch.sel.manager ? "manager" : "player",
+                            static_cast<long long>(ch.sel.id), static_cast<long long>(ch.sel.headassetid),
+                            ch.sel.game_head ? ", you confirm before it is written" : "");
+    } else {
+        ImGui::TextDisabled("Click a head to select it, then Apply. Nothing is written before Apply.");
+    }
+    const float h = S(44.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(ImGui::GetStyle().FramePadding.x, std::max(ImGui::GetStyle().FramePadding.y, (h - ImGui::GetFontSize()) * 0.5f)));
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("What to copy");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(270.0f));
+    if (ImGui::BeginCombo("##whatcopy", kWhatCopy[ch.what_copy])) {
+        for (int i = 0; i < 3; ++i)
+            if (ImGui::Selectable(kWhatCopy[i], ch.what_copy == i)) ch.what_copy = i;
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", manager_target ? "Head only: the head; a picture he already has is kept, with none one is made (careers only).\n"
+                                                 "Head + eyes + skin: also his eye colour and skin look.\n"
+                                                 "... + body type: also the giver's body type (a player-specific body on a generic head is refused).\n"
+                                                 "Hair and beard are never copied here: use their pickers."
+                                               : "Head only: the head; a picture he already has is kept, with none one is made from the new head (careers only).\n"
+                                                 "Head + eyes + skin: also his eye colour and skin look.\n"
+                                                 "... + body type: also the giver's body type (a player-specific body on a generic head is refused).\n"
+                                                 "Hair and beard are never copied here: use their pickers (Appearance).");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!ch.has_sel);
+    const bool apply = ImGui::Button(apply_label, ImVec2(S(110.0f), 0.0f));
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ch.has_sel ? "Writes the selected head (one Undo step)." : "Select a head first: click one of the tiles.");
+    if (apply && ch.has_sel) {
+        if (ch.sel.game_head)
+            ch.pending_game_head = ch.sel.id;  // asks first (game_head_confirm)
+        else if (chooser_apply(app, ch, manager_target, target_id))
+            close = true;
+    }
+    if (own_head_button(app, manager_target, target_id, own_label)) close = true;  // 2.20 (does its own SameLine)
+    ImGui::SameLine();
+    if (ImGui::Button(close_label, ImVec2(S(90.0f), 0.0f))) close = true;
+    ImGui::PopStyleVar();
+    if (game_head_confirm(app, ch, target_id, manager_target)) close = true;
+    return close;
+}
+
+// true on the first frame after OpenPopup() ran for the modal being drawn (see manager_real_face_picker for why not IsWindowAppearing)
+static bool popup_just_opened(int& last_open_frame) {
+    const int open_frame = ImGui::GetCurrentContext()->BeginPopupStack.back().OpenFrameCount;
+    const bool opened = open_frame != last_open_frame;
+    last_open_frame = open_frame;
+    return opened;
+}
+
+static void chooser_opened(Chooser& ch) {
+    ch.focus_search = true;  // the keyboard is in the search box, no click needed
+    ch.has_sel = false;
+    ch.pending_game_head = 0;
+}
+
 void real_face_picker(App& app, int64_t target_pid) {
     ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Choose a real face", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
-    if (const Face* f = chooser_body(app, g_player_ch, false)) {
-        if (f->game_head) {
-            g_player_ch.pending_game_head = f->id;  // asks first (game_head_confirm)
-        } else {
-            const int64_t owner = f->id;
-            std::string msg;
-            bool in_step = false;
-            const bool ok = apply_real_face(app, target_pid, owner, g_player_ch.opts, &msg, &in_step);
-            app.notify(msg, !ok || !in_step);
-            if (ok) ImGui::CloseCurrentPopup();
-        }
-    }
-    if (game_head_confirm(app, g_player_ch, target_pid, false)) ImGui::CloseCurrentPopup();
-    if (ImGui::Button("Close##faces")) ImGui::CloseCurrentPopup();
-    if (own_head_button(app, false, target_pid, "His own head##faces")) ImGui::CloseCurrentPopup();  // 2.20
+    static int s_open_frame = -2;
+    if (popup_just_opened(s_open_frame)) chooser_opened(g_player_ch);
+    chooser_body(app, g_player_ch, false);
+    if (chooser_bar(app, g_player_ch, false, target_pid, "Apply##faces", "His own head##faces", "Close##faces")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -2234,29 +2344,15 @@ void manager_real_face_picker(App& app, int64_t managerid) {
     // frame" read that as still open). Not IsWindowAppearing(): Looks > Managers begins this same popup earlier in the frame (its warning
     // line, 3.1 R4) and ImGui recomputes Appearing on every Begin (imgui.cpp:7559), so this second Begin reads false.
     static int s_open_frame = -2;
-    const int open_frame = ImGui::GetCurrentContext()->BeginPopupStack.back().OpenFrameCount;
-    const bool opened = open_frame != s_open_frame;
-    s_open_frame = open_frame;
-    if (opened && !g_manager_ch.manager_heads) {
-        g_manager_ch.manager_heads = true;
-        g_manager_ch.filter.clear();
-    }
-    if (const Face* f = chooser_body(app, g_manager_ch, true)) {
-        if (f->game_head) {
-            g_manager_ch.pending_game_head = f->id;  // asks first (game_head_confirm)
-        } else {
-            const int64_t owner = f->id;
-            const bool owner_mgr = f->manager;
-            std::string msg;
-            bool in_step = false;
-            const bool ok = apply_real_face_to_manager(app, managerid, owner, owner_mgr, g_manager_ch.opts, &msg, &in_step);
-            app.notify(msg, !ok || !in_step);
-            if (ok) ImGui::CloseCurrentPopup();
+    if (popup_just_opened(s_open_frame)) {
+        chooser_opened(g_manager_ch);
+        if (!g_manager_ch.manager_heads) {
+            g_manager_ch.manager_heads = true;
+            g_manager_ch.filter.clear();
         }
     }
-    if (game_head_confirm(app, g_manager_ch, managerid, true)) ImGui::CloseCurrentPopup();
-    if (ImGui::Button("Close##mfaces")) ImGui::CloseCurrentPopup();
-    if (own_head_button(app, true, managerid, "His own head##mfaces")) ImGui::CloseCurrentPopup();  // 2.20
+    chooser_body(app, g_manager_ch, true);
+    if (chooser_bar(app, g_manager_ch, true, managerid, "Apply##mfaces", "His own head##mfaces", "Close##mfaces")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 

@@ -894,6 +894,8 @@ void draw_managers(App& app) {
                     mt.shown = app.legacy.first_present(legacy_path::staff_pictures(m.managerid, mt.headassetid));
                     mt.id = m.managerid;
                     mt.teamid = m.teamid;
+                    mt.table = t;
+                    mt.rec = m.rec;
                     miniface_editor(app, mt);
                     ImGui::EndChild();
                     ImGui::EndTabItem();

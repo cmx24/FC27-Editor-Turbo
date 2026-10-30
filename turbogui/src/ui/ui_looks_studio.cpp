@@ -1057,6 +1057,8 @@ void miniface_card(App& app, Studio& s, const Subject& who, const Table& t, uint
     mt.headassetid = app.db.get_int(t, rec, "headassetid", 0);
     mt.id = who.id;
     mt.teamid = who.club;
+    mt.table = &t;  // 5.0b-C: the editor draws the Body type row
+    mt.rec = rec;
     if (who.manager) {
         mt.path = legacy_path::staff_miniface_for(who.id, mt.headassetid);
         mt.shown = app.legacy.first_present(legacy_path::staff_pictures(who.id, mt.headassetid));
