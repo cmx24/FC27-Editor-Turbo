@@ -69,10 +69,15 @@ std::string commentary_language_log_line(const std::string& lang, const std::str
 // step with a reason for the log line "callnames: language <lang> (<why>)":
 //   0. a manual override (gui_settings.json "callnames": {"override_language": "<lang>"}; off unless set; the old
 //      "language" key is ignored);
+//   b. (4.0 lang-settings, Cassio 2026-10-29: "it needs to detect active loaded language in settings, not via registry") the game's
+//      Settings file: the commentary language the game saved last (read_settings_language; the value table is
+//      settings_lang_for_value). Used when its value is in the table AND (the language is eng_us OR its pack is live in
+//      Data\Win32). It decides BEFORE the running game's answer: when the two differ the Settings file wins and the reason
+//      names the disagreement. An unknown value (e.g. 10), a missing / unreadable / invalid file or a pack that is not live
+//      falls through to the next steps with the reason in the log line;
 //   a. runtime evidence: the game's own audio service answered which commentary ids are spoken this session (a full
 //      audio-service build, core/commentary_audio.h); that set is compared with every language's known id set (asset
 //      catalog bank, master list, spoken list) and the language that matches clearly wins, else "unknown";
-//   b. the game's settings file: NOT used (the commentary-language field of Settings* could not be proven, 2026-10-11);
 //   a2. the last runtime answer saved in turbo_output\callnames\loaded_language.json, while the game build and the
 //      installed packs are the ones it was heard with;
 //   c. (2.21 CHANGE 8) the registry Locale: HKLM\SOFTWARE\EA Sports\EA SPORTS FC 27 "Locale" (64-bit view, then the 32-bit
@@ -81,7 +86,7 @@ std::string commentary_language_log_line(const std::string& lang, const std::str
 //      so this is a guess. The old step c (the packs, alphabetical, read from <game>\commentary) is gone;
 //   d. eng_us (the base game's language).
 // a2 is not used when a usable Locale says the game cannot offer it (not eng_us, not the Locale's language).
-// Only 0, a and a2 PROVE the language (Callnames::lang_proven); c and d are a guess, on which no automatic write acts
+// Only 0, b, a and a2 PROVE the language (Callnames::lang_proven); c and d are a guess, on which no automatic write acts
 // (career-load re-apply of player callnames, dropping a kept callname for an own recording).
 // Kill switch for step a: <Live Editor>\turbo_output\callnames_lang_detect_off.txt (no runtime match, no extra build;
 // re-checked every few seconds while Turbo runs).
@@ -153,12 +158,51 @@ std::string pack_data_source(const std::filesystem::path& game_root, const std::
 // Fills a RegistryLocale from a Locale string (the pack test reads Data\Win32 only)
 RegistryLocale registry_locale_from(const std::string& locale, const std::string& read_why, const std::filesystem::path& game_root);
 
-// Steps 0, a, a2, c, d above (b is not implemented). `runtime_lang` "" = no runtime evidence; `saved_lang` "" = no
-// usable saved answer. Never returns "". `proven` (optional) = the answer came from 0, a or a2. `hint` (optional, 2.21) = the
-// launcher hint, ranked as above. `reg` = step c.
+// Step b (4.0 lang-settings): the commentary language field of the game's Settings file, in the folder <LOCALAPPDATA>\EA SPORTS FC 27\settings,
+// the newest file named Settings + 17 digits: a u32 LE at FILE offset 0x21AE = payload offset 0x1D48 (payload starts at 0x466). Evidence:
+// turbo_dev\evidence\2026-10-29\langfield\FINDINGS.md (the only byte constant within 108 English files and within 29 Dutch files and
+// different between them; no language word in the payload, so the value is an enum). The table, with its confidence:
+//   2 eng_us  high  Settings20261018143203278 / ...160204449 / ...171051017; controlled switches 10-18 15:24 and 17:26
+//   1 dut_nl  high  Settings...152420459 / ...172610709 / ...172910763 and all 29 Dutch-era files
+//   3 fre_fr  high  Cassio 2026-10-29 22:10: his loaded commentary language is French, and the live Settings20261029212252375 reads 3
+// Any other value (5, 10, ...) is UNKNOWN and is never guessed: the log says "Settings file value N: language not known yet" and
+// names the fallback. 5 and 10 were once mapped to ita_it / spa_es from Turbo's own (registry) detection of those days; that is not
+// evidence about the field, so the earlier rows 5 ita_it and 3 spa_es (FINDINGS.md) were dropped. Still open, not settled: the enum may
+// depend on the build (the 10-27 title update), and Settings20261011222626455 reads 5 while the runtime said eng_us on 10-11.
+constexpr size_t kSettingsLangPayloadOff = 0x1D48;  // file offset 0x21AE
+std::string settings_lang_for_value(uint32_t value);  // "" = not in the table above
+// What proves a table value (the log line of the Settings answer); "" for a value that is not in the table
+std::string settings_value_proof(uint32_t value);
+struct SettingsLang {
+    bool read = false;       // the newest Settings file was read and passed gsettings::validate (size, header, tag, CRC)
+    std::string file;        // its name ("" = none found)
+    int64_t mtime = 0;       // its last-write time (file_time_type ticks); with the name, the change detector's key
+    uint32_t value = 0;      // the field (only when read)
+    std::string lang;        // settings_lang_for_value(value) ("" = not in the table / not read)
+    bool pack_live = false;  // eng_us (the base game's language) or launcher_pack_live(game_root, lang)
+    std::string pack_why;
+    std::string why;  // what the read found, or why it did not read
+    // the answer step b gives: the value is in the table AND (eng_us OR its pack is live in Data\Win32)
+    bool usable() const { return read && !lang.empty() && pack_live; }
+    // the log text when step b gives no answer (falls through to the next step)
+    std::string note() const;
+};
+// Read-only: the newest Settings + 17 digits file of `dir` (last-write time, then name), checked with gsettings::validate and read
+// with gsettings::get_u32. Never opens another file, never writes. `dir` empty = unknown.
+SettingsLang read_settings_language(const std::filesystem::path& dir);
+// read_settings_language + the pack test for the mapped language (Data\Win32 only; `game_root` empty = the pack is not live)
+SettingsLang settings_language_from(const std::filesystem::path& dir, const std::filesystem::path& game_root);
+// A stat of the folder only (no file is opened): the newest Settings file's name and last-write time, "" / 0 when there is none. The
+// App polls it every few seconds and compares it with the last read's (SettingsLang::file / mtime).
+void newest_settings_stamp(const std::filesystem::path& dir, std::string* file, int64_t* mtime);
+
+// Steps 0, b, a, a2, c, d above. `runtime_lang` "" = no runtime evidence; `saved_lang` "" = no usable saved answer. Never
+// returns "". `proven` (optional) = the answer came from 0, b, a or a2. `hint`
+// (optional, 2.21) = the launcher hint, ranked as above. `reg` = step c. `settings` (optional, 4.0) = step b; null = not read.
 std::string detect_commentary_language(const std::string& override_lang, const std::string& runtime_lang, const std::string& runtime_why,
                                        const std::string& saved_lang, const std::string& saved_why, const RegistryLocale& reg,
-                                       std::string* why, bool* proven = nullptr, const LauncherHint* hint = nullptr);
+                                       std::string* why, bool* proven = nullptr, const LauncherHint* hint = nullptr,
+                                       const SettingsLang* settings = nullptr);
 // <Live Editor>\turbo_output\callnames_lang_detect_off.txt
 std::filesystem::path lang_detect_off_path(const std::filesystem::path& le_root);
 
@@ -394,9 +438,15 @@ public:
     // refresh fills pack_live / pack_why / saved_when itself
     LauncherHint launcher_hint;
     RegistryLocale reg_locale;  // 2.21 CHANGE 8: step c as read by the last refresh
+    // 4.0 lang-settings: step b. The App sets settings_dir (the game's settings folder, read only; "" = unknown) before refresh;
+    // refresh fills settings_lang. settings_changed() is the cheap stat the App polls: true when the newest Settings file is not the
+    // one the last refresh read (a new name or a new last-write time), so a language switch in game is picked up without a restart.
+    std::filesystem::path settings_dir;
+    SettingsLang settings_lang;
+    bool settings_changed() const;
     std::string pack_data;      // pack_data_source(game_root, lang) of the last refresh; also at the end of lang_why
     std::string saved_lang, saved_why;      // step a2 as used by the last refresh ("" = none / not usable)
-    bool lang_proven = false;               // the language came from an override, the runtime answer or a saved answer
+    bool lang_proven = false;               // the language came from an override, a Settings-file value, the runtime answer or a saved answer
     bool runtime_inconclusive = false;      // a full build's answer matched no language: no more builds this session
     // Every language Turbo knows an id set for: the packs, the master lists on disk, the spoken lists, the catalog's bank
     std::vector<LanguageCandidate> language_candidates(const std::filesystem::path& le_root) const;

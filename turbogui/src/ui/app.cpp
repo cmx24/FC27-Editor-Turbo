@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "core/field_labels.h"
+#include "core/hub_customise.h"
 #include "core/hotkey.h"
 #include "core/overall.h"
 #include "core/teamnames.h"
@@ -585,6 +586,8 @@ void App::refresh_callnames() {
         if (c.contains("launcher_language") && c["launcher_language"].is_string()) callnames.launcher_hint.lang = c["launcher_language"].get<std::string>();
         if (c.contains("launcher_stamp") && c["launcher_stamp"].is_string()) callnames.launcher_hint.stamp = c["launcher_stamp"].get<std::string>();
     }
+    // 4.0 lang-settings: the game's settings folder, where the Settings file holds the commentary language (read only)
+    callnames.settings_dir = mhm::default_save_dir();
     callnames.refresh(bridge.root(), game_root, chosen_commentary_language());
     std::string line = callnames.log_line();
     if (gui_settings.is_object() && gui_settings.contains("callnames") && gui_settings["callnames"].is_object() &&
@@ -751,6 +754,20 @@ bool App::start_spoken_probe() {
     }
     spoken_watch.started(now, true);
     return true;
+}
+
+// 4.0 lang-settings: the commentary language is the game's Settings file (the game saves a new file at every settings save, and the
+// language switch is one). A stat of the folder every 2 s, no file is opened; when the newest file's name or last-write time is not the
+// one the last refresh read, the refresh reads it again (once) and logs the language line, so a switch in game is picked up without
+// a restart. Acts only after a first refresh (the first one reads the file anyway).
+void App::settings_lang_tick() {
+    if (now < settings_lang_check_) return;
+    settings_lang_check_ = now + 2.0;
+    if (!callnames.refreshed || game_root.empty() || !callnames.settings_changed()) return;
+    log("callnames: the game saved a new Settings file (" + callnames.settings_lang.file + " read before): reading the commentary language again");
+    callnames.refreshed = false;
+    callnames.index.built = false;  // the pickers follow the language on the next use
+    refresh_callnames();
 }
 
 void App::spoken_watch_tick() {
@@ -965,6 +982,7 @@ void App::tick(double t) {
     }
     finish_bank_capture();
     finish_spoken_build();
+    settings_lang_tick();
     spoken_watch_tick();
     asset_tick();  // game asset catalog: first load, reload when its folder changes (worker thread)
     if (t >= next_poll) {
