@@ -3,12 +3,14 @@
 // never an EA file. Optional: `test_kit_swap --game "<FC 27 folder>" --team 95 --slot 0` reads the real install (read only), runs the
 // scan and the plan with random stand-in textures of the game's own sizes and prints the result (no file is written in the game).
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
@@ -187,7 +189,7 @@ static void test_scan_and_plan(const fs::path& base) {
     const PlanItem* jc2 = item_named(plan, "jersey_95_40_0_color", "loc2_home_40_0");
     check(jc2 && jc2->swap, "loc2 jersey_color swapped too (same role, its own chunk)");
     const PlanItem* bn = item_named(plan, "brand_jersey_95_0_0_normal", "home_0_0");
-    check(bn && !bn->swap && bn->reason.find("uniform fill") != std::string::npos, "brand normal: left (tiny compressed block)");
+    check(bn && bn->swap, "brand normal: swapped (one 368-byte block, found in no other kit chunk by the census; 4.0 10-29, before: left as uniform fill)");
     const PlanItem* co = item_named(plan, "jersey_95_0_0_coeff", "home_0_0");
     check(co && !co->swap && co->reason.find("also used by team 96") != std::string::npos, "jersey_coeff: left (chunk shared with team 96)");
     const PlanItem* ta = item_named(plan, "jersey_95_0_0_taa", "home_0_0");
@@ -702,6 +704,93 @@ static const PlanItem* item_of(const Plan& p, const std::string& leaf) {
     return nullptr;
 }
 
+// 4.0 (10-29): the game's plain-colour shorts and socks pictures are single compressed blocks under 1024 bytes (Bordeaux home socks_color
+// 920, goalkeeper shorts_color 329). Refused as uniform fill, they left the whole kit folder to the game (never half a kit): the imported
+// kit never showed. Club 130: home = all unique (served), away = its 696-byte socks block is byte-identical in club 131's chunk (left),
+// goalkeeper = a 56-byte shorts block (under min_csize_unique: left).
+static void test_small_blocks(const fs::path& base) {
+    World2 w;
+    w.root = base / "game";
+    w.le = base / "le";
+    w.g.root = w.root;
+    using T = GameBuilder::TexSpec;
+    const int C = 130;
+    // 0 home jersey_color, 1 home shorts_color (696 B), 2 home socks_color (696 B)
+    w.g.add_bundle({T{P("home_0_0", "jersey", "jersey_130_0_0_color", C), 55, 256, 256, 9, {}, -1, 16384}, T{P("home_0_0", "shorts", "shorts_130_0_0_color", C), 55, 32, 32, 6, {}, -1, 8192},
+                    T{P("home_0_0", "socks", "socks_130_0_0_color", C), 55, 32, 32, 6, {}, -1, 8192}});
+    // 3 away jersey_color, 4 away socks_color (696 B)
+    w.g.add_bundle({T{P("away_1_0", "jersey", "jersey_130_1_0_color", C), 55, 256, 256, 9, {}, -1, 16384}, T{P("away_1_0", "socks", "socks_130_1_0_color", C), 55, 32, 32, 6, {}, -1, 8192}});
+    // 5 club 131: a byte-identical copy of chunk 4 (another place in the cas)
+    {
+        std::vector<uint8_t> raw;
+        read_blocks(chunk_bytes(w.g, 4), stand_in_oodle(), raw, nullptr);
+        w.g.add_bundle({T{P("home_0_0", "socks", "socks_131_0_0_color", 131), 55, 32, 32, 6, raw, -1, 8192}});
+    }
+    // 6 goalkeeper jersey_color, 7 goalkeeper shorts_color (8x8 BC1, 4 mips: one 56-byte block)
+    w.g.add_bundle({T{P("goalie_home_2_0", "jersey", "jersey_130_2_0_color", C), 55, 256, 256, 9, {}, -1, 16384},
+                    T{P("goalie_home_2_0", "shorts", "shorts_130_2_0_color", C), 55, 8, 8, 4, {}, -1, 8192}});
+    w.g.write();
+    GameFiles files(w.root);
+    std::string err;
+    files.init(&err);
+    KitIndex idx;
+    check(scan_kits(files, stand_in_oodle(), idx, nullptr, &err), "small blocks: scan: " + err);
+    check(first_block(w.g, 1).src.size() == 696 && first_block(w.g, 7).src.size() == 56, "small blocks: the fixture's blocks are 696 and 56 bytes");
+    const RoleSpec jc = kJerseyColor, sc = {"shorts_color", 55, 32, 32, 6}, so = {"socks_color", 55, 32, 32, 6}, gsc = {"shorts_color", 55, 8, 8, 4};
+    auto plan_of = [&](int slot, const char* folder, const std::vector<RoleSpec>& roles, bool census, std::map<std::string, std::vector<uint8_t>>* keep, TableBuilder& tb) {
+        StagedKit sk;
+        std::string e;
+        check(load_staged(stage_kit(w, C, slot, folder, roles, keep), sk, &e), std::string("small blocks: load_staged ") + folder + ": " + e);
+        Options opt;
+        opt.watch_club = false;
+        opt.census = census;
+        return build_plan(files, stand_in_oodle(), idx, sk, opt, true, tb, nullptr);
+    };
+    auto folder = [](const Plan& p, const std::string& kind) -> const FolderVerdict* {
+        for (const auto& f : p.folders)
+            if (f.kind == kind) return &f;
+        return nullptr;
+    };
+    {  // home: every block unique -> served whole, and the hook overwrites the 696-byte socks block with the staged bytes
+        std::map<std::string, std::vector<uint8_t>> keep;
+        TableBuilder tb;
+        Plan p = plan_of(0, "home", {jc, sc, so}, true, &keep, tb);
+        const PlanItem* s1 = item_of(p, "shorts_130_0_0_color");
+        const PlanItem* s2 = item_of(p, "socks_130_0_0_color");
+        check(s1 && s1->swap && s2 && s2->swap, "small blocks: home shorts / socks (696-byte blocks, unique) are served" +
+                                                    std::string(s1 && !s1->swap ? " (shorts: " + s1->reason + ")" : ""));
+        const FolderVerdict* f = folder(p, "home_0_0");
+        check(f && f->swapped, "small blocks: the home folder is served whole" + std::string(f && !f->swapped ? " (left: " + f->role + ": " + f->reason + ")" : ""));
+        auto table = tb.finish(nullptr);
+        const Blk b = first_block(w.g, 2);
+        const Entry* e = table->match(b.src.data(), b.src.size(), b.dsize);
+        check(e && e->dsize == keep["socks_color"].size() && std::memcmp(e->data, keep["socks_color"].data(), e->dsize) == 0,
+              "small blocks: the socks block matches in the table and its replacement is the staged picture");
+    }
+    {  // census off: the old refusal stands (uniform fill), so the folder stays the game's
+        TableBuilder tb;
+        Plan p = plan_of(0, "home", {jc, sc, so}, false, nullptr, tb);
+        const PlanItem* s1 = item_of(p, "shorts_130_0_0_color");
+        check(s1 && !s1->swap && s1->reason.find("uniform fill") != std::string::npos, "small blocks: with the census off a 696-byte block is still refused");
+        const FolderVerdict* f = folder(p, "home_0_0");
+        check(f && !f->swapped, "small blocks: census off -> the home folder stays the game's");
+    }
+    {  // away: the socks block is byte-identical in club 131's chunk -> left (another club's kit would change), folder left
+        TableBuilder tb;
+        Plan p = plan_of(1, "away", {jc, so}, true, nullptr, tb);
+        const PlanItem* s2 = item_of(p, "socks_130_1_0_color");
+        check(s2 && !s2->swap && s2->left_by == LeftBy::OtherClubs, "small blocks: a small block also in another club's chunk is left (" + (s2 ? s2->reason : std::string("missing")) + ")");
+        const FolderVerdict* f = folder(p, "away_1_0");
+        check(f && !f->swapped, "small blocks: so the away folder stays the game's");
+    }
+    {  // goalkeeper: a 56-byte block is under min_csize_unique -> uniform fill, left
+        TableBuilder tb;
+        Plan p = plan_of(2, "goalkeeper", {jc, gsc}, true, nullptr, tb);
+        const PlanItem* s1 = item_of(p, "shorts_130_2_0_color");
+        check(s1 && !s1->swap && s1->reason.find("uniform fill") != std::string::npos, "small blocks: a 56-byte block is left as uniform fill");
+    }
+}
+
 static void test_any_club_slots(const fs::path& base) {
     World2 w = make_world2(base / "w2");
     GameFiles files(w.root);
@@ -962,6 +1051,7 @@ static void test_guards_and_cache(const fs::path& base) {
     {   // a version 1 state file (no options): defaults, and it still loads
         std::ofstream(state) << R"({"version":1,"kits":[{"team":120,"slot":"away","slot_type":1,"mode":"swap"}]})";
         Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.auto_plan = false;  // these tests look at the 2.20 first publish (4.0 plans a missing / stale plan in the background: test_auto_plan)
         rt.start();
         rt.wait_idle();
         bool d = false, k = false, sc = true, so = true;
@@ -992,6 +1082,7 @@ static void test_guards_and_cache(const fs::path& base) {
     {   // the kill switch before start: no scan; released: the skipped start runs (2.20: from the plans, nothing scanned)
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
+        rt.auto_plan = false;
         rt.ensure_hook = [&](std::string*) { return true; };
         rt.set_hook_installed(true, "");
         rt.set_killed(true);
@@ -1010,6 +1101,7 @@ static void test_guards_and_cache(const fs::path& base) {
     {   // a second session: the saved index is used; a changed toc invalidates it
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
+        rt.auto_plan = false;
         rt.start();
         rt.wait_idle();
         check(rt.status().state == "ready" && rt.status().index_cached && !rt.status().plans.empty() && rt.status().plans[0].state == "ready", "second session: kit index from the saved copy, the kit from its plan");
@@ -1021,6 +1113,7 @@ static void test_guards_and_cache(const fs::path& base) {
     {
         Runtime rt(w.le, w.root, stand_in_oodle());
         rt.require_opt_in = true;
+        rt.auto_plan = false;
         rt.start();
         rt.wait_idle();
         check(rt.status().state == "ready" && !rt.status().index_cached && !rt.status().plans.empty() && rt.status().plans[0].reason == kPlanStaleReason && rt.status().blocks == 0,
@@ -1032,6 +1125,7 @@ static void test_guards_and_cache(const fs::path& base) {
     }
     {
         Runtime rt(w.le, w.root, stand_in_oodle());
+        rt.auto_plan = false;
         rt.start();
         rt.wait_idle();
         check(rt.status().state == "ready" && !rt.status().index_cached, "a damaged cache: not used (and nothing scanned at start)");
@@ -1135,7 +1229,7 @@ static void test_table_cache(const fs::path& base) {
     stage_home(w);
     const fs::path kits = w.le / "turbo_output" / "kits";
     const fs::path cache = kits / "kit_table.cache";
-    const fs::path plan = kits / "95" / "home" / "swap_plan.bin";
+    const fs::path plan = kits / "95" / "home" / "swap_plan_4.bin";
     std::vector<std::string> lines;
     auto setup = [&](Runtime& rt) {
         rt.turbo_version = "T1";
@@ -1195,6 +1289,7 @@ static void test_table_cache(const fs::path& base) {
         lines.clear();
         Runtime rt(w.le, w.root, stand_in_oodle());
         setup(rt);
+        rt.auto_plan = false;  // the 2.20 first publish: the kit stays off (test_auto_plan covers the 4.0 background plan)
         tweak(rt);
         rt.start();
         rt.wait_idle();
@@ -1278,6 +1373,7 @@ static void test_table_cache(const fs::path& base) {
         write_all(plan, flip);
         Runtime rt(w.le, w.root, stand_in_oodle());
         setup(rt);
+        rt.auto_plan = false;  // the 2.20 start path: a damaged plan is reported and left (4.0 plans a damaged one in the background too)
         rt.start();
         rt.wait_idle();
         check(rt.status().state == "ready" && rt.status().blocks == 0 && row_of(rt.status()).state == "failed" && row_of(rt.status()).reason == kPlanDamagedReason && read_all(plan) == flip,
@@ -1311,6 +1407,7 @@ static void test_table_cache(const fs::path& base) {
         write_all(plan, good);
         Runtime rt(w.le, w.root, stand_in_oodle());
         setup(rt);
+        rt.auto_plan = false;
         rt.start();
         rt.wait_idle();
         const Status s = rt.status();
@@ -1348,6 +1445,365 @@ static void test_table_cache(const fs::path& base) {
     }
     ref.deactivate(95, 0);
     ref.wait_idle();
+}
+
+// ---------------------------------------------------------------- 4.0 (10-29): a kit with a missing or stale plan is planned in the background, ONE kit per pass
+// The start path publishes the table from the valid plans first; every kit left off is queued ("queued" on the Kits page) and the queue is
+// worked one kit per worker pass, with a publish between two kits. A plan key is tried once per session (a plan that fails does not loop);
+// a new key (an option, the staged files) is tried once more. rt.auto_plan = false is the 2.20 behaviour, asserted by the tests above.
+struct Auto3 {  // club 120: away (slot 1), goalkeeper (2) and third (3), each with its own staged pictures and a good plan on disk
+    explicit Auto3(World2&& world) : w(std::move(world)) {}
+    World2 w;
+    fs::path kits;
+    std::vector<uint8_t> state;                    // swap_state.json with the three kits switched on
+    std::map<int, std::vector<uint8_t>> good;      // slot -> the plan file as the seeding (manual) run wrote it
+    std::map<std::string, std::vector<uint8_t>> away_data;
+    decltype(Status().blocks) blocks = 0;          // blocks in the table when all three kits are planned
+    fs::path dir(int slot) const {
+        static const char* n[] = {"home", "away", "goalkeeper", "third"};
+        return kits / "120" / n[slot];
+    }
+    fs::path plan(int slot) const { return dir(slot) / "swap_plan_4.bin"; }
+    fs::path manifest(int slot) const { return dir(slot) / "manifest.json"; }
+};
+struct LogSink {
+    std::mutex m;
+    std::vector<std::string> lines;
+    void attach(Runtime& rt) {
+        rt.turbo_version = "T1";
+        rt.game_build = "6AC07E31-2145C000";
+        rt.options.min_csize = 1024;
+        rt.log_line = [this](const std::string& l) {
+            std::lock_guard<std::mutex> lk(m);
+            lines.push_back(l);
+        };
+    }
+    std::vector<std::string> copy() {
+        std::lock_guard<std::mutex> lk(m);
+        return lines;
+    }
+    int count(const std::string& needle) {
+        int n = 0;
+        for (const auto& l : copy()) n += l.find(needle) != std::string::npos;
+        return n;
+    }
+    // the order of the publishes and plans: "T<kits from plans>" per table line, "P" per kit planned ("T0 P T1 P T2 P T3")
+    std::string tokens() {
+        std::string out;
+        for (const auto& l : copy()) {
+            const size_t p = l.find(" of 3 kits)");
+            std::string t;
+            if (l.find("kit swap: table from plans (") != std::string::npos && p != std::string::npos && p > 0) {
+                t = "T";
+                t += l[p - 1];
+            } else if (l.find("kit swap: planned team 120 ") != std::string::npos) {
+                t = "P";
+            }
+            if (t.empty()) continue;
+            if (!out.empty()) out += " ";
+            out += t;
+        }
+        return out;
+    }
+};
+struct ApSnap {
+    int ready = 0, planning = 0, queued = 0, other = 0;
+};
+static Auto3 make_auto3(const fs::path& base) {
+    Auto3 a(make_world2(base));
+    a.kits = a.w.le / "turbo_output" / "kits";
+    stage_kit(a.w, 120, 1, "away", {kJerseyColor, kShortsColor}, &a.away_data);
+    stage_kit(a.w, 120, 2, "goalkeeper", {kJerseyColor});
+    stage_kit(a.w, 120, 3, "third", {kJerseyColor});
+    {   // the 2.20 way: switch the three kits on, each planned at once (auto_plan off) = the reference plans, state and table
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.auto_plan = false;
+        std::string err;
+        for (int s = 1; s <= 3; ++s) check(rt.activate(120, s, Mode::Swap, &err), "auto plan: seed: activate slot " + std::to_string(s) + ": " + err);
+        rt.wait_idle();
+        a.blocks = rt.status().blocks;
+    }
+    a.state = read_all(a.kits / "swap_state.json");
+    for (int s = 1; s <= 3; ++s) a.good[s] = read_all(a.plan(s));
+    return a;
+}
+
+static void test_auto_plan(const fs::path& base) {
+    const OodleFn slow = [](const uint8_t* src, size_t n, uint8_t* dst, size_t dn) {  // makes a plan last long enough to act while it runs
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        return stand_in_oodle()(src, n, dst, dn);
+    };
+    auto row = [](const Status& s, int slot) -> Status::PlanRow {
+        for (const auto& p : s.plans)
+            if (p.team == 120 && p.slot == slot) return p;
+        return Status::PlanRow();
+    };
+    auto snap = [&](const Status& s) {
+        ApSnap n;
+        for (int k = 1; k <= 3; ++k) {
+            const std::string st = row(s, k).state;
+            if (st == "ready") ++n.ready;
+            else if (st == "planning") ++n.planning;
+            else if (st == "queued") ++n.queued;
+            else ++n.other;
+        }
+        return n;
+    };
+    auto wait_planning = [&](Runtime& rt) {  // until a kit's row says "planning" (the worker is then inside that plan, the others wait)
+        for (int i = 0; i < 4000; ++i) {
+            if (snap(rt.status()).planning > 0) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return false;
+    };
+    auto strip = [&](Auto3& a) {  // all three plans gone: the first publish has every kit off
+        for (int s = 1; s <= 3; ++s) fs::remove(a.plan(s));
+    };
+    auto noop_pass = [&](Runtime& rt) {  // a worker pass (the start path runs again) that asks for no plan: one publish
+        rt.deactivate(77, 0);
+        rt.wait_idle();
+    };
+    const std::string kTable = "kit swap: table from plans (";
+
+    // ---- a: ONE kit per pass: after the first publish one kit plans, the other two wait ("queued"); every later publish adds exactly one plan
+    {
+        Auto3 a = make_auto3(base / "a");
+        check(a.blocks > 0 && !a.good[1].empty() && !a.good[2].empty() && !a.good[3].empty(), "auto plan (a): the seeding run planned the three kits");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, slow);
+        ls.attach(rt);
+        check(rt.auto_plan, "auto plan (a): on by default");
+        rt.start();
+        std::vector<ApSnap> snaps;
+        std::atomic<bool> done{false};
+        std::thread t([&] {
+            rt.wait_idle();
+            done = true;
+        });
+        while (!done) {
+            snaps.push_back(snap(rt.status()));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        t.join();
+        snaps.push_back(snap(rt.status()));
+        bool first_moment = false, never_two_planning = true;
+        for (const auto& n : snaps) {
+            first_moment = first_moment || (n.ready == 0 && n.planning == 1 && n.queued == 2 && n.other == 0);
+            never_two_planning = never_two_planning && n.planning <= 1;
+        }
+        check(first_moment, "auto plan (a): while the first kit plans, the other two rows say queued (none planned yet)");
+        check(never_two_planning, "auto plan (a): never more than one kit planning at a time");
+        check(ls.tokens() == "T0 P T1 P T2 P T3", "auto plan (a): one kit per pass, a publish between two kits (T<kits from plans> / P=planned): " + ls.tokens());
+        const Status s = rt.status();
+        check(s.state == "ready" && snap(s).ready == 3 && s.blocks == a.blocks, "auto plan (a): the three kits end ready and serve the reference's blocks (" + s.state + ")");
+    }
+
+    // ---- b: re-plan on a key change only: a kit planned (or failed) under a key is never planned again under it; a new key plans it once more
+    {
+        Auto3 a = make_auto3(base / "b");
+        strip(a);
+        const std::vector<uint8_t> away_manifest = read_all(a.manifest(1));
+        fs::remove(a.manifest(1));  // the away kit cannot be planned ("Re-stage this kit")
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        check(row(rt.status(), 1).state == "failed" && row(rt.status(), 2).state == "ready" && row(rt.status(), 3).state == "ready" && ls.count("kit swap: planned team 120 goalkeeper") == 1 &&
+                  ls.count("kit swap: planned team 120 third") == 1,
+              "auto plan (b): the failing away kit is tried, the other two are planned once");
+        int tables = ls.count(kTable);
+        noop_pass(rt);
+        check(ls.count(kTable) == tables + 1 && ls.count("kit swap: planned team 120") == 2 && row(rt.status(), 1).state == "failed",
+              "auto plan (b): the same key is not planned again - the next pass is one publish, no second attempt (tables " + std::to_string(ls.count(kTable) - tables) + " more)");
+        // the manifest is back: the staged files changed = a new key for the away kit, planned once more (a pass that publishes, then one that plans)
+        write_all(a.manifest(1), away_manifest);
+        tables = ls.count(kTable);
+        noop_pass(rt);
+        check(row(rt.status(), 1).state == "ready" && ls.count("kit swap: planned team 120 away") == 1 && ls.count(kTable) == tables + 2,
+              "auto plan (b): a new key (the manifest is back) plans the kit once more: " + row(rt.status(), 1).state + " / planned away " + std::to_string(ls.count("kit swap: planned team 120 away")));
+        check(ls.count("kit swap: planned team 120 goalkeeper") == 1 && ls.count("kit swap: planned team 120 third") == 1, "auto plan (b): the kits planned before are not planned again");
+        // an option change is a new key for every kit: each is planned once more, then no more
+        Options o = rt.get_options();
+        o.min_csize_unique = 300;
+        rt.set_options(o);
+        noop_pass(rt);
+        const int after_option = ls.count("kit swap: planned team 120");
+        check(snap(rt.status()).ready == 3 && ls.count("kit swap: planned team 120 away") == 2 && ls.count("kit swap: planned team 120 goalkeeper") == 2 && ls.count("kit swap: planned team 120 third") == 2,
+              "auto plan (b): a global option change (new key) plans each kit once more (" + std::to_string(after_option) + " planned in all)");
+        noop_pass(rt);
+        noop_pass(rt);
+        check(ls.count("kit swap: planned team 120") == after_option && snap(rt.status()).ready == 3, "auto plan (b): ... and the same key again plans nothing (" + std::to_string(ls.count("kit swap: planned team 120")) + ")");
+    }
+
+    // ---- c: the kill switch released = a fresh start: every kit still off is queued again; a kill while a kit waits drops the queue
+    {
+        Auto3 a = make_auto3(base / "c");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, slow);
+        ls.attach(rt);
+        rt.start();
+        const bool planning = wait_planning(rt);
+        rt.set_killed(true);
+        rt.wait_idle();
+        const int p0 = ls.count("kit swap: planned team 120");
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        check(planning && p0 <= 1 && ls.count("kit swap: planned team 120") == p0 && snap(rt.status()).ready <= 1 && rt.status().state == "off",
+              "auto plan (c): killed while the first kit plans: the kits waiting are not planned (" + std::to_string(p0) + " planned, " + rt.status().state + ")");
+        rt.set_killed(false);
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(s.state == "ready" && snap(s).ready == 3 && s.blocks == a.blocks && ls.count("kit swap: planned team 120") >= 3,
+              "auto plan (c): the switch released: the kits still off are queued again and planned (" + std::to_string(snap(s).ready) + " of 3 ready, " + s.state + ")");
+        // a second kill / release with nothing left to plan changes nothing
+        rt.set_killed(true);
+        rt.set_killed(false);
+        rt.wait_idle();
+        check(rt.status().state == "ready" && snap(rt.status()).ready == 3, "auto plan (c): a second kill and release leaves the planned kits ready");
+    }
+
+    // ---- d: a failed row is kept: the next publish does not turn it back into none/stale
+    {
+        Auto3 a = make_auto3(base / "d");
+        strip(a);
+        const std::vector<uint8_t> third_manifest = read_all(a.manifest(3));
+        fs::remove(a.manifest(3));
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        const Status::PlanRow r0 = row(rt.status(), 3);
+        check(r0.state == "failed" && !r0.reason.empty() && !fs::exists(a.plan(3)), "auto plan (d): the plan fails: the row says failed with the reason (" + r0.state + ": " + r0.reason + ")");
+        noop_pass(rt);
+        const Status::PlanRow r1 = row(rt.status(), 3);
+        check(r1.state == "failed" && r1.reason == r0.reason, "auto plan (d): after the next publish the row still says failed, same reason (" + r1.state + ": " + r1.reason + ")");
+        noop_pass(rt);
+        check(row(rt.status(), 3).state == "failed" && snap(rt.status()).ready == 2, "auto plan (d): ... and after one more (" + row(rt.status(), 3).state + ")");
+        write_all(a.manifest(3), third_manifest);
+        rt.request_plan(120, 3);  // the Kits page's "Plan it now" still works
+        rt.wait_idle();
+        check(row(rt.status(), 3).state == "ready" && snap(rt.status()).ready == 3 && rt.status().blocks == a.blocks, "auto plan (d): Plan it now plans it once the pictures are back");
+    }
+
+    // ---- e: a kit switched off while it waits in the queue is never planned
+    {
+        Auto3 a = make_auto3(base / "e");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, slow);
+        ls.attach(rt);
+        rt.start();
+        const bool planning = wait_planning(rt);
+        rt.deactivate(120, 2);  // the goalkeeper kit waits behind the away kit
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(planning && !fs::exists(a.plan(2)) && ls.count("kit swap: planned team 120 goalkeeper") == 0, "auto plan (e): the kit switched off while queued is never planned");
+        check(row(s, 1).state == "ready" && row(s, 3).state == "ready" && ls.count("kit swap: planned team 120 away") == 1 && ls.count("kit swap: planned team 120 third") == 1 && s.state == "ready",
+              "auto plan (e): the other two are planned, once each (" + row(s, 1).state + " / " + row(s, 3).state + ")");
+    }
+
+    // ---- f: an option changed while a kit waits in the queue: it is planned under the new key
+    {   // per-kit option (the Kits page): the waiting third kit is planned with decals off, once
+        Auto3 a = make_auto3(base / "f1");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, slow);
+        ls.attach(rt);
+        rt.start();
+        const bool planning = wait_planning(rt);
+        check(rt.set_slot_options(120, 3, false, true, false, false), "auto plan (f): set_slot_options on a waiting kit");
+        rt.wait_idle();
+        check(planning && row(rt.status(), 3).state == "ready" && ls.count("kit swap: planned team 120 third") == 1 && snap(rt.status()).ready == 3,
+              "auto plan (f): the waiting kit is planned once, under the new option (" + row(rt.status(), 3).state + ", planned " + std::to_string(ls.count("kit swap: planned team 120 third")) + ")");
+        LogSink ls2;
+        Runtime next(a.w.le, a.w.root, stand_in_oodle());
+        ls2.attach(next);
+        next.auto_plan = false;
+        next.start();
+        next.wait_idle();
+        check(snap(next.status()).ready == 3, "auto plan (f): the plan on disk is the one for the new option (the next session loads all three)");
+    }
+    {   // a global option (the Settings page): every plan made after the change carries the new key
+        Auto3 a = make_auto3(base / "f2");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, slow);
+        ls.attach(rt);
+        rt.start();
+        const bool planning = wait_planning(rt);
+        Options o = rt.get_options();
+        o.min_csize_unique = 300;
+        rt.set_options(o);
+        rt.wait_idle();
+        check(planning && snap(rt.status()).ready == 3 && ls.count("kit swap: planned team 120 goalkeeper") == 1 && ls.count("kit swap: planned team 120 third") == 1,
+              "auto plan (f): the kits waiting when the option changed are planned once each (" + std::to_string(snap(rt.status()).ready) + " of 3 ready)");
+        LogSink ls2;
+        Runtime next(a.w.le, a.w.root, stand_in_oodle());
+        ls2.attach(next);
+        next.set_options(o);
+        next.auto_plan = false;
+        next.start();
+        next.wait_idle();
+        check(snap(next.status()).ready == 3 && next.status().blocks == rt.status().blocks, "auto plan (f): every plan on disk carries the new key (the next session with that option loads all three)");
+    }
+
+    // ---- g: a damaged plan (one flipped byte) is planned again in the background and served
+    {
+        Auto3 a = make_auto3(base / "g");
+        std::vector<uint8_t> flip = a.good[1];
+        flip[flip.size() / 2] ^= 1;
+        write_all(a.plan(1), flip);
+        {   // the 2.20 start path leaves it damaged
+            LogSink ls0;
+            Runtime r0(a.w.le, a.w.root, stand_in_oodle());
+            ls0.attach(r0);
+            r0.auto_plan = false;
+            r0.start();
+            r0.wait_idle();
+            check(row(r0.status(), 1).state == "failed" && row(r0.status(), 1).reason == kPlanDamagedReason && read_all(a.plan(1)) == flip && snap(r0.status()).ready == 2,
+                  "auto plan (g): without auto plan the flipped byte leaves the away kit damaged and off");
+        }
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        const Status s = rt.status();
+        check(row(s, 1).state == "ready" && row(s, 1).reason.empty() && snap(s).ready == 3 && s.blocks == a.blocks && read_all(a.plan(1)) != flip && ls.count("kit swap: planned team 120 away") == 1,
+              "auto plan (g): the damaged plan is planned again in the background (" + row(s, 1).state + ": " + row(s, 1).reason + ")");
+        const Blk away_blk = first_block(a.w.g, 4);
+        std::vector<uint8_t> out(away_blk.dsize, 0xEE);
+        check(rt.on_block(away_blk.src.data(), away_blk.src.size(), out.data(), away_blk.dsize) == 2 && std::memcmp(out.data(), a.away_data["jersey_color"].data(), out.size()) == 0,
+              "auto plan (g): ... and served: the away jersey block is overwritten with the away picture");
+        LogSink ls2;
+        Runtime next(a.w.le, a.w.root, stand_in_oodle());
+        ls2.attach(next);
+        next.auto_plan = false;
+        next.start();
+        next.wait_idle();
+        check(snap(next.status()).ready == 3, "auto plan (g): the rewritten plan is valid for the next session");
+    }
+
+    // ---- h: the "is off" line of a kit already queued under the same key is not repeated on the next pass
+    {
+        Auto3 a = make_auto3(base / "h");
+        strip(a);
+        LogSink ls;
+        Runtime rt(a.w.le, a.w.root, stand_in_oodle());
+        ls.attach(rt);
+        rt.start();
+        rt.wait_idle();
+        check(ls.count("kit swap: team 120 away is off") == 1 && ls.count("kit swap: team 120 goalkeeper is off") == 1 && ls.count("kit swap: team 120 third is off") == 1,
+              "auto plan (h): each kit says \"is off\" once (away " + std::to_string(ls.count("kit swap: team 120 away is off")) + ", goalkeeper " + std::to_string(ls.count("kit swap: team 120 goalkeeper is off")) +
+                  ", third " + std::to_string(ls.count("kit swap: team 120 third is off")) + ")");
+        noop_pass(rt);
+        check(ls.count("is off: ") == 3, "auto plan (h): a later pass over planned kits says nothing more");
+    }
 }
 
 // ---------------------------------------------------------------- optional: the real install (read only)
@@ -1495,9 +1951,11 @@ int main(int argc, char** argv) {
     test_runtime(base);
     test_hotspots(base);
     test_any_club_slots(base);
+    test_small_blocks(base / "small");
     test_runtime_slots(base);
     test_guards_and_cache(base);
     test_table_cache(base);
+    test_auto_plan(base);
     fs::remove_all(base);
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

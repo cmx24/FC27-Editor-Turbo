@@ -19,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -450,7 +451,7 @@ struct Status {
     double ready_after_ms = -1;   // ms from start() to the publication of the table (-1 = not published since start)
     uint64_t ready_at_ms = 0;     // wall clock (ms since the Unix epoch) of that publication
     std::string cache_note;       // "from cache", "built: <why the cache was not used>; saved" ...
-    // 2.20: where the published table came from: "from plans" (the boot and every republish: the kits' swap_plan.bin files, nothing scanned
+    // 2.20: where the published table came from: "from plans" (the boot and every republish: the kits' swap_plan_4.bin files, nothing scanned
     // or built at start), "" before the first publication
     std::string table_origin;
     // 2.20: per kit of swap_state.json (and per kit being planned): its swap plan
@@ -492,7 +493,7 @@ bool save_table_cache(const std::filesystem::path& file, const TableCacheKey& ke
 // build); the functions stay for the 2.19 tests and tools.
 bool load_table_cache(const std::filesystem::path& file, const TableCacheKey& key, CachedBuild& out, std::string* why = nullptr, const std::atomic<bool>* cancel = nullptr);
 
-// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (turbo_output\kits\<team>\<slot>\swap_plan.bin)
+// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (turbo_output\kits\<team>\<slot>\swap_plan_4.bin)
 // The census and the block plan of a kit run ONCE, when the kit is staged (import, a slot option change, switching it on), for that kit only,
 // on the worker thread, and the result is written next to its staged pictures. At game start the Runtime only loads the plans whose key
 // matches (milliseconds) and publishes the table from them: it never scans the game's tocs and never builds. A kit without a matching plan
@@ -590,7 +591,7 @@ public:
     void replan_all();
     // 2.20: the global options changed (watch_club, hotspots): the kits whose plan no longer matches are planned again (an explicit action)
     void rebuild();
-    std::filesystem::path plan_path(int team, int slot) const;  // turbo_output\kits\<team>\<slot>\swap_plan.bin
+    std::filesystem::path plan_path(int team, int slot) const;  // turbo_output\kits\<team>\<slot>\swap_plan_4.bin
     bool is_active(int team, int slot, Mode* mode = nullptr) const;
     Status status() const;
     // The kill switch: raised, it stops a running scan / build and the hot path; released, a build that was skipped because of it runs
@@ -662,7 +663,8 @@ private:
     std::string table_origin_;
     std::vector<std::pair<std::pair<int, int>, bool>> pending_plans_;  // (team, slot) -> force, in request order
     std::pair<int, int> planning_{-1, -1};                            // the kit being planned now
-    std::set<std::pair<int, int>> auto_planned_;                      // 4.0: kits queued once per session by the start path (no plan / stale)
+    std::map<std::pair<int, int>, std::string> auto_planned_;         // 4.0: kits the start path queued this session -> the plan key they were queued for
+    std::deque<std::pair<int, int>> auto_queue_;                      // 4.0: those kits, planned one per worker pass after a publish (a kit asked for goes first)
     std::map<std::pair<int, int>, Status::PlanRow> plan_rows_;
     std::map<int, std::set<std::string>> plan_kinds_;                  // per club, from its plans (kinds_of without the index)
     double last_plan_s_ = 0;                                           // the last plan's time (the "about N s")

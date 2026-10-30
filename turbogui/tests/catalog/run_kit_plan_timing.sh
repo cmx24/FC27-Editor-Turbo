@@ -24,7 +24,7 @@ for t in $(grep -o '"team": *[0-9]*' "$live/swap_state.json" | grep -o '[0-9]*$'
   cp -rp "$live/$t" "$le/turbo_output/kits/"
 done
 # no plan or table cache from the live folder: the copy starts with none (a plan is written only by this run, inside the scratch root)
-find "$le" -name swap_plan.bin -delete
+find "$le" -name swap_plan_4.bin -delete
 rm -f "$le/turbo_output/kits/kit_table.cache"
 echo "scratch copy: $(du -sh "$le" | cut -f1), rows $(grep -c '"team"' "$live/swap_state.json")"
 "./$out/kit_plan_timing.exe" "$(cygpath -w "$le")" "$game" "$team" "$slot" "${GAME_BUILD:-6AC07E31-2145C000}" --boot-teams "${BOOT_TEAMS:-2056,112558}"

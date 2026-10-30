@@ -2080,7 +2080,7 @@ bool load_table_cache(const fs::path& file, const TableCacheKey& key, CachedBuil
     }
 }
 
-// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (swap_plan.bin)
+// ---------------------------------------------------------------- 2.20: the swap plan of one staged kit (swap_plan_4.bin)
 const char* const kPlanStaleReason = "Re-stage this kit (planned for another game version)";
 const char* const kPlanNoneReason = "Re-stage this kit (it has no swap plan yet)";
 const char* const kNothingToSwap = "the game has no 3D kit textures for this club's slot (nothing to swap)";
@@ -2711,7 +2711,13 @@ std::set<std::string> Runtime::kinds_of(int team) const {
     return it == index_->kinds.end() ? std::set<std::string>() : it->second;
 }
 
-fs::path Runtime::plan_path(int team, int slot) const { return staged_dir(team, slot) / "swap_plan.bin"; }
+// 4.0: a new file name, so the plans of the builds before 4.0 stay valid for them (an Undo of a 4.0 install finds its kits planned)
+fs::path Runtime::plan_path(int team, int slot) const { return staged_dir(team, slot) / "swap_plan_4.bin"; }
+static std::string plan_key_text(const PlanKey& k) {
+    std::string s;
+    for (const auto& f : k.fields) s += f.first + "=" + f.second + "\n";
+    return s;
+}
 
 void Runtime::request_plan(int team, int slot, bool force) {
     if (team < 0 || slot < 0 || slot > 4) return;
@@ -2757,6 +2763,11 @@ void Runtime::rebuild() {
 void Runtime::set_killed(bool k) {
     const bool was = killed_.exchange(k);
     if (was == k) return;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        auto_queue_.clear();
+        auto_planned_.clear();  // 4.0: after the switch is released every kit still off is planned once more
+    }
     if (k) {
         progress_.cancel = true;  // a running scan / build stops at once (the worker sees the switch and ends)
         return;
@@ -3032,7 +3043,8 @@ void Runtime::worker() {
         std::shared_ptr<Table> table;
         std::vector<std::string> off_lines;
         std::map<std::pair<int, int>, Status::PlanRow> rows;
-        std::vector<std::pair<int, int>> auto_q;  // kits with no plan or a stale one (a game update, an option change): planned after the publish
+        std::vector<std::pair<std::pair<int, int>, std::string>> auto_q;  // kits with no plan or a stale one (a game update, an option change) + the key: planned after the publish
+        std::map<std::pair<int, int>, std::string> auto_seen;              // auto_planned_ at the start of this pass: their off line was written once already
         int planned = 0, nothing_n = 0;  // kits from their plans; kits planned with nothing in the game to swap (not off, not a fault)
         double t_load0 = now_s();
         std::vector<SlotState> slots;
@@ -3068,6 +3080,7 @@ void Runtime::worker() {
             {
                 std::lock_guard<std::mutex> lk(m_);
                 slots = slots_;
+                auto_seen = auto_planned_;
             }
             // the start path: the table from the kits' plans, nothing scanned or planned
             TableBuilder tb;
@@ -3099,8 +3112,10 @@ void Runtime::worker() {
                 if (!sp) {
                     row.state = why == "no plan" ? "none" : why.compare(0, 7, "damaged") == 0 ? "failed" : "stale";
                     row.reason = reason;
-                    off_lines.push_back("kit swap: " + name + " is off: " + reason + " [" + why + "]");
-                    if (auto_plan && row.state != "failed") auto_q.push_back(k);  // 4.0: planned in the background below (once per session), not left off
+                    const std::string kt = plan_key_text(key);
+                    auto seen = auto_seen.find(k);
+                    if (!auto_plan || seen == auto_seen.end() || seen->second != kt) off_lines.push_back("kit swap: " + name + " is off: " + reason + " [" + why + "]");
+                    if (auto_plan) auto_q.push_back({k, kt});  // 4.0: planned in the background below (once per kit and key), not left off; a damaged plan too
                 } else if (!sp->plan.ok) {
                     row.state = plan_row_state(*sp);
                     nothing_n += row.state == "nothing";
@@ -3157,6 +3172,7 @@ void Runtime::worker() {
             cache_note_ = std::to_string(planned) + " of " + std::to_string(slots.size()) + " kits from their plans; the game's tocs were not read";
             for (const auto& r : rows) {
                 Status::PlanRow& pr = plan_rows_[r.first];
+                if (pr.state == "failed" && (r.second.state == "none" || r.second.state == "stale")) continue;  // 4.0: the reason it failed stays on the Kits page
                 if (pr.state != "queued" && pr.state != "planning") pr = r.second;
             }
             if (table && !slots.empty()) {
@@ -3202,11 +3218,12 @@ void Runtime::worker() {
             // 4.0 (10-29): a kit switched on whose plan is missing or stale is planned now, in the background, and the table is published
             // once more; before, it stayed off until "Rebuild all kit plans" (52 of 65 kits after the 10-27 game update). Once per kit and
             // session: a plan that cannot be made does not loop
-            for (const auto& k : auto_q) {
-                if (!auto_planned_.insert(k).second) continue;
-                bool found = false;
-                for (const auto& p : pending_plans_) found = found || p.first == k;
-                if (!found) pending_plans_.push_back({k, false});
+            for (const auto& q : auto_q) {
+                const auto& k = q.first;
+                auto it = auto_planned_.find(k);
+                if (it != auto_planned_.end() && it->second == q.second) continue;  // tried once for this key: a plan that cannot be made does not loop
+                auto_planned_[k] = q.second;                                       // a new key (an option changed while it waited) = once more
+                if (std::find(auto_queue_.begin(), auto_queue_.end(), k) == auto_queue_.end()) auto_queue_.push_back(k);
                 Status::PlanRow& row = plan_rows_[k];
                 row.team = k.first;
                 row.slot = k.second;
@@ -3214,6 +3231,17 @@ void Runtime::worker() {
                 row.reason.clear();
             }
             if (generation_.load() != gen || !pending_plans_.empty()) continue;
+            // one background kit per pass, then a publish: a kit asked for, switched off or an option change waits one plan at most
+            while (!auto_queue_.empty()) {
+                const auto k = auto_queue_.front();
+                auto_queue_.pop_front();
+                bool on = false;
+                for (const SlotState& s : slots_) on = on || (s.team == k.first && s.slot == k.second);
+                if (!on) continue;  // switched off while it waited
+                pending_plans_.push_back({k, false});
+                break;
+            }
+            if (!pending_plans_.empty()) continue;
             running_ = false;
         }
         flush_log(true);

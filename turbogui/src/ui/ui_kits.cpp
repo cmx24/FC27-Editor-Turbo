@@ -698,7 +698,7 @@ void poll_jobs(App& app) {
         p.line = "textures staged for " + plural(ok, "kit", "kits") + " (" + std::to_string(files) + " files, " + mb +
                  ") in turbo_output\\kits; turn on 3D kit on the pitch under Kits imported for this club to use them in matches" +
                  (first_error.empty() ? std::string() : "; not staged: " + first_error);
-        // 2.20: each kit staged now is planned once, here (the census and block plan on the worker thread, swap_plan.bin next to its
+        // 2.20: each kit staged now is planned once, here (the census and block plan on the worker thread, swap_plan_4.bin next to its
         // pictures); the game start only loads the plan. Only with the 3D option on (kits3d_on.txt): without it nothing is read.
         if (ok && app.kit_swap && app.kit_swap->opted_in()) {
             size_t asked = 0;

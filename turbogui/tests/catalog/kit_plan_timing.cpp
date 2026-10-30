@@ -1,7 +1,7 @@
 // 2.20 K1 kitplan: offline timing of the write-once kit plan (core/kit_swap.h) on a SCRATCH LE root (a copy of turbo_output\kits:
 // swap_state.json, kit_index.cache and the staged folders the state names), with the game's real Oodle and tocs (read only).
 //   step 1: ONE donor plan (build_plan for one staged slot, the kit index from kit_index.cache): the stage-time cost per kit
-//   step 2: Runtime::replan_all(): every row of swap_state.json planned and its swap_plan.bin written (the Diagnostics action)
+//   step 2: Runtime::replan_all(): every row of swap_state.json planned and its swap_plan_4.bin written (the Diagnostics action)
 //   step 3: a new Runtime, start(): the boot path, the table from the plans only (no scan, no plan): the boot load time
 //   step 4: the same boot with only the rows of the teams given by --boot-teams (the CS218V set: 2056, 112558)
 // Nothing outside the scratch root is written.
@@ -9,10 +9,10 @@
 //
 // Plan writer (built with -DKITPLAN_RUNTIME; the Tester's pre-boot step, the same code the Kits page's "Rebuild all kit plans" runs in the game):
 //   kit_plan_timing --write-plans <LE root> <FC 27 folder> [game build]
-//   Every row of <LE root>\turbo_output\kits\swap_state.json is planned (Runtime::replan_all) and its swap_plan.bin written next to the staged
+//   Every row of <LE root>\turbo_output\kits\swap_state.json is planned (Runtime::replan_all) and its swap_plan_4.bin written next to the staged
 //   kit; then a second Runtime starts the way the game does and must publish the table "from plans" with every row ready. The game build is
 //   read from <FC 27 folder>\FC27.exe (TimeDateStamp-SizeOfImage, the key the running game gives) unless given. The game's files are read only.
-//   Writes under <LE root>\turbo_output: kits\<team>\<slot>\swap_plan.bin, kits\kit_index.cache (only when missing or stale) and
+//   Writes under <LE root>\turbo_output: kits\<team>\<slot>\swap_plan_4.bin, kits\kit_index.cache (only when missing or stale) and
 //   kit_swap_log.txt. swap_state.json is read, never written. Exit 0 = every row planned and the start published from the plans.
 #include <chrono>
 #include <cstdio>
