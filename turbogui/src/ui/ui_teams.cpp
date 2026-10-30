@@ -13,9 +13,11 @@
 #include "ui_identity.h"
 #include "ui_images.h"
 #include "ui_kits.h"
+#include "ui_looks_studio.h"
 #include "ui_page.h"
 #include "ui_parity.h"
 #include "ui_role_rules.h"
+#include "ui_shell.h"
 #include "ui_tactic_presets.h"
 #include "ui_team_filter.h"
 #include "ui_team_pages.h"
@@ -867,7 +869,17 @@ void draw_managers(App& app) {
             ImGui::Text("%s", m.name.c_str());
             ImGui::Separator();
             if (ImGui::BeginTabBar("##mtabs")) {
-                if (ImGui::BeginTabItem("Details")) {
+                // 5.0b integration (track A's ask, 5.0b-A RESULTS.md:49): Home's "Manager looks" tile asks for the Appearance tab through
+                // shell::manager_edit_tab(). The request selects its tab ONCE (while it differs from the tab shown), then the tab the person
+                // picks is written back, as the Players / Managers switch does (ui_pages_216.cpp:92-112).
+                static int s_mtab = -1;
+                int& want_mtab = shell::manager_edit_tab();
+                const auto mtab_flag = [&](int i) {
+                    return (want_mtab != s_mtab && want_mtab == i) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                };
+                int now_mtab = s_mtab < 0 ? want_mtab : s_mtab;
+                if (ImGui::BeginTabItem("Details", nullptr, mtab_flag(0))) {
+                    now_mtab = 0;
                     ImGui::BeginChild("##mdet");
                     // Names as in EA's manager table (bodytypecode / headassetid; checked against the official db meta)
                     field_grid(app, *t, m.rec, {"firstname", "surname", "commonname", "teamid", "nationality", "managerid",
@@ -880,11 +892,25 @@ void draw_managers(App& app) {
                     ImGui::EndChild();
                     ImGui::EndTabItem();
                 }
-                if (ImGui::BeginTabItem("Appearance")) {
+                if (ImGui::BeginTabItem("Appearance", nullptr, mtab_flag(1))) {
+                    now_mtab = 1;
+                    // 5.0b integration (track A's ask): A's ONE Look card for this manager (its rows come from the look registry), in a pane
+                    // of its own above the real-face chooser. The chooser and its Hair & beard (3D) section (ui_faces.cpp:2360-2377) stay:
+                    // that section keeps the manager's only hair / beard Undo (A's deviation 24, merged as is by the Pit wall 03:11).
+                    ImGui::BeginChild("##mlook", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.5f));
+                    looks::Subject who;
+                    who.manager = true;
+                    who.id = m.managerid;
+                    who.club = m.teamid;
+                    who.head = app.db.get_int(*t, m.rec, "headassetid", 0);
+                    who.name = m.name;
+                    looks::look_card(app, who, m.rec);
+                    ImGui::EndChild();
                     manager_appearance(app, *t, m);  // real-face chooser (ui_faces.cpp)
                     ImGui::EndTabItem();
                 }
-                if (ImGui::BeginTabItem("Miniface")) {
+                if (ImGui::BeginTabItem("Miniface", nullptr, mtab_flag(2))) {
+                    now_mtab = 2;
                     ImGui::BeginChild("##mmface");
                     MinifaceTarget mt;
                     mt.manager = true;
@@ -901,6 +927,7 @@ void draw_managers(App& app) {
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
+                s_mtab = want_mtab = now_mtab;
             }
         }
     } else {
