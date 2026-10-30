@@ -9972,6 +9972,7 @@ static void test_ui() {
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
+#include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
