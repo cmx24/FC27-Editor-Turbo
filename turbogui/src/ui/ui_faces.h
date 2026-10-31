@@ -9,6 +9,7 @@
 #include "core/asset_catalog.h"
 #include "core/face_filter.h"
 #include "core/model.h"
+#include "ui_face_tile.h"
 #include "ui_images.h"
 
 namespace turbo {
@@ -39,6 +40,21 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
 // Name-matched game heads (managers' own heads shipped under another id) as chooser rows: Face::game_head with
 // match_manager / match_label set; rebuilt when the save or the catalog changes
 const std::vector<faces::Face>& manager_match_faces(App& app);
+
+// 5.0c E7 test hook: what the chooser drew for each tile in its last frame (picture source, chips and their geometry). Off by
+// default (nothing recorded); the native test switches it on. UI thread only.
+struct FaceTileDebug {
+    int64_t id = 0;
+    bool game_head = false, manager = false;
+    int source = -1;  // face_tile::Source
+    std::string why;  // the whole reason of an unavailable tile
+    float cell = 0.0f;
+    std::vector<face_tile::BadgeKind> chips;
+    std::vector<face_tile::BadgeRect> rects;  // cell coordinates
+    std::vector<float> drawn_w;               // the drawn label's width per rect (real font)
+};
+void face_tile_debug_enable(bool on);
+const std::vector<FaceTileDebug>& face_tile_debug();
 
 // Managers > Appearance tab: current miniface and head, "Choose a real face...", the outfit pictures, the appearance fields.
 // look_card_above (5.0c E3): the caller draws the Look card above (ui_teams.cpp): that card is then the ONE hair editor, so the "Hair & beard (3D)"
