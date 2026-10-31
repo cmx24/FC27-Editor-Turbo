@@ -42,8 +42,9 @@ namespace {
 
 // ---------------------------------------------------------------- the fields of Accessories and Kit fit
 // Track F's core/looks_fields_data.h (generated from the FC 27 schema and the census, research_20261017\LOOKS_FIELDS.md): the title
-// and the value labels go on screen; its evidence and notes are developer text and stay off it. Accessories = the accessory slots,
-// boots and goalkeeper gloves; Kit fit = sleeves, shirt, shorts, socks for players and the outfit for managers.
+// and the value labels go on screen; its evidence and notes are developer text and stay off it. Accessories (the card "Boots, gloves,
+// accessories" for players) = the accessory slots, boots and goalkeeper gloves; Kit fit = sleeves, shirt, shorts, socks for players and
+// the outfit for managers.
 enum class Card { Accessories, KitFit };
 
 bool in_card(const data::LookField& f, Card c, bool manager) {
@@ -999,7 +1000,8 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
 
 void fields_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec, Card which) {
     const bool kit = which == Card::KitFit;
-    card_begin(s, kit ? "##lskit" : "##lsgear", kit ? (who.manager ? "Outfit" : "Kit fit") : "Accessories", kNotTested);
+    // the title says what the card holds (three words at most): a player's gear card is boots, goalkeeper gloves and the accessory slots
+    card_begin(s, kit ? "##lskit" : "##lsgear", kit ? (who.manager ? "Outfit" : "Kit fit") : (who.manager ? "Accessories" : "Boots, gloves, accessories"), kNotTested);
     int drawn = 0;
     for (const data::LookField& f : data::kLookFields) {
         if (!in_card(f, which, who.manager) || !t.has(f.name)) continue;
@@ -1094,13 +1096,16 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     }
     undo_button(app, s, who);
     ImGui::Spacing();
+    // Turbo X (2026-10-31, the in-game run): the pickers first - the tall Body type grid pushed Accessories, Tattoos and Kit fit below the
+    // fold. Players: Face, Hair & beard, Accessories, Tattoos, Kit fit, Body type, Player miniface. Managers (no tattoos): Face,
+    // Hair & beard, Accessories, Outfit, Body type, Manager miniface. The Look card stays last (the tests scroll to its fold).
     face_card(app, s, who, *t, rec);
     hair_card(app, s, who, *t, rec);
-    body_card(app, s, who, *t, rec);
-    tattoo_card(app, s, who, *t, rec);
-    miniface_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
+    tattoo_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::KitFit);
+    body_card(app, s, who, *t, rec);
+    miniface_card(app, s, who, *t, rec);
     look_card_body(app, s, who, *t, rec, who.manager);  // 5.0b-A: ONE Look card, its rows from the registry (core/look_pickers.h)
     // tests (looks_studio_open_all_fields_for_tests): the card is the last one and a test cannot scroll; ImGui skips the items of a card that is
     // out of the pane's view, so the pane goes to its end while the test holds the fold open
