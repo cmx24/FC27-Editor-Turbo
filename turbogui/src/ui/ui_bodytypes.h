@@ -30,6 +30,7 @@ bool apply_bodytype(App& app, const Table& t, uint64_t rec, int64_t code, bool a
 // The Body type window's "allow a player-specific body on this head" box: drawn by the picker, read by visual_apply
 void bodytype_risky_box(App& app, const Table& t, uint64_t rec);
 bool bodytype_allow_risky();
+void bodytype_reset_risky();  // a new Body type window starts unticked: the box never carries over from one record to the next (5.0c review)
 
 // Last action of the entry point, for the tests (plain text is not an ImGui item)
 struct BodyTypeUiState {

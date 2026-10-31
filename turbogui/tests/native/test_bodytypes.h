@@ -186,6 +186,15 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Cancel##vpcancel", "###vispicker"), "close the window");
         ui.frames(3);
         CHECK(!visual_picker_ui().open, "picker closed");
+        // 5.0c review: the box never carries over - a new Body type window (same or another record) starts unticked
+        CHECK(bodytype_allow_risky(), "the tick is still there after the window closed (the copy popup uses it)");
+        reveal("Body type...##btopen", "##pedit");
+        CHECK(ui.click("Body type...##btopen", "##pedit"), "open the Body type window again");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && !bodytype_allow_risky(), "a new Body type window starts with the allow box unticked");
+        CHECK(ui.click("Cancel##vpcancel", "###vispicker"), "close it again");
+        ui.frames(3);
+        CHECK(!visual_picker_ui().open, "picker closed again");
 
         // copy a body type from another player (1001 carries code 2)
         const PlayerRow* src = app.model.player(1001);

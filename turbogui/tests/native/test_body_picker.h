@@ -217,6 +217,7 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(ui.click("Body type...##btopen", "##bpt4"), who + ": click Body type...");
             ui.frames(4);
             CHECK(visual_picker_ui().open && visual_picker_ui().field == "bodytypecode", who + ": the visual picker opened for bodytypecode");
+            CHECK(!bodytype_allow_risky(), who + ": the allow-risky box starts unticked (no tick carried over from an earlier record)");
             CHECK(ui.find("Reload##btreload") == nullptr && ui.find("Use##bt4") == nullptr, who + ": the 7-column modal gallery is not on screen");
             const size_t n = visual_picker_list_size();
             CHECK(n >= 10 && static_cast<size_t>(visual_picker_ui().source_figure) == n && visual_picker_ui().source_rdbm + visual_picker_ui().source_game == 0,

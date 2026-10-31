@@ -157,6 +157,7 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
 }
 
 bool bodytype_allow_risky() { return g_gal.allow_risky; }
+void bodytype_reset_risky() { g_gal.allow_risky = false; }
 
 // The warning and the box of the Body type window (ui_visual_picker.cpp draw_picker_body): shown while the head is not a specific
 // (real-face) one, because only then can a player-specific body not fit the skeleton and kit

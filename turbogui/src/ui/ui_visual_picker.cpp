@@ -573,6 +573,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     build_source(app, t, rec, field, manager, s.src);
     s.ui = VisualPickerUi();
     s.ui.open = true;
+    if (field == "bodytypecode") bodytype_reset_risky();  // the "allow a player-specific body" box starts unticked for every record
     s.ui.field = field;
     s.ui.current = app.db.get_int(t, rec, field, 0);
     s.ui.selected = s.ui.current;
