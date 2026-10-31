@@ -1094,13 +1094,16 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     }
     undo_button(app, s, who);
     ImGui::Spacing();
+    // Turbo X (2026-10-31, the in-game run): the pickers first - the tall Body type grid pushed Accessories, Tattoos and Kit fit below the
+    // fold. Players: Face, Hair & beard, Accessories, Tattoos, Kit fit, Body type, Player miniface. Managers (no tattoos): Face,
+    // Hair & beard, Accessories, Outfit, Body type, Manager miniface. The Look card stays last (the tests scroll to its fold).
     face_card(app, s, who, *t, rec);
     hair_card(app, s, who, *t, rec);
-    body_card(app, s, who, *t, rec);
-    tattoo_card(app, s, who, *t, rec);
-    miniface_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
+    tattoo_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::KitFit);
+    body_card(app, s, who, *t, rec);
+    miniface_card(app, s, who, *t, rec);
     look_card_body(app, s, who, *t, rec, who.manager);  // 5.0b-A: ONE Look card, its rows from the registry (core/look_pickers.h)
     // tests (looks_studio_open_all_fields_for_tests): the card is the last one and a test cannot scroll; ImGui skips the items of a card that is
     // out of the pane's view, so the pane goes to its end while the test holds the fold open
