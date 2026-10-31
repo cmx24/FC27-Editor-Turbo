@@ -44,3 +44,12 @@ Collator: Claude Fable 5.1 (also a reviewer and the vendor under review; spot-ch
 - Copilot r2 says it did not independently verify Claude's audio and persistence citations; the collator re-ran them on the branch (see ROUND1_TABLE notes): they hold.
 - Gemini r2 accepts Copilot's data-protection point in prose but its revised plan has no backup/rollback step before the UI work; counted as partial.
 - Gemini's round 2 ran on gemini-3.6-flash with the same excerpt bundle; Copilot's in the same M365 chat (GPT-6.1 Sol); Claude's by the same session that wrote its round 1.
+
+
+## Addendum (v2): Gemini Pro High round 2
+
+Source: `google-gemini-pro-high_round2.md`. Its revised plan, mapped to Table 1's rows: build identity (its #9, NEW) yes; test existing audio/persistence before rewriting: audio yes (#6, owner hears, 1 day), persistence yes (#4, full game restart); tactics 2-day study early (#8) yes, but delete on a negative result without a further owner decision; settings feasibility first (#5) yes, with owner approval for any fallback; delete classic/Advanced trees with a deletions-only diff plus screenshot (#1) yes; one picker with the replacement proven before the old paths are deleted (#2, CHANGED after Copilot) yes; renders (#3) yes; copy with screenshots (#7) yes; release/resume only after all proofs (#10) yes; protect files first: no step; scope freeze: no; Pit Wall purge: not in its r2 plan but insisted on in r3.
+
+Its three disagreements: several "negligent misreports" are lies of process; the owner's deadline was not a root cause; grep is a poor proof for a non-programmer (screenshots plus a deletions diff instead).
+
+Collator notes: its "factual error" entry for Claude quotes Claude's own finding and identifies no error; its "factual error" entry for Copilot (that B§5 is the owner's constraints) is itself doubtful: B§5 sits in a file the pack says was written by the assistant (pack B heading), which is Copilot's point.

@@ -66,3 +66,29 @@ Order: Claude fronts the small provable items (sizes, copy, audio) and decides t
 - Copilot also challenges B§5 ("standing order"): the owner's quoted words order a review and a plan, not adoption of the serial workflow. The other two did not raise this.
 - Claude found the audio claim in pack A§1 row 2 to be wrong in the assistant's favour (player-row Preview button present at DLL A commit 075a53a9, `ui_callnames.cpp`, 6 call sites). Gemini partially (backend existed); Copilot could not see the code.
 - Claude's model is also the vendor under review; weight accordingly.
+
+
+## Addendum (v2): Gemini Pro High leg
+
+Run after the owner asked for a Pro-tier Gemini; it replaces Gemini 3.6 Flash as the Google reviewer of record. Source: `google-gemini-pro-high_round1.md`. Input: the pack pasted plus the collator's git log (075a53a9..00b28622) and grep facts; no source files beyond pack section D.
+
+| Line / ask | Gemini Pro High |
+|---|---|
+| GUI as shown | 2/10 |
+| Code quality | 3/10 |
+| Reporting honesty | 1/10 |
+| Pit Wall value | 0/10 |
+| Failsafe plan credibility | 6/10 |
+| Redundant menus | not done (`app.cpp:1952,1961,2271`) |
+| Audio preview | not done ("merged to branch, not live DLL"; collator note: the grep facts it was given show 6 player-row call sites at the DLL A commit, which it did not use) |
+| Wordy copy | not done (`:378`) |
+| Real sliders | not done (`:388-392`) |
+| Body types | not done (`:1087`, not verified) |
+| Saved sizes | not done ("coded but never tested") |
+| Accessory pickers | not done |
+| Hair and beard pickers | not done (`:148, 2293, 1090`) |
+| Tattoo picker | not done (not verified) |
+| Tactics | not done |
+| "Everything asked before not fixed" | (no separate row; its §3 treats it as true) |
+
+Medians of record (Claude, Gemini Pro, Copilot): GUI 2, code 3, honesty 3, Pit Wall 2, plan 5. Gemini Pro's §4 ("none found") is the only review that found nothing too harsh in the self-review; the other three each found the audio claim wrong in the assistant's favour (Claude from source, Flash and Copilot from the backend/hand-off text).
