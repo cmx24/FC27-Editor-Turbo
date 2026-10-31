@@ -4328,7 +4328,7 @@ static void test_ui() {
         });
 
         // 2026-10-31 (5.0c menus step 6): the classic ten-tab editor (##plist, ##pedit, ##attr, ##prof, ##ps) is gone. The cases below run on
-        // Players > Player (Page::PlayerEdit, ##pe_tabs): the list is the ##select pane of the Profile and Attributes & roles tabs
+        // Players > Player (Page::PlayerEdit, the Profile | Attributes & roles | Looks | Callname segments): the list is the ##select pane of the Profile and Attributes & roles tabs
         // (draw_classic_player_list, the same filters), the editor the ##editor pane; the attribute boxes, the PlayStyles grid, the enum combos
         // and the overall box are sections of Attributes & roles (ui_player_profile.cpp draw_player_ability), reached by scrolling (ui.reach)
         run_case("UI: Players list, select with the mouse, edit an attribute", [&] {

@@ -817,11 +817,10 @@ ui_page.cpp	-	###pg_back	1
 ui_page.cpp	-	###pg_undo	1
 ui_page.cpp	-	##page_	1
 ui_page.cpp	BeginChild	##pg_body	1
-ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
-ui_pages_216.cpp	BeginTabItem	###pe_ability	1
-ui_pages_216.cpp	BeginTabItem	###pe_appearance	1
-ui_pages_216.cpp	BeginTabItem	###pe_callname	1
-ui_pages_216.cpp	BeginTabItem	###pe_profile	1
+ui_pages_216.cpp	-	###pe_ability	1
+ui_pages_216.cpp	-	###pe_appearance	1
+ui_pages_216.cpp	-	###pe_callname	1
+ui_pages_216.cpp	-	###pe_profile	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1

@@ -21,7 +21,8 @@ namespace turbo {
 // (2.22: the Populate panel moved into the "Player type & tier" card, the first card of the Positions tab: ui_player_profile.cpp)
 
 // Players > Player. 2.20: one page with tabs, as the Pit wall decided (13:02). 3.0 (brief 3.0-shell, track B): a read-only header card for the
-// selected player above the tab bar (ui_player_header.cpp) and four tabs, ids kept: Profile | Attributes & roles | Looks | Callname.
+// selected player above the tabs (ui_player_header.cpp) and four tabs, ids kept: Profile | Attributes & roles | Looks | Callname. Turbo X
+// (2026-10-31): the header is the hero header and the tab bar a segmented control (theme::segmented); the bodies are drawn as before.
 // The first two are the new pages (ui_player_profile.cpp), Looks is the Appearance Editor itself for the selected player, and
 // Callname is the callname editor (callname_editor: list, Preview, Apply, Undo) for the selected player. shell::player_edit_tab(): 0..3.
 static void draw_player_callname_tab(App& app) {
@@ -43,37 +44,27 @@ static void draw_player_edit(App& app) {
     // it without the shell, still sees its default (the squad page)
     profile_team_players_page() = shell::Page::TeamPlayers;
     draw_player_header(app);  // nothing when no player is picked
-    if (!ImGui::BeginTabBar("##pe_tabs")) return;
-    static int s_shown = -1;  // the tab the bar showed last frame; a different shell::player_edit_tab() (set by code) is selected once
+    // Turbo X (DESIGN_SPEC_X.md): a segmented control (pill buttons, the selected one accent-tinted) instead of the window-wide tab bar;
+    // the four ids are unchanged, shell::player_edit_tab() (0..3) is the selection, set by code or by a click
+    static const char* const kSegments[] = {"Profile###pe_profile", "Attributes & roles###pe_ability", "Looks###pe_appearance", "Callname###pe_callname"};
+    static int s_shown = -1;  // the segment drawn last frame; one line in turbo_gui.log per change (the live check of the wiring reads which were really shown)
     int& want = shell::player_edit_tab();
-    const auto flag = [&](int i) { return (want != s_shown && want == i) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None; };
-    int now = s_shown < 0 ? want : s_shown;
-    if (ImGui::BeginTabItem("Profile###pe_profile", nullptr, flag(0))) {
-        now = 0;
-        draw_player_profile(app);
-        ImGui::EndTabItem();
+    if (want < 0 || want > 3) want = 0;
+    ImGui::Dummy(ImVec2(0.0f, S(2.0f)));
+    theme::segmented(kSegments, 4, want);
+    ImGui::Dummy(ImVec2(0.0f, S(4.0f)));
+    const int now = want;
+    switch (now) {
+        case 0: draw_player_profile(app); break;
+        case 1: draw_player_ability(app); break;
+        case 2: looks::draw_looks_studio(app); break;
+        default: draw_player_callname_tab(app); break;
     }
-    if (ImGui::BeginTabItem("Attributes & roles###pe_ability", nullptr, flag(1))) {
-        now = 1;
-        draw_player_ability(app);
-        ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem("Looks###pe_appearance", nullptr, flag(2))) {
-        now = 2;
-        looks::draw_looks_studio(app);
-        ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem("Callname###pe_callname", nullptr, flag(3))) {
-        now = 3;
-        draw_player_callname_tab(app);
-        ImGui::EndTabItem();
-    }
-    ImGui::EndTabBar();
-    if (now != s_shown) {  // one line in turbo_gui.log per change of tab (the live check of the wiring reads which tabs were really shown)
+    if (now != s_shown) {
         static const char* const names[] = {"Profile", "Attributes & roles", "Looks", "Callname"};
-        if (now >= 0 && now < 4) app.log(std::string("Edit a player tab: ") + names[now]);
+        app.log(std::string("Edit a player tab: ") + names[now]);
     }
-    s_shown = want = now;
+    s_shown = now;
 }
 TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_edit);
 
