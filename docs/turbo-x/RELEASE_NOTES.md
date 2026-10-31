@@ -1,8 +1,14 @@
-# Turbo X 1.0 — pre-release notes (2026-10-31)
+# Turbo X 1.0 — release notes (2026-10-31)
 
-**Status: compiled, booted and partly proven in game (2026-10-31 16:12–16:30 EDT, LEICESTER, driver run, Undo afterwards).** Built by the project's own `build_win.sh` (exit 0, 0 warnings, MinGW-w64 GCC 13.2). In the game: 129/129 hooks, footer "Turbo X 1.0", every area opens, the one picker opens for hair and beard with the same layout, a hair apply and its way back worked, the callname Preview path fires. Not yet seen: accessory/tattoo pickers, a slider move, saved sizes, audio actually heard. Details and shots: `BUILD_LOG.md`, `evidence\\2026-10-31\\turbox-rc2\\run3`. Install it only on the throwaway LEICESTER career, after `Protect-TurboFiles.ps1`, and follow `docs/turbo-x/TEST_CARD.md`.
+**Package**: `dist/FC27_LE_Turbo_X_1.0.zip` (126 files, sha256 `befd4d19…8700`), `Turbo.dll` md5 `f2635cb9408a06fdce0db3d7ad9c37d5`, built by `turbogui/scripts/build_win.sh` (exit 0, 0 warnings, MinGW-w64 GCC 13).
 
-Identity: `Turbo.dll` md5 `8b23d9c157f7c33475ed8f9ad5fa0bc1`, package `TurboX_<commit>_8b23d9c1.zip` (the commit is in the zip name and in its BUILD.txt; the docs commit after the build changes the id, the source does not: src is at ff1c547 + tests at 41cf307). The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
+**What is proven in game and what is not** (LEICESTER throwaway career, driver runs 3 and 4, Undo afterwards, saves byte-identical):
+- SEEN in game (rc2/rc3): 129/129 hooks, footer "Turbo X 1.0", new theme, rail and page strip, every area opens, the one picker for hair and beard, a hair apply and its way back, the callname Preview path fires.
+- BUILT, not yet seen in game (rc5 → 1.0): the redesigned Players page (people rows, chips, hero header with OVR/POT/Calc tiles, segmented Profile/Attributes/Looks/Callname), Attributes as cards, Appearance Editor portrait card and gear-first order, FC Editor body pictures, sliders-first Game settings, the English callname coverage fix, the club Preview count line. The final run on LEICESTER before the install checks these.
+
+**Callnames (English)**: Turbo X lists every name FC 27's English commentary has a recording for: 7,453 players with their own recording (both commentary teams, dr and gm, full/demo/licensed sets) and 4,861 generic surnames, 12,314 in all. The owner's 16,694 (`uk_masterxxx.xlsm`) is the FC 26 bank: 5,306 of its players have no recording in FC 27. Details in `BUILD_LOG.md`.
+
+**Clubs**: 791 clubs have a recording in the English commentary. The Preview needs each club's clip decoded once into `turbo_output\cache\teamaudio\eng_us`; the page now says how many are ready instead of a misleading "No FC 27 audio".
 
 ## What changed against 5.0c/integration @ 00b28622 (the reviewed head)
 

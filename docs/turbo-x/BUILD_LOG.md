@@ -83,3 +83,19 @@ The menus agent deleted by route, as the plan says, and listed what lost its onl
 - Step 7 second half: delete `ui_images.cpp` galleries and the `ui_faces3d_gate.cpp` modal after the owner's in-game apply/undo proof; the exact line ranges are in the picker agent's report (kept in this folder as PICKER_DELETION_LIST.md).
 - Steps 3 (saved sizes) and 4 (audio) are test-only: nothing to build; the test card says what to check.
 - Step 5 (tactics study) needs the game; not started.
+
+## Callname count check against `uk_masterxxx.xlsm` (2026-10-31 evening, owner's 16,694)
+
+Question: the owner's workbook counts 16,694 spoken names (generic surnames + real players); Turbo X lists fewer. Checked row by row against the FC 27 game files.
+
+- **What the 16,694 is**: `uk_masterxxx.xlsm` sheet `callnames`, one row per name: 11,940 `real` rows (11,712 player ids) + 4,754 `generic` rows. Its real rows point at segments up to 20,435 of a `real` folder of 20,437 wavs dated 2 July (FC 26 era); its `head` column looks players up in a sheet named `fc26 heads`. It is the FC 26 English bank.
+- **FC 27 English, from the game files** (`commentaryfull/launch/licensed_eng_us`, build 1.0.141.46637, bank json made by the asset catalog): the extracted `turbo_dev\fc 27 audio` folder holds `pPLAYER_NAMES_SIMPLE` segments 0–11,791 (11,792 files, no gaps), `LINK` 4,874, `HIGH` 169, `pSIMPLE_SURNAME` 7,120. FC 27 has two English commentary teams with their own banks: dr (full, demo, licensed: 7,264 players with their own recording, all 4,861 generic surnames) and gm (full, demo, licensed: 3,882 players). Union: **7,453 players with their own recording + 4,861 generic surnames = 12,314 spoken names** (+392 HIGH variants of the same players).
+- **Reconciliation**: of the workbook's 11,712 players, 6,406 are in an FC 27 bank and **5,306 are not** (5,516 rows; 4,428 of them point past segment 11,791, which FC 27 does not have). Of its 4,754 generic rows, 4,748 are in FC 27's surname bank. FC 27 adds 536 players (dr full) + 511 (other sets) and 113 generic surnames the workbook does not have.
+- **Turbo X carries all of FC 27's**: the regenerated master `eng_us.json` lists 7,453 players and 4,861 generic ids (spoken list 4,844 ids in 900001–965000 + the 17 above 965000 from the master; `callnames.cpp` answers Spoken for either). Nothing in FC 27's English banks is missing from Turbo X.
+- **The 5,306 FC 26-only players are not spoken by FC 27** (the game has no recording of them). The only way to hear them is to bring the FC 26 recordings in, which is a voice-swap feature, not a list fix; not in 1.0.
+
+## Club callnames / Preview, checked because of the player findings
+
+- The club list (791 ids, `turbo\callnames\clubs\eng_us.json`) and the club clip index (`eng_us_clips.json`, 791 clips) come from the same scan of every set (gm full 447, dr full 312, drsr full 14, common full 7, dr licensed 4): both teams are covered, the miss on the player side (one team only) does not exist here. Three families could not be parsed (array runs past the end) and are skipped by both; a club spoken only there would be missing (not seen).
+- **Real miss found**: the Preview plays `turbo_output\cache\teamaudio\<lang>\<id>.wav`, which only `club_clips.py --decode` makes, and nothing in Turbo calls it. On the owner's PC the folder does not exist: **every club Preview was disabled** with the tooltip "No FC 27 audio for this name", which was wrong (the audio exists, the clip was not made).
+- **Fix in code**: the tooltip now says the clip is not made yet and where it goes; the Club voice card shows "Preview clips ready: N of 791". **Fix in data**: decode all 791 English clips (and the French/Spanish indexes) into the PC's cache from the game files once the game is closed (club_clips.py, read-only on the game folder).
