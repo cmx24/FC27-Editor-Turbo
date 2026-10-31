@@ -82,6 +82,26 @@ std::string manager_set_name(int64_t code) {
 
 bool manager_set(int64_t code) { return code >= 81 && code <= 89; }
 
+int64_t manager_set_lead(int64_t code) {
+    if (!manager_set(code)) return code;
+    // 5.0c RV4: the look-alike group's lead = the code most managers carry (track F's census), then the lowest code; fixed data
+    const std::string base = manager_base(body_shape(true, code, nullptr));
+    int64_t lead = 0;
+    int lead_used = -1;
+    for (int64_t c = 81; c <= 89; ++c) {
+        if (manager_base(body_shape(true, c, nullptr)) != base) continue;
+        const data::LookValue* v = look_value(true, c);
+        const int used = v ? static_cast<int>(v->used) : 0;
+        if (used > lead_used) {
+            lead = c;
+            lead_used = used;
+        }
+    }
+    return lead ? lead : code;
+}
+
+std::string manager_set_plain_name(int64_t code) { return manager_set(code) ? manager_base(body_shape(true, code, nullptr)) : std::string(); }
+
 bool risky_for(bool manager, const bodytype::Catalog& cat, int64_t code, int head_class) {
     if (manager && manager_set(code)) return false;
     return bodytype::risky_pairing(cat, code, head_class);

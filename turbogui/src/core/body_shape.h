@@ -39,6 +39,11 @@ constexpr float kMinHeightCm = 150.0f, kMaxHeightCm = 210.0f;
 // The codes 81-89: the common manager body set. A manager with a generic head carries them (the game itself pairs them), so they are
 // never a "risky pairing" for the manager table.
 bool manager_set(int64_t code);
+// 5.0c RV4 (Cassio): codes of the set that draw the same figure (same height word and build word: 82/83/86, 81/89) are ONE tile.
+// manager_set_lead: the code that stands for its look-alike group (the most used, then the lowest); a code outside the set is itself.
+// manager_set_plain_name: the group's plain name without "(n of m)" ("Manager, medium, broad"); "" outside the set.
+int64_t manager_set_lead(int64_t code);
+std::string manager_set_plain_name(int64_t code);
 // bodytype::risky_pairing, per subject: false for a manager holding the manager set
 bool risky_for(bool manager, const bodytype::Catalog& cat, int64_t code, int head_class);
 

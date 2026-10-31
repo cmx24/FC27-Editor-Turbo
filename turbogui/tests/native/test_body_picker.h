@@ -8,6 +8,10 @@
 //       "Unique body", "Manager body N", "Style N", "Specific body", no leading number), and no manager name repeats a generic
 //       name once its "Manager, " prefix and "(n of m)" suffix are taken off; codes 12 / 131 / 381 are offered only as the current
 //       value, and then as exactly one "His own body".  FAILS on 5.0b/integration d197d851 (Manager body 81..89 x9, Unique body x3).
+//   T6  RV4 (Cassio 5.0c): the manager grid shows ONE tile per distinct figure (no two manager-set tiles with the same height word and
+//       build word, no "(n of m)" name); "Show all bodies" (looks::body_show_all) lists all of 81-89 again; a manager holding a hidden
+//       look-alike (83) sees his own code in place of the group's lead. Fail-old: the same checker is run on the show-all list, which
+//       IS the old list (E8 9cb9000d: 9 codes, "(n of 3)" / "(n of 2)" names), and must report the look-alikes.
 //   V1  apply_bodytype writes the manager set 81-89 on a manager with a generic head (the game itself pairs them: the census
 //       generic_head column), and still refuses a player-specific body (code 20) there.  FAILS on d197d851 (it was refused).
 #pragma once
@@ -71,6 +75,23 @@ static std::string grid_problems(const char* what, const bodytype::Catalog* cat,
     return bad.empty() ? std::string() : std::string(what) + ":" + bad;
 }
 
+// T6: the look-alike problems of one manager grid ("" = one tile per distinct figure, plain names)
+static std::string look_alike_problems(const bodytype::Catalog* cat, int64_t current) {
+    std::string bad;
+    std::map<std::string, int64_t> figure;  // "height word, build word" (the plain name) -> the first code drawn that way
+    static const std::regex nofm(R"(\(\d+ of \d+\))");
+    for (int64_t c : looks::body_grid_codes(cat, current, -1, true)) {
+        if (!bodyshape::manager_set(c)) continue;
+        const std::string cap = looks::body_caption(c, cat, true);
+        if (std::regex_search(cap, nofm)) bad += " [" + std::to_string(c) + " reads '" + cap + "']";
+        const std::string key = bodyshape::manager_set_plain_name(c);
+        auto it = figure.find(key);
+        if (it != figure.end()) bad += " [" + std::to_string(c) + " draws the same figure as " + std::to_string(it->second) + ": " + key + "]";
+        else figure[key] = c;
+    }
+    return bad;
+}
+
 inline void core_cases() {
     run_case("Body picker: T1 the grid shows unique plain names for managers and players (no Unique body, no Manager body N)", [&] {
         bodytype::Catalog cat;
@@ -89,6 +110,40 @@ inline void core_cases() {
             }
         }
         CHECK(bad.empty(), "the grid reads plain and unique:" + bad);
+    });
+
+    run_case("Body picker: T6 RV4 one manager tile per distinct figure, Show all bodies lists every code, his own look-alike stays his", [&] {
+        bodytype::Catalog cat;
+        std::string err;
+        CHECK(cat.load_probe(bt_fixture(), &err), "probe fixture loads: " + err);
+        const bodytype::Catalog* const cats[2] = {nullptr, &cat};
+        std::string bad;
+        looks::body_show_all(false);
+        for (const bodytype::Catalog* c : cats)
+            for (int64_t cur : {int64_t{0}, int64_t{82}, int64_t{83}, int64_t{86}, int64_t{81}, int64_t{89}, int64_t{84}, int64_t{12}}) {
+                const std::string p = look_alike_problems(c, cur);
+                if (!p.empty()) bad += std::string(c ? " with" : " without") + " the probe, holding " + std::to_string(cur) + ":" + p;
+            }
+        CHECK(bad.empty(), "default manager grid has one tile per distinct figure:" + bad);
+        // holding 83 (a hidden look-alike of the lead): his own code is the group's one tile
+        const std::vector<int64_t> g83 = looks::body_grid_codes(nullptr, 83, -1, true);
+        auto has = [](const std::vector<int64_t>& v, int64_t c) { return std::find(v.begin(), v.end(), c) != v.end(); };
+        int group83 = 0;
+        for (int64_t c : g83) group83 += bodyshape::manager_set(c) && bodyshape::manager_set_lead(c) == bodyshape::manager_set_lead(83);
+        CHECK(has(g83, 83) && group83 == 1, fmt("holding 83: his code is listed and is the only tile of its group (%d)", group83));
+        const size_t n_default = looks::body_grid_codes(nullptr, 0, -1, true).size();
+        // recoverable: ticked, all nine codes of the set are listed again, with the "(n of m)" names that tell them apart
+        looks::body_show_all(true);
+        const std::vector<int64_t> all = looks::body_grid_codes(nullptr, 0, -1, true);
+        int set_codes = 0;
+        for (int64_t c = 81; c <= 89; ++c) set_codes += has(all, c);
+        CHECK(set_codes == 9 && all.size() > n_default, fmt("Show all bodies lists 81-89 (%d of 9), %zu tiles vs %zu", set_codes, all.size(), n_default));
+        // fail-old: the show-all list is the old list, and the checker must find the look-alikes there (82/83/86, 81/89)
+        const std::string old_list = look_alike_problems(nullptr, 0);
+        CHECK(!old_list.empty() && old_list.find("draws the same figure") != std::string::npos,
+              "the checker reports the old list's look-alikes: " + old_list);
+        looks::body_show_all(false);
+        CHECK(!looks::body_show_all(), "the box is off again for the next case");
     });
 
     run_case("Body picker: T2 the figure follows the size - taller bodies are drawn taller, every point is inside the tile, names are the plain words", [&] {

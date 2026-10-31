@@ -82,6 +82,10 @@ std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manage
 // probed codes with example players, track F's census); a body only the other gender has is left out (gender -1: none left out).
 // Managers: their own set (track F). `current` is always offered.
 std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t current, int gender, bool manager = false);
+// 5.0c RV4: off (the default, and at every Body type window open) = manager bodies that draw the same figure show as one tile with a
+// plain name; on ("Show all bodies") = every code of the set, with "(n of m)" names (nothing is lost: each code stays reachable).
+void body_show_all(bool on);
+bool body_show_all();
 
 // ---- Accessories and Kit fit: the fields each card edits for a player or a manager (the table's own field names)
 std::vector<std::string> card_fields(bool manager, bool kit_fit);

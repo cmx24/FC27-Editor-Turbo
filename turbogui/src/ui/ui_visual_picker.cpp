@@ -778,6 +778,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.fav_only = false;
     s.group_sel = -1;
     s.hair = HairFacets();
+    if (field == "bodytypecode") looks::body_show_all(false);  // 5.0c RV4: every Body type window starts with one tile per distinct figure
     build_source(app, t, rec, field, manager, s.src);
     s.ui = VisualPickerUi();
     s.ui.open = true;
@@ -995,6 +996,20 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
         }
     }
     if (s.src.body) bodytype_risky_box(app, t, rec);  // 5.0c E8-body: the old gallery's "allow a player-specific body" box lives here now
+    if (s.src.body && s.src.manager) {
+        // 5.0c RV4 (Cassio): look-alike manager bodies (82/83/86, 81/89) are one tile; ticked, every code is listed again (recoverable)
+        bool all = looks::body_show_all();
+        if (ImGui::Checkbox("Show all bodies##vpallbodies", &all)) {
+            looks::body_show_all(all);
+            const std::string rv4_field = s.src.field;  // a copy: build_source resets s.src first
+            const bool rv4_mgr = s.src.manager;
+            build_source(app, t, rec, rv4_field, rv4_mgr, s.src);
+            s.shown_key = "\x01";
+            s.ui.source_figure = static_cast<int>(s.src.codes.size());
+            vlog(app, std::string("visual picker: Show all bodies ") + (all ? "on" : "off") + ", " + std::to_string(s.src.codes.size()) + " tiles");
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Some manager bodies draw the same figure and are shown once. Tick to list every body code.");
+    }
     if ((s.ui.names_only || (!s.src.body && resources(app).empty())) && s.src.kind != vis::data::kNone) where_pictures_line(app, s.src);
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
     filter(app, s);

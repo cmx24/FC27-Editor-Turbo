@@ -1121,7 +1121,13 @@ void look_card(App& app, const Subject& who, uint64_t rec) {
 }
 
 // ---------------------------------------------------------------- public: body-type grid
+// 5.0c RV4 (Cassio): manager bodies that draw the same figure are one tile; ticked "Show all bodies" lists every code again
+static bool g_all_bodies = false;
+void body_show_all(bool on) { g_all_bodies = on; }
+bool body_show_all() { return g_all_bodies; }
+
 std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manager) {
+    if (manager && !g_all_bodies && bodyshape::manager_set(code)) return bodyshape::manager_set_plain_name(code);  // RV4: no "(n of m)"
     // 5.0c E8-body: the plain name from core/body_shape.h ("Tall, lean", "Manager, tall, slim (2 of 3)", "Like Lionel Messi"). Where nothing
     // names the code it is "His own body": a grid only offers such a code when the record already holds it. "Unique body" and
     // "Manager body N" are gone (Cassio 5.0c-FIX.md E8).
@@ -1137,8 +1143,17 @@ std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t curre
         // managers have their own set (track F: the generic bodies and 81-89); the styles only a few managers carry (12, 131, 381)
         // have no name and are shown only to the manager who holds one
         if (const data::LookField* f = data::find_look_field(data::LookSubject::Manager, "bodytypecode"))
-            for (int32_t i = 0; i < f->n_values; ++i)
-                if (offered(f->values[i].code)) out.push_back(f->values[i].code);
+            for (int32_t i = 0; i < f->n_values; ++i) {
+                const int64_t c = f->values[i].code;
+                if (!offered(c)) continue;
+                if (!g_all_bodies && bodyshape::manager_set(c)) {
+                    // RV4: one tile per look-alike group: his own code when he holds one of the group, else the group's lead
+                    const int64_t lead = bodyshape::manager_set_lead(c);
+                    const bool his_group = bodyshape::manager_set(current) && bodyshape::manager_set_lead(current) == lead;
+                    if (c != (his_group ? current : lead)) continue;
+                }
+                out.push_back(c);
+            }
         if (current > 0 && std::find(out.begin(), out.end(), current) == out.end()) out.push_back(current);
         return out;
     }
