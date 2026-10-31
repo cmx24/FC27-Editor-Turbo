@@ -13,7 +13,6 @@
 #include "ui/ui_bulk_edit.h"
 #include "ui/ui_page.h"
 #include "ui/ui_player_creation.h"
-#include "ui/ui_diagnostics_page.h"
 #include <algorithm>
 
 namespace bulkdev40_test {

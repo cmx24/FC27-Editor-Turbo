@@ -3828,11 +3828,9 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_kit_fonts.h"    // 2.11 K1: named kit font / layout choices (test_kit_fonts, kit_fonts_ui_cases)
 #include "test_kit_share.h"    // 2.13: 3D kits never half a kit, the opt-in for other clubs' shared textures (kit_share_test::run)
 #include "test_kit_plan.h"     // 2.20 K1: the write-once swap plan of a staged kit (kit_plan_test::run)
-#include "test_page_advanced.h"  // 2.16 gui/page-advanced: Advanced > Diagnostics & logs and Data export (page_advanced_test::ui_cases)
-#include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) and its worked example Data export (ui_page_test::ui_cases)
-#include "test_team_squad_40.h"  // 4.0 S4: Team > Squad page (ui/ui_team_squad_page.h; team_squad_40_test::ui_cases)
+#include "test_ui_page.h"  // 4.0 S1: the page template (ui/ui_page.h) (ui_page_test::ui_cases)
 #include "test_tactics_40.h"  // 4.0 S10: the Tactics pages inside page::Frame (tactics40_test::ui_cases)
-#include "test_shell_40.h"  // 4.0 S3: the 4.0 menu tree behind shell::tree40() (shell40_test::ui_cases)
+#include "test_shell_40.h"  // 4.0 S3 (cut down 2026-10-31): page_has_frame against the pages that draw the frame's bar (shell40_test::ui_cases)
 #include "test_page_bulk.h"   // 2.20 ia-bulk: Players > Bulk edit (page_bulk_test::ui_cases)
 #include "test_profile_40.h"  // 4.0 S7: Profile Callname row, Player creation and Bulk edit inside page::Frame (profile40_test::ui_cases)
 #include "test_bulkdev_40.h"  // 4.0 S7b: Development block (XP multiplier, Bonus XP, No decline) on Bulk edit (bulkdev40_test::ui_cases)
@@ -10003,14 +10001,12 @@ static void test_ui() {
         player_header_test::ui_cases(app, ui);  // test_player_header.h: Players > Player header card and five tabs (3.0 track B)
         calc_ovr_test::ui_cases(app, ui, le);  // test_calc_ovr.h: Calc OVR / Delta columns (2.22 calc-ovr)
         ovr_mask_test::ui_cases(app, ui);  // test_ovr_mask.h: Shown OVR (display only) store + header field (3.2 calc-ovr)
-        shell40_test::ui_cases(app, ui);  // test_shell_40.h: the 4.0 menu tree behind shell::tree40() (4.0 S3; before test_shell_app clears the registry)
+        shell40_test::ui_cases(app, ui);  // test_shell_40.h: page_has_frame against the pages that draw the frame's bar (4.0 S3; before test_shell_app clears the registry)
         layout_store_test::ui_cases(app, ui, le);  // test_layout_store.h (5.0b-B): Settings > Layout on the real App (before test_shell_app clears the registry; test_gameplay_page leaves it empty)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
         p213_test::ui_cases(app, ui);  // test_p213.h: the proven panels by clicks, no dead-end page, no removed place named
-        page_advanced_test::ui_cases(app, ui, le);  // test_page_advanced.h: Advanced > Diagnostics & logs, Data export
-        ui_page_test::ui_cases(app, ui, le);  // test_ui_page.h: the page template and its worked example (4.0 S1)
-        team_squad_40_test::ui_cases(app, ui, le);  // test_team_squad_40.h: Team > Squad (4.0 S4)
+        ui_page_test::ui_cases(app, ui, le);  // test_ui_page.h: the page template (4.0 S1)
         tactics40_test::ui_cases(app, ui, le);  // test_tactics_40.h: the Tactics pages inside page::Frame (4.0 S10)
         page_bulk_test::ui_cases(app, ui, le);  // test_page_bulk.h: Players > Bulk edit (2.20)
         profile40_test::ui_cases(app, ui, le);  // test_profile_40.h: Profile Callname row, Player creation, Bulk edit in page::Frame (4.0 S7)
