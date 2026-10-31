@@ -3189,6 +3189,14 @@ public:
         frames(2);
         return ok;
     }
+    // Turbo X (2026-10-31, DESIGN_SPEC_X.md): the player list's filter form is behind the "Filters (n)###pl_filters" fold, collapsed by default;
+    // the chips (My club, Free agents, GK / DEF / MID / ATT) and the search box are always there. Opens the fold when its widgets are not in view.
+    bool open_filters(const std::string& win = "##select") {
+        if (find("Clear##filters", win)) return true;
+        if (!click("###pl_filters", win)) return false;
+        frames(2);
+        return find("Clear##filters", win) != nullptr;
+    }
     // Team > Players > All clubs: the club browser and the club editor (ui_teams.cpp draw_teams: ##tlist, ##tedit and its tabs), the home of the
     // classic Teams panel since 2.22. 2026-10-31: request_tab = 1 (the Teams tab) lands nowhere (shell::area_for)
     bool open_all_clubs() {
@@ -4321,7 +4329,7 @@ static void test_ui() {
         });
 
         // 2026-10-31 (5.0c menus step 6): the classic ten-tab editor (##plist, ##pedit, ##attr, ##prof, ##ps) is gone. The cases below run on
-        // Players > Player (Page::PlayerEdit, ##pe_tabs): the list is the ##select pane of the Profile and Attributes & roles tabs
+        // Players > Player (Page::PlayerEdit, the Profile | Attributes & roles | Looks | Callname segments): the list is the ##select pane of the Profile and Attributes & roles tabs
         // (draw_classic_player_list, the same filters), the editor the ##editor pane; the attribute boxes, the PlayStyles grid, the enum combos
         // and the overall box are sections of Attributes & roles (ui_player_profile.cpp draw_player_ability), reached by scrolling (ui.reach)
         run_case("UI: Players list, select with the mouse, edit an attribute", [&] {
@@ -4420,6 +4428,7 @@ static void test_ui() {
         });
 
         run_case("UI: Players list filters (position, PlayStyle, PlayStyle+, retiring, OVR, POT, age)", [&] {
+            CHECK(ui.open_filters(), "the Filters fold is open");  // Turbo X: the form is folded by default
             // Oracle: the same rules computed directly from the model, compared with what the list shows
             auto expect = [&](const std::function<bool(const PlayerRow&)>& keep) {
                 std::vector<int64_t> want, got = app.list_player_ids;

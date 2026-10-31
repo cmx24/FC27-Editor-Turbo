@@ -3,7 +3,7 @@
 //   (a) every PlayerRow.calc_overall equals overall::compute_overall(preferredposition1, the 34 attributes) read from the database,
 //       -1 when the position is not a game position;
 //   (b) an attribute edit followed by Model::refresh_player updates it (and puts it back); the stored overall is never written;
-//   (c) the Players list table has the sortable headers "Calc OVR" and "Delta"; Calc OVR sorts the rows by it, Delta by calc - stored;
+//   (c) the Players list sorts by Calc OVR and by Delta (calc - stored) through its Sort combo (Turbo X: was two sortable headers);
 //   (d) the squad table has the same "Calc OVR" header, sortable, and orders its rows by it.
 // Cases are named "Calc OVR: ..." so TURBO_TEST_ONLY="calc ovr" runs them alone.
 #pragma once
@@ -26,7 +26,7 @@ static int expected_calc(App& app, const PlayerRow& p) {
     return overall::compute_overall(p.position, a);
 }
 
-// The player ids drawn in the Players list table this frame, top to bottom (the ID column is the row's Selectable)
+// The player ids drawn in the Players list this frame, top to bottom (the row's Selectable is labelled with the ID)
 static std::vector<int64_t> list_order() {
     std::vector<std::pair<float, int64_t>> rows;
     for (const auto& kv : g_items) {
@@ -86,28 +86,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.model.player(1005)->calc_overall == calc0, "back to the first value");
     });
 
-    run_case("Calc OVR: the Players list has sortable Calc OVR and Delta headers and sorts by them", [&] {
+    // Turbo X (2026-10-31, DESIGN_SPEC_X.md): the 11-column table is a list of people rows; its sortable headers are the "##psort" combo
+    // (Name, OVR, POT, Age, Calc OVR, Delta, Club, ID; numbers best first), and Calc OVR / Delta / Mod are in the row's tooltip. The
+    // "second click reverses" checks went with the headers.
+    run_case("Calc OVR: the Players list sorts by Calc OVR and Delta (the Sort combo), best first", [&] {
         shell::player_edit_tab() = 0;
         app.sel_player = 1001;
         app.go(Page::PlayerEdit);
         ui.frames(4);
-        const ItemRec* h1 = ui.find("Calc OVR", "##players");
-        const ItemRec* h2 = ui.find("Delta", "##players");
-        CHECK(h1 != nullptr && h2 != nullptr, "both headers are in the table");
-        ImGuiTable* tb = nullptr;
-        {
-            ImGuiContext& g = *GImGui;
-            for (int i = 0; i < g.Tables.GetMapSize(); ++i) {
-                ImGuiTable* t = g.Tables.TryGetMapData(i);
-                if (t && t->LastFrameActive >= g.FrameCount - 1 && t->InnerWindow && std::strstr(t->InnerWindow->Name, "##players")) tb = t;
-            }
-        }
-        CHECK(tb != nullptr && tb->ColumnsCount == 11 && (tb->Flags & ImGuiTableFlags_Sortable), "eleven sortable columns");
-        if (tb && tb->ColumnsCount == 11)
-            CHECK(std::string(ImGui::TableGetColumnName(tb, 8)) == "Calc OVR" && std::string(ImGui::TableGetColumnName(tb, 9)) == "Delta",
-                  "appended after Age");
-        if (tb && tb->ColumnsCount == 11)
-            CHECK(std::string(ImGui::TableGetColumnName(tb, 10)) == "Mod", "Mod appended after Delta");
+        const ItemRec* sort = ui.find("##psort", "##select");
+        CHECK(sort != nullptr, "the Sort combo is in the list pane");
         {
             const std::string help = kCalcOvrHelp;
             CHECK(help.find("Delta") != std::string::npos && help.find("-5") != std::string::npos && help.find("modifier") != std::string::npos, "tooltip explains Delta and the -5 modifier");
@@ -118,7 +106,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                 for (char ch : t) CHECK(static_cast<unsigned char>(ch) < 128, "modifier tooltip is ASCII");
             }
         }
-        if (!h1 || !h2) return;
+        if (!sort) return;
         auto key_calc = [&](int64_t id) { return app.model.player(id)->calc_overall; };
         auto key_delta = [&](int64_t id) { return calc_delta(*app.model.player(id)); };
         auto ordered = [&](bool desc, const std::function<int(int64_t)>& key) {
@@ -128,20 +116,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
                 if (desc ? key(o[i - 1]) < key(o[i]) : key(o[i - 1]) > key(o[i])) return false;
             return true;
         };
-        ui.click(h1);
+        CHECK(ui.click("##psort", "##select") && ui.click("Calc OVR", "##Combo"), "Sort: Calc OVR");
         ui.frames(3);
-        CHECK(ordered(true, key_calc), "Calc OVR: best first (the first click of a number column)");
-        ui.click(ui.find("Calc OVR", "##players"));
-        ui.frames(3);
-        CHECK(ordered(false, key_calc), "Calc OVR: second click reverses");
-        ui.click(ui.find("Delta", "##players"));
+        CHECK(ordered(true, key_calc), "Calc OVR: best first");
+        CHECK(ui.click("##psort", "##select") && ui.click("Delta", "##Combo"), "Sort: Delta");
         ui.frames(3);
         CHECK(ordered(true, key_delta), "Delta: largest calc - stored first");
-        ui.click(ui.find("Delta", "##players"));
-        ui.frames(3);
-        CHECK(ordered(false, key_delta), "Delta: reversed");
         // leave the list on a plain sort for the cases after this one
-        ui.click(ui.find("Name", "##players"));
+        CHECK(ui.click("##psort", "##select") && ui.click("Name", "##Combo"), "Sort: Name");
         ui.frames(3);
     });
 

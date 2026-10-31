@@ -817,11 +817,10 @@ ui_page.cpp	-	###pg_back	1
 ui_page.cpp	-	###pg_undo	1
 ui_page.cpp	-	##page_	1
 ui_page.cpp	BeginChild	##pg_body	1
-ui_pages_216.cpp	BeginTabBar	##pe_tabs	1
-ui_pages_216.cpp	BeginTabItem	###pe_ability	1
-ui_pages_216.cpp	BeginTabItem	###pe_appearance	1
-ui_pages_216.cpp	BeginTabItem	###pe_callname	1
-ui_pages_216.cpp	BeginTabItem	###pe_profile	1
+ui_pages_216.cpp	-	###pe_ability	1
+ui_pages_216.cpp	-	###pe_appearance	1
+ui_pages_216.cpp	-	###pe_callname	1
+ui_pages_216.cpp	-	###pe_profile	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1
@@ -847,10 +846,14 @@ ui_player_creation.cpp	Button	###pc_delete	1
 ui_player_creation.cpp	Button	###pc_delgo	1
 ui_player_creation.cpp	Button	###pc_delno	1
 ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
+ui_player_header.cpp	-	###hdr_undo	1
+ui_player_header.cpp	-	##hdr_calc	1
+ui_player_header.cpp	-	##hdr_ovr	1
+ui_player_header.cpp	-	##hdr_pot	1
 ui_player_header.cpp	BeginChild	##pe_header	1
-ui_player_header.cpp	Button	###hdr_shown_clear	1
-ui_player_header.cpp	Button	###hdr_shown_set	1
 ui_player_header.cpp	InputText	###hdr_shown_ovr	1
+ui_player_header.cpp	SmallButton	###hdr_shown_clear	1
+ui_player_header.cpp	SmallButton	###hdr_shown_set	1
 ui_player_profile.cpp	-	###ab_attrs	1
 ui_player_profile.cpp	-	###ab_bit%d	1
 ui_player_profile.cpp	-	###ab_bulkundo	1
@@ -862,6 +865,9 @@ ui_player_profile.cpp	-	###ab_style	1
 ui_player_profile.cpp	-	###ab_styles	1
 ui_player_profile.cpp	-	###ab_typetier	1
 ui_player_profile.cpp	-	###ab_undo	1
+ui_player_profile.cpp	-	###bits2	1
+ui_player_profile.cpp	-	###bits3	1
+ui_player_profile.cpp	-	###pe_empty_create	1
 ui_player_profile.cpp	-	###pf_callname	1
 ui_player_profile.cpp	-	###pf_club	1
 ui_player_profile.cpp	-	###pf_details	1
@@ -877,12 +883,20 @@ ui_player_profile.cpp	-	##select	1
 ui_player_profile.cpp	BeginChild	##editor	1
 ui_player_profile.cpp	BeginTable	##bits	1
 ui_player_profile.cpp	BeginTable	##sl	1
+ui_player_profile.cpp	Button	###pe_empty_club	1
 ui_player_profile.cpp	Button	###pf_team	1
 ui_player_profile.cpp	SmallButton	###ab_all	1
 ui_player_profile.cpp	SmallButton	###ab_none	1
 ui_player_profile.cpp	TreeNodeEx	###ab_roles	1
 ui_player_profile.cpp	TreeNodeEx	###pf_flags	1
 ui_players.cpp	-	###bulkundo	1
+ui_players.cpp	-	###pl_chip_att	1
+ui_players.cpp	-	###pl_chip_def	1
+ui_players.cpp	-	###pl_chip_free	1
+ui_players.cpp	-	###pl_chip_gk	1
+ui_players.cpp	-	###pl_chip_mid	1
+ui_players.cpp	-	###pl_chip_mine	1
+ui_players.cpp	-	###pl_filters	1
 ui_players.cpp	-	##arch	1
 ui_players.cpp	-	##archpos	1
 ui_players.cpp	-	##fcont	1
@@ -894,13 +908,14 @@ ui_players.cpp	-	Make %s his main position (now %s)##archadopt	1
 ui_players.cpp	-	Set potential##dvp	1
 ui_players.cpp	-	Use %d##archclosest	1
 ui_players.cpp	BeginChild	##archchg	1
+ui_players.cpp	BeginChild	##players	1
 ui_players.cpp	BeginCombo	##fgender	1
 ui_players.cpp	BeginCombo	##floan	1
 ui_players.cpp	BeginCombo	##fstyle	1
+ui_players.cpp	BeginCombo	##psort	1
 ui_players.cpp	BeginPopupModal	Apply archetype	1
 ui_players.cpp	BeginTable	##chg	1
 ui_players.cpp	BeginTable	##pfilters	1
-ui_players.cpp	BeginTable	##players	1
 ui_players.cpp	Button	###archpreview	1
 ui_players.cpp	Button	###archundo	1
 ui_players.cpp	Button	Apply##arch	1

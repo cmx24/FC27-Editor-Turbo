@@ -7,9 +7,10 @@
 //   c  the Create player dialog starts with Player type & tier; Potential, Birth date, Nationality and Foot are under Profile; one picker
 //   d  (deleted 2026-10-31 with the classic tab, 5.0c menus step 6)
 //   e  the Appearance Editor has the Tattoos card and the whole miniface editor, open
-//   h  Edit a player's default list is one sortable table of 8 columns and the full filter grid
+//   h  Edit a player's default list is one list of people rows (Turbo X; was a sortable table) and the full filter grid behind the Filters fold
 // Cases are named "G-ia: ..." so TURBO_TEST_ONLY="g-ia" runs them alone.
 #pragma once
+#include <cstring>
 #include "ui/ui_looks_studio.h"
 #include "ui/ui_player_profile.h"
 #include "ui/ui_presets.h"
@@ -19,13 +20,13 @@ namespace ia222_test {
 
 using namespace turbo;
 
-// Tables drawn in the last two frames that are sortable and have 8 columns (the Classic player list)
-static int sortable_8col_tables() {
+// The player lists drawn in the last two frames: Turbo X (2026-10-31, DESIGN_SPEC_X.md) made the 2.22 table of 11 sortable columns a
+// "##players" child of people rows (ui_players.cpp draw_classic_player_list), one per page
+static int player_lists() {
     ImGuiContext& g = *GImGui;
     int n = 0;
-    for (int i = 0; i < g.Tables.GetMapSize(); ++i)
-        if (ImGuiTable* t = g.Tables.TryGetMapData(i))
-            if (t->LastFrameActive >= g.FrameCount - 1 && t->ColumnsCount == 11 &&  /* 2.22 calc-ovr: + Calc OVR, Delta, Mod */ (t->Flags & ImGuiTableFlags_Sortable)) ++n;
+    for (ImGuiWindow* w : g.Windows)
+        if (w->Active && w->LastFrameActive >= g.FrameCount - 1 && std::strstr(w->Name, "/##players_") != nullptr) ++n;
     return n;
 }
 
@@ -44,14 +45,16 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
     const int was_tab = shell::player_edit_tab();
     const ImVec2 old_display = ImGui::GetIO().DisplaySize;
     ImGui::GetIO().DisplaySize = ImVec2(1920.0f, 1080.0f);  // the screen the check is made on: nothing may need a scroll to be seen
-    run_case("G-ia: Edit a player (Profile and Positions tabs) lists players in one sortable 8-column table with the full filter grid", [&] {
+    run_case("G-ia: Edit a player (Profile and Positions tabs) lists players in one people list with the full filter grid behind the Filters fold", [&] {
         for (int tab : {0, 1}) {
             shell::player_edit_tab() = tab;
             app.sel_player = 1001;
             app.go(Page::PlayerEdit);
             ui.frames(4);
             const std::string where = tab == 0 ? "Profile tab" : "Positions tab";
-            CHECK(sortable_8col_tables() == 1, where + ": one sortable table of 8 columns: " + std::to_string(sortable_8col_tables()));
+            CHECK(player_lists() == 1, where + ": one ##players list: " + std::to_string(player_lists()));
+            CHECK(ui.find("##psearch") != nullptr && ui.find("##psort") != nullptr, where + ": the search box and the Sort combo");
+            CHECK(ui.open_filters(), where + ": the Filters fold opens");
             for (const char* f : {"##psearch", "##fteam", "##fnat", "##fcont", "##fpos", "##fstyle", "##fgender", "##floan", "Clear##filters"})
                 CHECK(ui.find(f) != nullptr, where + ": filter " + f);
             CHECK(classic_player_list_rows() > 3, where + ": rows listed " + std::to_string(classic_player_list_rows()));

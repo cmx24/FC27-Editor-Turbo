@@ -22,7 +22,9 @@
 #include "ui_archetype.h"
 #include "ui_archetype_populate.h"
 #include "ui_player_profile.h"
+#include "ui_images.h"
 #include "ui_team_filter.h"
+#include "ui_theme.h"
 
 namespace turbo {
 
@@ -71,10 +73,61 @@ static const std::unordered_map<int64_t, int64_t>& player_nationalities(App& app
 static size_t g_list_rows = 0;  // rows of the last frame (the pages that share this list read it)
 size_t classic_player_list_rows() { return g_list_rows; }
 
-// 2.22: the one player list of Edit a player (its Profile and Positions tabs draw it too: one selection, one set of filters)
+// Turbo X: what the empty state asks of the list (ui_player_profile.cpp list_and_editor): focus the search box once, tick My club
+static bool g_focus_search = false, g_want_my_club = false;
+void classic_player_list_request(bool focus_search, bool my_club) {
+    g_focus_search = g_focus_search || focus_search;
+    g_want_my_club = g_want_my_club || my_club;
+}
+
+// Turbo X: a filter chip: a small pill that lights up when on; wraps to the next line when it does not fit. Returns true when toggled.
+static bool filter_chip(const char* label, bool* on, bool enabled = true, bool first = false) {
+    const float fs = ImGui::GetFontSize();
+    const float w = ImGui::CalcTextSize(label, ImGui::FindRenderedTextEnd(label)).x + fs * 1.2f;
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;  // the cursor is at the start of a new line here
+    if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w < right) ImGui::SameLine();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, fs);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(fs * 0.6f, ImGui::GetStyle().FramePadding.y * 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Button, *on ? theme::accent_fill() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, *on ? theme::accent_fill_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::accent_fill_active());
+    if (!enabled) ImGui::BeginDisabled();
+    const bool hit = ImGui::Button(label);
+    if (!enabled) ImGui::EndDisabled();
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+    if (hit) *on = !*on;
+    return hit;
+}
+
+// Turbo X: the position group of a stored code for the GK / DEF / MID / ATT chips (core/model.cpp kPositions: 0 GK, 1-8 SW..LWB,
+// 9-19 RDM..LAM, 20-27 RF..LW); -1 outside the table
+static int position_group(int pos) {
+    if (pos < 0 || pos >= position_count()) return -1;
+    return pos == 0 ? 0 : pos <= 8 ? 1 : pos <= 19 ? 2 : 3;
+}
+
+// Turbo X: the row's picture: the miniface when the game (or mods\legacy) has it, else a muted disc (no words at 32 px)
+static void row_picture(App& app, int64_t pid, float side) {
+    const std::string path = legacy_path::player_miniface(pid);
+    std::filesystem::path f;
+    const LegacyImages::State st = app.legacy.locate(path, &f, true);
+    if (st == LegacyImages::State::Custom || st == LegacyImages::State::Game) {
+        draw_legacy_picture(app, path, side, true);
+        return;
+    }
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + side * 0.5f, p.y + side * 0.5f), side * 0.5f, ImGui::GetColorU32(ImGuiCol_FrameBg));
+    ImGui::Dummy(ImVec2(side, side));
+}
+
+// 2.22: the one player list of Edit a player (its Profile and Positions tabs draw it too: one selection, one set of filters).
+// Turbo X (DESIGN_SPEC_X.md): search, chips, the form behind a "Filters (n)" fold, then rows that are people (theme::person_row).
 void draw_classic_player_list(App& app) {
     static char search[64] = "";
     static bool my_club = false;
+    static int f_group = -1;  // chips GK / DEF / MID / ATT (position_group), -1 = any
+    static int sort_by = 0;   // the Sort combo: kSorts below
     // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent (gender: the search line). Position &
     // style: any of the 7 preferred positions (core/model.h player_passes_position: a stored internal code counts as the visible
     // position it plays as, RCB as CB, unless the combo's "Show all internal positions" is on; then the code must match exactly),
@@ -94,152 +147,189 @@ void draw_classic_player_list(App& app) {
     static uint64_t last_version = ~uint64_t(0);
     static bool need_sort = true;
 
-    ImGui::SetNextItemWidth(S(180.0f));
-    ImGui::InputTextWithHint("##psearch", "name or ID", search, sizeof(search));
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear##filters")) {
-        f_pos = f_style = -1;
-        f_age.clear();
-        f_ovr.clear();
-        f_pot.clear();
-        f_plus = f_retiring = f_free = false;
-        f_team = 0;
-        f_nat = f_cont = -1;
-        f_gender = -1;
-        f_loan = LoanAny;
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear every filter below (the search box stays)");
-    // gender (players.gender; 1.2.5) on the search line, so the filter grid keeps its three rows per block
-    {
-        static const char* const kGenders[] = {"Any gender", "Men", "Women"};
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(110.0f));
-        if (ImGui::BeginCombo("##fgender", kGenders[f_gender + 1])) {
-            for (int k = -1; k <= 1; ++k)
-                if (ImGui::Selectable(kGenders[k + 1], f_gender == k)) f_gender = k;
-            ImGui::EndCombo();
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Men, women or both (players.gender)");
-    }
-    // loans (playerloans, read with the rows): on the search line too; In / Out are seen from the Club filter's club, else
-    // from your club; with neither, both mean "on loan"
-    {
-        static const char* const kLoans[] = {"Any loan status", "On loan", "Loaned in", "Loaned out"};
-        const bool known = app.model.loans_known();
-        if (!known) f_loan = LoanAny;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(130.0f));
-        if (!known) ImGui::BeginDisabled();
-        if (ImGui::BeginCombo("##floan", kLoans[f_loan])) {
-            for (int k = LoanAny; k <= LoanOut; ++k)
-                if (ImGui::Selectable(kLoans[k], f_loan == k)) f_loan = k;
-            ImGui::EndCombo();
-        }
-        if (!known) ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", known ? "Players on loan (playerloans). Loaned in: playing on loan for the club picked in Club, else for your "
-                                            "club. Loaned out: lent out by that club (they play for another club). Without a club both "
-                                            "mean every player on loan."
-                                          : "This database has no playerloans table");
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("%zu players", rows.size());  // the list built below (for one frame after a change: the previous count)
-
-    // The filter grid: four blocks side by side, a small header each, label left / control right (widgets.cpp form rows). Three
-    // rows per block, so it is as tall as the old filter lines. Tab moves down a block, then on to the next block. A table cell
-    // clips what does not fit, so the Numbers block shortens its labels and boxes in a narrow column.
-    form_label_width(S(76.0f));
     const bool can_my_club = app.bridge.state().user_team > 0;
-    const auto& styles = playstyle1_names();
-    auto fill_w = [] { return std::max(S(60.0f), ImGui::GetContentRegionAvail().x); };
-    if (ImGui::BeginTable("##pfilters", 4, tbl::kGrid | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Who", ImGuiTableColumnFlags_WidthStretch, 1.1f);
-        ImGui::TableSetupColumn("Position & style", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Numbers", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 0.7f);
-        ImGui::TableNextRow();
-        // ---- Who
-        ImGui::TableNextColumn();
-        ImGui::TextDisabled("Who");
-        form_label("Club", "A club or a national team; picking one unticks My club (Status block)");
-        if (team_filter_combo(app, "##fteam", f_team, f_team_search, sizeof(f_team_search), fill_w()) && f_team > 0) my_club = false;
-        // nationality / continent (geo.h: a nation's continent is its confederation); the nationality list narrows to the continent
-        {
-            const Geo& g = geo(app);
-            std::string npreview = "Any nationality";
-            if (f_nat >= 0) {
-                npreview = g.nation_name(f_nat);
-                if (npreview.empty()) npreview = "Nation " + std::to_string(f_nat);
-            }
-            form_label("Nationality");
-            if (geo_pick_combo("##fnat", "Any nationality", npreview, f_nat, fill_w(), [&](std::vector<GeoOption>& out) {
-                    for (const GeoNation* n : g.sorted_nations())
-                        if (f_cont < 0 || n->conf == f_cont) out.push_back({n->id, n->name});
-                }) &&
-                f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
-                f_cont = -1;
-            form_label("Continent");
-            if (continent_filter_combo(app, "##fcont", f_cont, fill_w()) && f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
-                f_nat = -1;
+    if (g_want_my_club) {
+        g_want_my_club = false;
+        if (can_my_club) {
+            my_club = true;
+            f_team = 0;
         }
-        // ---- Position & style
-        ImGui::TableNextColumn();
-        ImGui::TextDisabled("Position & style");
-        form_label("Position", "Any of the player's 7 preferred positions. A player stored as RCB or LCB counts as CB (RDM/LDM as CDM, RCM/LCM as "
-                               "CM, RAM/LAM as CAM, RS/LS as ST) unless \"Show all internal positions\" is ticked in the list; then the code "
-                               "must match exactly");
-        position_combo("##fpos", f_pos, fill_w(), "Any position");
-        form_label("PlayStyle");
-        ImGui::SetNextItemWidth(fill_w());
-        if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
-                                                                                                 : styles[static_cast<size_t>(f_style)],
-                              ImGuiComboFlags_HeightLargest)) {
-            if (ImGui::Selectable("Any PlayStyle", f_style < 0)) f_style = -1;
-            for (size_t b = 0; b < styles.size(); ++b)
-                if (styles[b] && ImGui::Selectable(styles[b], f_style == static_cast<int>(b))) f_style = static_cast<int>(b);
-            ImGui::EndCombo();
-        }
-        checkbox_right("+ only", &f_plus);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with the PlayStyle+ (icontrait1)");
-        // ---- Numbers
-        ImGui::TableNextColumn();
-        ImGui::TextDisabled("Numbers");
-        {
-            const float avail = ImGui::GetContentRegionAvail().x;
-            const bool compact = avail < S(200.0f);  // short labels and smaller boxes keep both boxes of a range in view
-            const float label_w = compact ? S(38.0f) : S(76.0f);
-            const float box_w = std::max(S(28.0f), std::min(S(46.0f), (avail - label_w - ImGui::CalcTextSize("to").x - S(12.0f)) * 0.5f));
-            form_label_width(label_w);
-            range_filter_row("Age", "age", f_age.from, f_age.to, 99, box_w,
-                             "Age, from .. to (0 = no bound). Players without a birth date are left out when a bound is set");
-            range_filter_row(compact ? "OVR" : "Overall", "ovr", f_ovr.from, f_ovr.to, 99, box_w, "Overall rating, from .. to (0 = no bound)");
-            range_filter_row(compact ? "POT" : "Potential", "pot", f_pot.from, f_pot.to, 99, box_w, "Potential, from .. to (0 = no bound)");
-            form_label_width(S(76.0f));
-        }
-        // ---- Status: the three toggles (My club sits here so every block has three rows; ticking it drops the club pick)
-        ImGui::TableNextColumn();
-        ImGui::TextDisabled("Status");
-        if (!can_my_club) ImGui::BeginDisabled();
-        if (checkbox_right("My club", &my_club) && my_club) f_team = 0;
-        if (!can_my_club) {
-            ImGui::EndDisabled();
-            my_club = false;
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only the players of your club (needs a career)");
-        checkbox_right("Retiring", &f_retiring);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players who retire at the end of the season (isretiring)");
-        checkbox_right("Free agent", &f_free);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players without a club");
-        ImGui::EndTable();
     }
-    form_label_width(0.0f);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (g_focus_search) {
+        g_focus_search = false;
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::InputTextWithHint("##psearch", "name, ID or club", search, sizeof(search));
+    // the chips: My club, Free agents, and one position group; a chip is the same filter as its row in the form below
+    if (filter_chip("My club###pl_chip_mine", &my_club, can_my_club, true) && my_club) f_team = 0;
+    if (!can_my_club) my_club = false;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Only the players of your club (needs a career)");
+    filter_chip("Free agents###pl_chip_free", &f_free);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players without a club");
+    {
+        static const char* const kGroups[] = {"GK###pl_chip_gk", "DEF###pl_chip_def", "MID###pl_chip_mid", "ATT###pl_chip_att"};
+        static const char* const kGroupTips[] = {"Goalkeepers", "Defenders (SW, RB, CB, LB, wing-backs)", "Midfielders (CDM, CM, CAM, wide midfielders)",
+                                                 "Attackers (ST, CF, wingers)"};
+        for (int k = 0; k < 4; ++k) {
+            bool on = f_group == k;
+            if (filter_chip(kGroups[k], &on)) f_group = on ? k : -1;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kGroupTips[k]);
+        }
+    }
+
+    // The whole filter form, folded; the count says how many of its filters are set (the chips show their own state)
+    const int active = (f_pos >= 0) + (f_style >= 0) + f_plus + f_retiring + f_age.active() + f_ovr.active() + f_pot.active() + (f_team > 0) +
+                       (f_nat >= 0) + (f_cont >= 0) + (f_gender >= 0) + (f_loan != LoanAny);
+    char fold[48] = "Filters";
+    if (active > 0) std::snprintf(fold, sizeof(fold), "Filters (%d)", active);
+    std::strcat(fold, "###pl_filters");  // one id literal: the count is text in front of it
+    if (ImGui::TreeNodeEx(fold, ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+        if (ImGui::SmallButton("Clear##filters")) {
+            f_pos = f_style = -1;
+            f_age.clear();
+            f_ovr.clear();
+            f_pot.clear();
+            f_plus = f_retiring = f_free = false;
+            f_team = 0;
+            f_nat = f_cont = -1;
+            f_gender = -1;
+            f_loan = LoanAny;
+            f_group = -1;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear the filters and the position chips (the search box and My club stay)");
+        // gender (players.gender; 1.2.5) on the Clear line, so the filter grid keeps its three rows per block
+        {
+            static const char* const kGenders[] = {"Any gender", "Men", "Women"};
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(S(110.0f));
+            if (ImGui::BeginCombo("##fgender", kGenders[f_gender + 1])) {
+                for (int k = -1; k <= 1; ++k)
+                    if (ImGui::Selectable(kGenders[k + 1], f_gender == k)) f_gender = k;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Men, women or both (players.gender)");
+        }
+        // loans (playerloans, read with the rows): on the Clear line too; In / Out are seen from the Club filter's club, else
+        // from your club; with neither, both mean "on loan"
+        {
+            static const char* const kLoans[] = {"Any loan status", "On loan", "Loaned in", "Loaned out"};
+            const bool known = app.model.loans_known();
+            if (!known) f_loan = LoanAny;
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(S(130.0f));
+            if (!known) ImGui::BeginDisabled();
+            if (ImGui::BeginCombo("##floan", kLoans[f_loan])) {
+                for (int k = LoanAny; k <= LoanOut; ++k)
+                    if (ImGui::Selectable(kLoans[k], f_loan == k)) f_loan = k;
+                ImGui::EndCombo();
+            }
+            if (!known) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", known ? "Players on loan (playerloans). Loaned in: playing on loan for the club picked in Club, else for your "
+                                                "club. Loaned out: lent out by that club (they play for another club). Without a club both "
+                                                "mean every player on loan."
+                                              : "This database has no playerloans table");
+        }
+
+        // The filter grid: four blocks, a small header each, label left / control right (widgets.cpp form rows). Three rows per block.
+        // Tab moves down a block, then on to the next block. A table cell clips what does not fit, so the Numbers block shortens its
+        // labels and boxes in a narrow column. Turbo X: in the 320 px pane the blocks go two by two (TableNextColumn wraps to the next row).
+        form_label_width(S(76.0f));
+        const auto& styles = playstyle1_names();
+        auto fill_w = [] { return std::max(S(60.0f), ImGui::GetContentRegionAvail().x); };
+        const int blocks = ImGui::GetContentRegionAvail().x < S(620.0f) ? 2 : 4;
+        if (ImGui::BeginTable("##pfilters", blocks, tbl::kGrid | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Who", ImGuiTableColumnFlags_WidthStretch, 1.1f);
+            ImGui::TableSetupColumn("Position & style", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            if (blocks == 4) {
+                ImGui::TableSetupColumn("Numbers", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+                ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 0.7f);
+            }
+            ImGui::TableNextRow();
+            // ---- Who
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Who");
+            form_label("Club", "A club or a national team; picking one unticks My club (Status block)");
+            if (team_filter_combo(app, "##fteam", f_team, f_team_search, sizeof(f_team_search), fill_w()) && f_team > 0) my_club = false;
+            // nationality / continent (geo.h: a nation's continent is its confederation); the nationality list narrows to the continent
+            {
+                const Geo& g = geo(app);
+                std::string npreview = "Any nationality";
+                if (f_nat >= 0) {
+                    npreview = g.nation_name(f_nat);
+                    if (npreview.empty()) npreview = "Nation " + std::to_string(f_nat);
+                }
+                form_label("Nationality");
+                if (geo_pick_combo("##fnat", "Any nationality", npreview, f_nat, fill_w(), [&](std::vector<GeoOption>& out) {
+                        for (const GeoNation* n : g.sorted_nations())
+                            if (f_cont < 0 || n->conf == f_cont) out.push_back({n->id, n->name});
+                    }) &&
+                    f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
+                    f_cont = -1;
+                form_label("Continent");
+                if (continent_filter_combo(app, "##fcont", f_cont, fill_w()) && f_nat >= 0 && f_cont >= 0 && g.continent_of_nation(f_nat) != f_cont)
+                    f_nat = -1;
+            }
+            // ---- Position & style
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Position & style");
+            form_label("Position", "Any of the player's 7 preferred positions. A player stored as RCB or LCB counts as CB (RDM/LDM as CDM, RCM/LCM as "
+                                   "CM, RAM/LAM as CAM, RS/LS as ST) unless \"Show all internal positions\" is ticked in the list; then the code "
+                                   "must match exactly");
+            position_combo("##fpos", f_pos, fill_w(), "Any position");
+            form_label("PlayStyle");
+            ImGui::SetNextItemWidth(fill_w());
+            if (ImGui::BeginCombo("##fstyle", f_style < 0 || !styles[static_cast<size_t>(f_style)] ? "Any PlayStyle"
+                                                                                                     : styles[static_cast<size_t>(f_style)],
+                                  ImGuiComboFlags_HeightLargest)) {
+                if (ImGui::Selectable("Any PlayStyle", f_style < 0)) f_style = -1;
+                for (size_t b = 0; b < styles.size(); ++b)
+                    if (styles[b] && ImGui::Selectable(styles[b], f_style == static_cast<int>(b))) f_style = static_cast<int>(b);
+                ImGui::EndCombo();
+            }
+            checkbox_right("+ only", &f_plus);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players with the PlayStyle+ (icontrait1)");
+            // ---- Numbers
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Numbers");
+            {
+                const float avail = ImGui::GetContentRegionAvail().x;
+                const bool compact = avail < S(200.0f);  // short labels and smaller boxes keep both boxes of a range in view
+                const float label_w = compact ? S(38.0f) : S(76.0f);
+                const float box_w = std::max(S(28.0f), std::min(S(46.0f), (avail - label_w - ImGui::CalcTextSize("to").x - S(12.0f)) * 0.5f));
+                form_label_width(label_w);
+                range_filter_row("Age", "age", f_age.from, f_age.to, 99, box_w,
+                                 "Age, from .. to (0 = no bound). Players without a birth date are left out when a bound is set");
+                range_filter_row(compact ? "OVR" : "Overall", "ovr", f_ovr.from, f_ovr.to, 99, box_w, "Overall rating, from .. to (0 = no bound)");
+                range_filter_row(compact ? "POT" : "Potential", "pot", f_pot.from, f_pot.to, 99, box_w, "Potential, from .. to (0 = no bound)");
+                form_label_width(S(76.0f));
+            }
+            // ---- Status: the three toggles (My club sits here so every block has three rows; ticking it drops the club pick)
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Status");
+            if (!can_my_club) ImGui::BeginDisabled();
+            if (checkbox_right("My club", &my_club) && my_club) f_team = 0;
+            if (!can_my_club) {
+                ImGui::EndDisabled();
+                my_club = false;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only the players of your club (needs a career)");
+            checkbox_right("Retiring", &f_retiring);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players who retire at the end of the season (isretiring)");
+            checkbox_right("Free agent", &f_free);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only players without a club");
+            ImGui::EndTable();
+        }
+        form_label_width(0.0f);
+    }
 
     const std::unordered_map<int64_t, int64_t>& nat_of = player_nationalities(app);
     char fkey[200];
     const bool pos_exact = position_show_all();  // the combo's toggle also switches the filter to exact codes
-    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d|%d", f_pos, pos_exact ? 1 : 0, f_style,
+    std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d|%d|%d|%d", f_pos, pos_exact ? 1 : 0, f_style,
                   f_plus ? 1 : 0, f_retiring ? 1 : 0, f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to,
-                  static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender, f_loan);
+                  static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender, f_loan, f_group, sort_by);
     std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
@@ -261,6 +351,7 @@ void draw_classic_player_list(App& app) {
             if (f_team > 0 && !(out_view ? p.on_loan && p.loaned_from == f_team : team_players.count(p.playerid) > 0)) continue;
             if (f_loan != LoanAny && !player_passes_loan(p, f_loan, loan_club)) continue;
             if (f_pos >= 0 && !player_passes_position(p, f_pos, pos_exact)) continue;
+            if (f_group >= 0 && position_group(p.position) != f_group) continue;
             if (f_style >= 0 && !(((f_plus ? p.playstyles_plus : p.playstyles) >> f_style) & 1)) continue;
             if (f_retiring && !p.retiring) continue;
             if (f_gender >= 0 && p.gender != f_gender) continue;
@@ -289,115 +380,107 @@ void draw_classic_player_list(App& app) {
     }
 
     g_list_rows = rows.size();
-    ImGuiTableFlags fl = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
-                         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
-                         ImGuiTableFlags_Hideable;
-    if (ImGui::BeginTable("##players", 11, fl, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, S(62.0f));
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort);
-        ImGui::TableSetupColumn("Club", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Nationality", ImGuiTableColumnFlags_WidthFixed, S(96.0f));
-        ImGui::TableSetupColumn("Pos", ImGuiTableColumnFlags_WidthFixed, S(38.0f));
-        ImGui::TableSetupColumn("OVR", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
-        ImGui::TableSetupColumn("POT", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, S(36.0f));
-        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, S(34.0f));
-        // 2.22 calc-ovr (appended, so saved widths of the first eight columns still load): what the attributes give, and calc - stored
-        ImGui::TableSetupColumn("Calc OVR", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.3f);
-        ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // stretch: a narrow list pane never grows wider than its window
-        ImGui::TableSetupColumn("Mod", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortDescending, 0.2f);  // players.modifier (OVR modifier), appended
-        // TableHeadersRow spelled out, so the three 2.22 columns can carry their tooltips on the header
-        ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
-        for (int c = 0; c < ImGui::TableGetColumnCount(); ++c) {
-            if (!ImGui::TableSetColumnIndex(c)) continue;
-            ImGui::PushID(c);
-            ImGui::TableHeader(ImGui::TableGetColumnName(c));
-            if (c >= 8 && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", c == 10 ? kModColumnHelp : kCalcOvrHelp);
-            ImGui::PopID();
-        }
+    const Geo& g = geo(app);
+    static const std::string no_name;
+    auto nat_name = [&](const PlayerRow* r) -> const std::string& {
+        auto n = nat_of.find(r->playerid);
+        if (n == nat_of.end()) return no_name;
+        auto it = g.nations.find(n->second);
+        return it == g.nations.end() ? no_name : it->second.name;
+    };
+    // the count and the Sort combo on one line (the 2.22 table's sortable headers: names and clubs case-insensitively, numbers best first)
+    static const char* const kSorts[] = {"Name", "OVR", "POT", "Age", "Calc OVR", "Delta", "Club", "ID"};
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%zu players", rows.size());
+    ImGui::SameLine();
+    const float sort_w = S(118.0f);
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - sort_w));
+    ImGui::SetNextItemWidth(sort_w);
+    if (ImGui::BeginCombo("##psort", kSorts[sort_by])) {
+        for (int k = 0; k < 8; ++k)
+            if (ImGui::Selectable(kSorts[k], sort_by == k)) {
+                sort_by = k;
+                need_sort = true;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sort_by == 4 || sort_by == 5 ? kCalcOvrHelp : "The order of the list (numbers: best first)");
+    if (need_sort) {
+        std::stable_sort(rows.begin(), rows.end(), [&](const PlayerRow* a, const PlayerRow* b) {
+            int c = 0;
+            switch (sort_by) {
+                case 1: c = b->overall - a->overall; break;
+                case 2: c = b->potential - a->potential; break;
+                case 3: c = a->age - b->age; break;
+                case 4: c = b->calc_overall - a->calc_overall; break;  // -1 (not computable) sorts last
+                case 5: c = calc_delta(*b) - calc_delta(*a); break;
+                case 6: c = ci_compare(a->club_name, b->club_name); break;
+                case 7: c = (a->playerid < b->playerid) ? -1 : (a->playerid > b->playerid); break;
+                default: c = ci_compare(a->name, b->name); break;
+            }
+            return c < 0;
+        });
+        need_sort = false;
+    }
 
-        const Geo& g = geo(app);
-        static const std::string no_name;
-        auto nat_name = [&](const PlayerRow* r) -> const std::string& {
-            auto n = nat_of.find(r->playerid);
-            if (n == nat_of.end()) return no_name;
-            auto it = g.nations.find(n->second);
-            return it == g.nations.end() ? no_name : it->second.name;
-        };
-        // Header clicks sort the filtered list (stable, so equal rows keep the order they had; text case-insensitively,
-        // numbers numerically). The sort is redone when the filtered list is rebuilt.
-        if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs()) {
-            if ((specs->SpecsDirty || need_sort) && specs->SpecsCount > 0) {
-                const ImGuiTableColumnSortSpecs& s = specs->Specs[0];
-                bool asc = s.SortDirection == ImGuiSortDirection_Ascending;
-                int col = s.ColumnIndex;
-                std::stable_sort(rows.begin(), rows.end(), [&](const PlayerRow* a, const PlayerRow* b) {
-                    int c = 0;
-                    switch (col) {
-                        case 0: c = (a->playerid < b->playerid) ? -1 : (a->playerid > b->playerid); break;
-                        case 1: c = ci_compare(a->name, b->name); break;
-                        case 2: c = ci_compare(a->club_name, b->club_name); break;
-                        case 3: c = ci_compare(nat_name(a), nat_name(b)); break;
-                        case 4: c = a->position - b->position; break;
-                        case 5: c = a->overall - b->overall; break;
-                        case 6: c = a->potential - b->potential; break;
-                        case 7: c = a->age - b->age; break;
-                        case 8: c = a->calc_overall - b->calc_overall; break;  // -1 (not computable) sorts first ascending
-                        case 9: c = calc_delta(*a) - calc_delta(*b); break;
-                        default: c = a->ovr_modifier - b->ovr_modifier; break;  // kNoOvrModifier sorts first ascending
-                    }
-                    return asc ? c < 0 : c > 0;
-                });
-                specs->SpecsDirty = false;
-                need_sort = false;
+    // The rows: people, 44 px each (theme::person_row); "##players" stays the list's id. Up / Down move the pick when the list has
+    // the keyboard; the picked row is scrolled into view then.
+    const float row_h = S(44.0f), pic = S(32.0f);
+    static const char kDot[] = {' ', '\xc2', '\xb7', ' ', 0};  // " . " with a middle dot (U+00B7), as chars: not a path for the word gate
+    if (ImGui::BeginChild("##players", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_None)) {
+        int scroll_to = -1;
+        if (!rows.empty() && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput) {
+            const int step = ImGui::IsKeyPressed(ImGuiKey_DownArrow) ? 1 : ImGui::IsKeyPressed(ImGuiKey_UpArrow) ? -1 : 0;
+            if (step != 0) {
+                int at = -1;
+                for (size_t i = 0; i < rows.size(); ++i)
+                    if (rows[i]->playerid == app.sel_player) at = static_cast<int>(i);
+                const int to = std::max(0, std::min(static_cast<int>(rows.size()) - 1, at < 0 ? 0 : at + step));
+                app.sel_player = rows[static_cast<size_t>(to)]->playerid;
+                scroll_to = to;
             }
         }
-
         ImGuiListClipper clipper;
-        clipper.Begin(static_cast<int>(rows.size()));
+        clipper.Begin(static_cast<int>(rows.size()), row_h + ImGui::GetStyle().ItemSpacing.y);
+        if (scroll_to >= 0) clipper.IncludeItemByIndex(scroll_to);
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
                 const PlayerRow* p = rows[static_cast<size_t>(i)];
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
                 char idbuf[32];
                 std::snprintf(idbuf, sizeof(idbuf), "%lld", static_cast<long long>(p->playerid));
-                if (ImGui::Selectable(idbuf, app.sel_player == p->playerid, ImGuiSelectableFlags_SpanAllColumns))
+                std::string line = p->club_name.empty() ? std::string("Free agent") : p->club_name + (p->on_loan ? " (loan)" : "");
+                line += kDot;
+                line += position_name(p->position);
+                if (p->age >= 0) line += kDot + std::to_string(p->age);
+                bool hovered = false;
+                const bool selected = app.sel_player == p->playerid;
+                if (theme::person_row(idbuf, p->name.c_str(), line.c_str(), p->overall, selected, row_h, pic, [&] { row_picture(app, p->playerid, pic); }, &hovered))
                     app.sel_player = p->playerid;
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(p->name.c_str());
-                ImGui::TableNextColumn();
-                if (p->on_loan) {
-                    ImGui::Text("%s (loan)", p->club_name.c_str());
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("On loan from %s", p->loaned_from > 0 ? app.model.team_name(p->loaned_from).c_str() : "an unknown club");
-                } else {
-                    ImGui::TextUnformatted(p->club_name.c_str());
+                if (selected && scroll_to == i) ImGui::SetScrollHereY(0.5f);
+                if (hovered) {
+                    // the 2.22 table's other columns live here: ID, nationality, potential, what the attributes give, the modifier
+                    std::string tip = "ID " + std::string(idbuf);
+                    const std::string& nat = nat_name(p);
+                    if (!nat.empty()) tip += "\n" + nat;
+                    if (!position_visible(p->position)) tip += "\n" + position_descriptor(p->position);
+                    if (p->on_loan) tip += "\nOn loan from " + (p->loaned_from > 0 ? app.model.team_name(p->loaned_from) : std::string("an unknown club"));
+                    tip += "\nPotential " + std::to_string(p->potential);
+                    if (p->calc_overall >= 0) {
+                        char c[64];
+                        std::snprintf(c, sizeof(c), "\nCalc OVR %d (%+d)", p->calc_overall, p->calc_overall - p->overall);
+                        tip += c;
+                    }
+                    if (p->ovr_modifier != kNoOvrModifier) {
+                        char m[48];
+                        std::snprintf(m, sizeof(m), "\nOVR modifier %+d", p->ovr_modifier);
+                        tip += m;
+                    }
+                    ImGui::SetTooltip("%s", tip.c_str());
                 }
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(nat_name(p).c_str());
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(position_name(p->position));
-                if (!position_visible(p->position) && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", position_descriptor(p->position).c_str());
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", p->overall);
-                ImGui::TableNextColumn();
-                ImGui::Text("%d", p->potential);
-                ImGui::TableNextColumn();
-                if (p->age >= 0) ImGui::Text("%d", p->age);
-                ImGui::TableNextColumn();
-                if (p->calc_overall >= 0) {
-                    ImGui::Text("%d", p->calc_overall);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kCalcOvrHelp);
-                }
-                ImGui::TableNextColumn();
-                if (p->calc_overall >= 0) ImGui::Text("%+d", p->calc_overall - p->overall);
-                ImGui::TableNextColumn();
-                if (p->ovr_modifier != kNoOvrModifier) ImGui::Text("%+d", p->ovr_modifier);
             }
         }
-        ImGui::EndTable();
     }
+    ImGui::EndChild();
 }
 
 // The database-only moves Turbo makes itself in this Live Editor build (v27.1.2 has no native for them; a build with

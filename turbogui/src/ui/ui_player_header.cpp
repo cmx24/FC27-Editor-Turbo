@@ -43,18 +43,6 @@ int calc_overall(App& app, const Table& t, const PlayerRow& p) {
     return overall::compute_overall(pos, a);
 }
 
-// A small muted caption above a big number
-void big_number(const char* caption, int value, bool muted) {
-    ImGui::BeginGroup();
-    theme::muted_text("%s", caption);
-    ImGui::PushFont(theme::title_font(), ImGui::GetStyle().FontSizeBase * (muted ? 1.4f : 2.0f));  // Turbo X: the semibold face
-    if (value < 0) theme::muted_text("-");
-    else if (muted) theme::muted_text("%d", value);
-    else ImGui::Text("%d", value);
-    ImGui::PopFont();
-    ImGui::EndGroup();
-}
-
 // 3.2 Shown OVR: the box text and what the career file holds, read again when the player or career changes and after Set / Clear
 struct ShownOvr {
     int64_t pid = -1;
@@ -109,24 +97,28 @@ bool shown_ovr_apply(App& app, int64_t pid, const std::string& text_in, std::str
 }
 
 namespace {
+// Turbo X: the "shown as" line inside the OVR tile: the box, Set, Clear (ids kept); the note of the last Set / Clear goes under the tiles
 void draw_shown_ovr(App& app, PlayerHeaderState& st) {
     if (g_shown.pid != st.playerid || g_shown.career != app.career_faces_wanted()) {
         shown_ovr_reload(app, st.playerid);
         g_shown.note.clear();
     }
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontSmall);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Shown OVR (display only)");
+    theme::muted_text("shown as");
+    ImGui::PopFont();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("A number from 1 to 99 kept for this player in this career only.\n"
-                          "Display only: nothing is written to the game's database or memory, and OVR above stays what the game stores.");
+        ImGui::SetTooltip("Shown OVR, display only: a number from 1 to 99 kept for this player in this career only.\n"
+                          "Nothing is written to the game's database or memory; OVR above stays what the game stores.");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(S(56.0f));
+    ImGui::SetNextItemWidth(S(40.0f));
     const bool enter = ImGui::InputText("###hdr_shown_ovr", g_shown.buf, sizeof g_shown.buf,
                                         ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+    if (g_shown.career.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("Only inside a career Turbo has identified");
     ImGui::SameLine();
-    const bool set = ImGui::Button("Set###hdr_shown_set");
+    const bool set = ImGui::SmallButton("Set###hdr_shown_set");
     ImGui::SameLine();
-    const bool clr = ImGui::Button("Clear###hdr_shown_clear");
+    const bool clr = ImGui::SmallButton("Clear###hdr_shown_clear");
     if (clr) {
         std::string msg;
         shown_ovr_apply(app, st.playerid, std::string(), &msg);
@@ -138,9 +130,14 @@ void draw_shown_ovr(App& app, PlayerHeaderState& st) {
     }
     st.shown_ovr = g_shown.value;
     st.shown_note = g_shown.note;
-    ImGui::SameLine();
-    if (!g_shown.note.empty()) theme::muted_text("%s", g_shown.note.c_str());
-    else if (g_shown.career.empty()) theme::muted_text("only inside a career");
+}
+
+// One small muted line at the foot of a stat tile ("" draws the blank line, so the tiles stay level)
+void tile_foot(const char* text) {
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontSmall);
+    ImGui::AlignTextToFramePadding();
+    theme::muted_text("%s", text);
+    ImGui::PopFont();
 }
 }  // namespace
 
@@ -166,45 +163,73 @@ bool draw_player_header(App& app) {
             st.club_line += from.empty() ? " (on loan)" : " (on loan from " + from + ")";
         }
     }
-    std::string details;
-    if (p->age >= 0) details = "Age " + std::to_string(p->age);
+    // one muted line, middle dots between club, positions, age and nationality (DESIGN_SPEC_X.md "hero header")
+    static const char kDot[] = {' ', '\xc2', '\xb7', ' ', 0};  // " . " with a middle dot (U+00B7), as chars: not a path for the word gate
+    std::string details = st.club_line;
     const std::string pos = positions_text(*p);
-    if (!pos.empty()) details += (details.empty() ? "" : "  |  ") + pos;
+    if (!pos.empty()) details += kDot + pos;
+    if (p->age >= 0) details += kDot + std::to_string(p->age);
     const int64_t nat = app.db.get_int(*t, p->rec, "nationality", -1);
     const std::string nation = nat >= 0 ? app.nation_name(nat) : std::string();
-    if (!nation.empty()) details += (details.empty() ? "" : "  |  ") + nation;
+    if (!nation.empty()) details += kDot + nation;
     st.details_line = details;
     st.calc_overall = calc_overall(app, *t, *p);
 
-    const float h = S(84.0f);
-    ImGui::BeginChild("##pe_header", ImVec2(0, h), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    // The hero: picture 96 px | name 1.6x, the line, three stat tiles (OVR with the "shown as" field, POT, Calc); Undo top right
+    ImGui::BeginChild("##pe_header", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     PictureInfo info;
-    draw_legacy_picture(app, legacy_path::player_miniface(p->playerid), S(64.0f), true, &info);
+    draw_legacy_picture(app, legacy_path::player_miniface(p->playerid), S(96.0f), true, &info);
     st.picture = info.drawn;
-    ImGui::SameLine(0, S(12.0f));
+    ImGui::SameLine(0, S(16.0f));
+    ImGui::BeginGroup();
     const float x0 = ImGui::GetCursorPosX();
     const float avail = ImGui::GetContentRegionAvail().x;
-
-    ImGui::BeginGroup();
-    theme::push_title_font();
+    theme::push_title_font(1.6f);
     ImGui::TextUnformatted(st.name.c_str());
-    ImGui::PopFont();
-    theme::muted_text("%s", st.club_line.c_str());
-    if (!st.details_line.empty()) ImGui::TextUnformatted(st.details_line.c_str());
-    ImGui::EndGroup();
-
-    // OVR / POT / Calc right-aligned when there is room, else just after the text
-    const float right_w = S(170.0f);
-    if (avail > right_w + S(220.0f)) ImGui::SameLine(x0 + avail - right_w);
-    else ImGui::SameLine(0, S(24.0f));
-    big_number("OVR", st.overall, false);
-    ImGui::SameLine(0, S(16.0f));
-    big_number("POT", st.potential, false);
-    ImGui::SameLine(0, S(16.0f));
-    big_number("Calc", st.calc_overall, true);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The overall the attributes give for his first position (the game shows OVR until it works it out again)");
-    ImGui::EndChild();
+    theme::pop_title_font();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Player ID %lld", static_cast<long long>(p->playerid));
+    {
+        const size_t n = app.undo_count(p->playerid);
+        char ul[48];
+        std::snprintf(ul, sizeof ul, "Undo (%zu)###hdr_undo", n);
+        const float w = ImGui::CalcTextSize(ul, ImGui::FindRenderedTextEnd(ul)).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine(x0 + avail - w);
+        if (n == 0) ImGui::BeginDisabled();
+        if (ImGui::Button(ul)) app.undo(p->playerid);
+        if (n == 0) ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Puts back the last change made to this player");
+    }
+    theme::muted_text("%s", st.details_line.c_str());
+    ImGui::Dummy(ImVec2(0.0f, S(4.0f)));
+    const float tile_h = theme::stat_tile_height(1);
+    const ImVec4 key = theme::accent();
+    char num[16];
+    std::snprintf(num, sizeof num, "%d", st.overall);
+    theme::stat_tile_begin("##hdr_ovr", "OVR", num, S(kShowOvrMaskField ? 176.0f : 96.0f), tile_h, &key);
     if (kShowOvrMaskField) draw_shown_ovr(app, st);  // on since 10-31 (tx-ovr), see kShowOvrMaskField in the header
+    else tile_foot("");
+    theme::stat_tile_end();
+    ImGui::SameLine(0, S(8.0f));
+    std::snprintf(num, sizeof num, "%d", st.potential);
+    theme::stat_tile_begin("##hdr_pot", "POT", num, S(96.0f), tile_h);
+    char foot[32];
+    if (st.potential > st.overall) std::snprintf(foot, sizeof foot, "+%d to grow", st.potential - st.overall);
+    else foot[0] = 0;
+    tile_foot(foot);
+    theme::stat_tile_end();
+    ImGui::SameLine(0, S(8.0f));
+    if (st.calc_overall >= 0) std::snprintf(num, sizeof num, "%d", st.calc_overall);
+    else std::snprintf(num, sizeof num, "-");
+    theme::stat_tile_begin("##hdr_calc", "Calc", num, S(96.0f), tile_h);
+    if (st.calc_overall >= 0) std::snprintf(foot, sizeof foot, "%+d vs OVR", st.calc_overall - st.overall);
+    else foot[0] = 0;
+    tile_foot(foot);
+    theme::stat_tile_end();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The overall the attributes give for his first position (the game shows OVR until it works it out again)");
+    if (!st.shown_note.empty()) theme::muted_text("%s", st.shown_note.c_str());
+    ImGui::EndGroup();
+    ImGui::EndChild();
     return true;
 }
 

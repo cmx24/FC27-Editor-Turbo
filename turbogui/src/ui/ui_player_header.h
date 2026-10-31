@@ -1,9 +1,10 @@
 // FC 27 LE Turbo GUI - Players > Player: the header card above the tabs (brief 3.0-shell, track B).
 //
-// One read-only card for App::sel_player: the miniface (the same game picture the Appearance Editor's Looks card shows,
-// draw_legacy_picture of legacy_path::player_miniface), the name in the title font, club (and "on loan"), age, positions,
-// nationality, OVR and POT big, and the overall the formula works out from the attributes (core/overall.h) muted beside them.
-// Nothing in it is editable. draw_player_edit (ui_pages_216.cpp) draws it above its tab bar.
+// The hero header for App::sel_player (Turbo X, DESIGN_SPEC_X.md): the miniface at 96 px (the same game picture the Appearance
+// Editor's Looks card shows, draw_legacy_picture of legacy_path::player_miniface), the name at 1.6x in the semibold face, one muted
+// line (club and "on loan", positions, age, nationality), three stat tiles OVR / POT / Calc (the overall the formula works out from
+// the attributes, core/overall.h), the Shown OVR field inside the OVR tile, Undo at the right. draw_player_edit (ui_pages_216.cpp)
+// draws it above the segmented control.
 #pragma once
 #include <cstdint>
 #include <string>
@@ -26,7 +27,7 @@ struct PlayerHeaderState {
     int64_t playerid = 0;       // 0 = no card drawn
     std::string name;
     std::string club_line;      // "Leicester City", "Leicester City (on loan from X)", "No club (free agent)"
-    std::string details_line;   // "Age 36  |  ST, CF  |  England"
+    std::string details_line;   // "Leicester City . ST, CF . 36 . England" (middle dots; Turbo X: the one muted line under the name)
     int overall = 0, potential = 0;
     int calc_overall = -1;      // compute_overall of the first position; -1 when an attribute could not be read
     bool picture = false;       // the miniface was on screen
