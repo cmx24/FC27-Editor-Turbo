@@ -42,6 +42,7 @@
         {"vp-body-list", "ui_visual_picker.cpp", "looks::body_grid_codes(&cat, current, gender, manager)", "shared-fn", "bodytypecode", "", ""},
         {"studio-body-card", "ui_looks_studio.cpp", "body_grid_codes(&cat, current, gender, manager)", "shared-fn", "bodytypecode", "", ""},
         {"studio-field-combo", "ui_looks_studio.cpp", "field_combo(app, s, t, rec, who, f.first", "vp", "generic-head hair / beard type and colour", "", ""},
+        {"body-button", "ui_bodytypes.cpp", "vp::open(app, t, rec, \"bodytypecode\", manager)", "vp", "bodytypecode (the one Body type button the five pages call)", "", ""},
         {"gallery-choose", "ui_images.cpp", "vp::open(app, t, rec, g.field, manager)", "vp", "hair, beard, boots, gloves, accessories", "", ""},
         {"kit-inline", "ui_images.cpp", "vp::inline_field(app, t, rec, k[0], k[1])", "vp", "socklengthcode, jerseysleevelengthcode (Socks and sleeves)", "", ""},
         // ---- duplicates that must draw from the one catalogue (compared while present)

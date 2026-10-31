@@ -44,8 +44,6 @@ hotkey_setting.h	Button	Reset to F8	1
 hotkey_setting.h	SmallButton	Change...##hotkey	1
 table_registry.h	-	##all	1
 table_registry.h	-	##bits	1
-table_registry.h	-	##btgen	1
-table_registry.h	-	##btspec	1
 table_registry.h	-	##chg	1
 table_registry.h	-	##chgelsewhere	1
 table_registry.h	-	##chgkept	1
@@ -124,32 +122,16 @@ ui_bodytype_thumbs.cpp	InputInt	Only the first (0 = all)##btthumbmax	1
 ui_bodytype_thumbs.cpp	OpenPopup	###btthumbconfirm	1
 ui_bodytype_thumbs.cpp	RadioButton	Another camera##btthumbsrc1	1
 ui_bodytype_thumbs.cpp	RadioButton	Full body##btthumbsrc0	1
-ui_bodytypes.cpp	-	##act	1
-ui_bodytypes.cpp	-	##btgen	1
-ui_bodytypes.cpp	-	##bthmax	1
-ui_bodytypes.cpp	-	##bthmin	1
-ui_bodytypes.cpp	-	##btspec	1
-ui_bodytypes.cpp	-	##btwmax	1
-ui_bodytypes.cpp	-	##btwmin	1
 ui_bodytypes.cpp	-	Copy##btcp	1
-ui_bodytypes.cpp	-	Use##bt	1
 ui_bodytypes.cpp	BeginChild	##btcopylist	1
-ui_bodytypes.cpp	BeginChild	##btlist	1
-ui_bodytypes.cpp	BeginPopupModal	Body types##bt	1
 ui_bodytypes.cpp	BeginPopupModal	Copy body type from player##btcopy	1
-ui_bodytypes.cpp	Button	Body types...##btopen	1
-ui_bodytypes.cpp	Button	Close##btclose	1
+ui_bodytypes.cpp	Button	Body type...##btopen	1
 ui_bodytypes.cpp	Button	Close##btcopyclose	1
 ui_bodytypes.cpp	Button	Copy body type from player...##btcopybtn	1
-ui_bodytypes.cpp	Button	Reload##btreload	1
-ui_bodytypes.cpp	Combo	##btgroup	1
 ui_bodytypes.cpp	InputTextWithHint	##btcopyflt	1
-ui_bodytypes.cpp	InputTextWithHint	##btflt	1
-ui_bodytypes.cpp	OpenPopup	Body types##bt	1
 ui_bodytypes.cpp	OpenPopup	Copy body type from player##btcopy	1
 ui_bodytypes.cpp	PushID	##bodytypes	1
 ui_bodytypes.cpp	checkbox_right	Allow a player-specific body on this head (untested)##btallow	1
-ui_bodytypes.cpp	checkbox_right	Used by players only##btused	1
 ui_bulk_edit.cpp	-	##	2
 ui_bulk_edit.cpp	-	###bk_apply	1
 ui_bulk_edit.cpp	-	###bk_chip_free	1
@@ -373,6 +355,7 @@ ui_club_page.cpp	-	##clubpick	1
 ui_club_page.cpp	-	##idcols	1
 ui_club_page.cpp	-	##tcrest	1
 ui_club_page.cpp	-	##tname	1
+ui_club_page.cpp	-	##tvoice	1
 ui_club_page.cpp	BeginChild	##stadium	1
 ui_club_page.cpp	BeginChild	##tcolours	1
 ui_club_page.cpp	Button	My club##clubmine	1
@@ -391,6 +374,15 @@ ui_club_tools.cpp	CollapsingHeader	Your club: customisation hub (crest, stadium,
 ui_club_tools.cpp	OpenPopup	Licensed stadium##clubcust	1
 ui_club_tools.cpp	SmallButton	Open Kits##clubtoolskits	1
 ui_club_tools.cpp	checkbox_right	My save is backed up	1
+ui_club_voice.cpp	-	)##cv	1
+ui_club_voice.cpp	-	> No club name (not verified in game)##cv0	1
+ui_club_voice.cpp	-	No club name (not verified in game)##cv0	1
+ui_club_voice.cpp	BeginChild	##cvlist	1
+ui_club_voice.cpp	Button	Save##cvsave	1
+ui_club_voice.cpp	Button	Use its own name##cvundo	1
+ui_club_voice.cpp	InputTextWithHint	##cvsearch	1
+ui_club_voice.cpp	RadioButton	All careers##cvscope	1
+ui_club_voice.cpp	RadioButton	This career##cvscope	1
 ui_cmtracker.cpp	-	##packbrowse	1
 ui_cmtracker.cpp	-	##pcmtbrowse	1
 ui_cmtracker.cpp	-	%-3d %-3d %-4s  %s  -  %s  (%lld)##c%lld	1
@@ -579,6 +571,9 @@ ui_game_settings.cpp	SmallButton	Export...##gsexp	1
 ui_game_settings.cpp	SmallButton	Import...##gsimp	1
 ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
+ui_home.cpp	-	###home_game_settings	1
+ui_home.cpp	-	###home_manager_looks	1
+ui_home.cpp	-	###home_player_looks	1
 ui_home.cpp	-	###home_preset_season	1
 ui_home.cpp	-	###home_preset_tactics	1
 ui_home.cpp	-	###home_preset_team	1
@@ -733,6 +728,7 @@ ui_kits_page.cpp	-	##kpmatch	1
 ui_kits_page.cpp	-	##kpname	1
 ui_kits_page.cpp	-	##kpprev	1
 ui_kits_page.cpp	-	##kpslot	1
+ui_kits_page.cpp	-	##kpvoice	1
 ui_kits_page.cpp	-	##kpzip	1
 ui_kits_page.cpp	-	Rebuild all kit plans (%zu %s, about %.0f s each)##kpreplan	1
 ui_kits_page.cpp	-	Restore the game's kit##kprestore	1
@@ -795,6 +791,7 @@ ui_looks_studio.cpp	-	##lsgear	1
 ui_looks_studio.cpp	-	##lshair	1
 ui_looks_studio.cpp	-	##lskit	1
 ui_looks_studio.cpp	-	##lslist	1
+ui_looks_studio.cpp	-	##lslook	1
 ui_looks_studio.cpp	-	##lsm	1
 ui_looks_studio.cpp	-	##lsminiface	1
 ui_looks_studio.cpp	-	##lsp	1
@@ -814,6 +811,7 @@ ui_looks_studio.cpp	RadioButton	###lsplayers	1
 ui_looks_studio.cpp	RadioButton	###lsviewbody	1
 ui_looks_studio.cpp	RadioButton	###lsviewhead	1
 ui_looks_studio.cpp	TreeNode	###lshairnode	1
+ui_looks_studio.cpp	TreeNode	###lslookall	1
 ui_match.cpp	-	##mf%u	1
 ui_match.cpp	-	Competition##msc	1
 ui_match.cpp	BeginCombo	##newopp	1
@@ -1369,6 +1367,7 @@ ui_tactics.cpp	checkbox_right	Opposition variety on##tacoppon	1
 ui_tactics.cpp	checkbox_right	Roaming range (stippled, off by default)##tacr	1
 ui_tactics.cpp	checkbox_right	Schematic layers (dashed)##tacd	1
 ui_tactics.cpp	checkbox_right	Show legacy fields##taclegacy	1
+ui_tactics_page.cpp	-	###	1
 ui_tactics_page.cpp	-	###gsel	1
 ui_tactics_page.cpp	-	###gsprepare	1
 ui_tactics_page.cpp	BeginChild	##labtaclive	1
@@ -1475,6 +1474,7 @@ ui_teams.cpp	-	%lld##m%zu	1
 ui_teams.cpp	BeginChild	##mdet	1
 ui_teams.cpp	BeginChild	##medit	1
 ui_teams.cpp	BeginChild	##mlist	1
+ui_teams.cpp	BeginChild	##mlook	1
 ui_teams.cpp	BeginChild	##mmface	1
 ui_teams.cpp	BeginChild	##sqbody	1
 ui_teams.cpp	BeginChild	##sqpick	1
@@ -1686,7 +1686,7 @@ ui_visual_picker.cpp	BeginChild	##vpgrid	1
 ui_visual_picker.cpp	BeginChild	##vppreview	1
 ui_visual_picker.cpp	BeginCombo	##vpgroup	1
 ui_visual_picker.cpp	BeginTable	##vrow	1
-ui_visual_picker.cpp	BeginTable	##vrows	1
+ui_visual_picker.cpp	BeginTable	##vrows	2
 ui_visual_picker.cpp	Button	###vpfolderdef	1
 ui_visual_picker.cpp	Button	###vpfolderset	1
 ui_visual_picker.cpp	Button	Apply##vpapply	1
@@ -1699,6 +1699,7 @@ ui_visual_picker.cpp	InputText	###vpfolder	1
 ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
 ui_visual_picker.cpp	InvisibleButton	##tile	1
 ui_visual_picker.cpp	OpenPopup	###vispicker	1
+ui_visual_picker.cpp	PushID	lookrows	1
 ui_visual_picker.cpp	PushID	vispickers	2
 ui_visual_picker.cpp	PushID	vpgrid	1
 ui_visual_picker.cpp	PushID	vpinline	1

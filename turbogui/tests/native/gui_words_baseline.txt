@@ -17,10 +17,6 @@ app.cpp	txt	1
 file_picker.cpp	exe	1
 hotkey_setting.h	json	1
 preload.h	lua	1
-ui_bodytypes.cpp	json	1
-ui_bodytypes.cpp	lua	1
-ui_bodytypes.cpp	path	1
-ui_bodytypes.cpp	turbo_output	1
 ui_callnames.cpp	channel	1
 ui_callnames.cpp	hook	1
 ui_callnames.cpp	json	3
@@ -45,15 +41,15 @@ ui_faces3d_gate.cpp	lua	1
 ui_faces3d_gate.cpp	path	1
 ui_game_settings.cpp	exe	5
 ui_game_settings.cpp	md5	1
-ui_game_settings.cpp	path	5
-ui_game_settings.cpp	turbo_output	4
+ui_game_settings.cpp	path	4
+ui_game_settings.cpp	turbo_output	3
 ui_identity.cpp	hook	1
 ui_identity.cpp	json	4
 ui_identity.cpp	path	9
 ui_identity.cpp	turbo_output	6
 ui_images.cpp	hook	1
 ui_images.cpp	lua	4
-ui_images.cpp	path	6
+ui_images.cpp	path	5
 ui_images.cpp	turbo_output	2
 ui_kits.cpp	hook	4
 ui_kits.cpp	json	1
@@ -103,7 +99,6 @@ ui_tactic_presets.cpp	json	5
 ui_tactic_presets.cpp	lua	6
 ui_tactic_presets.cpp	path	9
 ui_tactic_presets.cpp	turbo_output	8
-# 3.0.1 (brief Addendum B): the Game sliders page names the settings tool command with --apply in 3 texts (steps, Prepared status, message): a player must be able to type it
 ui_tactics_page.cpp	exe	3
 ui_tactics_page.cpp	path	3
 ui_teams.cpp	dll	1

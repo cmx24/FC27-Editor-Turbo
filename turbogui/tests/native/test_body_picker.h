@@ -19,6 +19,7 @@
 #include "core/body_shape.h"
 #include "ui/ui_looks_studio.h"
 #include "ui/ui_visual_picker.h"
+#include "ui/ui_style.h"
 
 namespace body_picker_test {
 
@@ -173,7 +174,15 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
 
     // RV6: the caption text (the picker's own Text colour) against every ground a tile name sits on, 4.5:1 (WCAG 1.4.3)
     run_case("Body picker: RV6 caption contrast - the name text against the window and the selected / hovered / pressed row is 4.5:1 or better", [&] {
-        const ImGuiStyle& st = ImGui::GetStyle();
+        // the real Turbo theme (not whatever the harness left in the style), and the Header washes are translucent: composite them over the window
+        ImGuiStyle st;
+        turbo::theme::apply_turbo_theme(st);
+        auto opaque = [&](ImGuiCol col) {
+            const ImVec4 bg = st.Colors[ImGuiCol_WindowBg];
+            ImVec4 c = st.Colors[col];
+            const float a = col == ImGuiCol_WindowBg ? 1.0f : c.w;
+            return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x * a + bg.x * (1.0f - a), c.y * a + bg.y * (1.0f - a), c.z * a + bg.z * (1.0f - a), 1.0f));
+        };
         ImVec4 tv = st.Colors[ImGuiCol_Text];
         tv.w = 1.0f;
         const ImU32 text = ImGui::ColorConvertFloat4ToU32(tv);
@@ -183,9 +192,7 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             const char* what;
         } grounds[] = {{ImGuiCol_WindowBg, "WindowBg"}, {ImGuiCol_Header, "Header (selected)"}, {ImGuiCol_HeaderHovered, "HeaderHovered"}, {ImGuiCol_HeaderActive, "HeaderActive"}};
         for (const auto& g : grounds) {
-            ImVec4 c = st.Colors[g.col];
-            c.w = 1.0f;
-            const float r = bodyfig::contrast_ratio(text, ImGui::ColorConvertFloat4ToU32(c));
+            const float r = bodyfig::contrast_ratio(text, opaque(g.col));
             if (r < 4.5f) bad += std::string(" ") + g.what + " " + std::to_string(r);
         }
         CHECK(bad.empty(), "caption contrast below 4.5:1:" + bad);
