@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - the small play button of Players > Callname (core/callname_audio.h)
 #pragma once
 #include <cstdint>
+#include <string>
 
 #include "core/callname_audio.h"
 
@@ -15,7 +16,13 @@ void callname_play_button(App& app, CallnameAudioKind kind, int64_t id);
 
 // The Callname page's ONE Preview button (2.20): a text button, "Preview" (a click plays the callname's next recording) or
 // "Stop" while it plays; always drawn. Greyed out when there is nothing to play, with the reason in its tooltip. Its label
-// carries the stable id "###cnpreview". Returns true when it can be pressed (a recording is there to play).
-bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id);
+// carries the stable id "###cnpreview". Returns true when it can be pressed (a recording is there to play). `name` is what
+// the status line below calls the recording.
+bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id, const std::string& name);
+
+// The proof of the last play, on the same line as the buttons (CallnamePlayer::status): "Playing Abate (0.8 s)" while it
+// plays, "Played Abate, 0.8 s" after, "Could not play: <why>" in the error colour. Draws nothing before the first play.
+// The text drawn goes to `shown` (tests).
+void callname_preview_status(App& app, std::string* shown = nullptr);
 
 }  // namespace turbo

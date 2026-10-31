@@ -962,11 +962,17 @@ static void test_core() {
                 std::vector<std::string> played;
                 int stops = 0;
                 bool ok = true;
+                std::string why;  // not empty: the last play failed on the host's thread (failed() reports it)
                 bool play(const fs::path& p) override {
                     played.push_back(p.filename().u8string());
                     return ok;
                 }
                 void stop() override { ++stops; }
+                bool failed(std::string* w) const override {
+                    if (why.empty()) return false;
+                    if (w) *w = why;
+                    return true;
+                }
             };
             CallnamePlayer pl;
             std::set<std::string> files = {"pSIMPLE_SURNAME_931_931.wav", "pSIMPLE_SURNAME_1420_1420.wav", "pPLAYER_NAMES_SIMPLE_5041_5041.wav",
@@ -996,15 +1002,21 @@ static void test_core() {
             pl.button(a, CallnameAudioKind::Generic, 900762, 0.0);
             CHECK(checks == checked, "file checks are cached");
             // clicks cycle through the segments; a click while it plays stops it
-            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.0).find("pSIMPLE_SURNAME_931_931.wav") != npos, "first click: segment 931");
+            CHECK(pl.status(0.0).empty(), "no click yet: no status line");
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.0, "Abate").find("pSIMPLE_SURNAME_931_931.wav") != npos, "first click: segment 931");
             b = pl.button(a, CallnameAudioKind::Generic, 900762, 0.5);
             CHECK(b.playing && b.tip == "Stop" && pl.playing(CallnameAudioKind::Generic, 900762, 0.5), "playing: the button stops");
+            bool st_err = true;
+            CHECK(pl.status(0.5, &st_err) == "Playing Abate (1.0 s)" && !st_err && pl.last().file.find("931_931") != npos && pl.last().seconds == 1.0,
+                  "status while it plays: " + pl.status(0.5));
             CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.5).empty() && fake->stops == 1 &&
                       !pl.playing(CallnameAudioKind::Generic, 900762, 0.5),
                   "second click while playing: stop");
+            CHECK(pl.status(0.6) == "Stopped Abate", "status after the stop: " + pl.status(0.6));
             CHECK(pl.button(a, CallnameAudioKind::Generic, 900762, 0.6).tip == "Play (2 of 2)", "next: the second wav");
             CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.6).find("1420") != npos, "then segment 1420 (1419 has no wav)");
             CHECK(!pl.playing(CallnameAudioKind::Generic, 900762, 1.7), "it ends after its length");
+            CHECK(pl.status(1.7) == "Played pSIMPLE_SURNAME_1420_1420.wav, 1.0 s", "no name given: the status names the wav, and it stays after the end: " + pl.status(1.7));
             CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 1.7).find("931") != npos, "and back to the first");
             // another id while one plays: it replaces the sound (no stop)
             CHECK(pl.click(a, CallnameAudioKind::Own, 261865, 2.0).find("pPLAYER_NAMES_SIMPLE_5041_5041.wav") != npos && fake->stops == 1 &&
@@ -1016,9 +1028,17 @@ static void test_core() {
                   "the files played");
             // the player cannot start: nothing plays
             fake->ok = false;
-            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 10.0).empty() && !pl.playing(CallnameAudioKind::Generic, 900762, 10.0),
+            CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 10.0, "Abate").empty() && !pl.playing(CallnameAudioKind::Generic, 900762, 10.0),
                   "a failed start: not playing");
+            CHECK(pl.status(10.0, &st_err) == "Could not play: the sound player refused the file" && st_err, "and the status says so: " + pl.status(10.0));
             fake->ok = true;
+            // the host reports a failure after play() (PlaySoundW returned FALSE on its thread): the status says why, the button is Play again
+            fake->why = "PlaySoundW failed (error 2)";
+            CHECK(!pl.click(a, CallnameAudioKind::Generic, 900762, 11.0, "Abate").empty() && pl.playing(CallnameAudioKind::Generic, 900762, 11.1), "started");
+            b = pl.button(a, CallnameAudioKind::Generic, 900762, 11.2);
+            CHECK(!b.playing && !pl.playing(CallnameAudioKind::Generic, 900762, 11.2) && pl.status(11.2, &st_err) == "Could not play: PlaySoundW failed (error 2)" && st_err,
+                  "the host's failure: not playing, the reason on the status line: " + pl.status(11.2));
+            fake->why.clear();
             // another wav folder (Refresh): the files are checked again
             MasterAudio b2 = a;
             b2.wav_dir = "W2";
