@@ -44,14 +44,15 @@ if [ "${1:-}" = "--guard" ]; then
   knobs_guard "$G" || r=1
   exit $r
 fi
-VER="$(sed -n 's/.*version = "\([0-9][0-9A-Za-z.-]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs/v2/imports/turbo/core/version.lua" | head -1)"
+VER="$(sed -n 's/.*version = "\([0-9A-Za-z][0-9A-Za-z. -]*\)".*/\1/p' "$ROOT/turbo/package/lua/libs/v2/imports/turbo/core/version.lua" | head -1)"
 [ -n "$VER" ] || { echo "cannot read the version"; exit 1; }
-GUI_VER="$(sed -n 's/.*kGuiVersion = "\([0-9][0-9A-Za-z.-]*\)".*/\1/p' "$ROOT"/turbogui/src/ui/app.h "$ROOT"/turbogui/src/ui/app.cpp | head -1)"
+GUI_VER="$(sed -n 's/.*kGuiVersion = "\([0-9A-Za-z][0-9A-Za-z. -]*\)".*/\1/p' "$ROOT"/turbogui/src/ui/app.h "$ROOT"/turbogui/src/ui/app.cpp | head -1)"
 [ "$GUI_VER" = "$VER" ] || { echo "version mismatch: Lua $VER, GUI $GUI_VER"; exit 1; }
+VER_FILE="${VER// /_}"  # Turbo X (2026-10-31): a version may carry a letter and a space ("X 1.0"); the zip name takes the space as "_"
 for f in Turbo.dll TurboInjector.exe TurboProbe.exe turbo_settings_apply.exe; do
   [ -s "$ROOT/turbogui/build/win/$f" ] || { echo "turbogui/build/win/$f missing: run turbogui/scripts/build_win.sh"; exit 1; }
 done
-OUT="$ROOT/dist/FC27_LE_Turbo_$VER.zip"
+OUT="$ROOT/dist/FC27_LE_Turbo_$VER_FILE.zip"
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 cp -r "$ROOT/turbo/package/." "$STAGE/"
 # the callname master JSONs hold real player names: they stay on the user's PC (built locally with turbo/tools/import_callname_masters.py)
