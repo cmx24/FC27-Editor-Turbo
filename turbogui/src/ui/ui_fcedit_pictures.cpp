@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <functional>
 #include <system_error>
 #include <vector>
 
@@ -68,6 +69,9 @@ std::vector<std::string> field_folders(const fs::path& dir) {
 
 struct State {
     bool built = false;
+    std::string pack_for;      // the pack folder the index was built with (u8)
+    uint64_t pack_stamp = 0;   // the pack folders' write times + entry counts when it was built
+    double pack_checked = -1e9;
     bool overridden = false;
     std::string override_dir;
     std::string built_for;  // the folder the index was built from (u8): a changed setting rebuilds it
@@ -89,25 +93,34 @@ int64_t id_of_name(const std::string& stem) {
     return std::stoll(stem.substr(0, n));
 }
 
+std::string folder_field(const std::string& field) {
+    if (field.size() == 14 && field.compare(0, 13, "accessorycode") == 0 && field[13] >= '1' && field[13] <= '4') return "accessorycode";
+    return field;
+}
+bool Index::has(const std::string& field) const { return fields.count(folder_field(field)) != 0; }
 std::string Index::picture(const std::string& field, int64_t id) const {
-    const auto f = fields.find(field);
+    const auto f = fields.find(folder_field(field));
     if (f == fields.end()) return {};
     const auto p = f->second.find(id);
     return p == f->second.end() ? std::string() : p->second;
 }
 
-Index build_index(const fs::path& root) {
+Index build_index(const fs::path& root, const fs::path& pack) {
     const auto t0 = std::chrono::steady_clock::now();
     Index ix;
     ix.root = root.u8string();
     const fs::path assets = root / "assets";
     std::error_code ec;
     ix.found = !root.empty() && fs::is_directory(assets, ec);
-    if (ix.found) {
-        // the folders in resolution order: assets\27\<field>, 26, 25, 24, 17, then assets\<field>
+    const bool have_pack = !pack.empty() && fs::is_directory(pack / "assets", ec);
+    if (ix.found || have_pack) {
+        // the folders in resolution order: Turbo's pack (pictures\assets\<field>), then assets\27\<field>, 26, 25, 24, 17, then assets\<field>
         std::vector<fs::path> levels;
-        for (const char* v : kVersions) levels.push_back(assets / v);
-        levels.push_back(assets);
+        if (have_pack) levels.push_back(pack / "assets");
+        if (ix.found) {
+            for (const char* v : kVersions) levels.push_back(assets / v);
+            levels.push_back(assets);
+        }
         std::map<std::string, std::unordered_map<int64_t, Best>> best;
         for (size_t order = 0; order < levels.size(); ++order)
             for (const std::string& field : field_folders(levels[order])) list_folder(levels[order] / field, static_cast<int>(order), best[field]);
@@ -122,6 +135,28 @@ Index build_index(const fs::path& root) {
     return ix;
 }
 
+fs::path pack_folder(App& app) { return app.turbo_output() / "pictures"; }
+
+namespace {
+// write times + entry counts of pack\assets and its field folders: changes when the generator keeps a picture (checked every 5 s)
+uint64_t pack_stamp(const fs::path& pack) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    std::error_code ec;
+    const fs::path a = pack / "assets";
+    fs::directory_iterator it(a, ec), end;
+    while (!ec && it != end) {
+        if (it->is_directory(ec)) {
+            std::error_code e2;
+            mix(static_cast<uint64_t>(fs::last_write_time(it->path(), e2).time_since_epoch().count()));
+            mix(std::hash<std::string>{}(it->path().filename().u8string()));
+        }
+        it.increment(ec);
+    }
+    return h;
+}
+}  // namespace
+
 fs::path folder(App& app) {
     State& s = st();
     if (s.overridden) return s.override_dir.empty() ? fs::path() : fs::u8path(s.override_dir);
@@ -131,10 +166,19 @@ fs::path folder(App& app) {
 const Index& index(App& app) {
     State& s = st();
     const fs::path dir = folder(app);
-    if (!s.built || s.built_for != dir.u8string()) {
-        s.index = build_index(dir);
+    const fs::path pack = s.overridden ? fs::path() : pack_folder(app);  // tests: their folder only
+    const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (s.built && !pack.empty() && now - s.pack_checked >= 5.0) {  // the generator keeps pictures while the game runs
+        s.pack_checked = now;
+        if (pack_stamp(pack) != s.pack_stamp) s.built = false;
+    }
+    if (!s.built || s.built_for != dir.u8string() || s.pack_for != pack.u8string()) {
+        s.index = build_index(dir, pack);
         s.built = true;
         s.built_for = dir.u8string();
+        s.pack_for = pack.u8string();
+        s.pack_stamp = pack.empty() ? 0 : pack_stamp(pack);
+        s.pack_checked = now;
         char buf[160];
         std::snprintf(buf, sizeof(buf), "fc editor pictures: %zu fields, %zu pictures, %.0f ms", s.index.fields.size(), s.index.pictures, s.index.ms);
         const std::string line = std::string(buf) + (s.index.found ? "" : " (no assets folder in " + s.index.root + ")");

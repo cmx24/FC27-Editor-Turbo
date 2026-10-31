@@ -35,10 +35,17 @@ struct Index {
     double ms = 0.0;           // time the listing took
     bool found = false;        // root\assets exists
     std::string root;          // the folder it was built from (u8)
-    bool has(const std::string& field) const { return fields.count(field) != 0; }
+    bool has(const std::string& field) const;
     std::string picture(const std::string& field, int64_t id) const;
 };
-Index build_index(const std::filesystem::path& root);
+// pack (Turbo X): <turbo_output>\pictures (same layout: assets\<field>\<id>.png), listed BEFORE every FC Editor folder; its pictures
+// are Turbo's own (FC Editor's FC 27 webp renders converted, the game's outfit / accessory previews, the in-game captures of the
+// gear generator). Empty = none.
+Index build_index(const std::filesystem::path& root, const std::filesystem::path& pack = std::filesystem::path());
+// The folder a field's pictures are kept under: accessorycode1..4 share "accessorycode"; every other field is its own name
+std::string folder_field(const std::string& field);
+// Turbo's picture pack folder: <turbo_output>\pictures
+std::filesystem::path pack_folder(App& app);
 
 // The folder in use: the override (tests), else the setting (app.prefs.fc_editor_dir), else kDefaultDir
 std::filesystem::path folder(App& app);
