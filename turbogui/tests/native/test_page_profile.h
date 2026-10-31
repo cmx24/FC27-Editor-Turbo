@@ -189,8 +189,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         int pos_fields = 0;
         for (int k = 1; k <= 7; ++k) pos_fields += t->field("preferredposition" + std::to_string(k)) != nullptr;
         CHECK(st.position_rows == pos_fields && pos_fields >= 1, "position boxes: " + std::to_string(st.position_rows) + " of " + std::to_string(pos_fields));
+        // Turbo X: six group cards; an outfield player's tab has no Goalkeeping card, a keeper's no Shooting card (DESIGN_SPEC_X.md)
+        const PlayerRow* pr1001 = app.model.player(1001);
+        const bool keeper = pr1001 && pr1001->positions[0] == 0;
+        const std::set<std::string> hidden = keeper ? std::set<std::string>{"positioning", "finishing", "shotpower", "longshots", "volleys", "penalties"}
+                                                    : std::set<std::string>{"gkdiving", "gkhandling", "gkkicking", "gkpositioning", "gkreflexes"};
         int attr_fields = 0;
-        for (int i = 0; i < overall::kAttrCount; ++i) attr_fields += t->has(overall::kAttrNames[i]);
+        for (int i = 0; i < overall::kAttrCount; ++i) attr_fields += t->has(overall::kAttrNames[i]) && !hidden.count(overall::kAttrNames[i]);
         CHECK(st.attribute_sliders == attr_fields && attr_fields > 0, "attribute sliders: " + std::to_string(st.attribute_sliders) + " of " + std::to_string(attr_fields));
         int bit_boxes = 0;
         for (const char* f : {"trait1", "icontrait1", "trait2", "icontrait2"})

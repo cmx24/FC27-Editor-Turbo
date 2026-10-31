@@ -4519,7 +4519,7 @@ static void test_ui() {
         });
 
         run_case("UI: PlayStyles All/None buttons and a single bit", [&] {
-            // the PlayStyles and traits section of Attributes & roles (playstyle_bits: a "##bits" grid per field, All / None after it)
+            // the PlayStyles and traits section of Attributes & roles (playstyle_cards: one chip card per field in the "##bits" table, All / None after the chips)
             CHECK(app.sel_player == 1002 && ui.find("###pe_ability") != nullptr, "player 1002 on Attributes & roles");
             const Table* p = app.db.table("players");
             uint64_t rec = app.db.find(*p, "playerid", 1002);
@@ -4527,7 +4527,7 @@ static void test_ui() {
             CHECK(app.db.get_int(*p, rec, "trait1") == (1 << 30) - 1, "all PlayStyles");
             CHECK(ui.click("###ab_none", "##editor", "trait1"), "None (trait1)");
             CHECK(app.db.get_int(*p, rec, "trait1") == 0, "no PlayStyles");
-            // bit checkboxes ("<name>###ab_bit<bit>") of trait1, the first set of the section
+            // bit chips ("<name>###ab_bit<bit>", Turbo X: a toggling button, accent fill when on) of trait1, the first set of the section
             const ItemRec* bit0 = ui.reach(std::string(playstyle1_names()[0]) + "###ab_bit0", "##editor");
             CHECK(bit0 != nullptr, "first PlayStyle checkbox");
             ui.click(bit0);

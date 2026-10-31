@@ -862,8 +862,6 @@ ui_player_profile.cpp	-	###ab_style	1
 ui_player_profile.cpp	-	###ab_styles	1
 ui_player_profile.cpp	-	###ab_typetier	1
 ui_player_profile.cpp	-	###ab_undo	1
-ui_player_profile.cpp	-	###bits2	1
-ui_player_profile.cpp	-	###bits3	1
 ui_player_profile.cpp	-	###pf_callname	1
 ui_player_profile.cpp	-	###pf_club	1
 ui_player_profile.cpp	-	###pf_details	1
