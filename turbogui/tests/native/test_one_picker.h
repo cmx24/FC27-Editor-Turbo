@@ -259,7 +259,7 @@
                 }
             }
             std::printf("  ONE-PICKER completeness: %d option-offering statements naming a look field, %d unlisted\n", statements, unlisted);
-            CHECK(statements >= 6, fmt("the scan found the known statements (%d)", statements));
+            CHECK(statements >= 5, fmt("the scan found the known statements (%d; 5.0c E3: the managers' raw grid takes a filtered column list, so its statement no longer names a look field and 6 became 5)", statements));
         }
 
         // ---- 3. the kit rule and the shared body list are checked in the cases below
