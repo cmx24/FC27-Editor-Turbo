@@ -306,12 +306,31 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w.set("haircolorcode", hair == 5 ? 6 : 5), "501's hair colour changed while 502 is shown");
         w.ui.frames(80);
         CHECK(w.reqs() == 1, fmt("nothing is drawn for 502's editor on 501's behalf, have %zu", w.reqs()));
+        const std::string before = mo_bytes(w.m501);
         CHECK(ui.click("501##m0", "##mlist") && ui.click("Miniface", "##medit"), "back to 501");
         w.ui.frames(4);
         CHECK(ui.click("The 3D model", "##mmface"), "his 3D tab");
         w.ui.frames(60);
         CHECK(w.reqs() == 2, fmt("501 comes back and is rendered with his new look (old code: no code path), have %zu", w.reqs()));
         w.deliver(110, 110, 30);
+        w.ui.frames(4);
+        CHECK(mo_bytes(w.m501) != before && mo_bytes(w.m501) != "<absent>", "re-review: the new render reached the career's heads_staff_501.dds (not only the preview)");
+        w.restore();
+    });
+
+    run_case("e9-auto (F10): after Undo of the render, a look change does not write over the picture Undo brought back", [&] {
+        World w(app, ui);
+        CHECK(open_rendered(w), "open + rendered");
+        if (!w.mt || !w.mrec || w.fake == nullptr) return;
+        CHECK(ui.click("Undo##mfundo"), "Undo the render's write");
+        w.ui.frames(4);
+        const std::string restored = mo_bytes(w.m501);
+        const int64_t hair = w.get("haircolorcode");
+        CHECK(w.set("haircolorcode", hair == 5 ? 6 : 5), "hair colour changed after the Undo");
+        w.ui.frames(60);
+        if (w.fake->pending) w.deliver(160, 40, 160);
+        w.ui.frames(70);
+        CHECK(mo_bytes(w.m501) == restored, "the career's copy is still the one Undo brought back");
         w.restore();
     });
 
@@ -395,11 +414,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(w.restart_and_return(), "restart: the program forgot what it rendered; 501's 3D tab is open again");
         w.ui.frames(40);
         CHECK(w.reqs() == 1, fmt("nothing changed since the render: no request after the restart, have %zu", w.reqs()));
+        const std::string before = mo_bytes(w.m501);
         const int64_t hair = w.get("haircolorcode");
         CHECK(w.set("haircolorcode", hair == 5 ? 6 : 5), "hair colour changed after the restart");
         w.ui.frames(70);
         CHECK(w.reqs() == 2, fmt("the picture follows the look although it was rendered in an earlier session (old code: no request), have %zu", w.reqs()));
         w.deliver(30, 160, 160);
+        w.ui.frames(4);
+        CHECK(mo_bytes(w.m501) != before && mo_bytes(w.m501) != "<absent>", "re-review: after the restart the new render reached the career's heads_staff_501.dds");
         w.restore();
 
         // a face written into the career's folder after the render (the chooser, another tool) is not replaced by the next look change

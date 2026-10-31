@@ -336,6 +336,7 @@ struct MinifaceEditor {
     uint64_t capture_sent_sig = 0;  // the look the pending request renders
     double capture_sent_at = 0.0;   // ImGui time it was asked
     std::string capture_label;      // its label (the result must carry it back: the Looks studio's results are not ours)
+    bool quiet_assign = false;      // re-review E9: the pending assign is an auto render's (one undo step, no "Miniface set" toast)
 };
 
 static MinifaceEditor g_player_ed, g_manager_ed;
@@ -520,6 +521,7 @@ static void framing_changed(MinifaceEditor& ed) {
 static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, bool assign = true, bool keep_framing = false, bool from_render = false) {
     ed.source = fit_image(img, 1024);
     ed.source_label = label;
+    ed.quiet_assign = false;
     if (!keep_framing) ed.fr = Framing();
     if (from_render) {
         g_rendered_look[ed.target] = ed.capture_sent_sig;
@@ -540,6 +542,15 @@ static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, b
 // A finished capture the editor has not consumed yet (the service answers whichever editor polls first)
 static bool g_capture_result_ready = false;
 static capture::Result g_capture_result;
+
+// re-review E9: the career's copy of `path` is still the 3D render recorded in miniface_looks.txt (same hash)
+static bool career_copy_is_recorded_render(App& app, const std::string& path) {
+    if (!career_faces::is_career_id(app.career_faces_wanted()) || !career_faces::is_face_path(path)) return false;
+    saved_load(app);
+    const auto sv = g_saved_looks.find(path);
+    return sv != g_saved_looks.end() &&
+           career_faces::file_hash(career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), path)) == sv->second.hash;
+}
 
 // The map of rendered looks belongs to one capture service (a new service = a new game session: nothing was rendered for it)
 static void sync_rendered_service(App& app) {
@@ -591,8 +602,15 @@ static void poll_capture(App& app, MinifaceEditor& ed) {
             // 5.0c E9: a re-write of the picture the person already has, not a new one: his framing stays, no new undo step (the write path
             // re-writes the file when the last source was written by a click), no toast for every hair change
             const bool was_active = ed.auto_active && !ed.steps.empty();
-            set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")", false, true, true);
-            if (was_active) {
+            // re-review E9: a fresh editor (another person was shown meanwhile, or the program restarted) holds no write of this session,
+            // but the career's copy may still be the render on record (miniface_looks.txt): then it is ours to update (one undo step, quiet).
+            // Anything else there (Undo, the chooser, another tool) has another hash and is left alone: preview only.
+            const bool ours = !was_active && career_copy_is_recorded_render(app, ed.target);
+            set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")", ours, true, true);
+            if (ours) {
+                ed.quiet_assign = true;
+                ed.capture_note = "updated for the new look: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
+            } else if (was_active) {
                 ed.auto_active = true;
                 ed.rewrite_due = true;
                 ed.rewrite_at = ImGui::GetTime();
@@ -885,7 +903,8 @@ static void service_writes(App& app, MinifaceEditor& ed, const MinifaceTarget& t
         ed.steps.push_back(rec);
         ed.auto_active = true;
         ++ed.auto_writes;
-        app.notify("Miniface set for this career (Undo is under the picture)");
+        if (!ed.quiet_assign) app.notify("Miniface set for this career (Undo is under the picture)");
+        ed.quiet_assign = false;
     } else {
         // a re-write after a framing change: the step of the click keeps the file it replaced; this write's own backup is not needed
         if (!rec.backup.empty()) {
