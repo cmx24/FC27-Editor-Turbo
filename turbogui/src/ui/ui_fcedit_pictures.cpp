@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "app.h"
+#include "core/gear_thumbs.h"
 
 namespace fs = std::filesystem;
 
@@ -168,6 +169,11 @@ const Index& index(App& app) {
     const fs::path dir = folder(app);
     const fs::path pack = s.overridden ? fs::path() : pack_folder(app);  // tests: their folder only
     const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    static uint64_t gear_gen = 0;  // the gear generator kept a picture: list the pack again at once
+    if (s.built && !pack.empty() && gear_thumbs::generation() != gear_gen) {
+        gear_gen = gear_thumbs::generation();
+        s.built = false;
+    }
     if (s.built && !pack.empty() && now - s.pack_checked >= 5.0) {  // the generator keeps pictures while the game runs
         s.pack_checked = now;
         if (pack_stamp(pack) != s.pack_stamp) s.built = false;
