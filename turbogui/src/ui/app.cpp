@@ -2212,6 +2212,27 @@ void App::draw() {
             }
             wtrack.last_frame = frame_no;
         }
+        {   // 5.0c E6: a grab on the panel (edge, corner, title bar) is logged once when it ends: with this line in turbo_gui.log the next
+            // session can tell "the grab never happened" (the maximized edge cannot be caught) from "the grab happened and was not saved"
+            ImGuiWindow* gw = ImGui::GetCurrentWindow();
+            ImGuiContext& gctx = *ImGui::GetCurrentContext();
+            int kind = gw->ResizeBorderHeld != -1 ? 1 : 0;
+            for (int n = 0; n < 4 && kind == 0; ++n)
+                if (gctx.ActiveId != 0 && gctx.ActiveId == ImGui::GetWindowResizeCornerID(gw, n)) kind = 1;
+            if (kind == 0 && gctx.ActiveId != 0 && gctx.ActiveId == gw->MoveId) kind = 2;
+            if (kind != 0 && wtrack.gesture == 0) {
+                wtrack.gesture = kind;
+                wtrack.gesture_from = wtrack.have_last ? wtrack.last_rect : cur;
+            } else if (kind == 0 && wtrack.gesture != 0) {
+                const std::string gl = window_gesture_line(wtrack.gesture, wtrack.gesture_from, cur, window_is_full(wtrack.gesture_from, ds.x, ds.y),
+                                                           ImGui::IsMouseDown(0));
+                wtrack.gesture = 0;
+                log(gl);
+                if (log_hook) log_hook(gl);
+            }
+            wtrack.last_rect = cur;
+            wtrack.have_last = true;
+        }
         if (wprefs.maximized) {
             // moved or resized from code (a test, another feature): it is no longer maximized
             if (!window_is_full(cur, ds.x, ds.y) && !wtrack.apply_pending && win_known) {

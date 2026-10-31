@@ -260,6 +260,47 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
     });
 
+    run_case("e6-layout E2: a grab on the panel corner is logged once when it ends (the H1 discriminator)", [&] {
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        {
+            std::ofstream o(file.string(), std::ios::binary | std::ios::trunc);
+            o << "{\"gui\":{\"window\":{\"x\":150,\"y\":90,\"w\":900,\"h\":650,\"maximized\":false}}}";
+        }
+        app.visible = true;
+        app.load_gui_settings();
+        ui.frames(6);
+        std::vector<std::string> hooked;
+        const auto keep_hook = app.log_hook;
+        app.log_hook = [&](const std::string& l) { hooked.push_back(l); };
+        ImGuiIO& io = ImGui::GetIO();
+        const ImVec2 from(150.0f + 900.0f - 3.0f, 90.0f + 650.0f - 3.0f), to(from.x + 200.0f, from.y + 100.0f);
+        io.AddMousePosEvent(from.x, from.y);
+        ui.frames(3);
+        io.AddMouseButtonEvent(0, true);
+        ui.frames(3);
+        for (int i = 1; i <= 10; ++i) {
+            io.AddMousePosEvent(from.x + (to.x - from.x) * float(i) / 10.0f, from.y + (to.y - from.y) * float(i) / 10.0f);
+            ui.frames(1);
+        }
+        ui.frames(2);
+        io.AddMouseButtonEvent(0, false);
+        ui.frames(3);
+        io.AddMousePosEvent(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+        ui.frames(2);
+        int n = 0;
+        std::string line;
+        for (const std::string& l : hooked)
+            if (l.compare(0, 15, "window gesture:") == 0) { ++n; line = l; }
+        app.log_hook = keep_hook;
+        CHECK(n == 1, fmt("one gesture line for one corner drag: %d", n));
+        CHECK(line.find("resize 900x650 at 150,90 -> 1100x750 at 150,90") != std::string::npos && line.find("mouse down after release: no") != std::string::npos &&
+                  line.find("not maximized") != std::string::npos,
+              "the line names the grab, both rectangles and the verdict: '" + line + "'");
+        ui.frames(70);
+        app.visible = true;
+    });
+
     std::error_code ec;
     {
         std::ofstream o(file.string(), std::ios::binary | std::ios::trunc);
