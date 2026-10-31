@@ -1,0 +1,6334 @@
+{
+ "lang": "eng_us",
+ "game_build": "1.0.141.46637",
+ "clips": {
+  "1": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 2,
+   "variation": 1002683,
+   "param": "home_ID",
+   "samples": 33792
+  },
+  "2": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 27,
+   "variation": 1023968,
+   "param": "lae_focus_team_2_ID",
+   "samples": 30437
+  },
+  "3": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 108,
+   "variation": 1031353,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37865
+  },
+  "4": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 115,
+   "variation": 1031364,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37801
+  },
+  "5": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 40,
+   "variation": 1023981,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35869
+  },
+  "7": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 95,
+   "variation": 1010488,
+   "param": "home_ID",
+   "samples": 33864
+  },
+  "8": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 133,
+   "variation": 1031382,
+   "param": "lae_focus_team_1_ID",
+   "samples": 32234
+  },
+  "9": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 351,
+   "variation": 1002696,
+   "param": "home_ID",
+   "samples": 38262
+  },
+  "10": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 0,
+   "variation": 1023941,
+   "param": "lae_focus_team_2_ID",
+   "samples": 31332
+  },
+  "11": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 4,
+   "variation": 1023945,
+   "param": "lae_focus_team_2_ID",
+   "samples": 38213
+  },
+  "12": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 60,
+   "variation": 1031304,
+   "param": "lae_focus_team_1_ID",
+   "samples": 32706
+  },
+  "13": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 5,
+   "variation": 1023946,
+   "param": "lae_focus_team_2_ID",
+   "samples": 47503
+  },
+  "14": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 7,
+   "variation": 1023948,
+   "param": "lae_focus_team_2_ID",
+   "samples": 37845
+  },
+  "15": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 62,
+   "variation": 1031306,
+   "param": "lae_focus_team_1_ID",
+   "samples": 43564
+  },
+  "17": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 73,
+   "variation": 1031317,
+   "param": "lae_focus_team_1_ID",
+   "samples": 40530
+  },
+  "18": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 14,
+   "variation": 1023955,
+   "param": "lae_focus_team_2_ID",
+   "samples": 36612
+  },
+  "19": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 19,
+   "variation": 1023960,
+   "param": "lae_focus_team_2_ID",
+   "samples": 44718
+  },
+  "21": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 21,
+   "variation": 1023962,
+   "param": "lae_focus_team_2_ID",
+   "samples": 41483
+  },
+  "22": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 22,
+   "variation": 1023963,
+   "param": "lae_focus_team_2_ID",
+   "samples": 42401
+  },
+  "23": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 23,
+   "variation": 1023964,
+   "param": "lae_focus_team_2_ID",
+   "samples": 56924
+  },
+  "25": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 66,
+   "variation": 1010366,
+   "param": "home_ID",
+   "samples": 42313
+  },
+  "27": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 310,
+   "variation": 1025584,
+   "param": "home_ID",
+   "samples": 57875
+  },
+  "28": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 99,
+   "variation": 1031343,
+   "param": "lae_focus_team_1_ID",
+   "samples": 40364
+  },
+  "29": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 247,
+   "variation": 1024316,
+   "param": "home_ID",
+   "samples": 53217
+  },
+  "31": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 100,
+   "variation": 1031344,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38363
+  },
+  "32": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 101,
+   "variation": 1031345,
+   "param": "lae_focus_team_1_ID",
+   "samples": 54680
+  },
+  "33": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 221,
+   "variation": 689275,
+   "param": "lae_focus_team_1_ID",
+   "samples": 52353
+  },
+  "34": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 70,
+   "variation": 1010370,
+   "param": "home_ID",
+   "samples": 39697
+  },
+  "36": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 104,
+   "variation": 1031348,
+   "param": "lae_focus_team_1_ID",
+   "samples": 41718
+  },
+  "38": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 180,
+   "variation": 1013484,
+   "param": "home_ID",
+   "samples": 46276
+  },
+  "45": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 110,
+   "variation": 1031356,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42885
+  },
+  "46": {
+   "set": "eng_us_drsr_full",
+   "family": "tbanter_team_winning_home",
+   "segment": 62,
+   "variation": 204890,
+   "param": "home_ID",
+   "samples": 594410
+  },
+  "48": {
+   "set": "eng_us_gm_demo",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 7,
+   "variation": 1010473,
+   "param": "home_ID",
+   "samples": 38962
+  },
+  "50": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 116,
+   "variation": 1031365,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37858
+  },
+  "52": {
+   "set": "eng_us_gm_demo",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 6,
+   "variation": 1009512,
+   "param": "home_ID",
+   "samples": 33286
+  },
+  "54": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 182,
+   "variation": 1013486,
+   "param": "home_ID",
+   "samples": 45119
+  },
+  "55": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 183,
+   "variation": 1013487,
+   "param": "home_ID",
+   "samples": 45701
+  },
+  "57": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 289,
+   "variation": 1025307,
+   "param": "home_ID",
+   "samples": 43074
+  },
+  "62": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 135,
+   "variation": 689096,
+   "param": "lae_focus_team_1_ID",
+   "samples": 50435
+  },
+  "64": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 79,
+   "variation": 1010380,
+   "param": "home_ID",
+   "samples": 36452
+  },
+  "65": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 122,
+   "variation": 1031371,
+   "param": "lae_focus_team_1_ID",
+   "samples": 31614
+  },
+  "66": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 123,
+   "variation": 1031372,
+   "param": "lae_focus_team_1_ID",
+   "samples": 34494
+  },
+  "68": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 124,
+   "variation": 1031373,
+   "param": "lae_focus_team_1_ID",
+   "samples": 33990
+  },
+  "69": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 47,
+   "variation": 1009953,
+   "param": "home_ID",
+   "samples": 38276
+  },
+  "70": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 126,
+   "variation": 1031375,
+   "param": "lae_focus_team_1_ID",
+   "samples": 51364
+  },
+  "71": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 199,
+   "variation": 1013822,
+   "param": "home_ID",
+   "samples": 34132
+  },
+  "72": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 128,
+   "variation": 1031377,
+   "param": "lae_focus_team_1_ID",
+   "samples": 32469
+  },
+  "73": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 129,
+   "variation": 1031378,
+   "param": "lae_focus_team_1_ID",
+   "samples": 47267
+  },
+  "74": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 130,
+   "variation": 1031379,
+   "param": "lae_focus_team_1_ID",
+   "samples": 34954
+  },
+  "76": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 131,
+   "variation": 1031380,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46887
+  },
+  "77": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 155,
+   "variation": 689120,
+   "param": "lae_focus_team_1_ID",
+   "samples": 50683
+  },
+  "78": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 81,
+   "variation": 1010383,
+   "param": "home_ID",
+   "samples": 40000
+  },
+  "80": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 163,
+   "variation": 691447,
+   "param": "asset_team_ID",
+   "samples": 64570
+  },
+  "81": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 169,
+   "variation": 684924,
+   "param": "home_ID",
+   "samples": 47976
+  },
+  "82": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 219,
+   "variation": 685020,
+   "param": "home_ID",
+   "samples": 48633
+  },
+  "83": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 166,
+   "variation": 691450,
+   "param": "asset_team_ID",
+   "samples": 44347
+  },
+  "86": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 82,
+   "variation": 1010384,
+   "param": "home_ID",
+   "samples": 42535
+  },
+  "88": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 132,
+   "variation": 1031381,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39477
+  },
+  "89": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 336,
+   "variation": 1028196,
+   "param": "home_ID",
+   "samples": 62298
+  },
+  "91": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 134,
+   "variation": 1031383,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35661
+  },
+  "92": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 239,
+   "variation": 1022346,
+   "param": "lb_against_team_ID",
+   "samples": 113365
+  },
+  "94": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 135,
+   "variation": 1031384,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37730
+  },
+  "95": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 136,
+   "variation": 1031385,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37630
+  },
+  "97": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 137,
+   "variation": 1031386,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42255
+  },
+  "106": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 46,
+   "variation": 1031290,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37988
+  },
+  "109": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 47,
+   "variation": 1031291,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46913
+  },
+  "110": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 3,
+   "variation": 1023944,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33511
+  },
+  "121": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 272,
+   "variation": 1025287,
+   "param": "home_ID",
+   "samples": 56331
+  },
+  "127": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 273,
+   "variation": 1025288,
+   "param": "home_ID",
+   "samples": 55101
+  },
+  "142": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 274,
+   "variation": 1025289,
+   "param": "home_ID",
+   "samples": 63148
+  },
+  "143": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 324,
+   "variation": 1028182,
+   "param": "home_ID",
+   "samples": 50255
+  },
+  "144": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 6,
+   "variation": 1023947,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33761
+  },
+  "149": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 61,
+   "variation": 1031305,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38200
+  },
+  "159": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 189,
+   "variation": 1013809,
+   "param": "home_ID",
+   "samples": 70293
+  },
+  "160": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 63,
+   "variation": 1031307,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35811
+  },
+  "165": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 211,
+   "variation": 1024111,
+   "param": "home_ID",
+   "samples": 54712
+  },
+  "166": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 51,
+   "variation": 688979,
+   "param": "lae_focus_team_1_ID",
+   "samples": 44051
+  },
+  "169": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 64,
+   "variation": 1031308,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37472
+  },
+  "171": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 53,
+   "variation": 688981,
+   "param": "lae_focus_team_1_ID",
+   "samples": 54742
+  },
+  "175": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 68,
+   "variation": 1031312,
+   "param": "lae_focus_team_1_ID",
+   "samples": 43543
+  },
+  "180": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 188,
+   "variation": 691381,
+   "param": "asset_team_ID",
+   "samples": 45996
+  },
+  "189": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 179,
+   "variation": 1013483,
+   "param": "home_ID",
+   "samples": 41664
+  },
+  "191": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 53,
+   "variation": 684734,
+   "param": "home_ID",
+   "samples": 61565
+  },
+  "192": {
+   "set": "eng_us_dr_full",
+   "family": "ttable_analysis_league_above_expectation_throw",
+   "segment": 84,
+   "variation": 698238,
+   "param": "ta_focus_team1_ID",
+   "samples": 367616
+  },
+  "205": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 61,
+   "variation": 1010360,
+   "param": "home_ID",
+   "samples": 42430
+  },
+  "206": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 94,
+   "variation": 689040,
+   "param": "lae_focus_team_1_ID",
+   "samples": 40812
+  },
+  "209": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 55,
+   "variation": 684737,
+   "param": "home_ID",
+   "samples": 66550
+  },
+  "210": {
+   "set": "eng_us_dr_full",
+   "family": "ttable_analysis_league_below_expectation_throw",
+   "segment": 52,
+   "variation": 698670,
+   "param": "ta_focus_team1_ID",
+   "samples": 283998
+  },
+  "211": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 206,
+   "variation": 689256,
+   "param": "lae_focus_team_1_ID",
+   "samples": 66225
+  },
+  "217": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 244,
+   "variation": 1024312,
+   "param": "home_ID",
+   "samples": 41031
+  },
+  "219": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 91,
+   "variation": 1010483,
+   "param": "home_ID",
+   "samples": 41066
+  },
+  "226": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 308,
+   "variation": 689259,
+   "param": "lae_focus_team_1_ID",
+   "samples": 48355
+  },
+  "229": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 245,
+   "variation": 1024313,
+   "param": "home_ID",
+   "samples": 41986
+  },
+  "230": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 345,
+   "variation": 1030336,
+   "param": "home_ID",
+   "samples": 41665
+  },
+  "231": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 63,
+   "variation": 1010363,
+   "param": "home_ID",
+   "samples": 51605
+  },
+  "232": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 380,
+   "variation": 685498,
+   "param": "home_ID",
+   "samples": 66404
+  },
+  "234": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 39,
+   "variation": 1009515,
+   "param": "home_ID",
+   "samples": 41349
+  },
+  "236": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 23,
+   "variation": 684694,
+   "param": "home_ID",
+   "samples": 41570
+  },
+  "237": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 104,
+   "variation": 1010698,
+   "param": "home_ID",
+   "samples": 41310
+  },
+  "240": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 24,
+   "variation": 1023965,
+   "param": "lae_focus_team_2_ID",
+   "samples": 45550
+  },
+  "241": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 3,
+   "variation": 1002687,
+   "param": "home_ID",
+   "samples": 47484
+  },
+  "242": {
+   "set": "eng_us_drsr_full",
+   "family": "ttransfer_rumours_confirmed_to_main",
+   "segment": 75,
+   "variation": 699429,
+   "param": "tr_team_b_ID",
+   "samples": 120262
+  },
+  "243": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 26,
+   "variation": 1023967,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33997
+  },
+  "244": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 246,
+   "variation": 1024314,
+   "param": "home_ID",
+   "samples": 61236
+  },
+  "245": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 92,
+   "variation": 1010484,
+   "param": "home_ID",
+   "samples": 36083
+  },
+  "246": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 64,
+   "variation": 1010364,
+   "param": "home_ID",
+   "samples": 43563
+  },
+  "247": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 65,
+   "variation": 1010365,
+   "param": "home_ID",
+   "samples": 48645
+  },
+  "252": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 213,
+   "variation": 689265,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46033
+  },
+  "254": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 308,
+   "variation": 1025582,
+   "param": "home_ID",
+   "samples": 54867
+  },
+  "256": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 238,
+   "variation": 685061,
+   "param": "home_ID",
+   "samples": 63650
+  },
+  "260": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 309,
+   "variation": 1025583,
+   "param": "home_ID",
+   "samples": 49304
+  },
+  "263": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 485,
+   "variation": 685675,
+   "param": "home_ID",
+   "samples": 59304
+  },
+  "266": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 286,
+   "variation": 1025303,
+   "param": "home_ID",
+   "samples": 55050
+  },
+  "267": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 141,
+   "variation": 691418,
+   "param": "asset_team_ID",
+   "samples": 48307
+  },
+  "269": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 57,
+   "variation": 684739,
+   "param": "home_ID",
+   "samples": 50615
+  },
+  "270": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 58,
+   "variation": 684740,
+   "param": "home_ID",
+   "samples": 65337
+  },
+  "271": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 313,
+   "variation": 685245,
+   "param": "home_ID",
+   "samples": 53033
+  },
+  "272": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 615,
+   "variation": 685470,
+   "param": "home_ID",
+   "samples": 48945
+  },
+  "278": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 142,
+   "variation": 691419,
+   "param": "asset_team_ID",
+   "samples": 63347
+  },
+  "294": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 320,
+   "variation": 1024117,
+   "param": "home_ID",
+   "samples": 33289
+  },
+  "298": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 59,
+   "variation": 684741,
+   "param": "home_ID",
+   "samples": 58878
+  },
+  "299": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 620,
+   "variation": 684700,
+   "param": "home_ID",
+   "samples": 58844
+  },
+  "305": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 239,
+   "variation": 685062,
+   "param": "home_ID",
+   "samples": 51229
+  },
+  "306": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 472,
+   "variation": 685657,
+   "param": "home_ID",
+   "samples": 69307
+  },
+  "308": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 497,
+   "variation": 685699,
+   "param": "home_ID",
+   "samples": 100348
+  },
+  "310": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 498,
+   "variation": 685700,
+   "param": "home_ID",
+   "samples": 78782
+  },
+  "320": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 61,
+   "variation": 684743,
+   "param": "home_ID",
+   "samples": 46942
+  },
+  "322": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 220,
+   "variation": 689274,
+   "param": "lae_focus_team_1_ID",
+   "samples": 50059
+  },
+  "324": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 370,
+   "variation": 685474,
+   "param": "home_ID",
+   "samples": 44036
+  },
+  "325": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 106,
+   "variation": 1010700,
+   "param": "home_ID",
+   "samples": 55399
+  },
+  "326": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 107,
+   "variation": 1010701,
+   "param": "home_ID",
+   "samples": 46012
+  },
+  "327": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 69,
+   "variation": 1010369,
+   "param": "home_ID",
+   "samples": 46920
+  },
+  "347": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 102,
+   "variation": 1031346,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39516
+  },
+  "357": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_penalty_team",
+   "segment": 120,
+   "variation": 2880,
+   "param": "asset_team_ID",
+   "samples": 125833
+  },
+  "361": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 103,
+   "variation": 1031347,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39853
+  },
+  "378": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 105,
+   "variation": 1031349,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35530
+  },
+  "379": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 106,
+   "variation": 1031350,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35722
+  },
+  "381": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_penalty_team",
+   "segment": 124,
+   "variation": 2885,
+   "param": "asset_team_ID",
+   "samples": 102490
+  },
+  "383": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 294,
+   "variation": 685202,
+   "param": "home_ID",
+   "samples": 54521
+  },
+  "393": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 149,
+   "variation": 691428,
+   "param": "asset_team_ID",
+   "samples": 43779
+  },
+  "417": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 31,
+   "variation": 684707,
+   "param": "home_ID",
+   "samples": 44557
+  },
+  "420": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 192,
+   "variation": 684968,
+   "param": "home_ID",
+   "samples": 60858
+  },
+  "436": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 218,
+   "variation": 1024119,
+   "param": "home_ID",
+   "samples": 55844
+  },
+  "445": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 63,
+   "variation": 684747,
+   "param": "home_ID",
+   "samples": 58080
+  },
+  "448": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 28,
+   "variation": 1023969,
+   "param": "lae_focus_team_2_ID",
+   "samples": 40623
+  },
+  "449": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 29,
+   "variation": 1023970,
+   "param": "lae_focus_team_2_ID",
+   "samples": 38003
+  },
+  "450": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 30,
+   "variation": 1023971,
+   "param": "lae_focus_team_2_ID",
+   "samples": 36675
+  },
+  "452": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 109,
+   "variation": 1031355,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46243
+  },
+  "453": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 31,
+   "variation": 1023972,
+   "param": "lae_focus_team_2_ID",
+   "samples": 41086
+  },
+  "456": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 536,
+   "variation": 685760,
+   "param": "home_ID",
+   "samples": 83692
+  },
+  "457": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 45,
+   "variation": 1009951,
+   "param": "home_ID",
+   "samples": 59064
+  },
+  "459": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 346,
+   "variation": 1030337,
+   "param": "home_ID",
+   "samples": 56893
+  },
+  "461": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 46,
+   "variation": 1009952,
+   "param": "home_ID",
+   "samples": 44648
+  },
+  "462": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 111,
+   "variation": 1031357,
+   "param": "lae_focus_team_1_ID",
+   "samples": 48704
+  },
+  "463": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 34,
+   "variation": 1023975,
+   "param": "lae_focus_team_2_ID",
+   "samples": 37520
+  },
+  "468": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 181,
+   "variation": 1013485,
+   "param": "home_ID",
+   "samples": 35284
+  },
+  "469": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 170,
+   "variation": 691162,
+   "param": "lb_against_team_ID",
+   "samples": 153283
+  },
+  "472": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 35,
+   "variation": 1023976,
+   "param": "lae_focus_team_2_ID",
+   "samples": 52029
+  },
+  "477": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 172,
+   "variation": 691164,
+   "param": "lb_against_team_ID",
+   "samples": 121785
+  },
+  "479": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 36,
+   "variation": 1023977,
+   "param": "lae_focus_team_2_ID",
+   "samples": 46540
+  },
+  "480": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 37,
+   "variation": 1023978,
+   "param": "lae_focus_team_2_ID",
+   "samples": 36096
+  },
+  "481": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 38,
+   "variation": 1023979,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35267
+  },
+  "483": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 94,
+   "variation": 1010486,
+   "param": "home_ID",
+   "samples": 49201
+  },
+  "485": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 113,
+   "variation": 1031362,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37442
+  },
+  "487": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 228,
+   "variation": 689282,
+   "param": "lae_focus_team_1_ID",
+   "samples": 86018
+  },
+  "492": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 477,
+   "variation": 685662,
+   "param": "home_ID",
+   "samples": 73729
+  },
+  "503": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 311,
+   "variation": 1025585,
+   "param": "home_ID",
+   "samples": 61024
+  },
+  "517": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 573,
+   "variation": 684913,
+   "param": "home_ID",
+   "samples": 55179
+  },
+  "523": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 296,
+   "variation": 1023372,
+   "param": "lb_against_team_ID",
+   "samples": 129476
+  },
+  "526": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 537,
+   "variation": 685762,
+   "param": "home_ID",
+   "samples": 69930
+  },
+  "531": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 298,
+   "variation": 1023374,
+   "param": "lb_against_team_ID",
+   "samples": 148073
+  },
+  "543": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 255,
+   "variation": 685100,
+   "param": "home_ID",
+   "samples": 69161
+  },
+  "567": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 161,
+   "variation": 684914,
+   "param": "home_ID",
+   "samples": 51590
+  },
+  "569": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 277,
+   "variation": 685179,
+   "param": "home_ID",
+   "samples": 60259
+  },
+  "573": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 319,
+   "variation": 1013819,
+   "param": "home_ID",
+   "samples": 36185
+  },
+  "576": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 120,
+   "variation": 1031369,
+   "param": "lae_focus_team_1_ID",
+   "samples": 53903
+  },
+  "580": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 538,
+   "variation": 685764,
+   "param": "home_ID",
+   "samples": 61122
+  },
+  "598": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 278,
+   "variation": 685180,
+   "param": "home_ID",
+   "samples": 51766
+  },
+  "605": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 78,
+   "variation": 1010379,
+   "param": "home_ID",
+   "samples": 47818
+  },
+  "607": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 198,
+   "variation": 1013821,
+   "param": "home_ID",
+   "samples": 45482
+  },
+  "614": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 250,
+   "variation": 685085,
+   "param": "home_ID",
+   "samples": 52786
+  },
+  "634": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 159,
+   "variation": 691441,
+   "param": "asset_team_ID",
+   "samples": 63356
+  },
+  "635": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 178,
+   "variation": 691174,
+   "param": "lb_against_team_ID",
+   "samples": 137002
+  },
+  "647": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 395,
+   "variation": 1025308,
+   "param": "home_ID",
+   "samples": 43252
+  },
+  "650": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 303,
+   "variation": 689100,
+   "param": "lae_focus_team_1_ID",
+   "samples": 63721
+  },
+  "666": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 179,
+   "variation": 691177,
+   "param": "lb_against_team_ID",
+   "samples": 157672
+  },
+  "670": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 232,
+   "variation": 689288,
+   "param": "lae_focus_team_1_ID",
+   "samples": 50141
+  },
+  "673": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 333,
+   "variation": 1028193,
+   "param": "home_ID",
+   "samples": 35192
+  },
+  "674": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 290,
+   "variation": 1025309,
+   "param": "home_ID",
+   "samples": 34623
+  },
+  "680": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 236,
+   "variation": 689292,
+   "param": "lae_focus_team_1_ID",
+   "samples": 60140
+  },
+  "681": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 539,
+   "variation": 685766,
+   "param": "home_ID",
+   "samples": 49728
+  },
+  "687": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 314,
+   "variation": 1025663,
+   "param": "home_ID",
+   "samples": 54059
+  },
+  "688": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 140,
+   "variation": 689103,
+   "param": "lae_focus_team_1_ID",
+   "samples": 66066
+  },
+  "689": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 291,
+   "variation": 1025311,
+   "param": "home_ID",
+   "samples": 64633
+  },
+  "691": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 143,
+   "variation": 689106,
+   "param": "lae_focus_team_1_ID",
+   "samples": 75455
+  },
+  "693": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 374,
+   "variation": 685483,
+   "param": "home_ID",
+   "samples": 67110
+  },
+  "694": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 217,
+   "variation": 685018,
+   "param": "home_ID",
+   "samples": 74317
+  },
+  "695": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 165,
+   "variation": 684920,
+   "param": "home_ID",
+   "samples": 55024
+  },
+  "696": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 166,
+   "variation": 684921,
+   "param": "home_ID",
+   "samples": 75040
+  },
+  "697": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 334,
+   "variation": 1028194,
+   "param": "home_ID",
+   "samples": 60443
+  },
+  "698": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 167,
+   "variation": 684922,
+   "param": "home_ID",
+   "samples": 68891
+  },
+  "708": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 245,
+   "variation": 685069,
+   "param": "home_ID",
+   "samples": 45110
+  },
+  "710": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 251,
+   "variation": 685086,
+   "param": "home_ID",
+   "samples": 54169
+  },
+  "718": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 307,
+   "variation": 1023384,
+   "param": "lb_against_team_ID",
+   "samples": 139906
+  },
+  "742": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 180,
+   "variation": 691179,
+   "param": "lb_against_team_ID",
+   "samples": 144921
+  },
+  "744": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 218,
+   "variation": 685019,
+   "param": "home_ID",
+   "samples": 47506
+  },
+  "748": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 308,
+   "variation": 1023386,
+   "param": "lb_against_team_ID",
+   "samples": 112854
+  },
+  "749": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 252,
+   "variation": 691181,
+   "param": "lb_against_team_ID",
+   "samples": 151275
+  },
+  "753": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 587,
+   "variation": 685087,
+   "param": "home_ID",
+   "samples": 46842
+  },
+  "819": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 335,
+   "variation": 1028195,
+   "param": "home_ID",
+   "samples": 65270
+  },
+  "834": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 344,
+   "variation": 685328,
+   "param": "home_ID",
+   "samples": 50475
+  },
+  "837": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 621,
+   "variation": 684750,
+   "param": "home_ID",
+   "samples": 58487
+  },
+  "873": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 220,
+   "variation": 1024121,
+   "param": "home_ID",
+   "samples": 52992
+  },
+  "894": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 480,
+   "variation": 685667,
+   "param": "home_ID",
+   "samples": 49488
+  },
+  "896": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 48,
+   "variation": 684726,
+   "param": "home_ID",
+   "samples": 45525
+  },
+  "897": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 64,
+   "variation": 684751,
+   "param": "home_ID",
+   "samples": 61021
+  },
+  "898": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_b",
+   "segment": 75,
+   "variation": 685879,
+   "param": "away_ID",
+   "samples": 67747
+  },
+  "900": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 202,
+   "variation": 1013825,
+   "param": "home_ID",
+   "samples": 43919
+  },
+  "918": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 314,
+   "variation": 1023392,
+   "param": "lb_against_team_ID",
+   "samples": 130059
+  },
+  "919": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 579,
+   "variation": 685215,
+   "param": "home_ID",
+   "samples": 38808
+  },
+  "920": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 605,
+   "variation": 685216,
+   "param": "home_ID",
+   "samples": 49407
+  },
+  "974": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 522,
+   "variation": 685733,
+   "param": "home_ID",
+   "samples": 70096
+  },
+  "982": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 301,
+   "variation": 685217,
+   "param": "home_ID",
+   "samples": 58227
+  },
+  "1013": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 133,
+   "variation": 684858,
+   "param": "home_ID",
+   "samples": 55704
+  },
+  "1032": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 378,
+   "variation": 1040750,
+   "param": "home_ID",
+   "samples": 46020
+  },
+  "1035": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 261,
+   "variation": 685113,
+   "param": "home_ID",
+   "samples": 69066
+  },
+  "1041": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 262,
+   "variation": 685115,
+   "param": "home_ID",
+   "samples": 57905
+  },
+  "1043": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 255,
+   "variation": 1025268,
+   "param": "home_ID",
+   "samples": 44502
+  },
+  "1053": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 622,
+   "variation": 684861,
+   "param": "home_ID",
+   "samples": 62066
+  },
+  "1318": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 359,
+   "variation": 1039937,
+   "param": "home_ID",
+   "samples": 37554
+  },
+  "1322": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 360,
+   "variation": 1039938,
+   "param": "home_ID",
+   "samples": 37251
+  },
+  "1325": {
+   "set": "eng_us_sr_full",
+   "family": "tstats_possession_not_controlling_stitch_team",
+   "segment": 34,
+   "variation": 408923,
+   "param": "asset_team_ID",
+   "samples": 91304
+  },
+  "1328": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 361,
+   "variation": 1039940,
+   "param": "home_ID",
+   "samples": 42256
+  },
+  "1330": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 649,
+   "variation": 727133,
+   "param": "home_ID",
+   "samples": 43140
+  },
+  "1331": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 346,
+   "variation": 685349,
+   "param": "home_ID",
+   "samples": 45831
+  },
+  "1334": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 341,
+   "variation": 1030332,
+   "param": "home_ID",
+   "samples": 40936
+  },
+  "1335": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 650,
+   "variation": 727134,
+   "param": "home_ID",
+   "samples": 42556
+  },
+  "1337": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 651,
+   "variation": 727135,
+   "param": "home_ID",
+   "samples": 41830
+  },
+  "1338": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 348,
+   "variation": 685353,
+   "param": "home_ID",
+   "samples": 43923
+  },
+  "1341": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 296,
+   "variation": 1025567,
+   "param": "home_ID",
+   "samples": 38816
+  },
+  "1343": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 98,
+   "variation": 1010690,
+   "param": "home_ID",
+   "samples": 33488
+  },
+  "1352": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 652,
+   "variation": 727136,
+   "param": "home_ID",
+   "samples": 42220
+  },
+  "1353": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 172,
+   "variation": 1013475,
+   "param": "home_ID",
+   "samples": 43562
+  },
+  "1354": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 653,
+   "variation": 727137,
+   "param": "home_ID",
+   "samples": 44855
+  },
+  "1355": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 208,
+   "variation": 1024108,
+   "param": "home_ID",
+   "samples": 63837
+  },
+  "1356": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 323,
+   "variation": 1028180,
+   "param": "home_ID",
+   "samples": 43124
+  },
+  "1359": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 654,
+   "variation": 727138,
+   "param": "home_ID",
+   "samples": 44633
+  },
+  "1362": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 655,
+   "variation": 727139,
+   "param": "home_ID",
+   "samples": 39958
+  },
+  "1363": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 656,
+   "variation": 727140,
+   "param": "home_ID",
+   "samples": 40548
+  },
+  "1364": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 657,
+   "variation": 727141,
+   "param": "home_ID",
+   "samples": 46738
+  },
+  "1365": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 658,
+   "variation": 727142,
+   "param": "home_ID",
+   "samples": 41825
+  },
+  "1366": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 231,
+   "variation": 1024298,
+   "param": "home_ID",
+   "samples": 45517
+  },
+  "1367": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 232,
+   "variation": 1024299,
+   "param": "home_ID",
+   "samples": 40358
+  },
+  "1369": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 372,
+   "variation": 1039951,
+   "param": "home_ID",
+   "samples": 50032
+  },
+  "1370": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 373,
+   "variation": 1039952,
+   "param": "home_ID",
+   "samples": 40742
+  },
+  "1375": {
+   "set": "eng_us_dr_full",
+   "family": "tts_team_intro",
+   "segment": 181,
+   "variation": 700222,
+   "param": "asset_team_ID",
+   "samples": 132727
+  },
+  "1383": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 519,
+   "variation": 685729,
+   "param": "home_ID",
+   "samples": 58130
+  },
+  "1386": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 374,
+   "variation": 1039955,
+   "param": "home_ID",
+   "samples": 46864
+  },
+  "1387": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 375,
+   "variation": 1039956,
+   "param": "home_ID",
+   "samples": 50209
+  },
+  "1391": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 520,
+   "variation": 685730,
+   "param": "home_ID",
+   "samples": 50325
+  },
+  "1413": {
+   "set": "eng_us_gm_full",
+   "family": "tts_team_intro",
+   "segment": 251,
+   "variation": 1030547,
+   "param": "asset_team_ID",
+   "samples": 77534
+  },
+  "1438": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 275,
+   "variation": 1025290,
+   "param": "home_ID",
+   "samples": 50744
+  },
+  "1473": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 298,
+   "variation": 685209,
+   "param": "home_ID",
+   "samples": 64914
+  },
+  "1474": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 312,
+   "variation": 685242,
+   "param": "home_ID",
+   "samples": 74564
+  },
+  "1477": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 230,
+   "variation": 685047,
+   "param": "home_ID",
+   "samples": 114376
+  },
+  "1480": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_goal_team",
+   "segment": 112,
+   "variation": 2145,
+   "param": "asset_team_ID",
+   "samples": 86187
+  },
+  "1516": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 298,
+   "variation": 1025571,
+   "param": "home_ID",
+   "samples": 41675
+  },
+  "1524": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 633,
+   "variation": 685325,
+   "param": "home_ID",
+   "samples": 71690
+  },
+  "1530": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 209,
+   "variation": 1024109,
+   "param": "home_ID",
+   "samples": 41317
+  },
+  "1569": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 616,
+   "variation": 685628,
+   "param": "home_ID",
+   "samples": 61431
+  },
+  "1598": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 602,
+   "variation": 685176,
+   "param": "home_ID",
+   "samples": 44580
+  },
+  "1629": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 590,
+   "variation": 685177,
+   "param": "home_ID",
+   "samples": 50994
+  },
+  "1667": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 521,
+   "variation": 685732,
+   "param": "home_ID",
+   "samples": 48011
+  },
+  "1715": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 245,
+   "variation": 691103,
+   "param": "lb_against_team_ID",
+   "samples": 133780
+  },
+  "1738": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 65,
+   "variation": 1031309,
+   "param": "lae_focus_team_1_ID",
+   "samples": 36859
+  },
+  "1744": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 532,
+   "variation": 685753,
+   "param": "home_ID",
+   "samples": 43515
+  },
+  "1745": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 66,
+   "variation": 1031310,
+   "param": "lae_focus_team_1_ID",
+   "samples": 36812
+  },
+  "1746": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 67,
+   "variation": 1031311,
+   "param": "lae_focus_team_1_ID",
+   "samples": 33218
+  },
+  "1750": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 253,
+   "variation": 685096,
+   "param": "home_ID",
+   "samples": 60764
+  },
+  "1755": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 634,
+   "variation": 685326,
+   "param": "home_ID",
+   "samples": 54850
+  },
+  "1757": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 343,
+   "variation": 685327,
+   "param": "home_ID",
+   "samples": 55087
+  },
+  "1790": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 69,
+   "variation": 1031313,
+   "param": "lae_focus_team_1_ID",
+   "samples": 40739
+  },
+  "1792": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 70,
+   "variation": 1031314,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39157
+  },
+  "1793": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 213,
+   "variation": 1024113,
+   "param": "home_ID",
+   "samples": 33661
+  },
+  "1794": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 8,
+   "variation": 1023949,
+   "param": "lae_focus_team_2_ID",
+   "samples": 51909
+  },
+  "1795": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 37,
+   "variation": 1009513,
+   "param": "home_ID",
+   "samples": 35282
+  },
+  "1796": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 9,
+   "variation": 1023950,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35675
+  },
+  "1797": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 72,
+   "variation": 1031316,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38577
+  },
+  "1798": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 342,
+   "variation": 1030333,
+   "param": "home_ID",
+   "samples": 65835
+  },
+  "1799": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 10,
+   "variation": 1023951,
+   "param": "lae_focus_team_2_ID",
+   "samples": 36723
+  },
+  "1800": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 74,
+   "variation": 1031318,
+   "param": "lae_focus_team_1_ID",
+   "samples": 36676
+  },
+  "1801": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 75,
+   "variation": 1031319,
+   "param": "lae_focus_team_1_ID",
+   "samples": 41451
+  },
+  "1802": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 313,
+   "variation": 1025661,
+   "param": "home_ID",
+   "samples": 37920
+  },
+  "1803": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 61,
+   "variation": 688990,
+   "param": "lae_focus_team_1_ID",
+   "samples": 41890
+  },
+  "1804": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 233,
+   "variation": 1024301,
+   "param": "home_ID",
+   "samples": 51190
+  },
+  "1805": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 179,
+   "variation": 684951,
+   "param": "home_ID",
+   "samples": 44708
+  },
+  "1806": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 76,
+   "variation": 1031320,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35163
+  },
+  "1807": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 77,
+   "variation": 1031321,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42707
+  },
+  "1808": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 11,
+   "variation": 1023952,
+   "param": "lae_focus_team_2_ID",
+   "samples": 39569
+  },
+  "1809": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 78,
+   "variation": 1031322,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38592
+  },
+  "1814": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 534,
+   "variation": 685755,
+   "param": "home_ID",
+   "samples": 70276
+  },
+  "1815": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 79,
+   "variation": 1031323,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39051
+  },
+  "1819": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 175,
+   "variation": 1013479,
+   "param": "home_ID",
+   "samples": 48681
+  },
+  "1823": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 612,
+   "variation": 685052,
+   "param": "home_ID",
+   "samples": 45838
+  },
+  "1824": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 80,
+   "variation": 1031324,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42527
+  },
+  "1825": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 317,
+   "variation": 1025658,
+   "param": "home_ID",
+   "samples": 48513
+  },
+  "1831": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 81,
+   "variation": 1031325,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38646
+  },
+  "1832": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 278,
+   "variation": 1025293,
+   "param": "home_ID",
+   "samples": 46180
+  },
+  "1837": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 177,
+   "variation": 1013481,
+   "param": "home_ID",
+   "samples": 47412
+  },
+  "1842": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 82,
+   "variation": 1031326,
+   "param": "lae_focus_team_1_ID",
+   "samples": 41682
+  },
+  "1843": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 83,
+   "variation": 1031327,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42642
+  },
+  "1847": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 693,
+   "variation": 685756,
+   "param": "home_ID",
+   "samples": 45198
+  },
+  "1853": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 56,
+   "variation": 1010355,
+   "param": "home_ID",
+   "samples": 45280
+  },
+  "1854": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 234,
+   "variation": 685054,
+   "param": "home_ID",
+   "samples": 50256
+  },
+  "1860": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 12,
+   "variation": 1023953,
+   "param": "lae_focus_team_2_ID",
+   "samples": 43144
+  },
+  "1861": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 13,
+   "variation": 1023954,
+   "param": "lae_focus_team_2_ID",
+   "samples": 43895
+  },
+  "1867": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_b",
+   "segment": 675,
+   "variation": 686772,
+   "param": "away_ID",
+   "samples": 69864
+  },
+  "1871": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 215,
+   "variation": 1024115,
+   "param": "home_ID",
+   "samples": 62640
+  },
+  "1873": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 684,
+   "variation": 684953,
+   "param": "home_ID",
+   "samples": 67635
+  },
+  "1874": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 301,
+   "variation": 1025574,
+   "param": "home_ID",
+   "samples": 57687
+  },
+  "1876": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 58,
+   "variation": 1010357,
+   "param": "home_ID",
+   "samples": 44918
+  },
+  "1877": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 102,
+   "variation": 1010696,
+   "param": "home_ID",
+   "samples": 53855
+  },
+  "1878": {
+   "set": "eng_us_dr_licensed",
+   "family": "tlooking_back_focus_team",
+   "segment": 9,
+   "variation": 691387,
+   "param": "asset_team_ID",
+   "samples": 46472
+  },
+  "1879": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 388,
+   "variation": 1040770,
+   "param": "home_ID",
+   "samples": 41777
+  },
+  "1880": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 390,
+   "variation": 1040772,
+   "param": "home_ID",
+   "samples": 46448
+  },
+  "1881": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 391,
+   "variation": 1040774,
+   "param": "home_ID",
+   "samples": 42602
+  },
+  "1882": {
+   "set": "eng_us_dr_licensed",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 7,
+   "variation": 684895,
+   "param": "home_ID",
+   "samples": 39677
+  },
+  "1884": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 181,
+   "variation": 684954,
+   "param": "home_ID",
+   "samples": 62873
+  },
+  "1886": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 325,
+   "variation": 1028183,
+   "param": "home_ID",
+   "samples": 37964
+  },
+  "1887": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 302,
+   "variation": 1025575,
+   "param": "home_ID",
+   "samples": 76601
+  },
+  "1888": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 254,
+   "variation": 689318,
+   "param": "lae_focus_team_1_ID",
+   "samples": 55314
+  },
+  "1891": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 224,
+   "variation": 691119,
+   "param": "lb_against_team_ID",
+   "samples": 123991
+  },
+  "1893": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 686,
+   "variation": 685005,
+   "param": "home_ID",
+   "samples": 50121
+  },
+  "1896": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 126,
+   "variation": 691396,
+   "param": "asset_team_ID",
+   "samples": 39776
+  },
+  "1900": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 572,
+   "variation": 684899,
+   "param": "home_ID",
+   "samples": 53984
+  },
+  "1903": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 303,
+   "variation": 1025576,
+   "param": "home_ID",
+   "samples": 44144
+  },
+  "1906": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 235,
+   "variation": 1024303,
+   "param": "home_ID",
+   "samples": 41264
+  },
+  "1907": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 199,
+   "variation": 691401,
+   "param": "asset_team_ID",
+   "samples": 45383
+  },
+  "1908": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 304,
+   "variation": 1025577,
+   "param": "home_ID",
+   "samples": 41903
+  },
+  "1910": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 279,
+   "variation": 1025295,
+   "param": "home_ID",
+   "samples": 44312
+  },
+  "1913": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 280,
+   "variation": 1025296,
+   "param": "home_ID",
+   "samples": 52717
+  },
+  "1914": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 190,
+   "variation": 691404,
+   "param": "asset_team_ID",
+   "samples": 47371
+  },
+  "1915": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 282,
+   "variation": 1025298,
+   "param": "home_ID",
+   "samples": 43006
+  },
+  "1917": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 326,
+   "variation": 1028185,
+   "param": "home_ID",
+   "samples": 55328
+  },
+  "1919": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 85,
+   "variation": 1031329,
+   "param": "lae_focus_team_1_ID",
+   "samples": 39632
+  },
+  "1920": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 348,
+   "variation": 1028186,
+   "param": "home_ID",
+   "samples": 53181
+  },
+  "1923": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 15,
+   "variation": 1023956,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33811
+  },
+  "1925": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 16,
+   "variation": 1023957,
+   "param": "lae_focus_team_2_ID",
+   "samples": 40289
+  },
+  "1926": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 79,
+   "variation": 689022,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46774
+  },
+  "1928": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 182,
+   "variation": 684955,
+   "param": "home_ID",
+   "samples": 55142
+  },
+  "1929": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 86,
+   "variation": 1031330,
+   "param": "lae_focus_team_1_ID",
+   "samples": 41696
+  },
+  "1930": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 327,
+   "variation": 1028187,
+   "param": "home_ID",
+   "samples": 60335
+  },
+  "1931": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 535,
+   "variation": 685758,
+   "param": "home_ID",
+   "samples": 66160
+  },
+  "1932": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 87,
+   "variation": 1031331,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38768
+  },
+  "1933": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 239,
+   "variation": 1024307,
+   "param": "home_ID",
+   "samples": 54102
+  },
+  "1934": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 183,
+   "variation": 684956,
+   "param": "home_ID",
+   "samples": 53426
+  },
+  "1935": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 305,
+   "variation": 1025578,
+   "param": "home_ID",
+   "samples": 64158
+  },
+  "1936": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 235,
+   "variation": 685056,
+   "param": "home_ID",
+   "samples": 57761
+  },
+  "1937": {
+   "set": "eng_us_drsr_full",
+   "family": "ttransfer_rumours_confirmed_to_main",
+   "segment": 72,
+   "variation": 699419,
+   "param": "tr_team_b_ID",
+   "samples": 122964
+  },
+  "1938": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 88,
+   "variation": 1031332,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38868
+  },
+  "1939": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 89,
+   "variation": 1031333,
+   "param": "lae_focus_team_1_ID",
+   "samples": 44023
+  },
+  "1940": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 306,
+   "variation": 1025579,
+   "param": "home_ID",
+   "samples": 57461
+  },
+  "1941": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 328,
+   "variation": 1028188,
+   "param": "home_ID",
+   "samples": 67768
+  },
+  "1943": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 182,
+   "variation": 691258,
+   "param": "asset_team_ID",
+   "samples": 36646
+  },
+  "1944": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 283,
+   "variation": 1025299,
+   "param": "home_ID",
+   "samples": 54820
+  },
+  "1947": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 284,
+   "variation": 1025300,
+   "param": "home_ID",
+   "samples": 34819
+  },
+  "1951": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 90,
+   "variation": 1031334,
+   "param": "lae_focus_team_1_ID",
+   "samples": 34467
+  },
+  "1952": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 91,
+   "variation": 1031335,
+   "param": "lae_focus_team_1_ID",
+   "samples": 31570
+  },
+  "1955": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 307,
+   "variation": 1025581,
+   "param": "home_ID",
+   "samples": 44210
+  },
+  "1958": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 242,
+   "variation": 1024310,
+   "param": "home_ID",
+   "samples": 52304
+  },
+  "1960": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 92,
+   "variation": 1031336,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35863
+  },
+  "1961": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 93,
+   "variation": 1031337,
+   "param": "lae_focus_team_1_ID",
+   "samples": 31692
+  },
+  "1962": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 243,
+   "variation": 1024311,
+   "param": "home_ID",
+   "samples": 52875
+  },
+  "1968": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 367,
+   "variation": 685462,
+   "param": "home_ID",
+   "samples": 39009
+  },
+  "1970": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 393,
+   "variation": 1040776,
+   "param": "home_ID",
+   "samples": 44944
+  },
+  "1971": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 619,
+   "variation": 685759,
+   "param": "home_ID",
+   "samples": 59248
+  },
+  "2014": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 288,
+   "variation": 1023361,
+   "param": "lb_against_team_ID",
+   "samples": 147283
+  },
+  "2017": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 204,
+   "variation": 689254,
+   "param": "lae_focus_team_1_ID",
+   "samples": 87664
+  },
+  "10020": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 243,
+   "variation": 689300,
+   "param": "lae_focus_team_1_ID",
+   "samples": 53559
+  },
+  "10029": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 48,
+   "variation": 1010342,
+   "param": "home_ID",
+   "samples": 44559
+  },
+  "10030": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 251,
+   "variation": 1025262,
+   "param": "home_ID",
+   "samples": 47223
+  },
+  "10032": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 186,
+   "variation": 689173,
+   "param": "lae_focus_team_1_ID",
+   "samples": 45633
+  },
+  "10846": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 256,
+   "variation": 1025269,
+   "param": "home_ID",
+   "samples": 44124
+  },
+  "15005": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 613,
+   "variation": 685243,
+   "param": "home_ID",
+   "samples": 66378
+  },
+  "15009": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 193,
+   "variation": 689233,
+   "param": "lae_focus_team_1_ID",
+   "samples": 90095
+  },
+  "15015": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 277,
+   "variation": 1025292,
+   "param": "home_ID",
+   "samples": 50951
+  },
+  "15048": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 297,
+   "variation": 1025570,
+   "param": "home_ID",
+   "samples": 54805
+  },
+  "100081": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 304,
+   "variation": 689172,
+   "param": "lae_focus_team_1_ID",
+   "samples": 52311
+  },
+  "100135": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 481,
+   "variation": 685668,
+   "param": "home_ID",
+   "samples": 74224
+  },
+  "100325": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 102,
+   "variation": 691321,
+   "param": "asset_team_ID",
+   "samples": 77993
+  },
+  "100409": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 44,
+   "variation": 1031288,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42822
+  },
+  "100632": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 312,
+   "variation": 1025656,
+   "param": "home_ID",
+   "samples": 55228
+  },
+  "100646": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 252,
+   "variation": 1025263,
+   "param": "home_ID",
+   "samples": 55975
+  },
+  "100757": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 580,
+   "variation": 685220,
+   "param": "home_ID",
+   "samples": 80633
+  },
+  "100759": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 618,
+   "variation": 685676,
+   "param": "home_ID",
+   "samples": 51041
+  },
+  "100761": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 222,
+   "variation": 1024284,
+   "param": "home_ID",
+   "samples": 56091
+  },
+  "100804": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 197,
+   "variation": 691327,
+   "param": "asset_team_ID",
+   "samples": 49645
+  },
+  "100805": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 129,
+   "variation": 684852,
+   "param": "home_ID",
+   "samples": 44064
+  },
+  "100851": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 253,
+   "variation": 1025266,
+   "param": "home_ID",
+   "samples": 49568
+  },
+  "100888": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 45,
+   "variation": 1031289,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46706
+  },
+  "101014": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 293,
+   "variation": 1025562,
+   "param": "home_ID",
+   "samples": 56746
+  },
+  "101026": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 278,
+   "variation": 688922,
+   "param": "lae_focus_team_1_ID",
+   "samples": 57296
+  },
+  "101033": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 246,
+   "variation": 1023306,
+   "param": "lb_against_team_ID",
+   "samples": 116752
+  },
+  "101037": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 187,
+   "variation": 691335,
+   "param": "asset_team_ID",
+   "samples": 84753
+  },
+  "101047": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 185,
+   "variation": 1013804,
+   "param": "home_ID",
+   "samples": 58416
+  },
+  "101059": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 186,
+   "variation": 1013805,
+   "param": "home_ID",
+   "samples": 61349
+  },
+  "101083": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 130,
+   "variation": 684853,
+   "param": "home_ID",
+   "samples": 62475
+  },
+  "101084": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 250,
+   "variation": 1023310,
+   "param": "lb_against_team_ID",
+   "samples": 123420
+  },
+  "101085": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 435,
+   "variation": 685572,
+   "param": "home_ID",
+   "samples": 44066
+  },
+  "101088": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 254,
+   "variation": 1025267,
+   "param": "home_ID",
+   "samples": 60865
+  },
+  "101097": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 624,
+   "variation": 685104,
+   "param": "home_ID",
+   "samples": 77203
+  },
+  "101099": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 588,
+   "variation": 685105,
+   "param": "home_ID",
+   "samples": 63921
+  },
+  "101100": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 258,
+   "variation": 685106,
+   "param": "home_ID",
+   "samples": 85297
+  },
+  "101101": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 625,
+   "variation": 685107,
+   "param": "home_ID",
+   "samples": 51019
+  },
+  "101103": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 626,
+   "variation": 685109,
+   "param": "home_ID",
+   "samples": 93701
+  },
+  "101104": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 604,
+   "variation": 685204,
+   "param": "home_ID",
+   "samples": 90393
+  },
+  "101105": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 627,
+   "variation": 685110,
+   "param": "home_ID",
+   "samples": 58299
+  },
+  "101108": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 259,
+   "variation": 685111,
+   "param": "home_ID",
+   "samples": 43036
+  },
+  "101110": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 260,
+   "variation": 685112,
+   "param": "home_ID",
+   "samples": 49671
+  },
+  "101112": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 6,
+   "variation": 688926,
+   "param": "lae_focus_team_1_ID",
+   "samples": 79181
+  },
+  "101114": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 376,
+   "variation": 1040748,
+   "param": "home_ID",
+   "samples": 39719
+  },
+  "101121": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 377,
+   "variation": 1040749,
+   "param": "home_ID",
+   "samples": 43316
+  },
+  "105035": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 640,
+   "variation": 727104,
+   "param": "home_ID",
+   "samples": 52231
+  },
+  "110062": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 1,
+   "variation": 1023942,
+   "param": "lae_focus_team_2_ID",
+   "samples": 40080
+  },
+  "110069": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 75,
+   "variation": 1021991,
+   "param": "lb_against_team_ID",
+   "samples": 116467
+  },
+  "110078": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 523,
+   "variation": 685735,
+   "param": "home_ID",
+   "samples": 88315
+  },
+  "110081": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 294,
+   "variation": 1025564,
+   "param": "home_ID",
+   "samples": 52484
+  },
+  "110093": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 338,
+   "variation": 1030329,
+   "param": "home_ID",
+   "samples": 59391
+  },
+  "110144": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 379,
+   "variation": 1040751,
+   "param": "home_ID",
+   "samples": 61674
+  },
+  "110147": {
+   "set": "eng_us_dr_licensed",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 5,
+   "variation": 684864,
+   "param": "home_ID",
+   "samples": 41679
+  },
+  "110150": {
+   "set": "eng_us_dr_licensed",
+   "family": "tlooking_back_focus_team",
+   "segment": 5,
+   "variation": 691344,
+   "param": "asset_team_ID",
+   "samples": 93880
+  },
+  "110152": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 382,
+   "variation": 1040759,
+   "param": "home_ID",
+   "samples": 39500
+  },
+  "110197": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 305,
+   "variation": 689191,
+   "param": "lae_focus_team_1_ID",
+   "samples": 76018
+  },
+  "110242": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 76,
+   "variation": 1021992,
+   "param": "lb_against_team_ID",
+   "samples": 129993
+  },
+  "110313": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 257,
+   "variation": 1025270,
+   "param": "home_ID",
+   "samples": 58005
+  },
+  "110321": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 168,
+   "variation": 1022263,
+   "param": "lb_against_team_ID",
+   "samples": 112030
+  },
+  "110329": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 107,
+   "variation": 691347,
+   "param": "asset_team_ID",
+   "samples": 47928
+  },
+  "110373": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 51,
+   "variation": 1010346,
+   "param": "home_ID",
+   "samples": 53113
+  },
+  "110374": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 50,
+   "variation": 1031294,
+   "param": "lae_focus_team_1_ID",
+   "samples": 50555
+  },
+  "110395": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 136,
+   "variation": 684866,
+   "param": "home_ID",
+   "samples": 45873
+  },
+  "110396": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 137,
+   "variation": 684867,
+   "param": "home_ID",
+   "samples": 61446
+  },
+  "110404": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 199,
+   "variation": 684984,
+   "param": "home_ID",
+   "samples": 50917
+  },
+  "110468": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 108,
+   "variation": 691348,
+   "param": "asset_team_ID",
+   "samples": 68761
+  },
+  "110500": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 173,
+   "variation": 684936,
+   "param": "home_ID",
+   "samples": 71974
+  },
+  "110502": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 51,
+   "variation": 1031295,
+   "param": "lae_focus_team_1_ID",
+   "samples": 47522
+  },
+  "110532": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 259,
+   "variation": 1025272,
+   "param": "home_ID",
+   "samples": 64065
+  },
+  "110556": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 52,
+   "variation": 1031296,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38621
+  },
+  "110569": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 299,
+   "variation": 688935,
+   "param": "lae_focus_team_1_ID",
+   "samples": 49777
+  },
+  "110580": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 439,
+   "variation": 685582,
+   "param": "home_ID",
+   "samples": 81285
+  },
+  "110588": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 174,
+   "variation": 684937,
+   "param": "home_ID",
+   "samples": 50314
+  },
+  "110597": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 306,
+   "variation": 689196,
+   "param": "lae_focus_team_1_ID",
+   "samples": 59901
+  },
+  "110636": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 53,
+   "variation": 1031297,
+   "param": "lae_focus_team_1_ID",
+   "samples": 43309
+  },
+  "110724": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 296,
+   "variation": 685206,
+   "param": "home_ID",
+   "samples": 68726
+  },
+  "110738": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 524,
+   "variation": 685737,
+   "param": "home_ID",
+   "samples": 41135
+  },
+  "110745": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 223,
+   "variation": 685028,
+   "param": "home_ID",
+   "samples": 102650
+  },
+  "110746": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 224,
+   "variation": 685029,
+   "param": "home_ID",
+   "samples": 78096
+  },
+  "110750": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 487,
+   "variation": 685678,
+   "param": "home_ID",
+   "samples": 70163
+  },
+  "110751": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 525,
+   "variation": 685738,
+   "param": "home_ID",
+   "samples": 97123
+  },
+  "110752": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 488,
+   "variation": 685679,
+   "param": "home_ID",
+   "samples": 59286
+  },
+  "110770": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 593,
+   "variation": 685584,
+   "param": "home_ID",
+   "samples": 39981
+  },
+  "110781": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 383,
+   "variation": 1040760,
+   "param": "home_ID",
+   "samples": 37802
+  },
+  "110827": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 260,
+   "variation": 1025273,
+   "param": "home_ID",
+   "samples": 59190
+  },
+  "110832": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 2,
+   "variation": 1023943,
+   "param": "lae_focus_team_2_ID",
+   "samples": 41190
+  },
+  "110839": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 339,
+   "variation": 1030330,
+   "param": "home_ID",
+   "samples": 39600
+  },
+  "110854": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 126,
+   "variation": 691070,
+   "param": "lb_against_team_ID",
+   "samples": 191904
+  },
+  "110890": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 340,
+   "variation": 1030331,
+   "param": "home_ID",
+   "samples": 50769
+  },
+  "110908": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 83,
+   "variation": 1022002,
+   "param": "lb_against_team_ID",
+   "samples": 129355
+  },
+  "110913": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 307,
+   "variation": 689202,
+   "param": "lae_focus_team_1_ID",
+   "samples": 63418
+  },
+  "110967": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 608,
+   "variation": 685588,
+   "param": "home_ID",
+   "samples": 56680
+  },
+  "110968": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 284,
+   "variation": 685187,
+   "param": "home_ID",
+   "samples": 65009
+  },
+  "110973": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 285,
+   "variation": 685190,
+   "param": "home_ID",
+   "samples": 61352
+  },
+  "110975": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 247,
+   "variation": 685077,
+   "param": "home_ID",
+   "samples": 87942
+  },
+  "110981": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 264,
+   "variation": 685122,
+   "param": "home_ID",
+   "samples": 50191
+  },
+  "110986": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 357,
+   "variation": 685405,
+   "param": "home_ID",
+   "samples": 58071
+  },
+  "110987": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 599,
+   "variation": 685125,
+   "param": "home_ID",
+   "samples": 51384
+  },
+  "110989": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 265,
+   "variation": 685126,
+   "param": "home_ID",
+   "samples": 69382
+  },
+  "110990": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_b",
+   "segment": 404,
+   "variation": 686537,
+   "param": "away_ID",
+   "samples": 89157
+  },
+  "110991": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 266,
+   "variation": 685128,
+   "param": "home_ID",
+   "samples": 70974
+  },
+  "111008": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 267,
+   "variation": 685133,
+   "param": "home_ID",
+   "samples": 60448
+  },
+  "111010": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 268,
+   "variation": 685134,
+   "param": "home_ID",
+   "samples": 59519
+  },
+  "111013": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 269,
+   "variation": 685135,
+   "param": "home_ID",
+   "samples": 64786
+  },
+  "111014": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 270,
+   "variation": 685136,
+   "param": "home_ID",
+   "samples": 71428
+  },
+  "111019": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 271,
+   "variation": 685137,
+   "param": "home_ID",
+   "samples": 89721
+  },
+  "111022": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 256,
+   "variation": 1023318,
+   "param": "lb_against_team_ID",
+   "samples": 134767
+  },
+  "111035": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 127,
+   "variation": 691074,
+   "param": "lb_against_team_ID",
+   "samples": 122084
+  },
+  "111065": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 200,
+   "variation": 684989,
+   "param": "home_ID",
+   "samples": 68273
+  },
+  "111086": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 304,
+   "variation": 685225,
+   "param": "home_ID",
+   "samples": 71218
+  },
+  "111108": {
+   "set": "eng_us_dr_full",
+   "family": "tts_team_intro",
+   "segment": 177,
+   "variation": 700211,
+   "param": "asset_team_ID",
+   "samples": 111338
+  },
+  "111111": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 354,
+   "variation": 1039914,
+   "param": "home_ID",
+   "samples": 44027
+  },
+  "111114": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 355,
+   "variation": 1039917,
+   "param": "home_ID",
+   "samples": 54702
+  },
+  "111115": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 517,
+   "variation": 685724,
+   "param": "home_ID",
+   "samples": 42626
+  },
+  "111138": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 138,
+   "variation": 684871,
+   "param": "home_ID",
+   "samples": 71891
+  },
+  "111139": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 245,
+   "variation": 689302,
+   "param": "lae_focus_team_1_ID",
+   "samples": 68239
+  },
+  "111140": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 20,
+   "variation": 688942,
+   "param": "lae_focus_team_1_ID",
+   "samples": 69242
+  },
+  "111144": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 261,
+   "variation": 1025274,
+   "param": "home_ID",
+   "samples": 58373
+  },
+  "111235": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 54,
+   "variation": 1031298,
+   "param": "lae_focus_team_1_ID",
+   "samples": 47282
+  },
+  "111239": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 318,
+   "variation": 1025659,
+   "param": "home_ID",
+   "samples": 46945
+  },
+  "111276": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 581,
+   "variation": 685315,
+   "param": "home_ID",
+   "samples": 52647
+  },
+  "111325": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 272,
+   "variation": 685141,
+   "param": "home_ID",
+   "samples": 86624
+  },
+  "111328": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 575,
+   "variation": 685144,
+   "param": "home_ID",
+   "samples": 53251
+  },
+  "111329": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 576,
+   "variation": 685145,
+   "param": "home_ID",
+   "samples": 46569
+  },
+  "111331": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 577,
+   "variation": 685146,
+   "param": "home_ID",
+   "samples": 61625
+  },
+  "111334": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 600,
+   "variation": 685148,
+   "param": "home_ID",
+   "samples": 45847
+  },
+  "111339": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 306,
+   "variation": 685227,
+   "param": "home_ID",
+   "samples": 57144
+  },
+  "111340": {
+   "set": "eng_us_drsr_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 131,
+   "variation": 691078,
+   "param": "lb_against_team_ID",
+   "samples": 200045
+  },
+  "111397": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 227,
+   "variation": 685037,
+   "param": "home_ID",
+   "samples": 62309
+  },
+  "111399": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 307,
+   "variation": 685228,
+   "param": "home_ID",
+   "samples": 52530
+  },
+  "111400": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 308,
+   "variation": 685229,
+   "param": "home_ID",
+   "samples": 70032
+  },
+  "111434": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 55,
+   "variation": 1031299,
+   "param": "lae_focus_team_1_ID",
+   "samples": 46095
+  },
+  "111451": {
+   "set": "eng_us_dr_full",
+   "family": "tts_team_intro",
+   "segment": 178,
+   "variation": 700213,
+   "param": "asset_team_ID",
+   "samples": 103597
+  },
+  "111462": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 357,
+   "variation": 1039924,
+   "param": "home_ID",
+   "samples": 38588
+  },
+  "111473": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 295,
+   "variation": 1025566,
+   "param": "home_ID",
+   "samples": 45253
+  },
+  "111510": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 394,
+   "variation": 1041031,
+   "param": "home_ID",
+   "samples": 48007
+  },
+  "111527": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 358,
+   "variation": 1039931,
+   "param": "home_ID",
+   "samples": 39123
+  },
+  "111651": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 25,
+   "variation": 688947,
+   "param": "lae_focus_team_1_ID",
+   "samples": 63767
+  },
+  "111657": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 56,
+   "variation": 1031300,
+   "param": "lae_focus_team_1_ID",
+   "samples": 48797
+  },
+  "111659": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 170,
+   "variation": 1022268,
+   "param": "lb_against_team_ID",
+   "samples": 102700
+  },
+  "111674": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 248,
+   "variation": 685078,
+   "param": "home_ID",
+   "samples": 59039
+  },
+  "111678": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 384,
+   "variation": 1040761,
+   "param": "home_ID",
+   "samples": 52863
+  },
+  "111701": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 358,
+   "variation": 685414,
+   "param": "home_ID",
+   "samples": 49225
+  },
+  "111707": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 598,
+   "variation": 684877,
+   "param": "home_ID",
+   "samples": 57921
+  },
+  "111708": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 286,
+   "variation": 685192,
+   "param": "home_ID",
+   "samples": 80380
+  },
+  "111710": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 201,
+   "variation": 684992,
+   "param": "home_ID",
+   "samples": 87937
+  },
+  "111711": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 202,
+   "variation": 684993,
+   "param": "home_ID",
+   "samples": 51031
+  },
+  "111715": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 289,
+   "variation": 685195,
+   "param": "home_ID",
+   "samples": 37573
+  },
+  "111716": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 203,
+   "variation": 684994,
+   "param": "home_ID",
+   "samples": 74444
+  },
+  "111722": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 628,
+   "variation": 685149,
+   "param": "home_ID",
+   "samples": 75006
+  },
+  "111766": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 257,
+   "variation": 685102,
+   "param": "home_ID",
+   "samples": 63673
+  },
+  "111811": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 57,
+   "variation": 1031301,
+   "param": "lae_focus_team_1_ID",
+   "samples": 40869
+  },
+  "111817": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 191,
+   "variation": 689215,
+   "param": "lae_focus_team_1_ID",
+   "samples": 61849
+  },
+  "111822": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 192,
+   "variation": 689217,
+   "param": "lae_focus_team_1_ID",
+   "samples": 82186
+  },
+  "111928": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 141,
+   "variation": 684878,
+   "param": "home_ID",
+   "samples": 78342
+  },
+  "111974": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 53,
+   "variation": 1010348,
+   "param": "home_ID",
+   "samples": 48809
+  },
+  "112096": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 261,
+   "variation": 1023326,
+   "param": "lb_against_team_ID",
+   "samples": 132451
+  },
+  "112115": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 228,
+   "variation": 685043,
+   "param": "home_ID",
+   "samples": 78263
+  },
+  "112134": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 29,
+   "variation": 688952,
+   "param": "lae_focus_team_1_ID",
+   "samples": 76113
+  },
+  "112139": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 207,
+   "variation": 1024106,
+   "param": "home_ID",
+   "samples": 42725
+  },
+  "112172": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 84,
+   "variation": 1010472,
+   "param": "home_ID",
+   "samples": 39355
+  },
+  "112190": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 54,
+   "variation": 1010349,
+   "param": "home_ID",
+   "samples": 74067
+  },
+  "112199": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 359,
+   "variation": 685418,
+   "param": "home_ID",
+   "samples": 48073
+  },
+  "112222": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_goal_team",
+   "segment": 108,
+   "variation": 2139,
+   "param": "asset_team_ID",
+   "samples": 92552
+  },
+  "112224": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 252,
+   "variation": 685093,
+   "param": "home_ID",
+   "samples": 55714
+  },
+  "112254": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 227,
+   "variation": 1024292,
+   "param": "home_ID",
+   "samples": 57137
+  },
+  "112258": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 582,
+   "variation": 685317,
+   "param": "home_ID",
+   "samples": 74647
+  },
+  "112259": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 262,
+   "variation": 1025275,
+   "param": "home_ID",
+   "samples": 38514
+  },
+  "112260": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 263,
+   "variation": 1025276,
+   "param": "home_ID",
+   "samples": 51259
+  },
+  "112304": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 310,
+   "variation": 685235,
+   "param": "home_ID",
+   "samples": 48121
+  },
+  "112387": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 264,
+   "variation": 1025277,
+   "param": "home_ID",
+   "samples": 40341
+  },
+  "112427": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 229,
+   "variation": 685044,
+   "param": "home_ID",
+   "samples": 95400
+  },
+  "112494": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 527,
+   "variation": 685743,
+   "param": "home_ID",
+   "samples": 64879
+  },
+  "112513": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 265,
+   "variation": 1025278,
+   "param": "home_ID",
+   "samples": 36555
+  },
+  "112540": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 266,
+   "variation": 1025280,
+   "param": "home_ID",
+   "samples": 55837
+  },
+  "112606": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 267,
+   "variation": 1025281,
+   "param": "home_ID",
+   "samples": 56076
+  },
+  "112616": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 273,
+   "variation": 685155,
+   "param": "home_ID",
+   "samples": 59363
+  },
+  "112667": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 591,
+   "variation": 685197,
+   "param": "home_ID",
+   "samples": 86639
+  },
+  "112670": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 207,
+   "variation": 685000,
+   "param": "home_ID",
+   "samples": 59659
+  },
+  "112678": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 385,
+   "variation": 1040763,
+   "param": "home_ID",
+   "samples": 86124
+  },
+  "112689": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 482,
+   "variation": 685670,
+   "param": "home_ID",
+   "samples": 52772
+  },
+  "112705": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 629,
+   "variation": 685158,
+   "param": "home_ID",
+   "samples": 77048
+  },
+  "112713": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 483,
+   "variation": 685671,
+   "param": "home_ID",
+   "samples": 59190
+  },
+  "112716": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 275,
+   "variation": 685159,
+   "param": "home_ID",
+   "samples": 72729
+  },
+  "112809": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 268,
+   "variation": 1025282,
+   "param": "home_ID",
+   "samples": 52630
+  },
+  "112828": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 269,
+   "variation": 1025283,
+   "param": "home_ID",
+   "samples": 50770
+  },
+  "112853": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 630,
+   "variation": 685160,
+   "param": "home_ID",
+   "samples": 88365
+  },
+  "112885": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 322,
+   "variation": 1028178,
+   "param": "home_ID",
+   "samples": 65221
+  },
+  "112893": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 228,
+   "variation": 1024293,
+   "param": "home_ID",
+   "samples": 53769
+  },
+  "112908": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 449,
+   "variation": 685607,
+   "param": "home_ID",
+   "samples": 99020
+  },
+  "112954": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 528,
+   "variation": 685744,
+   "param": "home_ID",
+   "samples": 51959
+  },
+  "112965": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 291,
+   "variation": 685198,
+   "param": "home_ID",
+   "samples": 69876
+  },
+  "112996": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 315,
+   "variation": 1025703,
+   "param": "home_ID",
+   "samples": 51906
+  },
+  "112999": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 373,
+   "variation": 1039952,
+   "param": "home_ID",
+   "samples": 40742
+  },
+  "113000": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 225,
+   "variation": 1024289,
+   "param": "home_ID",
+   "samples": 40057
+  },
+  "113001": {
+   "set": "eng_us_gm_full",
+   "family": "tts_team_intro",
+   "segment": 251,
+   "variation": 1030547,
+   "param": "asset_team_ID",
+   "samples": 77534
+  },
+  "113002": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 359,
+   "variation": 1039937,
+   "param": "home_ID",
+   "samples": 37554
+  },
+  "113003": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 270,
+   "variation": 1025284,
+   "param": "home_ID",
+   "samples": 38230
+  },
+  "113004": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 271,
+   "variation": 1025285,
+   "param": "home_ID",
+   "samples": 39142
+  },
+  "113007": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 652,
+   "variation": 727136,
+   "param": "home_ID",
+   "samples": 42220
+  },
+  "113008": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 656,
+   "variation": 727140,
+   "param": "home_ID",
+   "samples": 40548
+  },
+  "113009": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 229,
+   "variation": 1024294,
+   "param": "home_ID",
+   "samples": 50005
+  },
+  "113010": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 374,
+   "variation": 1039955,
+   "param": "home_ID",
+   "samples": 46864
+  },
+  "113011": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 640,
+   "variation": 727104,
+   "param": "home_ID",
+   "samples": 52231
+  },
+  "113012": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 655,
+   "variation": 727139,
+   "param": "home_ID",
+   "samples": 39958
+  },
+  "113037": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 269,
+   "variation": 1023335,
+   "param": "lb_against_team_ID",
+   "samples": 130586
+  },
+  "113040": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 489,
+   "variation": 685682,
+   "param": "home_ID",
+   "samples": 74083
+  },
+  "113134": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 386,
+   "variation": 1040765,
+   "param": "home_ID",
+   "samples": 62303
+  },
+  "113142": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_back_focus_team",
+   "segment": 116,
+   "variation": 691375,
+   "param": "asset_team_ID",
+   "samples": 66836
+  },
+  "113149": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 39,
+   "variation": 688964,
+   "param": "lae_focus_team_1_ID",
+   "samples": 77194
+  },
+  "113182": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 691,
+   "variation": 685685,
+   "param": "home_ID",
+   "samples": 58412
+  },
+  "113257": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 490,
+   "variation": 685686,
+   "param": "home_ID",
+   "samples": 77504
+  },
+  "113258": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 295,
+   "variation": 1025566,
+   "param": "home_ID",
+   "samples": 45253
+  },
+  "113297": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 491,
+   "variation": 685687,
+   "param": "home_ID",
+   "samples": 47684
+  },
+  "113298": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 492,
+   "variation": 685688,
+   "param": "home_ID",
+   "samples": 61940
+  },
+  "113299": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 493,
+   "variation": 685689,
+   "param": "home_ID",
+   "samples": 81138
+  },
+  "113300": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 494,
+   "variation": 685690,
+   "param": "home_ID",
+   "samples": 67296
+  },
+  "113302": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 495,
+   "variation": 685692,
+   "param": "home_ID",
+   "samples": 62791
+  },
+  "113378": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 692,
+   "variation": 685693,
+   "param": "home_ID",
+   "samples": 79061
+  },
+  "113394": {
+   "set": "eng_us_sr_full",
+   "family": "tstats_possession_not_controlling_stitch_team",
+   "segment": 34,
+   "variation": 408923,
+   "param": "asset_team_ID",
+   "samples": 91304
+  },
+  "113926": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 171,
+   "variation": 1013474,
+   "param": "home_ID",
+   "samples": 49100
+  },
+  "113973": {
+   "set": "eng_us_dr_full",
+   "family": "ttable_analysis_league_above_expectation_throw",
+   "segment": 82,
+   "variation": 698234,
+   "param": "ta_focus_team1_ID",
+   "samples": 219697
+  },
+  "113974": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_goal_team",
+   "segment": 162,
+   "variation": 2205,
+   "param": "asset_team_ID",
+   "samples": 93672
+  },
+  "113981": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 230,
+   "variation": 1024295,
+   "param": "home_ID",
+   "samples": 60034
+  },
+  "113984": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 654,
+   "variation": 727138,
+   "param": "home_ID",
+   "samples": 44633
+  },
+  "113996": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 372,
+   "variation": 1039951,
+   "param": "home_ID",
+   "samples": 50032
+  },
+  "114024": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 276,
+   "variation": 685165,
+   "param": "home_ID",
+   "samples": 65881
+  },
+  "114161": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 250,
+   "variation": 689310,
+   "param": "lae_focus_team_1_ID",
+   "samples": 61377
+  },
+  "114162": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 341,
+   "variation": 685310,
+   "param": "home_ID",
+   "samples": 52682
+  },
+  "114168": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 496,
+   "variation": 685697,
+   "param": "home_ID",
+   "samples": 68199
+  },
+  "114326": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 271,
+   "variation": 1023337,
+   "param": "lb_against_team_ID",
+   "samples": 154598
+  },
+  "114385": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 311,
+   "variation": 685240,
+   "param": "home_ID",
+   "samples": 66891
+  },
+  "114510": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 252,
+   "variation": 689312,
+   "param": "lae_focus_team_1_ID",
+   "samples": 57368
+  },
+  "114577": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 632,
+   "variation": 685199,
+   "param": "home_ID",
+   "samples": 61620
+  },
+  "114578": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 631,
+   "variation": 685169,
+   "param": "home_ID",
+   "samples": 44884
+  },
+  "114581": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 589,
+   "variation": 685171,
+   "param": "home_ID",
+   "samples": 112919
+  },
+  "114611": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 601,
+   "variation": 685174,
+   "param": "home_ID",
+   "samples": 111187
+  },
+  "114640": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 253,
+   "variation": 689313,
+   "param": "lae_focus_team_1_ID",
+   "samples": 68360
+  },
+  "114815": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 0,
+   "variation": 1002678,
+   "param": "home_ID",
+   "samples": 45552
+  },
+  "115362": {
+   "set": "eng_us_gm_full",
+   "family": "tts_team_intro",
+   "segment": 201,
+   "variation": 1018541,
+   "param": "asset_team_ID",
+   "samples": 79255
+  },
+  "115682": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 653,
+   "variation": 727137,
+   "param": "home_ID",
+   "samples": 44855
+  },
+  "115995": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 21,
+   "variation": 1023962,
+   "param": "lae_focus_team_2_ID",
+   "samples": 41483
+  },
+  "115996": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 101,
+   "variation": 1031345,
+   "param": "lae_focus_team_1_ID",
+   "samples": 54680
+  },
+  "115997": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 80,
+   "variation": 1031324,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42527
+  },
+  "115998": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 68,
+   "variation": 1031312,
+   "param": "lae_focus_team_1_ID",
+   "samples": 43543
+  },
+  "115999": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 48,
+   "variation": 1010342,
+   "param": "home_ID",
+   "samples": 44559
+  },
+  "116002": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 66,
+   "variation": 1010366,
+   "param": "home_ID",
+   "samples": 42313
+  },
+  "116003": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 100,
+   "variation": 1031344,
+   "param": "lae_focus_team_1_ID",
+   "samples": 38363
+  },
+  "116004": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 180,
+   "variation": 1013484,
+   "param": "home_ID",
+   "samples": 46276
+  },
+  "116009": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 2,
+   "variation": 1002683,
+   "param": "home_ID",
+   "samples": 33792
+  },
+  "116010": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 40,
+   "variation": 1023981,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35869
+  },
+  "116011": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 14,
+   "variation": 1023955,
+   "param": "lae_focus_team_2_ID",
+   "samples": 36612
+  },
+  "116012": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 4,
+   "variation": 1023945,
+   "param": "lae_focus_team_2_ID",
+   "samples": 38213
+  },
+  "116013": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 11,
+   "variation": 1023952,
+   "param": "lae_focus_team_2_ID",
+   "samples": 39569
+  },
+  "116014": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 19,
+   "variation": 1023960,
+   "param": "lae_focus_team_2_ID",
+   "samples": 44718
+  },
+  "116015": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 27,
+   "variation": 1023968,
+   "param": "lae_focus_team_2_ID",
+   "samples": 30437
+  },
+  "116016": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 95,
+   "variation": 1010488,
+   "param": "home_ID",
+   "samples": 33864
+  },
+  "116017": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 0,
+   "variation": 1023941,
+   "param": "lae_focus_team_2_ID",
+   "samples": 31332
+  },
+  "116018": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 213,
+   "variation": 1024113,
+   "param": "home_ID",
+   "samples": 33661
+  },
+  "116019": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 127,
+   "variation": 684848,
+   "param": "home_ID",
+   "samples": 58622
+  },
+  "116020": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 136,
+   "variation": 1031385,
+   "param": "lae_focus_team_1_ID",
+   "samples": 37630
+  },
+  "116021": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 84,
+   "variation": 1010472,
+   "param": "home_ID",
+   "samples": 39355
+  },
+  "116033": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 123,
+   "variation": 1031372,
+   "param": "lae_focus_team_1_ID",
+   "samples": 34494
+  },
+  "116034": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 129,
+   "variation": 1031378,
+   "param": "lae_focus_team_1_ID",
+   "samples": 47267
+  },
+  "116035": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 226,
+   "variation": 1024290,
+   "param": "home_ID",
+   "samples": 62483
+  },
+  "116037": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 187,
+   "variation": 1013807,
+   "param": "home_ID",
+   "samples": 50152
+  },
+  "116040": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 106,
+   "variation": 1031350,
+   "param": "lae_focus_team_1_ID",
+   "samples": 35722
+  },
+  "116042": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 35,
+   "variation": 684712,
+   "param": "home_ID",
+   "samples": 62860
+  },
+  "116044": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 175,
+   "variation": 1013479,
+   "param": "home_ID",
+   "samples": 48681
+  },
+  "116280": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 110,
+   "variation": 1031356,
+   "param": "lae_focus_team_1_ID",
+   "samples": 42885
+  },
+  "116282": {
+   "set": "eng_us_gm_demo",
+   "family": "tcorner_down_one",
+   "segment": 22,
+   "variation": 1039535,
+   "param": "asset_team_ID",
+   "samples": 152500
+  },
+  "116302": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 546,
+   "variation": 703863,
+   "param": "home_ID",
+   "samples": 72290
+  },
+  "116303": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 547,
+   "variation": 703864,
+   "param": "home_ID",
+   "samples": 92872
+  },
+  "116304": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 548,
+   "variation": 703865,
+   "param": "home_ID",
+   "samples": 74105
+  },
+  "116305": {
+   "set": "eng_us_dr_full",
+   "family": "tfulltime_whistle_last_impressions_league_drew",
+   "segment": 153,
+   "variation": 199,
+   "param": "asset_team_ID",
+   "samples": 374905
+  },
+  "116306": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 549,
+   "variation": 703868,
+   "param": "home_ID",
+   "samples": 71198
+  },
+  "116307": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 550,
+   "variation": 703869,
+   "param": "home_ID",
+   "samples": 71958
+  },
+  "116308": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 551,
+   "variation": 703870,
+   "param": "home_ID",
+   "samples": 69738
+  },
+  "116309": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 552,
+   "variation": 703871,
+   "param": "home_ID",
+   "samples": 81931
+  },
+  "116310": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 553,
+   "variation": 703872,
+   "param": "home_ID",
+   "samples": 63376
+  },
+  "116311": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 555,
+   "variation": 703874,
+   "param": "home_ID",
+   "samples": 78988
+  },
+  "116312": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 556,
+   "variation": 703875,
+   "param": "home_ID",
+   "samples": 83873
+  },
+  "116325": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 3,
+   "variation": 1002687,
+   "param": "home_ID",
+   "samples": 47484
+  },
+  "116326": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 26,
+   "variation": 1023967,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33997
+  },
+  "116327": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 24,
+   "variation": 1023965,
+   "param": "lae_focus_team_2_ID",
+   "samples": 45550
+  },
+  "116328": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 28,
+   "variation": 1023969,
+   "param": "lae_focus_team_2_ID",
+   "samples": 40623
+  },
+  "116329": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 34,
+   "variation": 1023975,
+   "param": "lae_focus_team_2_ID",
+   "samples": 37520
+  },
+  "116330": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 29,
+   "variation": 1023970,
+   "param": "lae_focus_team_2_ID",
+   "samples": 38003
+  },
+  "116333": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 56,
+   "variation": 1010355,
+   "param": "home_ID",
+   "samples": 45280
+  },
+  "116336": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 45,
+   "variation": 1009951,
+   "param": "home_ID",
+   "samples": 59064
+  },
+  "116337": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 38,
+   "variation": 1023979,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35267
+  },
+  "116339": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 46,
+   "variation": 1009952,
+   "param": "home_ID",
+   "samples": 44648
+  },
+  "116340": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 94,
+   "variation": 1010486,
+   "param": "home_ID",
+   "samples": 49201
+  },
+  "116343": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 351,
+   "variation": 1002696,
+   "param": "home_ID",
+   "samples": 38262
+  },
+  "116386": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 170,
+   "variation": 1022268,
+   "param": "lb_against_team_ID",
+   "samples": 102700
+  },
+  "116416": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a_stitch_face",
+   "segment": 65,
+   "variation": 1031309,
+   "param": "lae_focus_team_1_ID",
+   "samples": 36859
+  },
+  "116417": {
+   "set": "eng_us_gm_full",
+   "family": "tcorner_gen",
+   "segment": 240,
+   "variation": 1039635,
+   "param": "asset_team_ID",
+   "samples": 69896
+  },
+  "116428": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 296,
+   "variation": 1025567,
+   "param": "home_ID",
+   "samples": 38816
+  },
+  "131106": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_b",
+   "segment": 309,
+   "variation": 1025669,
+   "param": "away_ID",
+   "samples": 71747
+  },
+  "131110": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_back_against_team_handover",
+   "segment": 90,
+   "variation": 1022014,
+   "param": "lb_against_team_ID",
+   "samples": 123576
+  },
+  "131124": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 341,
+   "variation": 1030332,
+   "param": "home_ID",
+   "samples": 40936
+  },
+  "131219": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 108,
+   "variation": 1010702,
+   "param": "home_ID",
+   "samples": 33638
+  },
+  "131283": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 114,
+   "variation": 684831,
+   "param": "home_ID",
+   "samples": 53195
+  },
+  "131358": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 39,
+   "variation": 1009515,
+   "param": "home_ID",
+   "samples": 41349
+  },
+  "131359": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 92,
+   "variation": 1010484,
+   "param": "home_ID",
+   "samples": 36083
+  },
+  "131360": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 369,
+   "variation": 685469,
+   "param": "home_ID",
+   "samples": 59855
+  },
+  "131386": {
+   "set": "eng_us_dr_full",
+   "family": "tlooking_ahead_team_a",
+   "segment": 53,
+   "variation": 688981,
+   "param": "lae_focus_team_1_ID",
+   "samples": 54742
+  },
+  "131391": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 52,
+   "variation": 1010347,
+   "param": "home_ID",
+   "samples": 43478
+  },
+  "131412": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 204,
+   "variation": 1017977,
+   "param": "home_ID",
+   "samples": 75714
+  },
+  "131447": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 609,
+   "variation": 685750,
+   "param": "home_ID",
+   "samples": 70277
+  },
+  "131724": {
+   "set": "eng_us_dr_full",
+   "family": "tnews_from_elsewhere_recap_goal",
+   "segment": 198,
+   "variation": 693881,
+   "param": "news_recap_team_ID",
+   "samples": 114760
+  },
+  "131725": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_goal_team",
+   "segment": 18,
+   "variation": 2034,
+   "param": "asset_team_ID",
+   "samples": 67137
+  },
+  "131733": {
+   "set": "eng_us_common_full",
+   "family": "tsr_news_from_elsewhere_goal_team",
+   "segment": 176,
+   "variation": 2223,
+   "param": "asset_team_ID",
+   "samples": 101777
+  },
+  "131877": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 172,
+   "variation": 1013475,
+   "param": "home_ID",
+   "samples": 43562
+  },
+  "132370": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 91,
+   "variation": 1010483,
+   "param": "home_ID",
+   "samples": 41066
+  },
+  "132533": {
+   "set": "eng_us_gm_full",
+   "family": "tcorner_gen",
+   "segment": 216,
+   "variation": 1039611,
+   "param": "asset_team_ID",
+   "samples": 68575
+  },
+  "132611": {
+   "set": "eng_us_gm_full",
+   "family": "tcorner_gen",
+   "segment": 164,
+   "variation": 1039559,
+   "param": "asset_team_ID",
+   "samples": 68497
+  },
+  "132702": {
+   "set": "eng_us_dr_demo",
+   "family": "tpossession_change_won_possession",
+   "segment": 32,
+   "variation": 695392,
+   "param": "asset_team_ID",
+   "samples": 75040
+  },
+  "132703": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 351,
+   "variation": 1002696,
+   "param": "home_ID",
+   "samples": 38262
+  },
+  "132704": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 26,
+   "variation": 1023967,
+   "param": "lae_focus_team_2_ID",
+   "samples": 33997
+  },
+  "132705": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 21,
+   "variation": 1023962,
+   "param": "lae_focus_team_2_ID",
+   "samples": 41483
+  },
+  "132706": {
+   "set": "eng_us_gm_full",
+   "family": "tlooking_ahead_team_a2_stitch_face",
+   "segment": 40,
+   "variation": 1023981,
+   "param": "lae_focus_team_2_ID",
+   "samples": 35869
+  },
+  "132823": {
+   "set": "eng_us_gm_licensed",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 0,
+   "variation": 1040598,
+   "param": "home_ID",
+   "samples": 78953
+  },
+  "800001": {
+   "set": "eng_us_dr_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 141,
+   "variation": 694610,
+   "param": "asset_team_ID",
+   "samples": 62927
+  },
+  "800002": {
+   "set": "eng_us_dr_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 148,
+   "variation": 694622,
+   "param": "asset_team_ID",
+   "samples": 57714
+  },
+  "800003": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 5,
+   "variation": 1005973,
+   "param": "home_ID",
+   "samples": 56112
+  },
+  "800004": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 6,
+   "variation": 1005974,
+   "param": "home_ID",
+   "samples": 44781
+  },
+  "800005": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 7,
+   "variation": 1005975,
+   "param": "home_ID",
+   "samples": 49344
+  },
+  "800006": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 8,
+   "variation": 1005976,
+   "param": "home_ID",
+   "samples": 44760
+  },
+  "800007": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 111,
+   "variation": 1011118,
+   "param": "home_ID",
+   "samples": 73078
+  },
+  "800008": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 9,
+   "variation": 1005977,
+   "param": "home_ID",
+   "samples": 50625
+  },
+  "800011": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 390,
+   "variation": 685515,
+   "param": "home_ID",
+   "samples": 60461
+  },
+  "800013": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 112,
+   "variation": 1011119,
+   "param": "home_ID",
+   "samples": 52029
+  },
+  "800014": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 11,
+   "variation": 1005979,
+   "param": "home_ID",
+   "samples": 52246
+  },
+  "800015": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 12,
+   "variation": 1005980,
+   "param": "home_ID",
+   "samples": 53632
+  },
+  "800016": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 13,
+   "variation": 1005981,
+   "param": "home_ID",
+   "samples": 51703
+  },
+  "800019": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 14,
+   "variation": 1005982,
+   "param": "home_ID",
+   "samples": 48594
+  },
+  "800020": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 15,
+   "variation": 1005983,
+   "param": "home_ID",
+   "samples": 48402
+  },
+  "800021": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 16,
+   "variation": 1005984,
+   "param": "home_ID",
+   "samples": 48709
+  },
+  "800022": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 17,
+   "variation": 1005985,
+   "param": "home_ID",
+   "samples": 49490
+  },
+  "800023": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 18,
+   "variation": 1005986,
+   "param": "home_ID",
+   "samples": 44638
+  },
+  "800024": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 19,
+   "variation": 1005987,
+   "param": "home_ID",
+   "samples": 49906
+  },
+  "800028": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 20,
+   "variation": 1005988,
+   "param": "home_ID",
+   "samples": 49584
+  },
+  "800029": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 21,
+   "variation": 1005989,
+   "param": "home_ID",
+   "samples": 39572
+  },
+  "800030": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 22,
+   "variation": 1005990,
+   "param": "home_ID",
+   "samples": 38257
+  },
+  "800031": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 23,
+   "variation": 1005991,
+   "param": "home_ID",
+   "samples": 49527
+  },
+  "800033": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 24,
+   "variation": 1005992,
+   "param": "home_ID",
+   "samples": 34802
+  },
+  "800034": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 25,
+   "variation": 1005993,
+   "param": "home_ID",
+   "samples": 55991
+  },
+  "800035": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 26,
+   "variation": 1005994,
+   "param": "home_ID",
+   "samples": 37374
+  },
+  "800036": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 321,
+   "variation": 685257,
+   "param": "home_ID",
+   "samples": 42614
+  },
+  "800037": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 28,
+   "variation": 1005996,
+   "param": "home_ID",
+   "samples": 48164
+  },
+  "800038": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 400,
+   "variation": 685530,
+   "param": "home_ID",
+   "samples": 68846
+  },
+  "800040": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 29,
+   "variation": 1005997,
+   "param": "home_ID",
+   "samples": 67395
+  },
+  "800041": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 30,
+   "variation": 1005998,
+   "param": "home_ID",
+   "samples": 48277
+  },
+  "800042": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 114,
+   "variation": 1011121,
+   "param": "home_ID",
+   "samples": 65386
+  },
+  "800043": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 401,
+   "variation": 685532,
+   "param": "home_ID",
+   "samples": 54197
+  },
+  "800047": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 31,
+   "variation": 1005999,
+   "param": "home_ID",
+   "samples": 43822
+  },
+  "800048": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 32,
+   "variation": 1006000,
+   "param": "home_ID",
+   "samples": 40845
+  },
+  "800049": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 33,
+   "variation": 1006001,
+   "param": "home_ID",
+   "samples": 41028
+  },
+  "800050": {
+   "set": "eng_us_dr_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 221,
+   "variation": 694739,
+   "param": "asset_team_ID",
+   "samples": 62461
+  },
+  "800051": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 117,
+   "variation": 1011124,
+   "param": "home_ID",
+   "samples": 40915
+  },
+  "800053": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 118,
+   "variation": 1011125,
+   "param": "home_ID",
+   "samples": 42602
+  },
+  "800054": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 119,
+   "variation": 1011126,
+   "param": "home_ID",
+   "samples": 43539
+  },
+  "800055": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 120,
+   "variation": 1011127,
+   "param": "home_ID",
+   "samples": 44058
+  },
+  "800056": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 121,
+   "variation": 1011128,
+   "param": "home_ID",
+   "samples": 43181
+  },
+  "800057": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 122,
+   "variation": 1011129,
+   "param": "home_ID",
+   "samples": 44906
+  },
+  "800058": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 123,
+   "variation": 1011130,
+   "param": "home_ID",
+   "samples": 56020
+  },
+  "800059": {
+   "set": "eng_us_gm_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 223,
+   "variation": 1019405,
+   "param": "asset_team_ID",
+   "samples": 60472
+  },
+  "800060": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 406,
+   "variation": 685538,
+   "param": "home_ID",
+   "samples": 54060
+  },
+  "800062": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 126,
+   "variation": 1011133,
+   "param": "home_ID",
+   "samples": 49476
+  },
+  "800063": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 127,
+   "variation": 1011134,
+   "param": "home_ID",
+   "samples": 52319
+  },
+  "800065": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 128,
+   "variation": 1011135,
+   "param": "home_ID",
+   "samples": 50870
+  },
+  "800066": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 129,
+   "variation": 1011136,
+   "param": "home_ID",
+   "samples": 43278
+  },
+  "800067": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 130,
+   "variation": 1011137,
+   "param": "home_ID",
+   "samples": 56139
+  },
+  "800068": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 131,
+   "variation": 1011138,
+   "param": "home_ID",
+   "samples": 66785
+  },
+  "800069": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 132,
+   "variation": 1011139,
+   "param": "home_ID",
+   "samples": 52788
+  },
+  "800070": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 414,
+   "variation": 685548,
+   "param": "home_ID",
+   "samples": 42304
+  },
+  "800071": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 133,
+   "variation": 1011140,
+   "param": "home_ID",
+   "samples": 47054
+  },
+  "800073": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 205,
+   "variation": 1018291,
+   "param": "home_ID",
+   "samples": 57675
+  },
+  "800074": {
+   "set": "eng_us_gm_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 74,
+   "variation": 1007691,
+   "param": "asset_team_ID",
+   "samples": 48302
+  },
+  "800075": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 418,
+   "variation": 685553,
+   "param": "home_ID",
+   "samples": 47168
+  },
+  "800077": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 135,
+   "variation": 1011143,
+   "param": "home_ID",
+   "samples": 47687
+  },
+  "800078": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 36,
+   "variation": 1006004,
+   "param": "home_ID",
+   "samples": 53376
+  },
+  "800079": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 136,
+   "variation": 1011144,
+   "param": "home_ID",
+   "samples": 51334
+  },
+  "800080": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 137,
+   "variation": 1011502,
+   "param": "home_ID",
+   "samples": 49081
+  },
+  "800081": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 138,
+   "variation": 1011503,
+   "param": "home_ID",
+   "samples": 50958
+  },
+  "800082": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 139,
+   "variation": 1011504,
+   "param": "home_ID",
+   "samples": 55384
+  },
+  "800083": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 140,
+   "variation": 1011505,
+   "param": "home_ID",
+   "samples": 56680
+  },
+  "800084": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 141,
+   "variation": 1011506,
+   "param": "home_ID",
+   "samples": 65325
+  },
+  "800086": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 142,
+   "variation": 1011507,
+   "param": "home_ID",
+   "samples": 61149
+  },
+  "800087": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 428,
+   "variation": 685564,
+   "param": "home_ID",
+   "samples": 71873
+  },
+  "800088": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 144,
+   "variation": 1011509,
+   "param": "home_ID",
+   "samples": 53987
+  },
+  "800091": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 430,
+   "variation": 685567,
+   "param": "home_ID",
+   "samples": 50816
+  },
+  "800092": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 146,
+   "variation": 1011511,
+   "param": "home_ID",
+   "samples": 55203
+  },
+  "800093": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 147,
+   "variation": 1011512,
+   "param": "home_ID",
+   "samples": 61835
+  },
+  "800094": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 148,
+   "variation": 1011513,
+   "param": "home_ID",
+   "samples": 69196
+  },
+  "800095": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 149,
+   "variation": 1011514,
+   "param": "home_ID",
+   "samples": 56752
+  },
+  "800096": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 150,
+   "variation": 1011515,
+   "param": "home_ID",
+   "samples": 61431
+  },
+  "800097": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 151,
+   "variation": 1011516,
+   "param": "home_ID",
+   "samples": 70012
+  },
+  "800098": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 152,
+   "variation": 1011517,
+   "param": "home_ID",
+   "samples": 67921
+  },
+  "800099": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 153,
+   "variation": 1011518,
+   "param": "home_ID",
+   "samples": 56276
+  },
+  "800100": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 501,
+   "variation": 685704,
+   "param": "home_ID",
+   "samples": 57358
+  },
+  "800101": {
+   "set": "eng_us_gm_full",
+   "family": "tpossession_change_won_possession",
+   "segment": 363,
+   "variation": 1021249,
+   "param": "asset_team_ID",
+   "samples": 72127
+  },
+  "800102": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 156,
+   "variation": 1011521,
+   "param": "home_ID",
+   "samples": 51924
+  },
+  "800103": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 157,
+   "variation": 1011522,
+   "param": "home_ID",
+   "samples": 47152
+  },
+  "800104": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 512,
+   "variation": 685715,
+   "param": "home_ID",
+   "samples": 62817
+  },
+  "800105": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 159,
+   "variation": 1011524,
+   "param": "home_ID",
+   "samples": 62231
+  },
+  "800106": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 160,
+   "variation": 1011525,
+   "param": "home_ID",
+   "samples": 66539
+  },
+  "800107": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 161,
+   "variation": 1011526,
+   "param": "home_ID",
+   "samples": 58879
+  },
+  "800108": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 510,
+   "variation": 685713,
+   "param": "home_ID",
+   "samples": 53824
+  },
+  "800109": {
+   "set": "eng_us_gm_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 163,
+   "variation": 1011528,
+   "param": "home_ID",
+   "samples": 68912
+  },
+  "800110": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 514,
+   "variation": 685717,
+   "param": "home_ID",
+   "samples": 62902
+  },
+  "800111": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 508,
+   "variation": 685711,
+   "param": "home_ID",
+   "samples": 47576
+  },
+  "800112": {
+   "set": "eng_us_dr_full",
+   "family": "tintro_seq1_wrap_up_team_a",
+   "segment": 557,
+   "variation": 709317,
+   "param": "home_ID",
+   "samples": 51952
+  }
+ }
+}

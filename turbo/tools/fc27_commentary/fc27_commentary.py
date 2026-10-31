@@ -47,7 +47,11 @@ The layers, all read from the game's files (nothing is guessed):
              prefix-sum index over the selector parameters (cm_sim, surname_ID / player_db_pID, player_intensity);
   audio      one chunk per family (its GUID is in the family's EBX); each segment is an EA SNS stream
              (H block: SNR header, D blocks: u32 samples + one Opus packet, E block); --wav wraps the packets in Ogg
-             and decodes them with ffmpeg (found on PATH or given with --ffmpeg).
+             and decodes them with ffmpeg (found on PATH or given with --ffmpeg). Codec 0x0E (ita_it, spa_es, ...) is one
+             plain mono packet per block; codec 0x0F (eng_us) is an Opus multistream block of 2 uncoupled mono streams
+             (RFC 6716 Appendix B: stream 1 self-delimited = the speech, stream 2 = the 3 silent bytes f8 ff fe): stream 1
+             is turned back into a standard packet and decoded, stream 2 is checked to be that silence (split_streams,
+             speech_packets).
 
 Pure Python 3.11 standard library + ctypes. Read-only on the game folder.
 """
@@ -72,6 +76,17 @@ BUNDLE_MAGICS = (0x9D798ED6,)       # binary bundle manifest (little-endian, wit
 INLINE_BUNDLE = 0x40000000          # toc bundle size flag: the bundle's location table is inside the toc
 OODLE_TYPES = (0x11, 0x15, 0x19)    # block compression types handled by Oodle
 OPUS_RATE = 48000
+# The SNR header's codec nibble, named as vgmstream names it (src/meta/ea_eaac.c, EAAC_CODEC_*, about lines 27-30; read online
+# 2026-10-24, line numbers approximate): 0x0C EAOPUS, 0x0E EAOPUSM, 0x0F EAOPUSMU. FC 27 ita_it / spa_es / ... are 0x0E mono (one
+# plain Opus packet per D block); FC 27 eng_us is 0x0F with 2 channels. vgmstream's EAOPUSMU case sets coupled_count = 0, i.e.
+# `channels` UNCOUPLED mono streams per block (src/coding/ffmpeg_decoder_custom_opus.c, make_opus_header: stream count =
+# channels - coupled), which are RFC 6716 Appendix B multistream packets: every stream but the last is self-delimited. Measured
+# on the 7120 + 11792 + 4874 + 169 dr and 7508 + 1386 + 230 gm segments of FC 27 1.0.141.12554 (turbo_dev\evidence\2026-10-24\
+# callnames-eng\codec15_survey.log): every block = stream 1 (TOC code 0, 1-2 byte length, frame; the speech, or a CELT silence
+# frame inside a pause) + stream 2 (always the 3 bytes f8 ff fe = digital silence); block sample counts add up to the header's.
+CODEC_EAOPUS, CODEC_EAOPUSM, CODEC_EAOPUSMU = 0x0C, 0x0E, 0x0F
+SPEECH_CODECS = (CODEC_EAOPUS, CODEC_EAOPUSM, CODEC_EAOPUSMU)
+SILENT_STREAM = b"\xf8\xff\xfe"     # the last (standard-framed) stream of every eng_us block
 
 FAMILIES = {                        # output key -> (family name in the bank, selector parameter, wav prefix)
     "generic": ("psimple_surname", "surname_ID", "pSIMPLE_SURNAME"),
@@ -676,7 +691,7 @@ DEFAULT_TEAM = "dr"     # eng_us: Derek Rae, the team proved in game on 2026-10-
 class Bank:
     data_source = None      # pack_data_source's answer when the tocs were found here (None: tocs passed in)
 
-    def __init__(self, game, lang, team=None, tocs=None):
+    def __init__(self, game, lang, team=None, tocs=None, primary=None):
         self.game, self.lang = game, lang
         if tocs is None:
             self.data_source = pack_data_source(game, lang)
@@ -703,10 +718,11 @@ class Bank:
                     self.assets.setdefault(e["name"], {})["ebx"] = (toc.path, entries[1 + i])
                 for i, r in enumerate(man["res"]):
                     self.assets.setdefault(r["name"], {})["res"] = (toc.path, entries[1 + ne + i], r)
-        self._index_sets(team)
+        self._index_sets(team, primary)
 
-    def _index_sets(self, team=None):
-        """self.sets {set: {"team", "kind", "families": {family: asset name}}} and the primary set (module doc)."""
+    def _index_sets(self, team=None, primary=None):
+        """self.sets {set: {"team", "kind", "families": {family: asset name}}} and the primary set (module doc).
+        `primary` names the set directly (e.g. eng_us_dr_demo, to read its recordings like a primary set's)."""
         self.sets = {}
         for n, a in self.assets.items():
             p = parse_set_name(n, self.lang)
@@ -714,6 +730,11 @@ class Bank:
                 continue
             s, t, kind, fam = p
             self.sets.setdefault(s, {"team": t, "kind": kind, "families": {}})["families"][fam] = n
+        if primary is not None:
+            if primary not in self.sets:
+                raise FormatError("no set %s in the %s bank (sets: %s)" % (primary, self.lang, ", ".join(sorted(self.sets)) or "none"))
+            self.primary = primary
+            return
         team = team or DEFAULT_TEAM
         for cand in ("%s_full" % self.lang, "%s_%s_full" % (self.lang, team)):
             if cand in self.sets:
@@ -970,6 +991,61 @@ def opus_packet_samples(pkt):
     return per * frames
 
 
+def _sd_length(pkt, p):
+    """A self-delimited frame length (RFC 6716 3.2.1): one byte 0..251, else two bytes (first 252..255): 4 * second + first."""
+    if p >= len(pkt):
+        raise FormatError("self-delimited length past the packet end")
+    b = pkt[p]
+    if b < 252:
+        return b, p + 1
+    if p + 1 >= len(pkt):
+        raise FormatError("self-delimited length cut after its first byte")
+    return 4 * pkt[p + 1] + b, p + 2
+
+
+def split_streams(pkt, streams):
+    """The `streams` Opus packets of one multistream block (RFC 6716 Appendix B): every stream but the last is
+    self-delimited (TOC, explicit frame length, frame) and is returned as a STANDARD packet (TOC + frame, the length
+    byte(s) dropped); the last one is standard already and is the rest of the block. Only TOC code 0 (one frame) is
+    handled: it is the only code in the FC 27 eng_us bank (7120 + 11792 + 4874 + 169 dr segments, 0 others); any other
+    code is refused instead of guessed."""
+    out, p = [], 0
+    for _k in range(streams - 1):
+        if p >= len(pkt):
+            raise FormatError("multistream block ends before stream %d of %d" % (len(out) + 1, streams))
+        toc = pkt[p]
+        if toc & 3:
+            raise FormatError("multistream stream %d: TOC code %d (only code 0, one frame, is handled)" % (len(out) + 1, toc & 3))
+        n, q = _sd_length(pkt, p + 1)
+        if q + n > len(pkt):
+            raise FormatError("multistream stream %d: frame of %d bytes runs past the block (%d bytes)" % (len(out) + 1, n, len(pkt)))
+        out.append(bytes([toc]) + pkt[q:q + n])
+        p = q + n
+    out.append(pkt[p:])
+    return out
+
+
+def speech_packets(head, packets):
+    """The mono Opus packets that carry the speech of an SNS stream, [(samples, packet)]: codec 0x0C / 0x0E (mono) the
+    packets as they are; codec 0x0F (EAOPUSMU, multistream) the first stream of every block, after checking that every
+    other stream is the known silent packet (SILENT_STREAM) - audio in another stream would be dropped, so it is refused."""
+    codec, ch = head["codec"], head["channels"]
+    if codec in (CODEC_EAOPUS, CODEC_EAOPUSM):
+        if ch != 1:
+            raise FormatError("codec %#x with %d channels: only mono is handled" % (codec, ch))
+        return packets
+    if codec != CODEC_EAOPUSMU:
+        raise FormatError("codec %d is not an EA Opus codec" % codec)
+    out = []
+    for i, (n, pkt) in enumerate(packets):
+        streams = split_streams(pkt, ch)
+        for k, extra in enumerate(streams[1:], 2):
+            if extra != SILENT_STREAM:
+                raise FormatError("block %d: stream %d is %s, not the silent packet %s" % (i, k, extra.hex(), SILENT_STREAM.hex()))
+        out.append((n, streams[0]))
+    return out
+
+
 _CRC = []
 for _i in range(256):
     _r = _i << 24
@@ -1000,9 +1076,9 @@ def _ogg_page(serial, seq, granule, flags, packets):
 
 def ogg_opus(head, packets, serial=0x54524230):
     """Wrap the stream's Opus packets in an Ogg Opus file (RFC 7845). The first block's sample count is the packet's
-    length minus the encoder delay, which becomes the pre-skip; the last page's granule trims the end."""
-    if head["channels"] != 1:
-        raise FormatError("only mono streams are handled (%d channels)" % head["channels"])
+    length minus the encoder delay, which becomes the pre-skip; the last page's granule trims the end. A multistream
+    codec (0x0F) is reduced to its speech stream first (speech_packets)."""
+    packets = speech_packets(head, packets)
     pre_skip = opus_packet_samples(packets[0][1]) - packets[0][0]
     total = sum(s for s, _ in packets)
     opus_head = struct.pack("<8sBBHIhB", b"OpusHead", 1, 1, pre_skip, head["rate"], 0, 0)
@@ -1036,20 +1112,26 @@ def decode_wav(ffmpeg, ogg, path, expected):
     return None if got == expected else "%d samples decoded, the stream says %d" % (got, expected)
 
 
-def write_wavs(bank, fam, prefix, folder, ffmpeg, segments_wanted, log):
+def write_wavs(bank, fam, prefix, folder, ffmpeg, segments_wanted, log, seg_offset=0):
+    """Decode each wanted segment to <folder>\\<prefix>_<n>_<n>.wav, n = segment + seg_offset (an offset lets the segments
+    of several sets, whose numbers collide, share one folder)."""
     os.makedirs(folder, exist_ok=True)
     jobs, problems = [], []
     for s, d, o in segment_streams(bank, fam):
         if s not in segments_wanted:
             continue
         head, packets = parse_sns(d, o)
-        if head["codec"] not in (0x0C, 0x0E) or head["rate"] != OPUS_RATE:
+        if head["codec"] not in SPEECH_CODECS or head["rate"] != OPUS_RATE:
             problems.append("segment %d: codec %d rate %d not handled" % (s, head["codec"], head["rate"]))
             continue
-        ogg, total = ogg_opus(head, packets)
+        try:
+            ogg, total = ogg_opus(head, packets)
+        except FormatError as ex:
+            problems.append("segment %d: %s" % (s, ex))
+            continue
         if total != head["samples"]:
             problems.append("segment %d: blocks hold %d samples, the header says %d" % (s, total, head["samples"]))
-        base = os.path.join(folder, "%s_%d_%d" % (prefix, s, s))
+        base = os.path.join(folder, "%s_%d_%d" % (prefix, s + seg_offset, s + seg_offset))
         if ffmpeg:
             jobs.append((ogg, base + ".wav", total, s))
         else:
@@ -1252,7 +1334,7 @@ def run(a, log=print):
                 problems += write_wavs(bank, fam, prefix, folder, ffmpeg, {r["segment"] for r in rows}, log)
             result["wav_dir"] = os.path.abspath(a.wav)
             notes.append("audio: EA SNS streams, codec %s, decoded with %s; %d problems%s" % (
-                "EA Opus (mono, 48 kHz)", ffmpeg or "nothing (Ogg Opus files)", len(problems),
+                "EA Opus (0x0C / 0x0E mono; 0x0F multistream, speech stream decoded; 48 kHz)", ffmpeg or "nothing (Ogg Opus files)", len(problems),
                 (": " + "; ".join(problems[:20])) if problems else ""))
         result["family_summary"] = summary
         result["other_player_families"] = other_player_families(bank, log)
@@ -1340,10 +1422,38 @@ def self_test(game, log=print):
         check("blocks: an unknown compression type is refused", True)
     check("ogg: CRC of 'OggS' page sample", ogg_crc(b"123456789") == 0x89A1897F)
     check("opus: TOC 0x78 (hybrid FB 20 ms, one frame) = 960 samples", opus_packet_samples(b"\x78\x00") == 960)
-    head = {"channels": 1, "rate": 48000}
+    head = {"codec": CODEC_EAOPUSM, "channels": 1, "rate": 48000}
     ogg, total = ogg_opus(head, [(648, b"\x78" + b"\0" * 10), (960, b"\x78" + b"\0" * 12)])
     check("ogg: pre-skip 312, total 1608, two header pages + one data page",
           total == 1608 and ogg.count(b"OggS") == 3 and struct.unpack_from("<H", ogg, 28 + 10)[0] == 312)
+    # codec 0x0F (eng_us): a block = stream 1 self-delimited (TOC, length, frame) + the 3 silent bytes
+    def blk(frame, toc=b"\x78"):
+        n = len(frame)
+        ln = bytes([n]) if n < 252 else bytes([252 + (n & 3), (n - 252 - (n & 3)) // 4])
+        return toc + ln + frame + SILENT_STREAM
+    check("multistream: stream 1 returns as a standard packet, stream 2 as the silent packet",
+          split_streams(blk(b"abcde"), 2) == [b"\x78abcde", SILENT_STREAM])
+    check("multistream: a two-byte self-delimited length (4 * second + first = 261)",
+          split_streams(blk(b"x" * 261), 2)[0] == b"\x78" + b"x" * 261)
+    check("multistream: a CELT silence frame in stream 1 (TOC 0xf8)",
+          split_streams(blk(b"\xff\xfe", b"\xf8"), 2)[0] == b"\xf8\xff\xfe")
+    for name, bad in (("TOC code 1", b"\x79\x02ab" + SILENT_STREAM), ("a frame past the block end", b"\x78\x40ab"),
+                      ("no stream 2", b"")):
+        try:
+            split_streams(bad, 2)
+            check("multistream: refused: " + name, False)
+        except FormatError:
+            check("multistream: refused: " + name, True)
+    head15 = {"codec": CODEC_EAOPUSMU, "channels": 2, "rate": 48000}
+    ogg, total = ogg_opus(head15, [(648, blk(b"\0" * 10)), (960, blk(b"\0" * 12))])
+    check("codec 15: pre-skip 312, total 1608, only the speech stream is wrapped (no f8 ff fe tail in the Ogg)",
+          total == 1608 and ogg.count(b"OggS") == 3 and struct.unpack_from("<H", ogg, 28 + 10)[0] == 312
+          and SILENT_STREAM not in ogg)
+    try:
+        ogg_opus(head15, [(648, b"\x78\x02ab\xf8\xff\xff")])
+        check("codec 15: audio in stream 2 is refused, not dropped", False)
+    except FormatError:
+        check("codec 15: audio in stream 2 is refused, not dropped", True)
 
     if game and is_installed(game, "ita_it"):
         log("on disk (ita_it, %s):" % game)
