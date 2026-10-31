@@ -5,7 +5,7 @@
 //
 // This file is NEW and does NOT register itself with the shell: the wiring owner (brief 2.20-IA-wiring) adds
 //     TURBO_REGISTER_NEW_PAGE(shell::Page::CreatePlayer, draw_player_creation);
-// in ui_pages_216.cpp and removes the signpost of ui_nav_pages.cpp.
+// in ui_pages_216.cpp.
 #pragma once
 #include <cstddef>
 #include <cstdint>

@@ -815,7 +815,7 @@ void presets_editor_panel(App& app, void*) {
     }
 
     if (ImGui::CollapsingHeader("Live now##tpsec_live", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (g_state.live_ok || app.prefs.advanced_mode) ImGui::TextWrapped("%s", g_state.live_line.c_str());
+        if (g_state.live_ok) ImGui::TextWrapped("%s", g_state.live_line.c_str());
         if (!g_state.live_ok) theme::warn_text("Your tactic: not read. %s", g_state.live_plain.c_str());
         ImGui::TextWrapped("%s", g_state.sliders_line.c_str());
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read from the settings file the game saved last: at the first look and at every Refresh");
@@ -967,9 +967,8 @@ void gameplay_editor_panel(App& app, void*) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Dismiss##gpdismiss")) dismiss_prompt(app);
     }
-    // 10-28 findability: Page::GameplayPresets IS this page on the default (legacy) tree, so the game's settings and their presets
-    // (Save current / Load into the game) are drawn here in full, with no Advanced gate; a link line here would point at itself
-    g_gp.advanced_section = false;
+    // 10-28 findability: Page::GameplayPresets IS this page, so the game's settings and their presets
+    // (Save current / Load into the game) are drawn here in full; a link line here would point at itself
     ImGui::SeparatorText("Game Type Settings and CPU Sliders");
     draw_game_settings(app);
 }

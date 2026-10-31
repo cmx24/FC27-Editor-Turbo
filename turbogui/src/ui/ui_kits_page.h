@@ -12,8 +12,6 @@
 //                              club_*_section functions of ui_club_page.h.
 //   (4.0 S9) draw_kits_page and draw_club_identity_page construct a page::Frame (ui_page.h): ids "kits" and "club_crest"; the Kits Apply is
 //   the frame's bar Apply, and the bar's Undo is the Changes list's.
-//   draw_kit_diagnostics       The old Teams > Kits body with every developer control (texture trees, watch only, hook line ...) for the
-//                              wiring builder to put under Advanced > Kit diagnostics. Nothing is lost.
 //
 // Behaviour comes only from the existing functions of ui_kits.h (import, apply, restore, status words) and the public kitswap::Runtime.
 #pragma once
@@ -28,7 +26,6 @@ class App;
 
 void draw_kits_page(App& app);
 void draw_club_identity_page(App& app);
-void draw_kit_diagnostics(App& app);
 
 // What the last Kits page frame drew (plain text is not an ImGui item, so the tests read it here)
 struct KitsPageState {

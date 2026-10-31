@@ -4,7 +4,7 @@
 // Lua module with the same override keys, or calls the same App function, as the old Players / Career / Tools panels.
 //
 //   draw_team_players     Team > Players     the career-only side of a club: tab Player (contract, form, squad role, growth of one player)
-//                                            and tab Whole squad (the My team preset + Career > My squad's cards, draw_career_my_squad)
+//                                            and tab Whole squad (the My team preset + the squad cards, draw_career_squad_cards)
 //   draw_team_transfers   Team > Transfers   moves of the club, loans in and out, moving and signing players, the transfer and loan
 //                                            lists, contract extensions and the squad roles grid
 //

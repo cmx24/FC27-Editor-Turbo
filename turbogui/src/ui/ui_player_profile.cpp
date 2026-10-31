@@ -20,7 +20,6 @@
 #include "table_registry.h"
 #include "ui_archetype_populate.h"
 #include "ui_names.h"
-#include "ui_player_page.h"
 #include "ui_sections.h"
 #include "ui_setpiece_card.h"
 #include "ui_shell.h"
@@ -35,7 +34,7 @@ namespace {
 
 PlayerProfileState g_pstate;
 PlayerAbilityState g_astate;
-shell::Page g_team_page = shell::Page::Squad;
+shell::Page g_team_page = shell::Page::TeamPlayers;
 
 // ---------------------------------------------------------------- the player list (shared by both pages)
 // 2.22: the list is the Classic editor's own (draw_classic_player_list, ui_players.cpp): eight sortable columns and the full filter grid (club,

@@ -7,14 +7,11 @@
 //                       build) and read when gui.row_height is missing
 //   gui.splits          (2.22) {"<page>/<pane id>": width}: the width, in unscaled px, the person dragged a list pane to (ui_split.h); the
 //                       divider moves, the width is kept per page and across restarts (written once, when the drag has rested)
-//   gui.advanced_mode   false (default): "Simple" view, only the screens with a proven in-game effect; true: "Advanced",
-//                       everything (A6 entry point of the GUI simplification; see turbo_dev/research_20261016/GUI_AUDIT.md)
 //   gui.window          {x, y, w, h, maximized}: the main panel's place, size and maximized state (2.20; see WindowPrefs below)
 //   gui.sections_open   {"<page>.<section>": true|false}: which collapsing sections of the revamped pages are open (spec 2.1);
 //                       a section not listed uses the page's own default
 //   gui.rail_collapsed  false (default): the 3.0 left rail shows the area names; true: the narrow rail (first letters)
-//   gui.version         the GUI that last wrote the file (3.0: "3.0.0"). Missing or older than 3.0.0 = the first 3.0 start: the Lab
-//                       (advanced_mode) starts hidden once; the next save writes "3.0.0" and the person's choice holds from then on
+//   gui.version         the GUI that last wrote the file (3.0: "3.0.0")
 // Pure (json in / out), so the native tests can check the defaults and the round trip. The hotkey and the UI size keep
 // their own code in App::load_gui_settings / save_gui_settings.
 #pragma once
@@ -86,25 +83,8 @@ inline float row_density_cell_padding(RowDensity d) { return d == RowDensity::Co
 inline float row_density_item_spacing(RowDensity d) { return d == RowDensity::Compact ? 0.6f : d == RowDensity::Comfortable ? 1.4f : 1.0f; }
 inline float row_density_frame_padding(RowDensity d) { return d == RowDensity::Compact ? 0.75f : d == RowDensity::Comfortable ? 1.3f : 1.0f; }
 
-// Simple / Advanced view. The top-level tab indices are fixed (App::request_tab): the view only hides tabs, never renumbers.
-// Hidden in Simple: Database (raw tables), Game settings (sliders are stored and shown on the EA screen, effect on play NOT proven).
+// The legacy top-level tab indices (App::request_tab, shell::area_for): fixed, never renumbered.
 enum TopTab : int { TabPlayers = 0, TabTeams, TabManagers, TabCompetitions, TabDatabase, TabTools, TabStatus, TabGameSettings, TabCount };
-enum class SubTab : int { TeamsTactics, CompetitionsMatchSetup, CompetitionsGameplayTuning };
-
-inline bool top_tab_visible(int tab, bool advanced) {
-    if (advanced) return true;
-    return tab != TabDatabase && tab != TabGameSettings;
-}
-// Panels inside a visible tab with no proven in-game effect (tactics, gameplay tuning, match setup switches): Advanced only
-inline bool sub_tab_visible(SubTab, bool advanced) { return advanced; }
-// Tabs the Advanced view marks with a banner (no proven in-game effect yet); sub tabs draw the banner themselves
-inline bool top_tab_unproven(int tab) { return tab == TabGameSettings; }
-inline const char* simple_banner_text() {
-    return "Simple view: only features proven to work in the game. Experimental tactics, Gameplay tuning, Match setup, raw rows and bulk edit are under Advanced (Settings > Advanced view).";
-}
-inline const char* unproven_banner_text() {
-    return "Advanced: no proven in-game effect yet. Values can be written and read back, but nobody has shown the match plays differently.";
-}
 
 // ---- The main window (2.20 S3-window; Cassio 10-19: "why doesn't it just start maximized") ---------------------------------
 // gui_settings.json  gui.window = {x, y, w, h, maximized}, pixels of the game viewport:
@@ -368,7 +348,6 @@ struct SplitStore {
 struct GuiPrefs {
     WindowPrefs window;        // gui.window (the main panel's place, size and maximized state)
     WindowTracker window_rt;   // run time only
-    bool advanced_mode = false;
     bool preload_images = true;
     RowDensity row_density = RowDensity::Normal;  // the nearest step of row_height (kept for an older build's file)
     float row_height = kRowHeightNormal;         // 2.22: the Row height slider (unscaled px of a table row)
@@ -376,7 +355,6 @@ struct GuiPrefs {
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
     bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
     bool body_show_all = false;    // gui.body_show_all (5.0c RV4): the Body type window's "Show all body types" tick, default off, saved with the layout
-    bool first_30_start = false;   // run time only: load() found no gui.version >= 3.0.0 and hid the Lab
 
     bool section_open(const std::string& id, bool default_open) const {
         auto it = sections_open.find(id);
@@ -393,15 +371,9 @@ struct GuiPrefs {
     // From the whole gui_settings.json object (anything missing or malformed keeps the default)
     static GuiPrefs load(const nlohmann::json& gui_settings) {
         GuiPrefs p;
-        p.first_30_start = true;  // nothing stored yet counts as a first 3.0 start (advanced_mode is false already)
         if (!gui_settings.is_object()) return p;
         auto g = gui_settings.find("gui");
         if (g == gui_settings.end() || !g->is_object()) return p;
-        auto ver = g->find("version");
-        p.first_30_start = !(ver != g->end() && ver->is_string() && gui_version_compare(ver->get<std::string>(), kShellGuiVersion) >= 0);
-        auto am = g->find("advanced_mode");
-        if (am != g->end() && am->is_boolean()) p.advanced_mode = am->get<bool>();
-        if (p.first_30_start) p.advanced_mode = false;  // 3.0 first start: the Lab starts hidden, once
         auto rc = g->find("rail_collapsed");
         if (rc != g->end() && rc->is_boolean()) p.rail_collapsed = rc->get<bool>();
         auto ba = g->find("body_show_all");
@@ -428,7 +400,6 @@ struct GuiPrefs {
         if (!gui_settings.is_object()) gui_settings = nlohmann::json::object();
         nlohmann::json& g = gui_settings["gui"];
         if (!g.is_object()) g = nlohmann::json::object();
-        g["advanced_mode"] = advanced_mode;
         g["preload_images"] = preload_images;
         g["row_density"] = row_density_name(density_of_row_height(row_height));
         g["row_height"] = std::round(clamp_row_height(row_height));

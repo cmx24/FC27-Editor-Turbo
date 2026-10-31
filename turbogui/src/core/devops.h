@@ -27,7 +27,7 @@
 //                                                    frame; the answer comes one frame later: shown {area, page} (the page drawn) or
 //                                                    null, overlay_visible, requested {area, page}, pending (hidden: the page opens
 //                                                    when the overlay is shown; the op never shows / hides it). Errors name the
-//                                                    unknown area / page, a Lab page in the Simple view, or no overlay frame in 5 s.
+//                                                    unknown area / page, or no overlay frame in 5 s.
 //   multi {ops: [...]}                            -> results of each (stops at none)
 //   seq {steps: [... {op: "sleep", ms}]}          -> like multi, with pauses
 #pragma once

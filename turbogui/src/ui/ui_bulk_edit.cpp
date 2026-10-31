@@ -83,7 +83,7 @@ uint64_t g_version = ~uint64_t(0);
 bool g_confirm_big = false;
 bool g_do_fit = false, g_do_form = false, g_do_morale = false;
 int g_fit = 95, g_form = 100, g_morale = 100;
-// Development (re-homed from Lab > Bulk edit, ui_tools.cpp section_bulk_edit): every box starts OFF (the core/team_preset.h growth defaults)
+// Development: every box starts OFF (the core/team_preset.h growth defaults)
 bool g_do_dev = teampreset::kExtraXpDefault;
 bool g_no_decline = teampreset::kNoDeclineDefault;
 int g_bonus_xp = 0;

@@ -409,20 +409,6 @@ void pitch_tick(App& app, int64_t team, Slot slot, bool custom) {
         const std::string also = kit_swap_shared_clubs(st, team, sl, [&](int64_t id) { return app.model.team_name(id); });
         if (!also.empty()) theme::muted_text("This design would also appear on %s.", also.c_str());
     }
-    // 2.20: the old full build, only as an explicit action (Advanced): every kit planned again, one after the other
-    if (rt && opted && app.prefs.advanced_mode && !st.slots.empty()) {
-        const bool busy = st.plans_queued > 0 || st.state == "planning";
-        if (busy) ImGui::BeginDisabled();
-        char label[96];
-        std::snprintf(label, sizeof(label), "Rebuild all kit plans (%zu %s, about %.0f s each)##kpreplan", st.slots.size(), st.slots.size() == 1 ? "kit" : "kits", 20.0);
-        if (ImGui::SmallButton(label)) {
-            rt->replan_all();
-            app.log("kit swap: every kit plan asked for again (" + std::to_string(st.slots.size()) + " kits)");
-        }
-        if (busy) ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Prepares every kit that is switched on again from the game's own files. Needed only after a game update or when a kit asks for it.");
-    }
     ImGui::PopTextWrapPos();
 }
 
@@ -697,20 +683,6 @@ void draw_club_identity_page(App& app) {
         }
         ImGui::EndTabBar();
     }
-}
-
-// ---------------------------------------------------------------- Kit diagnostics (for Advanced)
-void draw_kit_diagnostics(App& app) {
-    if (!app.connected()) {
-        not_connected_hint();
-        return;
-    }
-    const int64_t team = club_page_team(app);
-    if (team <= 0) {
-        theme::muted_text("Pick a club first.");
-        return;
-    }
-    kits_editor(app, team);
 }
 
 }  // namespace turbo

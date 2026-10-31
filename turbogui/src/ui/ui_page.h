@@ -22,7 +22,7 @@
 //         if (clicked) turbo::page::done("x_page", "did the thing");   // failures: turbo::page::couldnt(app, "x_page", "do it", "why")
 //     }                                  // ~Frame draws the status line and the bar
 // tests/lint_one_component.py and test_gui_labels.h treat every function that constructs a page::Frame as a TEMPLATE page and hold
-// it to the stricter checks (no raw BeginTable, no own undo store, no "classic"/"old"/"new" label).
+// it to the stricter checks (no raw BeginTable, no own undo store, no label that calls a page old or new).
 #pragma once
 #include <string>
 #include <vector>

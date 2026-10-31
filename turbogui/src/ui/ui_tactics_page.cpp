@@ -1,9 +1,9 @@
 // FC 27 LE Turbo GUI - Tactics section pages (see ui_tactics_page.h): Tactic presets, Team sheet & bench, Game sliders.
 //
 // Chrome plus the thinnest glue, no new game logic: every write goes through an API that already exists (the Tactic presets panel for
-// tactic presets, game_settings_stage / _unstage for the sliders, the bench-keep switch file for the bench toggle). Reads are throttled
+// tactic presets, the bench-keep switch file for the bench toggle). Reads are throttled
 // to once a second and never block a frame. Never throws. Honesty (plan 5.1 R8): a tactic preset is written and read back, its effect in
-// a played match is not tested; the bench option is new and not tested in game; sliders are prepared here and installed later.
+// a played match is not tested; the bench option is new and not tested in game.
 #include "ui_tactics_page.h"
 
 #include <algorithm>
@@ -11,7 +11,6 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <string>
 
 #include "app.h"
@@ -26,7 +25,6 @@
 #include "ui_page.h"
 #include "ui_shell.h"
 #include "ui_tactic_presets.h"
-#include "ui_tactics_pages.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -128,7 +126,6 @@ void presets_frame(App& app) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("A preset can hold your tactic and, if you tick them, your set pieces and gameplay sliders. Game sliders installs the sliders part.");
     theme::muted_text("Tactic now: %s", s1.tactic_now.c_str());
-    if (app.prefs.advanced_mode && !live1.ok && ImGui::IsItemHovered() && !live1.why.empty()) ImGui::SetTooltip("%s", live1.why.c_str());
     if (live1.ok) {
         ImGui::SameLine();
         theme::muted_text("Turbo cannot change the shape.");
@@ -193,7 +190,7 @@ void update_team_sheet_state(App& app) {
     s2.bench_on = sw2.on_file;
     s2.bench_hint.clear();
     if (sw2.kill)
-        s2.bench_status = "Switched off by a safety switch. See Advanced > Diagnostics & logs.";
+        s2.bench_status = "Switched off by a safety switch.";
     else if (!sw2.session_off.empty())
         s2.bench_status = "Switched off for this session because a check failed. Restart the game to try again.";
     else if (sw2.on_file)
@@ -246,7 +243,6 @@ void bench_card(App& app) {
     theme::muted_text("Your saved order");
     if (!s2.sheet_read) {
         theme::muted_text("Can't read your team sheet right now. %s", s2.sheet_why.c_str());
-        if (app.prefs.advanced_mode && ImGui::IsItemHovered() && !live2.why.empty()) ImGui::SetTooltip("%s", live2.why.c_str());
         return;
     }
     std::string xi;
@@ -284,216 +280,6 @@ void setpieces_card(App& app) {
 
 // ---------------------------------------------------------------------------------------------- Game sliders
 GameSlidersPageState s3;
-struct Sliders {
-    bool loaded = false;
-    std::vector<tpreset::Preset> presets;
-    std::vector<int> idx;  // into presets: those with a sliders block
-    int sel = -1;          // into idx
-    int plan_for = -2;
-    bool plan_ok = false;
-    int writable = 0, unverified = 0;
-    size_t skipped = 0;
-    std::string plan_why;
-    double next_pending = -1.0;
-    bool have_pending = false;
-    std::string pending_name;
-    std::string raw_message;
-    std::vector<std::string> errors;  // 2.20: the files load_presets skipped (shown, never dropped)
-    bool sliders_ok = false;          // 2.20: the Custom sliders block the game saved last (first look + Refresh)
-    std::map<std::string, int> sliders;
-    std::string sliders_why;
-    int refreshes = 0;
-} sl;
-
-const tpreset::Preset* selected_preset() {
-    if (sl.sel < 0 || sl.sel >= int(sl.idx.size())) return nullptr;
-    return &sl.presets[size_t(sl.idx[size_t(sl.sel)])];
-}
-
-void read_sliders_now(App& app) {
-    std::string layout, map_build;
-    sl.sliders.clear();
-    sl.sliders_ok = game_settings_current(app, sl.sliders, layout, map_build, sl.sliders_why);
-    if (sl.sliders_ok) sl.sliders_why.clear();
-}
-
-std::string sliders_now_line() {
-    if (!sl.sliders_ok) return "Custom sliders now: not read (" + sl.sliders_why + ")";
-    auto val = [](const char* k) {
-        auto it = sl.sliders.find(k);
-        return it == sl.sliders.end() ? std::string("?") : std::to_string(it->second);
-    };
-    return "Custom sliders now: " + std::to_string(sl.sliders.size()) + " values (sprint speed you " + val("user.sprint_speed") + " / CPU " +
-           val("cpu.sprint_speed") + ", acceleration you " + val("user.acceleration") + ") - " + gsettings::kSlidersSource;
-}
-
-void load_presets_now(App& app) {
-    std::vector<std::string>& errors = sl.errors;
-    errors.clear();
-    const fs::path dir = tpreset::presets_dir(out_dir(app));
-    sl.presets = tpreset::load_presets(dir, &errors);
-    log_line(app, "game sliders: " + tpreset::scan_line(sl.presets.size(), errors, dir.u8string()));
-    sl.idx.clear();
-    for (size_t i = 0; i < sl.presets.size(); ++i)
-        if (sl.presets[i].settings.present) sl.idx.push_back(int(i));
-    if (sl.sel >= int(sl.idx.size())) sl.sel = -1;
-    sl.plan_for = -2;
-    sl.loaded = true;
-}
-
-void read_pending(App& app, bool force = false) {
-    if (!force && app.now < sl.next_pending) return;
-    sl.next_pending = app.now + 1.0;
-    sl.have_pending = false;
-    sl.pending_name.clear();
-    std::vector<uint8_t> b;
-    std::error_code ec;
-    const fs::path f = out_dir(app) / gsettings::pending_file();
-    if (!fs::exists(f, ec) || !gsettings::read_bytes(f, b, 1u << 20)) return;
-    gsettings::Pending pd;
-    std::string err;
-    if (!gsettings::Pending::parse(std::string(b.begin(), b.end()), pd, &err)) return;
-    sl.have_pending = true;
-    sl.pending_name = pd.preset;
-}
-
-void plan_selected(App& app) {
-    const tpreset::Preset* p = selected_preset();
-    if (!p) {
-        sl.plan_for = -2;
-        return;
-    }
-    if (sl.plan_for == sl.sel) return;  // once per selection (and after Refresh), not per frame
-    sl.plan_for = sl.sel;
-    std::vector<std::string> skipped;
-    sl.writable = sl.unverified = 0;
-    sl.plan_why.clear();
-    sl.plan_ok = game_settings_plan(app, p->settings.values, sl.writable, skipped, sl.plan_why, p->settings.include_unverified, &sl.unverified);
-    sl.skipped = skipped.size();
-}
-
-void update_sliders_state(App& app) {
-    if (!sl.loaded) {
-        load_presets_now(app);
-        read_sliders_now(app);
-    }
-    read_pending(app);
-    plan_selected(app);
-    s3.names.clear();
-    for (int i : sl.idx) s3.names.push_back(sl.presets[size_t(i)].name);
-    s3.selected = sl.sel;
-    s3.skipped = sl.errors;
-    s3.sliders_now = sliders_now_line();
-    s3.refreshes = sl.refreshes;
-    s3.tag = "Effect in matches: not tested yet";
-    const tpreset::Preset* p = selected_preset();
-    s3.counts_line.clear();
-    s3.status.clear();
-    s3.can_prepare = s3.can_discard = s3.prepared = false;
-    s3.steps = "1. Press Prepare.\n2. Close the game, then run turbo\\turbo_settings_apply.exe --apply (the settings tool in the Turbo folder).\n3. Start the game and choose Gameplay Type: Custom.";
-    if (!p) return;
-    if (!sl.plan_ok) {
-        s3.counts_line = "Can't check these sliders now. Turbo has no slider list for this version of the game.";
-    } else {
-        const int proven = sl.writable - sl.unverified;
-        s3.counts_line = std::to_string(proven) + " slider" + (proven == 1 ? "" : "s") + " confirmed on the Custom screen";
-        if (sl.unverified > 0) s3.counts_line += ", " + std::to_string(sl.unverified) + " experimental (not seen on that screen yet)";
-        if (sl.skipped > 0) s3.counts_line += ", " + std::to_string(sl.skipped) + " left out";
-        s3.counts_line += ".";
-    }
-    s3.prepared = sl.have_pending && sl.pending_name == p->name;
-    if (s3.prepared) s3.status = "Prepared. Close the game, then run turbo\\turbo_settings_apply.exe --apply to finish.";
-    else if (sl.have_pending) s3.status = "Another preset is prepared (\"" + sl.pending_name + "\"). Preparing this one replaces it.";
-    else s3.status = "Not prepared yet.";
-    s3.can_prepare = sl.plan_ok && sl.writable > 0;
-    s3.can_discard = s3.prepared;
-}
-
-void prepare_selected(App& app) {
-    const tpreset::Preset* p = selected_preset();
-    if (!p) return;
-    std::string msg;
-    int staged = 0;
-    std::vector<std::string> skipped;
-    const bool ok = game_settings_stage(app, p->name, p->settings.values, msg, staged, skipped, p->settings.include_unverified);
-    sl.raw_message = msg;
-    s3.message = ok ? "Prepared " + std::to_string(staged) + " slider" + (staged == 1 ? "" : "s") + " from \"" + p->name +
-                          "\". Close the game and run turbo\\turbo_settings_apply.exe --apply, then start with Gameplay Type: Custom."
-                    : "Couldn't prepare \"" + p->name + "\". None of its sliders can be installed with this version of the game yet.";
-    log_line(app, "game sliders: " + (ok ? std::string("prepared ") : std::string("not prepared ")) + p->name);
-    read_pending(app, true);
-}
-
-void discard_selected(App& app) {
-    const tpreset::Preset* p = selected_preset();
-    if (!p) return;
-    std::string msg;
-    const bool ok = game_settings_unstage(app, p->name, msg);
-    sl.raw_message = msg;
-    s3.message = ok ? "Discarded. Nothing will be installed." : "Nothing to discard.";
-    log_line(app, "game sliders: " + std::string(ok ? "discarded " : "nothing to discard for ") + p->name);
-    read_pending(app, true);
-}
-
-void sliders_select_panel(App& app, void*) {
-    ImGui::TextUnformatted("Slider presets");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh###gsrefresh")) {
-        // 2.20: the folder, the prepared file and the Custom sliders, all read again (until 2.20 only the folder)
-        load_presets_now(app);
-        read_pending(app, true);
-        read_sliders_now(app);
-        ++sl.refreshes;
-        log_line(app, "game sliders: refresh: " + std::to_string(sl.idx.size()) + " slider preset(s) listed, " + std::to_string(sl.errors.size()) +
-                          " file(s) skipped; custom sliders " + (sl.sliders_ok ? "read: " + std::to_string(sl.sliders.size()) + " values" : "not read: " + sl.sliders_why));
-        s3.message = "Read again: " + std::to_string(sl.idx.size()) + " slider preset" + (sl.idx.size() == 1 ? "" : "s") +
-                     (sl.errors.empty() ? std::string() : ", " + std::to_string(sl.errors.size()) + " file(s) could not be used") + ".";
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reads the presets and the Custom sliders again");
-    for (size_t k = 0; k < sl.idx.size(); ++k) {
-        const tpreset::Preset& p = sl.presets[size_t(sl.idx[k])];
-        const std::string label = p.name + "  -  " + std::to_string(p.settings.values.size()) + " sliders###gsel" + std::to_string(k);
-        if (ImGui::Selectable(label.c_str(), sl.sel == int(k), 0, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-            if (sl.sel != int(k)) log_line(app, "game sliders: picked \"" + p.name + "\": " + tpreset::summary(p));
-            sl.sel = int(k);
-            sl.plan_for = -2;
-            s3.message.clear();
-        }
-    }
-    if (sl.idx.empty() && sl.errors.empty()) theme::muted_text("No slider presets yet. Save one on Tactic presets with \"Include gameplay sliders\" ticked.");
-    if (!sl.errors.empty()) theme::warn_text("%zu preset file(s) could not be used:", sl.errors.size());
-    for (const std::string& e : sl.errors) ImGui::TextWrapped("Skipped %s", e.c_str());
-}
-
-void sliders_editor_panel(App& app, void*) {
-    const tpreset::Preset* p = selected_preset();
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
-    ImGui::TextUnformatted(p ? p->name.c_str() : "Game sliders");
-    ImGui::PopFont();
-    tag(s3.tag, theme::warn());
-    theme::muted_text("%s", s3.sliders_now.c_str());
-    if (!p) {
-        theme::muted_text("Pick a slider preset on the left.");
-        return;
-    }
-    ImGui::TextWrapped("%s", s3.counts_line.c_str());
-    if (s3.prepared) theme::ok_text("%s", s3.status.c_str());
-    else theme::muted_text("%s", s3.status.c_str());
-    ImGui::Spacing();
-    theme::muted_text("How it works");
-    ImGui::TextWrapped("%s", s3.steps.c_str());
-    ImGui::Spacing();
-    ImGui::BeginDisabled(!s3.can_discard);
-    if (ImGui::Button("Discard###gsdiscard")) discard_selected(app);
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Takes the prepared sliders back. Nothing will be installed.");
-    if (!s3.message.empty()) {
-        ImGui::TextWrapped("%s", s3.message.c_str());
-        if (app.prefs.advanced_mode && ImGui::IsItemHovered() && !sl.raw_message.empty()) ImGui::SetTooltip("%s", sl.raw_message.c_str());
-    }
-    game_settings_link_line(app, "gslink_tac");  // 10-28: was the Advanced header ###gsadv (a second copy)
-}
-
 }  // namespace
 
 const TacticsPresetsPageState& tactics_presets_page_state() { return s1; }
@@ -508,7 +294,6 @@ void tactics_pages_reset() {
     sw2 = Switches();
     sp2 = SetPieces();
     s3 = GameSlidersPageState();
-    sl = Sliders();
 }
 
 bool team_sheet_set_bench_keep(App& app, bool on) {
@@ -560,14 +345,9 @@ void draw_team_sheet_page(App& app) {
     frame.end();
 }
 
-const char* const kOfflineSlidersHeading = "Offline slider file (experimental)";
-const char* const kOfflineSlidersLabel =
-    "No effect seen in game on 2026-10-24: the game rewrote its Settings file at boot, before the Main Menu (GUI30K). Kept for diagnosis.";
-
 // 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): Game settings > Game settings & CPU sliders is
 // the ONE place for the Game Type Settings, the CPU Sliders and their presets. It draws the Game settings view (ui_game_settings.cpp: preset
-// row Save current / Load into the game first, then the values) with no Advanced gate and no Lab pointer. Load writes the game's live
-// block (4.0/sliders-rw route 1) and says so; the old pointer to the Lab ("moved to the Lab") is gone.
+// row Save current / Load into the game first, then the values). Load writes the game's live block (4.0/sliders-rw route 1) and says so.
 void draw_game_sliders_page(App& app) {
     s3.drawn = true;
     s3.moved_note = false;
@@ -582,60 +362,5 @@ void draw_game_sliders_page(App& app) {
     }
     frame.end();
 }
-
-// One line in the old places (Tactics header, Lab section): the feature lives on its own page now; a button opens it.
-void game_settings_link_line(App& app, const char* id) {
-    theme::muted_text("Game Type Settings, CPU Sliders and their presets are on their own page.");
-    ImGui::SameLine();
-    const std::string lbl = std::string("Open Game settings & CPU sliders###") + id;
-    if (ImGui::SmallButton(lbl.c_str())) app.go(shell::Page::GameplayPresets);
-}
-
-// The section the Tactics area had until 3.0.0 (the list, Prepare / Discard, the steps, the Advanced Game settings view), unchanged,
-// under its heading and label. Its own ID scope; its body fills the rest of the Lab page's bottom region (##labtacoff), so the list's
-// Refresh (top of ##select) and Prepare (footer) are both in view: a fixed 480 px body overflowed the up-to-320 px region and hid Refresh
-// (GUI30K FAIL on 0f5d3b2, test_nav_220.h:196); the list and the editor scroll inside their own panels.
-void draw_offline_slider_section(App& app) {
-    s3.drawn = true;
-    s3.lab_heading = kOfflineSlidersHeading;
-    s3.lab_label = kOfflineSlidersLabel;
-    ImGui::PushID("##offsl");
-    ImGui::SeparatorText(kOfflineSlidersHeading);
-    ImGui::PushStyleColor(ImGuiCol_Text, theme::warn());
-    ImGui::TextWrapped("%s", kOfflineSlidersLabel);
-    ImGui::PopStyleColor();
-    game_settings_link_line(app, "gslink_lab");  // 10-28 findability: the live sliders and presets are on their own page
-    ImGui::BeginChild("##offslbody", ImVec2(0, 0), ImGuiChildFlags_None);
-    try {
-        update_sliders_state(app);
-        shell::page::Primary primary;
-        primary.label = "Prepare###gsprepare";
-        primary.enabled = s3.can_prepare;
-        shell::page::frame(app, sliders_select_panel, sliders_editor_panel, nullptr, &primary);
-        if (primary.clicked) prepare_selected(app);
-    } catch (const std::exception& e) {
-        theme::err_text("Game sliders error: %s", e.what());
-    } catch (...) {
-        theme::err_text("Game sliders error");
-    }
-    ImGui::EndChild();
-    ImGui::PopID();
-}
-
-// Lab > Tactics (experimental): the old page draw_tactics_page (ui_tactics.cpp: amber line, ##ttac child, draw_tactics) called as it is,
-// in a region that leaves the bottom part of the page free, then the offline slider file section in that bottom part, below the
-// live-slider block. Calling draw_tactics_page itself (not a copy of its body) keeps it reached by the default navigation (NAVCAP,
-// tools/nav_capability_check.py: "Advanced > Tactics (experimental): draw_tactics_page"); with the old pages on it still answers alone.
-void draw_lab_tactics_page(App& app) {
-    const float avail = ImGui::GetContentRegionAvail().y;
-    const float off_h = std::max(1.0f, std::min(S(320.0f), avail * 0.4f));
-    ImGui::BeginChild("##labtaclive", ImVec2(0, -off_h), ImGuiChildFlags_None);  // negative height: all but the bottom off_h
-    draw_tactics_page(app);
-    ImGui::EndChild();
-    ImGui::BeginChild("##labtacoff", ImVec2(0, 0), ImGuiChildFlags_None);
-    draw_offline_slider_section(app);
-    ImGui::EndChild();
-}
-TURBO_REGISTER_NEW_PAGE(shell::Page::AdvTactics, draw_lab_tactics_page);
 
 }  // namespace turbo

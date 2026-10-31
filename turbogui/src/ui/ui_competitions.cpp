@@ -415,9 +415,8 @@ bool recalc_league(App& app, int64_t league, bool positions, std::string* msg) {
     return true;
 }
 
-// Legacy Competitions tab: stays whole until the shell track retires the tab bar. Its Career database copy view is the body of
-// Career tools > Maintenance (draw_career_database_copy, ui_career_page.h, one call site on the page; the tab below calls the
-// same function until then). At integration the Tactics track drops standings / match setup / tuning from this tab.
+// Legacy Competitions tab: stays whole until the shell track retires the tab bar. Its Career database copy view is
+// draw_career_database_copy (ui_career_page.h).
 void draw_competitions(App& app) {
     if (!app.connected()) {
         not_connected_hint();
@@ -426,15 +425,6 @@ void draw_competitions(App& app) {
     if (ImGui::BeginTabBar("##compviews")) {
         if (ImGui::BeginTabItem("Live standings (game)")) {
             draw_standings_page(app);  // 2.13: ui_standings.cpp (also the Standings page of Tactics & Gameplay)
-            ImGui::EndTabItem();
-        }
-        if (sub_tab_visible(SubTab::CompetitionsMatchSetup, app.prefs.advanced_mode) && ImGui::BeginTabItem("Match setup")) {
-            draw_match_setup_page(app);  // 2.13: ui_match.cpp, with its amber line (also Advanced > Match setup)
-            ImGui::EndTabItem();
-        }
-        // the engine's gameplay tuning tables (ui_tuning.cpp): engine-wide, every club and every match, so here and not in a club's Tactics tab
-        if (sub_tab_visible(SubTab::CompetitionsGameplayTuning, app.prefs.advanced_mode) && ImGui::BeginTabItem("Gameplay tuning")) {
-            draw_tuning_page(app);  // 2.13: ui_tuning.cpp, with its amber line (also Advanced > Gameplay tuning)
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Career database copy")) {

@@ -550,7 +550,7 @@ json DevService::op(const json& req, int depth) {
         if (!env_.sleep) return fail("not available");
         const json& ja = req.contains("area") ? req["area"] : json();
         const json& jp = req.contains("page") ? req["page"] : json();
-        if (!ja.is_string() || ja.get<std::string>().empty()) return fail("area: the label on the rail (Home, Players, Looks, Club, Tactics, Career, Settings, Lab)");
+        if (!ja.is_string() || ja.get<std::string>().empty()) return fail("area: the label on the rail (Home, Players, Looks, Club, Tactics, Game settings, Career, Turbo settings)");
         if (!jp.is_string() || jp.get<std::string>().empty()) return fail("page: the label on the page strip (Player, Kits, Standings, ...)");
         DevPageSlot& s = page_slot();
         uint64_t ticket = 0;

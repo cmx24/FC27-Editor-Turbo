@@ -27,7 +27,6 @@
 #include "pitch_view.h"
 #include "ui_live_tactic.h"
 #include "ui_shell.h"
-#include "ui_tactics_pages.h"
 
 namespace turbo {
 
@@ -1867,14 +1866,5 @@ void tactics_clear_on_exit(App& app) {
     } catch (...) {
     }
 }
-
-// 2.13: Advanced > Tactics (experimental) (was Teams > Tactics). The amber line is the only addition; drawn only in the Advanced view
-void draw_tactics_page(App& app) {
-    draw_unproven_line("docs/TACTICS_OVERHAUL_DECISION.md");
-    ImGui::BeginChild("##ttac");
-    draw_tactics(app);
-    ImGui::EndChild();
-}
-TURBO_REGISTER_PAGE(shell::Page::AdvTactics, draw_tactics_page);
 
 }  // namespace turbo
