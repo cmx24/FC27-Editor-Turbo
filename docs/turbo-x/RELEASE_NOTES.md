@@ -1,6 +1,6 @@
 # Turbo X 1.0 — pre-release notes (2026-10-31)
 
-**Status: compiled, not proven.** This build came out of the project's own `build_win.sh` with exit 0 and 0 warnings, cross-compiled on Linux with MinGW-w64 GCC 13.2. It has **not run in EA FC 27**. Nobody has seen the overlay draw. Install it only on the throwaway LEICESTER career, after `Protect-TurboFiles.ps1`, and follow `docs/turbo-x/TEST_CARD.md`.
+**Status: compiled, booted and partly proven in game (2026-10-31 16:12–16:30 EDT, LEICESTER, driver run, Undo afterwards).** Built by the project's own `build_win.sh` (exit 0, 0 warnings, MinGW-w64 GCC 13.2). In the game: 129/129 hooks, footer "Turbo X 1.0", every area opens, the one picker opens for hair and beard with the same layout, a hair apply and its way back worked, the callname Preview path fires. Not yet seen: accessory/tattoo pickers, a slider move, saved sizes, audio actually heard. Details and shots: `BUILD_LOG.md`, `evidence\\2026-10-31\\turbox-rc2\\run3`. Install it only on the throwaway LEICESTER career, after `Protect-TurboFiles.ps1`, and follow `docs/turbo-x/TEST_CARD.md`.
 
 Identity: `Turbo.dll` md5 `8b23d9c157f7c33475ed8f9ad5fa0bc1`, package `TurboX_<commit>_8b23d9c1.zip` (the commit is in the zip name and in its BUILD.txt; the docs commit after the build changes the id, the source does not: src is at ff1c547 + tests at 41cf307). The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
 
