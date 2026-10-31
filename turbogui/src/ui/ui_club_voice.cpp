@@ -9,6 +9,7 @@
 #include "app.h"
 #include "core/club_voice.h"
 #include "imgui.h"
+#include "ui_callname_play.h"
 #include "ui_club_page.h"
 #include "ui_theme.h"
 
@@ -167,6 +168,8 @@ void club_voice_section(App& app) {
                 const bool sel = g_pick.pick == id;
                 const std::string label = (sel ? "> " : "") + donor_name(app, id) + (donor_named(app, id) ? " (" + std::to_string(id) + ")" : std::string()) +
                                           "##cv" + std::to_string(id);
+                callname_play_button(app, CallnameAudioKind::Club, id);  // Preview: the club's FC 27 clip in the loaded language, or a disabled button with the reason
+                ImGui::SameLine();
                 if (ImGui::Selectable(label.c_str(), sel)) g_pick.pick = id;
             }
     }

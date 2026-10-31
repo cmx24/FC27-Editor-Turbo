@@ -95,6 +95,10 @@ fs::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, i
 std::vector<fs::path> callname_wavs(const MasterAudio& a, CallnameAudioKind kind, int64_t id) {
     std::vector<fs::path> out;
     if (a.wav_dir.empty()) return out;
+    if (kind == CallnameAudioKind::Club) {  // one wav per club, named by its id
+        out.push_back(fs::u8path(a.wav_dir) / (std::to_string(id) + ".wav"));
+        return out;
+    }
     auto add = [&](const std::unordered_map<int64_t, std::vector<int64_t>>& bank, bool link) {
         auto it = bank.find(id);
         if (it == bank.end()) return;
@@ -164,6 +168,17 @@ CallnamePlayer::Button CallnamePlayer::button(const MasterAudio& a, CallnameAudi
     Button b;
     if (!player_) {
         b.tip = "Sound playback is not available";
+        return b;
+    }
+    if (kind == CallnameAudioKind::Club) {  // a club name: one wav in the loaded language's folder, or the reason in words
+        const auto one = playable(a, kind, id);
+        if (a.wav_dir.empty() || one.empty()) {
+            b.tip = "No FC 27 audio for this name in " + (a.lang.empty() ? std::string("the loaded language") : a.lang);
+            return b;
+        }
+        b.enabled = true;
+        b.playing = playing(kind, id, now);
+        b.tip = b.playing ? "Stop" : "Play the shortest FC 27 recording that names this club";
         return b;
     }
     if (a.wav_dir.empty()) {
