@@ -1175,8 +1175,9 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
     filter(app, s);
     if (s.src.field == "hairtypecode") ImGui::TextDisabled("%zu of %zu styles match", s.shown.size(), s.src.codes.size());
-    // step 7: tiles with no picture are hidden by default; the count is on screen whenever any are hidden (and while they are shown)
-    if (s.blank_count > 0 || s.show_blank) {
+    // step 7: tiles with no picture are hidden by default; the count is on screen whenever any are hidden (and while they are shown).
+    // Turbo X (2026-10-31): nothing at zero ("Show 0 without picture" was drawn in choice mode, where show_blank starts on); the state stays
+    if (s.blank_count > 0) {
         if (s.src.field == "hairtypecode") ImGui::SameLine();
         char lbl[64];
         std::snprintf(lbl, sizeof(lbl), "Show %d without picture###vpblank", s.blank_count);
