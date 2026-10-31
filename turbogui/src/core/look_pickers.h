@@ -13,9 +13,11 @@
 // an attribute when its table has the column (the card skips an entry the loaded table lacks), so a database that gains a column
 // gains the row.
 //
-// Hair and beard are ONE entry each (Kind::Band3D): the popup shows two sections, "Game hairstyles" (the vp merged list of the
-// field: the generic head's hair) and "3D hairstyles (scanned heads)" (`band`: the generic ids a real face can take through the
-// reserved band codes of core/faces3d.h). Platform independent.
+// Hair and beard are ONE entry each (Kind::Band3D). DESIGN (declared, NOT yet consumed by src): the popup shows two sections,
+// "Game hairstyles" (the vp merged list of the field: the generic head's hair) and "3D hairstyles (scanned heads)" (`band`: the
+// generic ids a real face can take through the reserved band codes of core/faces3d.h). CURRENT BEHAVIOUR (5.0c E3): there is no merged
+// popup; for a real-face manager the Look card draws the faces gate's 3D section instead of the two rows (band_owned below), every
+// other head keeps the generic rows. The merged popup is pending (review RR1, 5.0c-E3-E4-dupes brief). Platform independent.
 #pragma once
 #include <cstdint>
 #include <cstring>
@@ -173,7 +175,9 @@ inline bool render_changes(const char* column) {
 enum class Section : uint8_t { Game = 0, Band3D = 1 };
 // "" when the section applies to his head, else the one line that says why it is greyed (the words of ui_faces3d_gate.cpp, which
 // kept them since 2.16). headclasscode: 0 real face, 1 generic head, <0 unknown. Only the 3D band depends on the head: the game
-// hairstyles stay writable on every head (they show once he has a generic head), so a pick is never refused by this.
+// hairstyles are writable on every head (they show once he has a generic head), so section_reason never refuses a game pick. The
+// Look card's picture rows for a real-face MANAGER are the exception, and it is not here: band_owned hides them (the typed entry of
+// "All fields" still writes the code). That hiding records the current behaviour; it is awaiting the Pit wall's sign-off (RR1).
 inline const char* section_reason(Section s, int64_t headclasscode) {
     if (s == Section::Band3D) {
         if (headclasscode < 0) return "3D hair and beard are for real faces.";

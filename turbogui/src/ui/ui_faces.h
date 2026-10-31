@@ -58,7 +58,7 @@ const std::vector<FaceTileDebug>& face_tile_debug();
 
 // Managers > Appearance tab: current miniface and head, "Choose a real face...", the outfit pictures, the appearance fields.
 // look_card_above (5.0c E3): the caller draws the Look card above (ui_teams.cpp): that card is then the ONE hair editor, so the "Hair & beard (3D)"
-// section (a fold of the card now) and the raw "Appearance fields" grid (every column is in the card's rows or its All fields fold) are not drawn.
+// section (open at the top of the card for a real-face manager) and the raw "Appearance fields" grid (every column is in the card's rows or its All fields fold) are not drawn.
 void manager_appearance(App& app, const Table& t, const ManagerRow& m, bool look_card_above = false);
 void manager_real_face_picker(App& app, int64_t managerid);
 // Give a manager the head of a player (owner_is_manager false) or of another manager: the head fields (and hair, beard,

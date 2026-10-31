@@ -13,6 +13,7 @@
 // more at mode 0 and both lines reach turbo_gui.log (R1); the caption names the size the game drew (R2). Cases are named
 // "Looks studio: ..." so TURBO_TEST_ONLY="looks studio" runs them alone.
 #pragma once
+#include "core/body_shape.h"
 #include "core/bodytype_catalog.h"
 #include "core/bodytype_thumbs.h"
 #include "ui/ui_bodytypes.h"
@@ -77,10 +78,17 @@ static void pure_cases() {
         CHECK(!h.empty() && h.back() == unknown, "his own body is always offered, even one nothing names");
 
         // managers: their own set, named by track F
+        // 5.0c RV4: by default one tile per distinct figure of the set (each code's look-alike lead); "Show all bodies" lists 81-89 again
         const std::vector<int64_t> m = looks::body_grid_codes(nullptr, 0, -1, true);
         bool set = true;
-        for (int64_t c = 81; c <= 89; ++c) set = set && std::find(m.begin(), m.end(), c) != m.end();
-        CHECK(set && std::find(m.begin(), m.end(), 4) != m.end(), "managers: the generic bodies and the manager set 81-89");
+        for (int64_t c = 81; c <= 89; ++c) set = set && std::find(m.begin(), m.end(), bodyshape::manager_set_lead(c)) != m.end();
+        CHECK(set && std::find(m.begin(), m.end(), 4) != m.end(), "managers: the generic bodies and every distinct figure of the manager set 81-89");
+        looks::body_show_all(true);
+        const std::vector<int64_t> m_all = looks::body_grid_codes(nullptr, 0, -1, true);
+        looks::body_show_all(false);
+        bool set_all = true;
+        for (int64_t c = 81; c <= 89; ++c) set_all = set_all && std::find(m_all.begin(), m_all.end(), c) != m_all.end();
+        CHECK(set_all && std::find(m_all.begin(), m_all.end(), 4) != m_all.end(), "managers, Show all bodies: the generic bodies and the manager set 81-89");
         CHECK(looks::body_caption(82, nullptr, true).rfind("Manager, ", 0) == 0 && !has_digit(looks::body_caption(82, nullptr, true).substr(0, 9)), "a manager body by its size, not its number: " + looks::body_caption(82, nullptr, true));
         // track F's census: a body only women have is not offered to a man
         const std::vector<int64_t> man = looks::body_grid_codes(nullptr, 0, 0), woman = looks::body_grid_codes(nullptr, 0, 1);
