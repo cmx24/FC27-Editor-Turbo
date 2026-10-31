@@ -864,13 +864,8 @@ void hair_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         card_end();
         return;
     }
-    if (!who.manager) {
-        if (const PlayerRow* p = app.model.player(who.id)) faces3d_gate_section(app, t, *p);  // ui_faces3d_gate.cpp
-    } else {
-        const auto& mgrs = app.model.managers();
-        if (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size()))
-            faces3d_manager_section(app, t, mgrs[static_cast<size_t>(app.sel_manager)]);  // ui_faces3d_gate.cpp
-    }
+    // players only (a manager returned above): his hair and beard are in the Look card
+    if (const PlayerRow* p = app.model.player(who.id)) faces3d_gate_section(app, t, *p);  // ui_faces3d_gate.cpp
     const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
     // a generic head takes the game's hairstyles: they are rows of the Look card below (ONE picker for each, 5.0b-A)
     if (hc != 0) hint_line("This is a generic head: pick his hair and beard in the Look card below.");
@@ -1144,7 +1139,7 @@ std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique
 void look_card(App& app, const Subject& who, uint64_t rec) {
     const Table* t = app.db.table(who.manager ? "manager" : "players");
     if (!t || !who.valid()) return;
-    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: with the 3D hair and beard fold
+    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: a real-face manager gets the 3D hair and beard section, open, at the top of the card
 }
 
 // ---------------------------------------------------------------- public: body-type grid

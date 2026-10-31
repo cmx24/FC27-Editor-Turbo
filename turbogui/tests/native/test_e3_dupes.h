@@ -132,6 +132,21 @@
         CHECK(body.find("Choose a real face...") != std::string::npos, "the real-face chooser button stays");
     });
 
+    // RR11 (trial 2): the Looks studio page's hair_card returns at once for a manager, so it holds no manager branch (dead code on the base: the
+    // base tree drew faces3d_manager_section there, the second editor of F5/R4). Fails on d197d851 and on 256a7da2; passes after the removal.
+    run_case("5.0c E3d: the Looks page hair_card has no manager branch (the Look card carries the manager's 3D section)", [&] {
+        const std::string studio = e3_slurp(e3_ui / "ui_looks_studio.cpp");
+        const size_t fn = studio.find("void hair_card(");
+        CHECK(!studio.empty() && fn != std::string::npos, "hair_card is defined in ui_looks_studio.cpp");
+        const size_t fn_end = fn == std::string::npos ? std::string::npos : studio.find("\n}", fn);
+        const std::string body = fn_end == std::string::npos ? std::string() : studio.substr(fn, fn_end - fn);
+        CHECK(!body.empty(), "found the body of hair_card");
+        CHECK(body.find("if (who.manager) return;") != std::string::npos, "hair_card returns at once for a manager");
+        CHECK(body.find("faces3d_manager_section(") == std::string::npos, "hair_card does not draw the manager 3D section (dead branch removed; the Look card draws it)");
+        CHECK(body.find("sel_manager") == std::string::npos, "hair_card has no manager lookup left");
+        CHECK(body.find("faces3d_gate_section(") != std::string::npos, "the player branch is untouched");
+    });
+
     run_case("5.0c E3c: every column of the removed manager grid is still reachable in the Look card (a row or the All fields fold)", [&] {
         const char* const grid[] = {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode", "skintypecode",
                                     "skincomplexion", "haircolorcode", "hairtypecode", "hairstylecode", "facialhairtypecode", "facialhaircolorcode",
