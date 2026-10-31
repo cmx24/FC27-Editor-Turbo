@@ -1171,16 +1171,19 @@ void window(App& app, const Table& t, uint64_t rec) {
     ImGui::PopID();
 }
 
-int look_rows(App& app, const Table& t, uint64_t rec, bool manager) {
+int look_rows(App& app, const Table& t, uint64_t rec, bool manager, bool skip_band_rows) {
     new_frame(app);
     int drawn = 0;
     ImGui::PushID("lookrows");
     if (resources(app).empty()) ImGui::TextDisabled("%s", pictures_line(app, false).c_str());
     const std::vector<const look::LookPicker*> all = look::pickers_for(manager ? look::kManager : look::kPlayer);
+    const int64_t hc = skip_band_rows && t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
     for (const char* g : look::kGroups) {
         std::vector<const look::LookPicker*> rows;
         for (const look::LookPicker* p : all)
-            if (std::strcmp(p->group, g) == 0 && t.has(p->column) && !look::dedicated_card(p->column)) rows.push_back(p);
+            if (std::strcmp(p->group, g) == 0 && t.has(p->column) && !look::dedicated_card(p->column) &&
+                !(skip_band_rows && look::band_owned(manager ? look::kManager : look::kPlayer, p->column, hc)))  // 5.0c E3: the 3D section owns them
+                rows.push_back(p);
         if (rows.empty()) continue;
         ImGui::SeparatorText(g);
         ImGui::PushID(g);

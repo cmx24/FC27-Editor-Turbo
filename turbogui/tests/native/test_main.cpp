@@ -4756,8 +4756,7 @@ static void test_ui() {
             CHECK(picked, "manager 502");
             CHECK(ui.click("Appearance", "##medit"), "manager Appearance tab");
             ui.frames(2);
-            // 5.0c E3: the 3D section is the closed fold "3D hair and beard" of the Look card (##mlook), no longer a section of ##mapp
-            CHECK(ui.click("###look3dnode", "##mlook"), "open the Look card's 3D hair and beard fold");
+            // 5.0c E3: the 3D section is drawn open inside the Look card (##mlook), no longer a section of ##mapp, no fold to open
             ui.frames(2);
             faces3d_set_choice(true, 502, 155, 46);
             ui.frames(1);

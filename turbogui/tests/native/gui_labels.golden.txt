@@ -813,7 +813,6 @@ ui_looks_studio.cpp	RadioButton	###lsmanagers	1
 ui_looks_studio.cpp	RadioButton	###lsplayers	1
 ui_looks_studio.cpp	RadioButton	###lsviewbody	1
 ui_looks_studio.cpp	RadioButton	###lsviewhead	1
-ui_looks_studio.cpp	TreeNode	###look3dnode	1
 ui_looks_studio.cpp	TreeNode	###lshairnode	1
 ui_match.cpp	-	##mf%u	1
 ui_match.cpp	-	Competition##msc	1

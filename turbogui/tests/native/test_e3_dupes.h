@@ -2,13 +2,17 @@
 // test_main.cpp includes this once, inside test_ui(), after test_e3_e4_dupes.h (app / ui / le / g_lua in scope). No #pragma once.
 //
 // On the base tree the manager Appearance tab edited the hair attribute in THREE places: the Look card rows (##mlook), the "Hair & beard
-// (3D)" section and the raw "Appearance fields" grid (##mappgrid), both under ##mapp (ui_faces.cpp manager_appearance). The new tree
-// has ONE editor surface, the Look card: its rows (the game's hairstyles, any head) and a closed fold "3D hair and beard" (real faces
-// only; the faces3d writer, Apply and His own hair & beard are unchanged). The grid's columns stay typed in the card's "All fields" fold.
-//   E3a  BEHAVIOURAL: with a real-face manager on the Appearance tab, "Apply hair & beard" is inside ##mlook (after opening the fold)
-//        and not inside ##mapp. Fails on the base tree (the button was in ##mapp, ##mlook had no 3D fold).
+// (3D)" section and the raw "Appearance fields" grid (##mappgrid), both under ##mapp (ui_faces.cpp manager_appearance). After the first
+// 5.0c E3 round a real-face manager STILL had two hair pickers and two beard pickers (the Look card's generic Hair / Beard rows plus the
+// 3D section, moved into a closed fold). Now a real-face manager (headclasscode 0) has ONE editor per attribute: the 3D section, drawn
+// open in the Look card (no fold); the generic Hair / Beard rows (hairtypecode / facialhairtypecode) are not drawn for him
+// (look::band_owned); the typed entry stays in "All fields". A generic-head manager keeps the generic rows. The faces3d writer, Apply and
+// His own hair & beard are unchanged. The grid's columns stay typed in the card's "All fields" fold.
+//   E3a  BEHAVIOURAL: with a real-face manager on the Appearance tab, "Apply hair & beard" is inside ##mlook (no fold to open) and not
+//        inside ##mapp; the Look card draws exactly two rows fewer for him than for a generic-head manager (no second hair / beard picker).
+//        Fails on the base tree (button in ##mapp) and on the first round (two rows too many).
 //   E3b  source: ui_teams.cpp tells manager_appearance the Look card is above; manager_appearance draws neither the 3D section nor the
-//        grid when it is; the grid literal stays inside the guard (test_one_picker.h holds it as a raw-entry site).
+//        grid when it is; look_card_body has no 3D fold and skips the band-owned rows.
 //   E3c  no capability lost: every column of the removed grid is a registry picker or a typed-only column of the Look card's "All fields".
 {
     namespace e3fs = std::filesystem;
@@ -18,7 +22,7 @@
         return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     };
 
-    run_case("5.0c E3a: a real-face manager's Appearance tab edits hair in ONE place, the Look card's 3D fold", [&] {
+    run_case("5.0c E3a: a real-face manager's Appearance tab edits hair and beard in ONE place, the Look card's 3D section", [&] {
         const bool was_tree = shell::tree40();
         const bool was_legacy = app.legacy_pages;
         const bool was_adv = app.prefs.advanced_mode;
@@ -56,13 +60,24 @@
             CHECK(ui.click("###home_manager_looks"), "click Home's Manager looks tile");
             ui.frames(6);
             CHECK(ui.find("Choose a real face...", "##medit") != nullptr, "the manager's Appearance tab is open");
-            // the fold is closed until opened (the faces card reads a file every frame it is drawn): open it
-            CHECK(ui.find("###look3dnode", "##mlook") != nullptr, "the Look card has the 3D hair and beard fold");
-            CHECK(ui.click("###look3dnode", "##mlook"), "open the 3D fold");
             ui.frames(3);
+            // the real-face Look card draws two rows fewer than a generic-head one: no second hair / beard picker (the 3D section is the editor)
+            auto rows_of_frame = [&]() {
+                const int before = turbo::looks::studio_state().look_rows;
+                ui.frames(1);
+                return turbo::looks::studio_state().look_rows - before;
+            };
+            const int rows_real = rows_of_frame();
+            CHECK(app.db.set_int(*mt, m0.rec, "headclasscode", 1), "manager 0 as a generic head, for the row count");
+            ui.frames(2);
+            const int rows_generic = rows_of_frame();
+            CHECK(app.db.set_int(*mt, m0.rec, "headclasscode", 0), "manager 0 a real face again");
+            ui.frames(3);
+            CHECK(rows_generic > 0 && rows_real == rows_generic - 2,
+                  "real-face Look card has exactly the hair and the beard row fewer: real " + std::to_string(rows_real) + " vs generic " + std::to_string(rows_generic));
             // ##mlook is half the pane's height: the button may sit below its visible part (a user scrolls to it)
             CHECK(ui.find("Apply hair & beard", "##mlook") != nullptr || ui.find_scrolling("Apply hair & beard", "##mlook", "") != nullptr,
-                  "Apply hair & beard is in the Look card");
+                  "Apply hair & beard is in the Look card (open, no fold)");
             CHECK(ui.find("Apply hair & beard", "##mapp") == nullptr, "the real-face pane (##mapp) has no second Apply hair & beard");
             CHECK(ui.find("His own hair & beard", "##mapp") == nullptr, "the real-face pane has no second His own hair & beard");
             CHECK(app.db.set_int(*mt, m0.rec, "headclasscode", hc0), "restore headclasscode");
@@ -102,6 +117,15 @@
         CHECK(guard != std::string::npos && sec != std::string::npos && sec > guard, "the 3D section is inside the guard");
         CHECK(guard != std::string::npos && grid != std::string::npos && grid > guard, "the raw grid is inside the guard");
         CHECK(guard != std::string::npos && lit != std::string::npos && lit > guard, "the grid's id literal stays inside the guard (test_one_picker.h holds it)");
+        const std::string studio = e3_slurp(e3_ui / "ui_looks_studio.cpp");
+        const size_t lc = studio.find("look_card_body(");
+        CHECK(!studio.empty() && lc != std::string::npos, "read ui_looks_studio.cpp look_card_body");
+        const size_t lc_end = studio.find("
+}", lc == std::string::npos ? 0 : lc);
+        const std::string lbody = lc == std::string::npos || lc_end == std::string::npos ? std::string() : studio.substr(lc, lc_end - lc);
+        CHECK(lbody.find("faces3d_manager_section(") != std::string::npos, "the Look card body draws the 3D section");
+        CHECK(lbody.find("TreeNode") == std::string::npos && lbody.find("CollapsingHeader") == std::string::npos, "the 3D section is not behind a fold in the Look card body");
+        CHECK(lbody.find("skip_band_rows") != std::string::npos || lbody.find("band") != std::string::npos, "the Look card body tells look_rows to skip the band-owned rows");
         CHECK(body.find("item_galleries(") != std::string::npos, "the Outfit galleries stay (their pictures are the only outfit picker of this pane)");
         CHECK(body.find("Choose a real face...") != std::string::npos, "the real-face chooser button stays");
     });

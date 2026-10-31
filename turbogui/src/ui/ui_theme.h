@@ -28,7 +28,7 @@ constexpr ImVec4 kTableBorderLight{0.40f, 0.45f, 0.56f, 1.0f};
 inline ImVec4 accent() { return kAccent; }
 inline ImVec4 accent_hover() { return ImVec4(kAccent.x * 1.15f, kAccent.y * 1.15f, kAccent.z * 1.05f, 1.0f); }
 inline ImVec4 accent_active() { return ImVec4(kAccent.x * 0.85f, kAccent.y * 0.85f, kAccent.z * 0.85f, 1.0f); }
-// 5.0c E4 (reviews.0b-design-review.md D-4): the FILL of an accent button. kAccent (0.26, 0.52, 0.96) is a text / glyph colour on the dark window
+// 5.0c E4 (reviews/5.0b-design-review.md D-4): the FILL of an accent button. kAccent (0.26, 0.52, 0.96) is a text / glyph colour on the dark window
 // (reads there at >= 4.5:1) but as a fill under the 0.96 text it drew 3.27:1 at rest and 2.65:1 hovered. The fill tokens give the text >= 4.5:1 in all
 // three states (white too, for the rail), keep the hue, stay >= 3:1 against the window, popup and card (WCAG 1.4.11), and hover is the lightest step
 // and active the darkest (test_e3_e4_dupes.h E4a). accent() / accent_hover() / accent_active() stay for text, check marks, grabs and outlines.

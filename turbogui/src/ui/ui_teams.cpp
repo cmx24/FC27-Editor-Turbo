@@ -896,8 +896,8 @@ void draw_managers(App& app) {
                     now_mtab = 1;
                     // 5.0b integration (track A's ask): A's ONE Look card for this manager (its rows come from the look registry), in a pane
                     // of its own above the real-face chooser. 5.0c E3: that card is the manager's ONE hair editor: the 3D hair and beard section
-                    // (with the only hair / beard Undo, A's deviation 24) is its closed fold "3D hair and beard" (ui_looks_studio.cpp
-                    // look_card_body), and the raw grid of the same columns under the chooser is gone (manager_appearance, look_card_above).
+                    // (with the only hair / beard Undo, A's deviation 24) is drawn OPEN at the top of the card for a real face
+                    // (ui_looks_studio.cpp look_card_body; the generic Hair / Beard rows are then not drawn: look::band_owned), and the raw grid of the same columns under the chooser is gone (manager_appearance, look_card_above).
                     ImGui::BeginChild("##mlook", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.5f));
                     looks::Subject who;
                     who.manager = true;
