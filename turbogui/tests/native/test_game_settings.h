@@ -573,7 +573,7 @@ static void run() {
 
 // --------------------------------------------------------------------------------------------------------------------------- UI
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
-    run_case("UI: Game settings tab - read-only values, the closed-game note, Save current / Load (stage) / Duplicate / Rename / Delete / Discard; "
+    run_case("UI: Game settings tab - read-only values, the closed-game note, Save current / Load (live write, refused without the game) / Duplicate / Rename / Delete; "
              "the settings folder is never written",
              [&] {
         const fs::path root = g_out / "gsettings" / "ui";
@@ -592,12 +592,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         game_settings_reset();
         app.request_tab = 7;
         ui.frames(3);
-        // 2.13: request_tab 7 lands on Tactics & Gameplay > Gameplay presets; the old tab is that page's Advanced section, closed at first
-        if (!game_settings_view_state().drawn) {
-            parity_test::scroll_into_view(ui, "Game settings file and slider values (Advanced)##gpadv");
-            CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv"), "open the Game settings section of Gameplay presets");
-            ui.frames(3);
-        }
+        // 10-28: request_tab 7 lands on Game settings > Game settings & CPU sliders, which draws the view itself (no Advanced gate since 2026-10-31)
         const GameSettingsViewState& s = game_settings_view_state();
         CHECK(s.drawn && s.closed_note && s.file_ok && s.file_line.find(kName) != std::string::npos && s.file_line.find("CRC ok") != std::string::npos,
               "file: " + s.file_line);
@@ -610,7 +605,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const auto* rc = row("cpu.sprint_speed");
         const auto* ra = row("cpu.acceleration");
         const auto* rh = row("match.half_length");
-        CHECK(rc && rc->state == "verified" && ra && ra->state == "not verified: read-only" && rh && rh->value == "not mapped yet" && s.slots == 124,
+        CHECK(rc && rc->state == "verified" && ra && ra->state == "read-only" && rh && rh->state == "not mapped" && rh->value == "-" && s.slots == 124,
               fmt("rows %zu, slots %d", s.rows.size(), s.slots));
         const int reads = s.file_reads;
         ui.frames(20);
@@ -623,10 +618,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(fs::exists(out / presets_dir() / "My_sliders.json", ec) && s.presets == std::vector<std::string>({"My sliders"}), "saved: " + s.preset_line);
         const json pj = read_json(out / presets_dir() / "My_sliders.json");
         CHECK(pj["values"].size() == 2 && pj["source"].value("file", "") == kName, "the preset holds the two verified sliders");
-        // Load = stage
+        // Load = the live write into the running game (5.0 sliders, tx-settings): no game here, so it is refused in one line and nothing is staged
         CHECK(ui.click("###gsload"), "Load");
         ui.frames(2);
-        CHECK(fs::exists(out / pending_file(), ec) && s.pending_line.find("\"My sliders\", 2 slider(s)") != std::string::npos, "staged: " + s.pending_line);
+        CHECK(s.preset_line == "Not applied: Game must be running (Turbo inside FC 27)", "refused without the game: " + s.preset_line);
+        CHECK(!fs::exists(out / pending_file(), ec) && s.pending_line.empty(), "Load stages nothing (no settings_pending.json, no staging line)");
         CHECK(md5s(settings) == folder_before, "Load wrote nothing into the settings folder");
         // Duplicate, Rename, Delete
         CHECK(ui.click("Duplicate##gsdup"), "Duplicate");
@@ -644,10 +640,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Delete##gsdeleteok", "Delete preset?"), "delete confirmed");
         ui.frames(2);
         CHECK(s.presets == std::vector<std::string>({"My sliders"}), "deleted: " + s.preset_line);
-        // Discard staged
-        CHECK(ui.click("Discard staged##gsdiscard"), "Discard staged");
-        ui.frames(2);
-        CHECK(!fs::exists(out / pending_file(), ec) && s.pending_line.empty(), "discarded");
+        CHECK(ui.find("Discard staged##gsdiscard") == nullptr, "nothing to discard: this page stages nothing");
         // Refresh reads the file again; nothing in the settings folder changed through all of it (2.13: the view is a section of the
         // Gameplay presets page, scrolled by the boxes typed into above)
         parity_test::scroll_into_view(ui, "Refresh##gsrefresh");
@@ -1027,7 +1020,7 @@ static void run_custom() {
         CHECK(p.values.size() == 125 && !p.include_unverified, "125 mapped values, the flag is off by default");
         const Plan off = plan_preset(p, r.map);
         CHECK(off.values.size() == 3 && off.unverified.empty() && off.skipped.size() == 122, fmt("flag off: %zu staged, %zu skipped", off.values.size(), off.skipped.size()));
-        CHECK(off.skipped.front().find("not seen on the EA screen") != std::string::npos, "the skip reason names the table mapping: " + off.skipped.front());
+        CHECK(off.skipped.front().find("table-mapped only, read-only") != std::string::npos, "the skip reason names the table mapping (5.0 copy): " + off.skipped.front());
         p.include_unverified = true;
         const Plan on = plan_preset(p, r.map);
         CHECK(on.values.size() == 125 && on.unverified.size() == 122 && on.skipped.empty(), fmt("flag on: %zu staged, %zu unverified", on.values.size(), on.unverified.size()));

@@ -213,8 +213,13 @@
             present.insert(s.id);
             std::printf("    %-26s %s:%d  %s  [%s]%s%s\n", s.id, s.file, op_line(txt, pos), s.kind, owner.c_str(), s.reason[0] ? "  reason: " : "", s.reason);
         }
-        CHECK(present.count("vp-grid") && present.count("studio-body-card") && present.count("raw-players-appearance") && present.count("faces3d-gallery"),
+        // 2026-10-31: the classic editor's raw grids (ui_players.cpp ##appgrid / ##rolegrid, 5.0c menus step 6) and the ##f3pick call site
+        // (ui_faces3d_gate.cpp gallery_picker(app, ..., step 7) are gone from the source: the table keeps their rows (printed ABSENT), the
+        // anchors are the sites that still exist
+        CHECK(present.count("vp-grid") && present.count("studio-body-card") && present.count("raw-manager-appearance") && present.count("gallery-choose"),
               "the anchors of the table are in the source (a renamed function must be updated here, not dropped)");
+        CHECK(!present.count("raw-players-appearance") && !present.count("raw-players-roles") && !present.count("faces3d-gallery"),
+              "the classic editor's raw grids and the ##f3pick call site stay deleted");
         // Amendment B3: no q6 owner; B2: q6-nopicker only for the managers' eyes and skin boxes
         for (const OpSite& s : op_sites) CHECK(std::string(s.owner) != "q6", std::string("no plain q6 owner (Amendment B3): ") + s.id);
 
@@ -258,7 +263,7 @@
                 }
             }
             std::printf("  ONE-PICKER completeness: %d option-offering statements naming a look field, %d unlisted\n", statements, unlisted);
-            CHECK(statements >= 5, fmt("the scan found the known statements (%d; 5.0c E3: the managers' raw grid takes a filtered column list, so its statement no longer names a look field and 6 became 5)", statements));
+            CHECK(statements >= 3, fmt("the scan found the known statements (%d; 5.0c E3: 6 became 5; 2026-10-31: the classic editor's two raw grids went with it, 5 became 3)", statements));
         }
 
         // ---- 3. the kit rule and the shared body list are checked in the cases below
