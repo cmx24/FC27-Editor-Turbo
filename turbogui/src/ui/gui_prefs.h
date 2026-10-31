@@ -355,6 +355,7 @@ struct GuiPrefs {
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
     bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
     bool body_show_all = false;    // gui.body_show_all (5.0c RV4): the Body type window's "Show all body types" tick, default off, saved with the layout
+    std::string fc_editor_dir;     // gui.fc_editor_dir (Turbo X): the FC Editor install whose asset pictures the pickers show; "" = the default folder
 
     bool section_open(const std::string& id, bool default_open) const {
         auto it = sections_open.find(id);
@@ -378,6 +379,8 @@ struct GuiPrefs {
         if (rc != g->end() && rc->is_boolean()) p.rail_collapsed = rc->get<bool>();
         auto ba = g->find("body_show_all");
         if (ba != g->end() && ba->is_boolean()) p.body_show_all = ba->get<bool>();
+        auto fe = g->find("fc_editor_dir");
+        if (fe != g->end() && fe->is_string()) p.fc_editor_dir = fe->get<std::string>();
         auto pi = g->find("preload_images");
         if (pi != g->end() && pi->is_boolean()) p.preload_images = pi->get<bool>();
         auto rd = g->find("row_density");
@@ -409,6 +412,7 @@ struct GuiPrefs {
         g["sections_open"] = so;
         g["rail_collapsed"] = rail_collapsed;
         g["body_show_all"] = body_show_all;
+        g["fc_editor_dir"] = fc_editor_dir;
         g["version"] = kShellGuiVersion;
         // 5.0 T7 D1: a start that fell back to maximized does not overwrite the stored choice (WindowTracker::fell_back)
         WindowPrefs w = window;
