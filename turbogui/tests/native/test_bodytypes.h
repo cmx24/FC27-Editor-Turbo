@@ -3,6 +3,7 @@
 #pragma once
 #include "core/bodytype_catalog.h"
 #include "ui/ui_bodytypes.h"
+#include "ui/ui_visual_picker.h"
 
 static fs::path bt_fixture() { return fs::path(g_lua).parent_path() / "bodytypes_fixture_synthetic.json"; }
 
