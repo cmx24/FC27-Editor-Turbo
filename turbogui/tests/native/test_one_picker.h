@@ -42,6 +42,7 @@
         {"vp-body-list", "ui_visual_picker.cpp", "looks::body_grid_codes(&cat, current, gender, manager)", "shared-fn", "bodytypecode", "", ""},
         {"studio-body-card", "ui_looks_studio.cpp", "body_grid_codes(&cat, current, gender, manager)", "shared-fn", "bodytypecode", "", ""},
         {"studio-field-combo", "ui_looks_studio.cpp", "field_combo(app, s, t, rec, who, f.first", "vp", "generic-head hair / beard type and colour", "", ""},
+        {"body-button", "ui_bodytypes.cpp", "vp::open(app, t, rec, \"bodytypecode\", manager)", "vp", "bodytypecode (the one Body type button the five pages call)", "", ""},
         {"gallery-choose", "ui_images.cpp", "vp::open(app, t, rec, g.field, manager)", "vp", "hair, beard, boots, gloves, accessories", "", ""},
         {"kit-inline", "ui_images.cpp", "vp::inline_field(app, t, rec, k[0], k[1])", "vp", "socklengthcode, jerseysleevelengthcode (Socks and sleeves)", "", ""},
         // ---- duplicates that must draw from the one catalogue (compared while present)
@@ -60,8 +61,6 @@
          "the player's two boxes stay too while the card has no picture source (no RDBM26 folder), see the Simple-page case"},
         {"tattoo-free-int", "ui_images.cpp", "field_editor(app, t, rec, *f, \"##tval\"", "free-int", "tattoohead ... tattoorightleg: typed number + its own popup (g_tattoos + catalog Tattoo family)", "blocked-new-logic",
          "the vp tattoo group offers the RDBM26 sets, the tattoo popup the save's tattoo table and the game catalog: one catalogue needs a decision and new logic (report)"},
-        {"body-gallery", "ui_bodytypes.cpp", "c.filter(f)", "own-gallery", "bodytypecode: filters, copy from player, risky-pairing guard", "blocked-new-logic",
-         "Catalog::filter lists the probed and named codes; body_grid_codes adds track F's list and drops the other gender: merging the two derivations is new logic (report)"},
         {"old-outfit-popup", "ui_images.cpp", "ImGui::OpenPopup(\"##gallerypick\")", "own-popup", "manager outfitid only (no vp set exists for it)", "blocked-new-logic",
          "the only picker of outfitid (not a duplicate); listed so the completeness scan knows it"},
     };
@@ -320,19 +319,16 @@
             const std::string pr = op_missing(std::string("ONE PICKER NO LOST CAPABILITY (literal codes) ") + l.field, need, have);
             CHECK(pr.empty(), pr);
         }
-        // the body type list: the vp list and the studio card are one function (the gallery is held, its difference is printed)
+        // the body type list: the vp list and the studio card are one function (5.0c E8-body: the 7-column modal gallery is deleted, no held site)
         if (p->has("bodytypecode")) {
             const int64_t cur = app.db.get_int(*p, rec, "bodytypecode", 0);
             const int gender = p->has("gender") ? static_cast<int>(app.db.get_int(*p, rec, "gender", -1)) : -1;
             bodytype::Catalog& cat = bodytype_catalog(app);
             const std::vector<int64_t> shared = looks::body_grid_codes(&cat, cur, gender, false);
-            const std::vector<int64_t> gal = cat.codes();
             std::vector<OpProvider> sites;
             sites.push_back({"looks::body_grid_codes (the studio card)", std::set<int64_t>(shared.begin(), shared.end())});
             sites.push_back({"the vp body list", op_vp(*p, rec, "bodytypecode", false).all()});
             for (const std::string& pr : op_agree("bodytypecode", sites)) CHECK(false, "ONE PICKER, ONE CATALOGUE: " + pr);
-            const std::set<int64_t> g(gal.begin(), gal.end());
-            std::printf("  ONE-PICKER held body-gallery (blocked-new-logic), for the report: %s\n", op_diff(sites[0].second, g).c_str());
         }
         // tattoos: held, printed
         if (p->has("tattoohead")) {

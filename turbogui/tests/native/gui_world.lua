@@ -410,7 +410,7 @@ local function build_world(sim)
             { name = "headtypecode", short = "htc_", depth = 14 },
             { name = "skintonecode", short = "stc_", depth = 7 },
             { name = "haircolorcode", short = "hcol", depth = 4 },
-            { name = "bodytypecode", short = "btc_", depth = 5 },
+            { name = "bodytypecode", short = "btc_", depth = 9, min = 1 },  -- 5.0c E8-body: the real schema range (1 .. 512), so the manager set 81-89 fits
             { name = "hairtypecode", short = "htyp", depth = 14 },
             { name = "facialhairtypecode", short = "fhty", depth = 10 },
             -- 5.0b-A (look registry): the manager's other look columns (real schema, fc27_db_schema.json tables/manager)

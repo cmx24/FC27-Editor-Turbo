@@ -7,8 +7,9 @@
 #include <filesystem>
 
 #include "app.h"
-#include "modal_size.h"
+#include "core/body_shape.h"
 #include "imgui.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -27,12 +28,9 @@ fs::file_time_type g_probe_time{};
 bool g_probe_seen = false;
 double g_next_check = 0.0;
 
-// gallery state, kept while the popup is open
+// State of the picker's "allow a player-specific body" box and of the copy popup (5.0c E8-body: the modal gallery is gone, the visual
+// picker window of ui_visual_picker.h is the one place that lists the body types)
 struct Gallery {
-    int group = 0;  // 0 all, 1 generic, 2 specific
-    int hmin = 0, hmax = 0, wmin = 0, wmax = 0;
-    char text[48] = "";
-    bool used_only = false;
     bool allow_risky = false;
     char copy_text[48] = "";
 };
@@ -55,23 +53,6 @@ int head_class_of(App& app, const Table& t, uint64_t rec) {
     if (!t.has("headclasscode")) return -1;
     const int64_t v = app.db.get_int(t, rec, "headclasscode", -1);
     return v == 0 || v == 1 ? static_cast<int>(v) : -1;
-}
-
-std::string range_text(int lo, int hi, const char* unit) {
-    if (hi <= 0) return "-";
-    char b[48];
-    if (lo == hi) std::snprintf(b, sizeof(b), "%d %s", lo, unit);
-    else std::snprintf(b, sizeof(b), "%d-%d %s", lo, hi, unit);
-    return b;
-}
-
-// 0 = off; typed text is clamped to something a person's height or weight can be
-void int_box(const char* label, const char* hint, int* v, float w) {
-    ImGui::SetNextItemWidth(w);
-    ImGui::InputInt(label, v, 0, 0);
-    if (*v < 0) *v = 0;
-    if (*v > 400) *v = 400;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", hint);
 }
 
 }  // namespace
@@ -104,15 +85,17 @@ bool apply_bodytype(App& app, const Table& t, uint64_t rec, int64_t code, bool a
         return false;
     }
     const Catalog& c = bodytype_catalog(app);
-    const std::string nm = c.name(code);
+    const bool is_manager = t.name == "manager";
+    const std::string plain = is_manager ? bodyshape::body_name(true, code, &c) : std::string();
+    const std::string nm = plain.empty() ? c.name(code) : plain;  // 5.0c E8-body: a manager reads "Manager, tall, slim", never "Manager body 82"
     if (code < f->min || code > f->max()) {
         say(nm + " is outside the range this game accepts for the body type.");
         return false;
     }
     const int hc = head_class_of(app, t, rec);
-    if (!allow_risky && bodytype::risky_pairing(c, code, hc)) {
+    if (!allow_risky && bodyshape::risky_for(is_manager, c, code, hc)) {
         say(nm + " was not written: a player-specific body on a " + std::string(hc == 1 ? "generic" : "head of unknown kind") +
-            " head may not fit its skeleton and kit (untested in game). Tick the box in the gallery to write it anyway.");
+            " head may not fit its skeleton and kit (untested in game). Tick the box in the Body type window to write it anyway.");
         return false;
     }
     if (app.db.get_int(t, rec, "bodytypecode", -1) == code) {
@@ -127,61 +110,6 @@ bool apply_bodytype(App& app, const Table& t, uint64_t rec, int64_t code, bool a
     return true;
 }
 
-// The rows of one group: name, code, used by, height, weight, examples, and the Use button
-static void draw_rows(App& app, const Table& t, uint64_t rec, const std::vector<int64_t>& codes, int64_t cur, int head_class, bool specific) {
-    const Catalog& c = g_catalog;
-    if (codes.empty()) {
-        ImGui::TextDisabled(specific ? "No player-specific body matches the filters." : "No generic body matches the filters.");
-        return;
-    }
-    if (!ImGui::BeginTable(specific ? "##btspec" : "##btgen", 7, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) return;
-    ImGui::TableSetupColumn("Body type", ImGuiTableColumnFlags_WidthStretch, 2.2f);
-    ImGui::TableSetupColumn("Code", ImGuiTableColumnFlags_WidthFixed, S(46.0f));
-    ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthFixed, S(86.0f));
-    ImGui::TableSetupColumn("Height", ImGuiTableColumnFlags_WidthFixed, S(86.0f));
-    ImGui::TableSetupColumn("Weight", ImGuiTableColumnFlags_WidthFixed, S(76.0f));
-    ImGui::TableSetupColumn("Examples", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-    ImGui::TableSetupColumn("##act", ImGuiTableColumnFlags_WidthFixed, S(60.0f));
-    ImGui::TableHeadersRow();
-    for (int64_t code : codes) {
-        const Entry* e = c.find(code);
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(c.name(code).c_str());
-        if (code == cur) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(current)");
-        }
-        ImGui::TableNextColumn();
-        ImGui::Text("%lld", static_cast<long long>(code));
-        ImGui::TableNextColumn();
-        if (e && e->probed) {
-            ImGui::Text("%lld player%s", static_cast<long long>(e->players), e->players == 1 ? "" : "s");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Counted by the body type probe in the game's players table.");
-        } else {
-            ImGui::TextDisabled("not probed");
-        }
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(e ? range_text(e->height_min, e->height_max, "cm").c_str() : "-");
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(e ? range_text(e->weight_min, e->weight_max, "kg").c_str() : "-");
-        ImGui::TableNextColumn();
-        const std::string ex = c.examples_text(code);
-        ImGui::TextUnformatted(ex.empty() ? "-" : ex.c_str());
-        ImGui::TableNextColumn();
-        const bool risky = bodytype::risky_pairing(c, code, head_class) && !g_gal.allow_risky;
-        ImGui::BeginDisabled(risky || code == cur);
-        const std::string id = "Use##bt" + std::to_string(code);
-        if (ImGui::Button(id.c_str())) apply_bodytype(app, t, rec, code, g_gal.allow_risky, nullptr);
-        ImGui::EndDisabled();
-        if (risky && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("A player-specific body on this head is untested. Tick the box above to allow it.");
-        (g_ui.shown_generic += specific ? 0 : 1, g_ui.shown_specific += specific ? 1 : 0);
-    }
-    ImGui::EndTable();
-}
-
 // "Copy body type from player...": pick a player, take his bodytypecode (the same head-class guard applies)
 static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_class) {
     ImGui::SetNextWindowSize(ImVec2(S(520.0f), S(380.0f)), ImGuiCond_FirstUseEver);
@@ -191,8 +119,11 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
                        t.name == "players" ? "player" : "manager");
     if (ImGui::IsWindowAppearing()) {
         g_gal.copy_text[0] = 0;
+        g_gal.allow_risky = false;  // 5.0c E8 re-review: a tick left by a Body type window (maybe of another record) never carries over
         ImGui::SetKeyboardFocusHere();
     }
+    // the same warning and box as the Body type window, here where the copy happens (the old gallery showed both beside its copy button)
+    bodytype_risky_box(app, t, rec);
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##btcopyflt", "player name (at least 2 letters)", g_gal.copy_text, sizeof(g_gal.copy_text));
     std::string q = g_gal.copy_text;
@@ -219,7 +150,7 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
             }
             ImGui::EndDisabled();
             if (risky && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("A player-specific body on this head is untested. Tick the box in the gallery to allow it.");
+                ImGui::SetTooltip("A player-specific body on this head is untested. Tick the box in the Body type window to allow it.");
         }
         if (shown == 0) ImGui::TextDisabled("No player with that name.");
         ImGui::EndChild();
@@ -228,115 +159,44 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
     ImGui::EndPopup();
 }
 
-static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
-    modal_size::set_next("bodytypes", ImVec2(860.0f, 560.0f));  // 5.0c E6: reopens at the size the person left it at
-    if (!ImGui::BeginPopupModal("Body types##bt", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
-        g_ui.open = false;
+bool bodytype_allow_risky() { return g_gal.allow_risky; }
+void bodytype_reset_risky() { g_gal.allow_risky = false; }
+
+// The warning and the box of the Body type window (ui_visual_picker.cpp draw_picker_body): shown while the head is not a specific
+// (real-face) one, because only then can a player-specific body not fit the skeleton and kit
+void bodytype_risky_box(App& app, const Table& t, uint64_t rec) {
+    const int hc = head_class_of(app, t, rec);
+    if (hc == 0) {
+        g_gal.allow_risky = false;
         return;
     }
-    modal_size::track("bodytypes", ImVec2(860.0f, 560.0f));
-    g_ui.open = true;
-    g_ui.shown_generic = g_ui.shown_specific = 0;
-    const Catalog& c = bodytype_catalog(app);
-    const int64_t cur = app.db.get_int(t, rec, "bodytypecode", -1);
-    const int hc = head_class_of(app, t, rec);
-
-    ImGui::Text("Current: %s", c.name(cur).c_str());
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("bodytypecode = %lld", static_cast<long long>(cur));
-    ImGui::SameLine();
-    ImGui::TextDisabled("  head: %s", hc == 0 ? "specific (real face)" : hc == 1 ? "generic" : manager ? "manager (kind unknown)" : "unknown");
-    if (!c.probe_loaded()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
-        ImGui::TextWrapped("The body type probe has not been run, so player counts, heights, weights and example players are unknown, and "
-                           "the player-specific bodies are not listed. Run bodytypes.lua in the game once (see the Turbo README); it "
-                           "writes turbo_output\\bodytypes_fc27.json, which this window reads on its own.");
-        ImGui::PopStyleColor();
-    } else {
-        ImGui::TextDisabled("%zu codes probed%s.", c.probed_count(), c.skipped() ? " (some damaged entries skipped)" : "");
-    }
-    if (c.localized_count() == 0) ImGui::TextDisabled("Live Editor's body type names were not found: Turbo's built-in names for the generic types are used.");
-
-    // filters
-    {
-        const char* groups[] = {"All", "Generic only", "Player-specific only"};
-        ImGui::SetNextItemWidth(S(150.0f));
-        ImGui::Combo("##btgroup", &g_gal.group, groups, 3);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::InputTextWithHint("##btflt", "search name, code or player", g_gal.text, sizeof(g_gal.text));
-        ImGui::SameLine();
-        checkbox_right("Used by players only##btused", &g_gal.used_only, -1.0f);
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Height cm");
-        ImGui::SameLine();
-        int_box("##bthmin", "Shortest height to show (0 = off). A body type matches when its probed height range overlaps.", &g_gal.hmin, S(70.0f));
-        ImGui::SameLine();
-        ImGui::TextUnformatted("to");
-        ImGui::SameLine();
-        int_box("##bthmax", "Tallest height to show (0 = off).", &g_gal.hmax, S(70.0f));
-        ImGui::SameLine();
-        ImGui::TextUnformatted("   Weight kg");
-        ImGui::SameLine();
-        int_box("##btwmin", "Lightest weight to show (0 = off). Body types without probe data are hidden while a filter is on.", &g_gal.wmin, S(70.0f));
-        ImGui::SameLine();
-        ImGui::TextUnformatted("to");
-        ImGui::SameLine();
-        int_box("##btwmax", "Heaviest weight to show (0 = off).", &g_gal.wmax, S(70.0f));
-    }
-    Filter f;
-    f.group = g_gal.group == 1 ? Group::Generic : g_gal.group == 2 ? Group::Specific : Group::All;
-    f.height_min = g_gal.hmin; f.height_max = g_gal.hmax;
-    f.weight_min = g_gal.wmin; f.weight_max = g_gal.wmax;
-    f.text = g_gal.text;
-    f.used_only = g_gal.used_only;
-    const std::vector<int64_t> codes = c.filter(f);
-    std::vector<int64_t> gen, spec;
-    for (int64_t k : codes) (c.kind(k) == Kind::Generic ? gen : spec).push_back(k);
-
-    // the warning about specific bodies on generic heads, and the way past it
-    if (hc != 0) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
-        ImGui::TextWrapped("%s A player-specific body model on a %s head may not match its skeleton and kit; this is untested in game, so "
-                           "Turbo does not write one unless you allow it here.",
-                           "Warning:", hc == 1 ? "generic" : "head of unknown kind");
-        ImGui::PopStyleColor();
-        checkbox_right("Allow a player-specific body on this head (untested)##btallow", &g_gal.allow_risky);
-    } else {
-        g_gal.allow_risky = false;
-    }
-
-    ImGui::BeginChild("##btlist", ImVec2(0, -S(36.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY);
-    ImGui::SeparatorText("Generic (named by Live Editor)");
-    draw_rows(app, t, rec, gen, cur, hc, false);
-    ImGui::SeparatorText("Player-specific (models of individual players)");
-    if (!c.probe_loaded() && spec.empty())
-        ImGui::TextDisabled("None known yet: they appear here after the probe has run.");
-    else
-        draw_rows(app, t, rec, spec, cur, hc, true);
-    ImGui::EndChild();
-
-    if (ImGui::Button("Copy body type from player...##btcopybtn")) ImGui::OpenPopup("Copy body type from player##btcopy");
-    draw_copy_popup(app, t, rec, hc);
-    ImGui::SameLine();
-    if (ImGui::Button("Reload##btreload")) reload(app);
-    ImGui::SameLine();
-    if (!g_ui.last_result.empty()) ImGui::TextDisabled("%s", g_ui.last_result.c_str());
-    ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - S(70.0f));
-    if (ImGui::Button("Close##btclose")) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
+    ImGui::TextWrapped("A player-specific body model on a %s head may not match its skeleton and kit; this is untested in game, so Turbo "
+                       "does not write one unless you allow it here.",
+                       hc == 1 ? "generic" : "head of unknown kind");
+    ImGui::PopStyleColor();
+    checkbox_right("Allow a player-specific body on this head (untested)##btallow", &g_gal.allow_risky);
 }
 
+// ONE entry point per page (5.0c E8-body, RV1): "Body type..." opens the visual picker window (figures, plain names), drawn from
+// here so every page that had the old button shows it; "Copy body type from player..." stays beside it.
 void bodytype_gallery_button(App& app, const Table& t, uint64_t rec, bool manager) {
     if (!t.has("bodytypecode")) return;
     bodytype_catalog(app);  // loaded before the editors' combos name a code
     ImGui::PushID("##bodytypes");
-    if (ImGui::Button("Body types...##btopen")) {
+    if (ImGui::Button("Body type...##btopen")) {
         g_ui.last_result.clear();
-        ImGui::OpenPopup("Body types##bt");
+        vp::open(app, t, rec, "bodytypecode", manager);
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Browse generic and player-specific body types, filter by height and weight, or copy one from a player.");
-    draw_gallery(app, t, rec, manager);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a body type from the figures: shorter, taller, leaner or stockier.");
+    ImGui::SameLine();
+    if (ImGui::Button("Copy body type from player...##btcopybtn")) ImGui::OpenPopup("Copy body type from player##btcopy");
+    draw_copy_popup(app, t, rec, head_class_of(app, t, rec));
+    if (!g_ui.last_result.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", g_ui.last_result.c_str());
+    }
+    vp::window(app, t, rec);
     ImGui::PopID();
 }
 

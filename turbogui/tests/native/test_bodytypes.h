@@ -3,6 +3,7 @@
 #pragma once
 #include "core/bodytype_catalog.h"
 #include "ui/ui_bodytypes.h"
+#include "ui/ui_visual_picker.h"
 
 static fs::path bt_fixture() { return fs::path(g_lua).parent_path() / "bodytypes_fixture_synthetic.json"; }
 
@@ -118,7 +119,7 @@ static void test_bodytype_catalog() {
 }
 
 static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
-    run_case("UI: body type gallery (player editor): groups, filters, warning, specific body on a generic head, copy from a player", [&] {
+    run_case("UI: body type entry point (player editor): ONE Body type... button opens the visual picker (figures), warning box, specific body on a generic head, copy from a player", [&] {
         using namespace turbo;
         const fs::path probe = le / "turbo_output" / "bodytypes_fc27.json";
         // the gallery button sits low in the Profile tab, below the small test window: scroll the tab with the mouse wheel until it shows
@@ -147,65 +148,74 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         const uint64_t rec = app.db.find(*p, "playerid", 2002);
         const Field* f = p->field("bodytypecode");
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 9 && app.db.get_int(*p, rec, "headclasscode") == 1, "start: code 9, generic head");
-        // a gallery row scrolls inside the list: bring its Use button into view (down first, then up)
-        auto row = [&](int64_t code) {
-            const std::string lbl = "Use##bt" + std::to_string(code);
-            for (int k = 0; k < 16 && !ui.find(lbl, "Body types"); ++k) {
-                const ItemRec* a = ui.find("Reload##btreload", "Body types");
-                const ImVec2 c = a ? a->rect.GetCenter() : ImVec2(700.0f, 400.0f);
-                io.AddMousePosEvent(c.x, c.y - 120.0f);
-                io.AddMouseWheelEvent(0.0f, k < 8 ? -3.0f : 3.0f);
-                ui.frames(2);
-            }
-            return ui.find(lbl, "Body types") != nullptr;
-        };
-        reveal("Body types...##btopen", "##pedit");
-        CHECK(ui.click("Body types...##btopen", "##pedit"), "open the gallery");
+        auto vp_has = [&](const char* label) { return ui.find(label, "###vispicker") != nullptr; };
+        reveal("Body type...##btopen", "##pedit");
+        CHECK(ui.find("Body types...##btopen", "##pedit") == nullptr, "5.0c RV1: the old 'Body types...' modal button is gone from the page");
+        CHECK(ui.click("Body type...##btopen", "##pedit"), "open the Body type window");
         ui.frames(3);
-        CHECK(bodytype_ui_state().open, "popup open");
-        CHECK(ui.click("Reload##btreload", "Body types"), "reload the probe");
-        ui.frames(2);
-        CHECK(bodytype_ui_state().shown_generic == 10 && bodytype_ui_state().shown_specific == 3,
-              fmt("Generic 10 rows, Player-specific 3 rows (%d / %d)", bodytype_ui_state().shown_generic, bodytype_ui_state().shown_specific));
-        CHECK(row(20) && row(4), "Use buttons in both groups");
-        CHECK(ui.find("Allow a player-specific body on this head (untested)##btallow", "Body types") != nullptr, "warning checkbox on a generic head");
+        CHECK(visual_picker_ui().open && visual_picker_ui().field == "bodytypecode", "the visual picker opened for bodytypecode (5.0c RV1/T4)");
+        CHECK(!vp_has("Reload##btreload") && ui.find("Reload##btreload") == nullptr, "no 7-column modal: its Reload button is not on screen");
+        CHECK(visual_picker_list_size() >= 10 && static_cast<size_t>(visual_picker_ui().source_figure) == visual_picker_list_size(),
+              fmt("every tile is a figure (%d of %zu)", visual_picker_ui().source_figure, visual_picker_list_size()));
+        CHECK(vp_has("Allow a player-specific body on this head (untested)##btallow"), "warning checkbox on a generic head, inside the picker window");
 
         // a specific body is not written onto a generic head by default
-        row(20);
-        ui.click("Use##bt20", "Body types");
+        visual_picker_select(20);
+        CHECK(!visual_picker_apply(app), "specific body refused through the picker");
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 9, "refused: body type unchanged");
+        CHECK(visual_picker_ui().last_result.find("not written") != std::string::npos, "the picker says why: " + visual_picker_ui().last_result);
         std::string msg;
         CHECK(!apply_bodytype(app, *p, rec, 20, false, &msg) && msg.find("not written") != std::string::npos, "apply_bodytype refuses too: " + msg);
         CHECK(!apply_bodytype(app, *p, rec, 999, true, &msg) && app.db.get_int(*p, rec, "bodytypecode") == 9, "outside the field range (1 .. 512): refused");
         // a generic body is fine
-        row(4);
-        CHECK(ui.click("Use##bt4", "Body types"), "Use Tall and Lean");
+        visual_picker_select(4);
+        CHECK(visual_picker_apply(app), "Apply Tall and Lean: " + visual_picker_ui().last_result);
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 4, "generic body written");
         CHECK(bodytype_ui_state().last_result == "Body type set to Tall and Lean", "result: " + bodytype_ui_state().last_result);
         // after the user ticks the box
-        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "Body types"), "tick the box");
+        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "###vispicker"), "tick the box");
         ui.frames(2);
-        row(20);
-        CHECK(ui.click("Use##bt20", "Body types"), "Use specific body 20");
+        CHECK(bodytype_allow_risky(), "the box is ticked");
+        visual_picker_select(20);
+        CHECK(visual_picker_apply(app), "Apply specific body 20: " + visual_picker_ui().last_result);
         ui.frames(2);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 20, "written once allowed");
         CHECK(bodytype_label(20) == "Specific body #20", "the editors' label for the code");
-
-        // filters
-        CHECK(ui.type_into(ui.find("##bthmin", "Body types"), "199"), "height from 199");
+        CHECK(ui.click("Cancel##vpcancel", "###vispicker"), "close the window");
+        ui.frames(3);
+        CHECK(!visual_picker_ui().open, "picker closed");
+        // 5.0c review: the box never carries over - a new Body type window (same or another record) starts unticked
+        CHECK(bodytype_allow_risky(), "the tick is still there after the window closed (state only: the next window or copy popup resets it)");
+        reveal("Body type...##btopen", "##pedit");
+        CHECK(ui.click("Body type...##btopen", "##pedit"), "open the Body type window again");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && !bodytype_allow_risky(), "a new Body type window starts with the allow box unticked");
+        // 5.0c E8 re-review: a tick left by the window never reaches the copy popup unseen (the popup is outside the window now)
+        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "###vispicker"), "tick the box again");
         ui.frames(2);
-        CHECK(bodytype_ui_state().shown_specific == 1 && bodytype_ui_state().shown_generic == 0,
-              fmt("only code 22 left (%d / %d)", bodytype_ui_state().shown_generic, bodytype_ui_state().shown_specific));
-        CHECK(ui.type_into(ui.find("##bthmin", "Body types"), "0"), "height filter off");
+        CHECK(bodytype_allow_risky(), "ticked again");
+        CHECK(ui.click("Cancel##vpcancel", "###vispicker"), "close it again");
+        ui.frames(3);
+        CHECK(!visual_picker_ui().open, "picker closed again");
+        reveal("Copy body type from player...##btcopybtn", "##pedit");
+        CHECK(ui.click("Copy body type from player...##btcopybtn", "##pedit"), "open the copy picker after a tick in the Body type window");
+        ui.frames(3);
+        CHECK(!bodytype_allow_risky(), "the copy picker starts with the allow box unticked (no tick carried over from the Body type window)");
+        CHECK(ui.find("Allow a player-specific body on this head (untested)##btallow", "Copy body type") != nullptr,
+              "the copy picker shows the warning box itself on a generic head");
+        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "Copy body type"), "tick the box in the copy picker");
         ui.frames(2);
-        CHECK(bodytype_ui_state().shown_generic == 10 && bodytype_ui_state().shown_specific == 3, "all rows back");
+        CHECK(bodytype_allow_risky(), "the risky copy stays reachable: the box in the copy picker ticks it");
+        CHECK(ui.click("Close##btcopyclose", "Copy body type"), "close the copy picker");
+        ui.frames(3);
 
         // copy a body type from another player (1001 carries code 2)
         const PlayerRow* src = app.model.player(1001);
         CHECK(src != nullptr && src->name.size() >= 4, "player 1001");
-        CHECK(ui.click("Copy body type from player...##btcopybtn", "Body types"), "open the copy picker");
+        reveal("Copy body type from player...##btcopybtn", "##pedit");
+        CHECK(ui.click("Copy body type from player...##btcopybtn", "##pedit"), "open the copy picker");
         ui.frames(3);
         CHECK(ui.type_into(ui.find("##btcopyflt", "Copy body type"), src->name.substr(0, 4)), "type his name");
         ui.frames(2);
@@ -213,9 +223,6 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(app.db.get_int(*p, rec, "bodytypecode") == 2, "his body type (Average and Normal) copied");
         CHECK(app.db.get_int(*p, rec, "height") == 175 + 8 && app.db.get_int(*p, rec, "headclasscode") == 1, "height and head untouched");
-        CHECK(ui.click("Close##btclose", "Body types"), "close");
-        ui.frames(3);
-        CHECK(!bodytype_ui_state().open, "popup closed");
         (void)f;
 
         // managers: the same rules through the same function (501 has a specific head, 503 a generic one)

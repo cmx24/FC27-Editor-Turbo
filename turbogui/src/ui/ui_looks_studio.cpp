@@ -14,6 +14,7 @@
 
 #include "app.h"
 #include "core/bodytype_catalog.h"
+#include "core/body_shape.h"
 #include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/legacy.h"
@@ -22,6 +23,7 @@
 #include "core/player_capture.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
+#include "ui_body_figure.h"
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
 #include "ui_images.h"
@@ -67,8 +69,6 @@ constexpr const char* kNotTested = "Not tested yet";
 constexpr double kSignatureEvery = 0.5;    // s between two reads of his look (changes made on other cards or pages)
 constexpr double kRetryEvery = 2.0;        // s between two tries while the game cannot draw (a match, another picture)
 constexpr size_t kManagerUndoSteps = 30;
-constexpr int kThumbLoadsPerFrame = 3;  // new body-type pictures asked from the texture loader in one frame
-constexpr double kManifestEvery = 2.0;  // s between two looks at the generator's manifest.json
 
 double g_timeout = 25.0;
 
@@ -360,6 +360,7 @@ struct BodyTile {
     std::string caption;
     std::string search;  // lower-case caption and the names behind it
     std::string tip;     // hover: who has it, and the game's number
+    bodyshape::BodyShape shape;  // the figure drawn for it
 };
 
 struct Studio {
@@ -392,10 +393,6 @@ struct Studio {
     char body_search[48] = "";
     std::vector<BodyTile> tiles;
     std::string tiles_key;
-    std::set<int64_t> thumbs_loaded;   // codes whose picture reached a texture (their next draws cost nothing)
-    int thumb_frame = -1, thumb_loads = 0;  // new picture loads of this frame (at most kThumbLoadsPerFrame)
-    double manifest_at = -1.0;          // App::now of the last look at manifest.json (every kManifestEvery s)
-    int64_t manifest_stamp = 0;         // its time stamp then (0 = none)
     std::string body_result;
     bool body_result_error = false;
     // the page's own Undo for managers
@@ -754,7 +751,7 @@ void auto_picture(App& app, Studio& s, const Subject& who, const Table* t, uint6
     s.st.risky_body = false;
     if (!who.manager && t->has("bodytypecode")) {
         const int hc = t->has("headclasscode") ? static_cast<int>(app.db.get_int(*t, rec, "headclasscode", -1)) : -1;
-        s.st.risky_body = bodytype::risky_pairing(bodytype_catalog(app), app.db.get_int(*t, rec, "bodytypecode", 0), hc);
+        s.st.risky_body = bodyshape::risky_for(who.manager, bodytype_catalog(app), app.db.get_int(*t, rec, "bodytypecode", 0), hc);
     }
     if (!s.want_picture || s.st.risky_body) return;
     if (app.now < s.next_try) return;
@@ -889,41 +886,40 @@ void build_tiles(App& app, Studio& s, int64_t current, int gender, bool manager)
     for (int64_t code : body_grid_codes(&cat, current, gender, manager)) {
         BodyTile tile;
         tile.code = code;
-        const std::string cap = body_caption(code, &cat, manager);
-        tile.caption = code == current && cap == "Unique body" ? std::string("His own body") : cap;
+        tile.caption = body_caption(code, &cat, manager);  // plain and unique (core/body_shape.h); "His own body" only for the code he holds
+        tile.shape = bodyshape::body_shape(manager, code, &cat);
         std::string who;
-        if (const labels::data::Users* u = labels::find_users("bodytypecode", code)) who = u->names;
-        else who = cat.examples_text(code);
+        if (!manager) {
+            if (const labels::data::Users* u = labels::find_users("bodytypecode", code)) who = u->names;
+            else who = cat.examples_text(code);
+        }
         tile.search = lower_copy(tile.caption + " " + who);
-        tile.tip = who.empty() ? tile.caption : "Players with this body: " + who;
-        const data::LookField* bf = data::find_look_field(manager ? data::LookSubject::Manager : data::LookSubject::Player, "bodytypecode");
-        const data::LookValue* bv = bf ? data::find_look_value(*bf, static_cast<int32_t>(code)) : nullptr;
-        char b[160] = "";
-        if (bv && bv->used > 0 && bv->h_max > 0)
-            std::snprintf(b, sizeof(b), "\nHeight %d-%d cm, weight %d-%d kg, used by %d %s", bv->h_min, bv->h_max, bv->w_min, bv->w_max, bv->used,
-                          manager ? "managers" : "players");
-        else if (const bodytype::Entry* e = cat.find(code); e && e->has_height())
-            std::snprintf(b, sizeof(b), "\nHeight %d-%d cm, weight %d-%d kg, used by %lld players", e->height_min, e->height_max, e->weight_min,
-                          e->weight_max, static_cast<long long>(e->players));
-        tile.tip += std::string(b) + "\nBody type " + std::to_string(code);
+        tile.tip = tile.caption;
+        const std::string detail = bodyshape::body_detail(manager, code, &cat);
+        if (!detail.empty()) tile.tip += "\n" + detail;
+        if (!who.empty()) tile.tip += "\nPlayers with this body: " + who;
+        tile.tip += "\nBody type " + std::to_string(code);
         s.tiles.push_back(std::move(tile));
     }
 }
 
-// A new manifest.json (a generator run went on or started again): list the pictures again now and let every tile load its picture
-// anew (one time-stamp look every kManifestEvery s, never per tile)
-void watch_manifest(App& app, Studio& s) {
-    if (s.manifest_at >= 0.0 && app.now >= s.manifest_at && app.now < s.manifest_at + kManifestEvery) return;
-    s.manifest_at = app.now;
-    std::error_code ec;
-    const fs::path mf = bodytype_thumbs::manifest_file(app.turbo_output());
-    const auto t = fs::last_write_time(mf, ec);
-    const int64_t stamp = ec ? 0 : static_cast<int64_t>(t.time_since_epoch().count());
-    if (stamp == s.manifest_stamp) return;
-    s.manifest_stamp = stamp;
-    bodytype_thumbs::invalidate();
-    for (int64_t code : s.thumbs_loaded) app.textures.forget(bodytype_thumbs::grid_file(app.turbo_output(), code));
-    s.thumbs_loaded.clear();
+// The tile's tooltip: the generator's real in-game render when one exists (players' generic bodies, Advanced > Diagnostics > Body-type
+// pictures), then the name and the facts. 5.0c E8-body: the grid itself is the figures; the real picture is the tooltip's, never lost.
+void body_tip(App& app, Studio& s, const BodyTile& tile, bool manager) {
+    bodytype_thumbs::configure(app.turbo_output());
+    const fs::path pic = bodytype_thumbs::thumb(tile.code, manager);
+    ImGui::BeginTooltip();
+    if (!pic.empty()) {
+        TextureCache::Pic p = app.textures.file(pic, bodytype_thumbs::kGridWidth);
+        if (p.tex) {
+            const ImVec2 a = ImGui::GetCursorScreenPos();
+            draw_fitted(p.tex, p.w, p.h, a, S(160.0f), S(160.0f));
+            ImGui::Dummy(ImVec2(S(160.0f), S(160.0f)));
+            ++s.st.thumbs;
+        }
+    }
+    ImGui::TextUnformatted(tile.tip.c_str());
+    ImGui::EndTooltip();
 }
 
 void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
@@ -941,25 +937,13 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
     std::vector<const BodyTile*> shown;
     for (const BodyTile& tile : s.tiles)
         if (q.empty() || tile.search.find(q) != std::string::npos) shown.push_back(&tile);
-    // the pictures of track T2's generator (core/bodytype_thumbs.h): thumb() is a cached listing (rescanned every few seconds), a
-    // new manifest.json (another run) empties it at once; a tile with no picture shows its name only
-    bodytype_thumbs::configure(app.turbo_output());
-    watch_manifest(app, s);
-    std::vector<fs::path> pics(shown.size());
-    bool any_pic = false;
-    for (size_t i = 0; i < shown.size(); ++i) {
-        pics[i] = bodytype_thumbs::thumb(shown[i]->code, who.manager);
-        any_pic = any_pic || !pics[i].empty();
-    }
+    // 5.0c E8-body: every tile is a figure drawn in code (ui_body_figure.h) on one common height scale, its plain name under it; no
+    // picture file and no generator run is needed, so a player's and a manager's grid look alike
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float tw = any_pic ? S(120.0f) : S(190.0f);
+    const float tw = S(210.0f), fig = S(112.0f);
     const float avail = ImGui::GetContentRegionAvail().x;
     const int per_row = std::max(1, static_cast<int>((avail + style.ItemSpacing.x) / (tw + style.ItemSpacing.x)));
     const int rows = (static_cast<int>(shown.size()) + per_row - 1) / per_row;
-    if (ImGui::GetFrameCount() != s.thumb_frame) {
-        s.thumb_frame = ImGui::GetFrameCount();
-        s.thumb_loads = 0;
-    }
     int64_t picked = -1;
     ImGuiListClipper clip;
     clip.Begin(rows);
@@ -973,29 +957,16 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
                 ImGui::BeginGroup();
                 ImGui::PushID(static_cast<int>(tile.code));
                 const bool selected = tile.code == current;
-                if (any_pic) {
-                    // the picture box (empty where the generator made none), then the name under it
-                    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-                    if (ImGui::InvisibleButton("##btpic", ImVec2(tw, tw))) picked = tile.code;
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tile.tip.c_str());
-                    ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + tw, p0.y + tw),
-                                                              ImGui::GetColorU32(selected ? ImGuiCol_Header : ImGuiCol_FrameBg), S(4.0f));
-                    if (!pics[i].empty()) {
-                        const bool known = s.thumbs_loaded.count(tile.code) != 0;
-                        if (known || s.thumb_loads < kThumbLoadsPerFrame) {
-                            if (!known) ++s.thumb_loads;
-                            TextureCache::Pic pic = app.textures.file(pics[i], bodytype_thumbs::kGridWidth);
-                            if (pic.tex) {
-                                s.thumbs_loaded.insert(tile.code);
-                                draw_fitted(pic.tex, pic.w, pic.h, p0, tw, tw);
-                                ++s.st.thumbs;
-                            }
-                        }
-                    }
-                }
+                // the figure box, centred over the name
+                const ImVec2 p0 = ImGui::GetCursorScreenPos();
+                if (ImGui::InvisibleButton("##btpic", ImVec2(tw, fig))) picked = tile.code;
+                const bool hovered = ImGui::IsItemHovered();
+                if (hovered) body_tip(app, s, tile, who.manager);
+                bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(p0.x + (tw - fig) * 0.5f, p0.y), ImVec2(fig, fig), tile.shape, selected, hovered);
+                ++s.st.figures;
                 const std::string label = tile.caption + "##bt" + std::to_string(tile.code);
                 if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(tw, 0.0f))) picked = tile.code;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tile.tip.c_str());
+                if (ImGui::IsItemHovered()) body_tip(app, s, tile, who.manager);
                 ImGui::PopID();
                 ImGui::EndGroup();
                 ++s.st.body_tiles;
@@ -1149,28 +1120,23 @@ void look_card(App& app, const Subject& who, uint64_t rec) {
 
 // ---------------------------------------------------------------- public: body-type grid
 std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manager) {
-    // track F's words where they name the body ("Tall, lean", "Manager body 82"); its "Style N" (nothing names it) is not shown
-    if (const data::LookField* f = data::find_look_field(manager ? data::LookSubject::Manager : data::LookSubject::Player, "bodytypecode"))
-        if (const data::LookValue* v = data::find_look_value(*f, static_cast<int32_t>(code)); v && v->src != data::LookSrc::StyleN) return v->label;
-    if (cat && cat->named(code)) return cat->name(code);
-    if (const labels::NamedCodes* n = labels::named_codes("bodytypecode"))
-        if (const char* name = labels::find_name(*n, code)) return name;
-    std::string first;
-    if (const labels::data::Users* u = labels::find_users("bodytypecode", code)) first = u->names;
-    else if (cat) {
-        if (const bodytype::Entry* e = cat->find(code); e && !e->examples.empty()) first = e->examples.front();
-    }
-    const size_t comma = first.find(',');
-    if (comma != std::string::npos) first.resize(comma);
-    return first.empty() ? std::string("Unique body") : "Like " + first;
+    // 5.0c E8-body: the plain name from core/body_shape.h ("Tall, lean", "Manager, tall, slim (2 of 3)", "Like Lionel Messi"). Where nothing
+    // names the code it is "His own body": a grid only offers such a code when the record already holds it. "Unique body" and
+    // "Manager body N" are gone (Cassio 5.0c-FIX.md E8).
+    const std::string name = bodyshape::body_name(manager, code, cat);
+    return name.empty() ? std::string("His own body") : name;
 }
 
 std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t current, int gender, bool manager) {
     std::vector<int64_t> out;
+    // a code is offered when something names it, or when it is his (then the tile reads "His own body")
+    auto offered = [&](int64_t c) { return c == current || !bodyshape::body_name(manager, c, cat).empty(); };
     if (manager) {
-        // managers have their own set (track F: the generic bodies and 81-89, "Manager body N")
+        // managers have their own set (track F: the generic bodies and 81-89); the styles only a few managers carry (12, 131, 381)
+        // have no name and are shown only to the manager who holds one
         if (const data::LookField* f = data::find_look_field(data::LookSubject::Manager, "bodytypecode"))
-            for (int32_t i = 0; i < f->n_values; ++i) out.push_back(f->values[i].code);
+            for (int32_t i = 0; i < f->n_values; ++i)
+                if (offered(f->values[i].code)) out.push_back(f->values[i].code);
         if (current > 0 && std::find(out.begin(), out.end(), current) == out.end()) out.push_back(current);
         return out;
     }
@@ -1198,12 +1164,12 @@ std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t curre
         return false;
     };
     for (int64_t c : generic)
-        if (!wrong_gender(c)) out.push_back(c);
+        if (!wrong_gender(c) && offered(c)) out.push_back(c);
     std::vector<std::pair<std::string, int64_t>> named;
     for (int64_t c : own) {
         if (generic.count(c) || wrong_gender(c)) continue;
-        const std::string cap = body_caption(c, cat);
-        if (cap != "Unique body") named.push_back({lower_copy(cap), c});  // a body nothing names gets no tile (but his own one)
+        const std::string name = bodyshape::body_name(false, c, cat);
+        if (!name.empty()) named.push_back({lower_copy(name), c});  // a body nothing names gets no tile (but his own one)
     }
     std::sort(named.begin(), named.end());
     for (const auto& n : named) out.push_back(n.second);
@@ -1250,9 +1216,6 @@ void looks_studio_reset_for_tests() {
     s.tiles.clear();
     s.tiles_key.clear();
     s.body_result.clear();
-    s.thumbs_loaded.clear();
-    s.manifest_at = -1.0;
-    s.manifest_stamp = 0;
     s.manager_undo.clear();
     s.st = StudioState();
     g_timeout = 25.0;

@@ -288,8 +288,9 @@ static void run() {
         const std::string bt = layout_store_test::slurp(root / "ui_bodytypes.cpp");
         CHECK(layout_store_test::has(vp, "modal_size::set_next(\"vispicker\"") && layout_store_test::has(vp, "modal_size::track(\"vispicker\""),
               "ui_visual_picker.cpp sets and tracks the picker size");
-        CHECK(layout_store_test::has(bt, "modal_size::set_next(\"bodytypes\"") && layout_store_test::has(bt, "modal_size::track(\"bodytypes\""),
-              "ui_bodytypes.cpp sets and tracks the gallery size");
+        // 5.0c integration: E8-body deleted the Body types gallery modal (one picker: the visual picker above), so the size check moves there
+        CHECK(!layout_store_test::has(bt, "BeginPopupModal(\"Body types##bt\""),
+              "ui_bodytypes.cpp has no second body dialog (E8 RV1): the visual picker, whose size is remembered, is the one Body type window");
         const std::string app = layout_store_test::slurp(root / "app.cpp");
         CHECK(layout_store_test::has(app, "ImGui::IsMouseReleased(0) && wtrack.pending_save"), "app.cpp commits a waiting window change on the release edge");
     });

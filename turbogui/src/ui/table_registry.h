@@ -41,8 +41,6 @@ inline const std::vector<Spec>& all() {
         {"##chg", "Players > Archetype changes", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##sl", "Players > Attributes (slider grid)", kGrid | ImGuiTableFlags_SizingStretchSame, false},
         {"##fsearch", "Players > field search", kGrid | ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersOuter, false},
-        {"##btspec", "Players > Body type (specific)", kData | ImGuiTableFlags_SizingStretchProp, false},
-        {"##btgen", "Players > Body type (generic)", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##cntable", "Players > Callname", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##vstable", "Players > Callname > Voice swaps", kData | ImGuiTableFlags_SizingStretchProp, false},
         {"##cnalltable", "Players > Callname > All callnames", kData | ImGuiTableFlags_SizingStretchProp, false},

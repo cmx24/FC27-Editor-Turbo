@@ -60,8 +60,8 @@ static void pure_cases() {
         CHECK(looks::body_caption(81, nullptr) == "Like Kiernan Dewsbury-Hall", "the best-rated of several: " + looks::body_caption(81, nullptr));
         int64_t unknown = 0;
         for (int64_t c = 512; c > 400 && !unknown; --c)
-            if (looks::body_caption(c, nullptr) == "Unique body") unknown = c;
-        CHECK(unknown > 0, "a body nothing names reads Unique body");
+            if (looks::body_caption(c, nullptr) == "His own body") unknown = c;
+        CHECK(unknown > 0, "a body nothing names reads His own body");
         const std::vector<int64_t> g = looks::body_grid_codes(nullptr, 0, -1);
         CHECK(g.size() >= 10 + 100, "generic bodies and the players' own: " + std::to_string(g.size()));
         const int64_t generic[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 11};
@@ -81,7 +81,7 @@ static void pure_cases() {
         bool set = true;
         for (int64_t c = 81; c <= 89; ++c) set = set && std::find(m.begin(), m.end(), c) != m.end();
         CHECK(set && std::find(m.begin(), m.end(), 4) != m.end(), "managers: the generic bodies and the manager set 81-89");
-        CHECK(looks::body_caption(82, nullptr, true) == "Manager body 82", "a manager body by track F's name: " + looks::body_caption(82, nullptr, true));
+        CHECK(looks::body_caption(82, nullptr, true).rfind("Manager, ", 0) == 0 && !has_digit(looks::body_caption(82, nullptr, true).substr(0, 9)), "a manager body by its size, not its number: " + looks::body_caption(82, nullptr, true));
         // track F's census: a body only women have is not offered to a man
         const std::vector<int64_t> man = looks::body_grid_codes(nullptr, 0, 0), woman = looks::body_grid_codes(nullptr, 0, 1);
         CHECK(std::find(man.begin(), man.end(), 18) == man.end() && std::find(woman.begin(), woman.end(), 18) != woman.end(), "Sydney Leroux's body: women only");
@@ -406,6 +406,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (bool kit : {false, true})
             for (const std::string& fd : looks::card_fields(true, kit)) want += t->has(fd) ? 1 : 0;
         CHECK(looks::studio_state().fields == static_cast<int>(want), "manager fields: " + std::to_string(looks::studio_state().fields) + " of " + std::to_string(want));
+        CHECK(looks::studio_state().figures == looks::studio_state().body_tiles && looks::studio_state().figures >= 10, "T3 the manager grid draws a figure on every tile: " + std::to_string(looks::studio_state().figures) + " of " + std::to_string(looks::studio_state().body_tiles));
         // a body-type tile and the page's own Undo
         const int64_t b1 = body0 == 3 ? 2 : 3;
         CHECK(ui.click(tile_label(app, b1, true), "##looksstudio_test"), "tile " + tile_label(app, b1, true));
@@ -440,7 +441,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (t->has("headassetid")) app.db.set_int(*t, rec, "headassetid", head0);
     });
 
-    run_case("Looks studio: the body-type grid shows the generator's pictures (a name where none), a new manifest refreshes it; edits and Undo reach the host log", [&] {
+    run_case("Looks studio: the body-type grid draws a figure on every tile whether or not generator pictures exist (5.0c E8-body); edits and Undo reach the host log", [&] {
         const Table* t = app.db.table("players");
         const PlayerRow* p = app.model.player(3001);
         if (!t || !p || !t->has("bodytypecode")) {
@@ -469,14 +470,29 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.sel_player = 3001;
         show(ui);
         ui.frames(12);
-        CHECK(looks::studio_state().thumbs == 2, "the two pictures are drawn: " + std::to_string(looks::studio_state().thumbs));
+        CHECK(looks::studio_state().thumbs == 0, "generator pictures are not the grid (figures are): " + std::to_string(looks::studio_state().thumbs));
+        // 5.0c RV3: the generator's real render is not lost - it is the tooltip of the tile that has one (code 4); a tile with none (5) shows none
+        {
+            const ItemRec* t5 = ui.find(tile_label(app, 5), "##looksstudio_test");
+            CHECK(t5 != nullptr, "tile 5 is on screen");
+            if (t5) {
+                ImGui::GetIO().AddMousePosEvent(t5->rect.GetCenter().x, t5->rect.GetCenter().y);
+                ui.frames(3);
+                CHECK(looks::studio_state().thumbs == 0, "hovering a tile with no generator picture shows none: " + std::to_string(looks::studio_state().thumbs));
+            }
+            const ItemRec* t4 = ui.find(tile_label(app, 4), "##looksstudio_test");
+            CHECK(t4 != nullptr, "tile 4 is on screen");
+            if (t4) {
+                ImGui::GetIO().AddMousePosEvent(t4->rect.GetCenter().x, t4->rect.GetCenter().y);
+                ui.frames(4);
+                CHECK(looks::studio_state().thumbs >= 1, "hovering tile 4 shows its generator picture in the tooltip: " + std::to_string(looks::studio_state().thumbs));
+            }
+            ImGui::GetIO().AddMousePosEvent(-1.0f, -1.0f);
+            ui.frames(2);
+        }
+        CHECK(looks::studio_state().figures == looks::studio_state().body_tiles && looks::studio_state().figures >= 10, "a figure on every tile: " + std::to_string(looks::studio_state().figures) + " of " + std::to_string(looks::studio_state().body_tiles));
         CHECK(looks::studio_state().body_tiles >= 10, "every body has its tile: " + std::to_string(looks::studio_state().body_tiles));
-        CHECK(ui.find(tile_label(app, 5), "##looksstudio_test") != nullptr, "a body with no picture keeps its name: " + tile_label(app, 5));
-        // another run: one picture gone, a new manifest.json -> the grid lists again (looked at every 2 s)
-        fs::remove(bodytype_thumbs::grid_file(out, 6), ec);
-        CHECK(bodytype_thumbs::write_file_atomic(bodytype_thumbs::manifest_file(out), "{\"version\": 1, \"entries\": []}", &err), "manifest written: " + err);
-        ui.frames(130);
-        CHECK(looks::studio_state().thumbs == 1, "after the new manifest one picture is left: " + std::to_string(looks::studio_state().thumbs));
+        CHECK(ui.find(tile_label(app, 5), "##looksstudio_test") != nullptr, "every tile keeps its name: " + tile_label(app, 5));
         // a body-type edit and its Undo reach the host log (turbo_gui.log), in the live check's words
         const int64_t b1 = body0 == 4 ? 6 : 4;
         CHECK(ui.click(tile_label(app, b1), "##looksstudio_test"), "tile " + tile_label(app, b1));
