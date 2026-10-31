@@ -47,7 +47,7 @@ int calc_overall(App& app, const Table& t, const PlayerRow& p) {
 void big_number(const char* caption, int value, bool muted) {
     ImGui::BeginGroup();
     theme::muted_text("%s", caption);
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * (muted ? 1.4f : 2.0f));
+    ImGui::PushFont(theme::title_font(), ImGui::GetStyle().FontSizeBase * (muted ? 1.4f : 2.0f));  // Turbo X: the semibold face
     if (value < 0) theme::muted_text("-");
     else if (muted) theme::muted_text("%d", value);
     else ImGui::Text("%d", value);
@@ -186,7 +186,7 @@ bool draw_player_header(App& app) {
     const float avail = ImGui::GetContentRegionAvail().x;
 
     ImGui::BeginGroup();
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    theme::push_title_font();
     ImGui::TextUnformatted(st.name.c_str());
     ImGui::PopFont();
     theme::muted_text("%s", st.club_line.c_str());

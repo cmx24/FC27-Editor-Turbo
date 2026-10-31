@@ -798,7 +798,7 @@ void presets_select_panel(App& app, void*) {
 
 void presets_editor_panel(App& app, void*) {
     const tpreset::Preset* p = selected();
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    theme::push_title_font();
     ImGui::TextUnformatted(p ? p->name.c_str() : "Tactic presets");
     ImGui::PopFont();
     undo_button_right(app, "Undo last load##tpundo", "Undo last load");
@@ -940,7 +940,7 @@ void gameplay_select_panel(App& app, void*) {
 void gameplay_editor_panel(App& app, void*) {
     const tpreset::Preset* p = selected();
     const bool have = p != nullptr && p->settings.present;
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    theme::push_title_font();
     ImGui::TextUnformatted(have ? p->name.c_str() : "Gameplay presets");
     ImGui::PopFont();
     undo_button_right(app, "Undo last load##gpundo", "Undo last load");

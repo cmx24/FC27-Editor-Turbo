@@ -51,6 +51,7 @@ bool attrib_ebx_uses_minhook();  // attrib_ebx_win.cpp
 #include "imgui_impl_win32.h"
 #include "imgui_internal.h"
 #include "ui/app.h"
+#include "ui/ui_theme.h"
 #include "core/hotkey.h"
 #include "core/wheel.h"
 #include "core/frame_cost.h"
@@ -653,6 +654,16 @@ static Init init_imgui(IDXGISwapChain3* sc) {
     std::filesystem::path font = std::filesystem::path(std::wstring(windir, wn)) / "Fonts" / "segoeui.ttf";
     std::error_code ec;
     if (wn > 0 && std::filesystem::exists(font, ec)) io.Fonts->AddFontFromFileTTF(font.string().c_str(), 17.0f);
+    // Turbo X (2026-10-31): the semibold face for titles, the rail mark and the big numbers (ui_theme.h title_font). Loaded AFTER the body
+    // font so the body stays io.FontDefault; missing on this PC = nullptr = the title helpers fall back to the body face.
+    std::filesystem::path semibold = std::filesystem::path(std::wstring(windir, wn)) / "Fonts" / "segoeuisb.ttf";
+    if (wn > 0 && std::filesystem::exists(semibold, ec)) {
+        ImFont* f = io.Fonts->AddFontFromFileTTF(semibold.string().c_str(), 17.0f);
+        turbo::theme::title_font() = f;
+        log("fonts: body segoeui.ttf, titles segoeuisb.ttf%s", f ? "" : " (failed to load: titles use the body face)");
+    } else {
+        log("fonts: body segoeui.ttf, titles: segoeuisb.ttf not found, the body face is used");
+    }
 
     if (!ImGui_ImplWin32_Init(g_hwnd)) return Init::Fail;
     ImGui_ImplDX12_InitInfo info;

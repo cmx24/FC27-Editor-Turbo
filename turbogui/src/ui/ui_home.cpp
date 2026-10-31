@@ -79,8 +79,8 @@ void draw_home(App& app) {
     g_home.club = career ? st.user_team : 0;
 
     // (a) title + status chip
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
-    ImGui::TextUnformatted("FC 27 LE Turbo");
+    theme::push_title_font(theme::kFontMark);
+    ImGui::TextUnformatted("Turbo X");
     ImGui::PopFont();
     ImGui::SameLine(0.0f, S(16.0f));
     {
@@ -159,19 +159,18 @@ void draw_home(App& app) {
     {
         const float sp = ImGui::GetStyle().ItemSpacing.x;
         const float w = (ImGui::GetContentRegionAvail().x - sp * 2.0f) / 3.0f;
-        const float h = ImGui::GetTextLineHeight() * 2.0f + ImGui::GetStyle().FramePadding.y * 2.0f + S(12.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
+        const float h = ImGui::GetTextLineHeight() * 3.4f + ImGui::GetStyle().FramePadding.y * 2.0f;
         int col = 0;
         for (const Tile& t : kTiles) {
             const char* name = shell::area_label(t.area);
             char lbl[160];
+            // Turbo X: the tile draws its own text (theme::tile); the label keeps the words for the test ids and the label scan
             std::snprintf(lbl, sizeof(lbl), "%s\n%s###home_tile_%d", name, t.line, static_cast<int>(t.area));
             if (col > 0) ImGui::SameLine();
-            if (ImGui::Button(lbl, ImVec2(w > S(120.0f) ? w : S(120.0f), h))) app.go(t.area, shell::default_page(t.area));
+            if (theme::tile(lbl, name, t.line, ImVec2(w > S(120.0f) ? w : S(120.0f), h))) app.go(t.area, shell::default_page(t.area));
             ++g_home.tiles;
             col = (col + 1) % 3;
         }
-        ImGui::PopStyleVar();
     }
 }
 

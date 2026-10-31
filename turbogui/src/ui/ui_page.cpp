@@ -69,7 +69,7 @@ void reset_for_tests() {
 
 Frame::Frame(App& app, const Spec& spec) : app_(app), spec_(spec) {
     ImGui::BeginChild((std::string("##page_") + spec_.id).c_str(), ImVec2(0, 0), ImGuiChildFlags_None);
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    theme::push_title_font();
     ImGui::TextUnformatted(spec_.title);
     ImGui::PopFont();
     if (spec_.help && *spec_.help) theme::muted_text("%s", spec_.help);

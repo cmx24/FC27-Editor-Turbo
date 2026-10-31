@@ -1744,12 +1744,15 @@ static bool strip_button(const char* label, bool selected, bool first) {
         ImGui::SameLine();
         if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();  // the next line
     }
-    const ImVec4 fill = selected ? theme::accent_fill() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_Button, fill);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_fill_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_fill_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    // Turbo X (2026-10-31): the strip is a row of quiet pills; the current page is an accent-tinted pill with accent text
+    ImGui::PushStyleColor(ImGuiCol_Button, selected ? theme::accent_alpha(0.16f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_alpha(0.24f) : theme::kRailHover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_alpha(0.30f) : theme::kRailActive);
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? theme::accent() : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f);
     const bool hit = ImGui::Button(label);
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
     return hit;
 }
 
@@ -1856,14 +1859,22 @@ static void draw_global_search(App& app) {
 // 3.0 shell: one button of the left rail (an area). Full width, the selected one filled with the accent; `label` is what the button shows
 // (the area name, or its first letter in the narrow rail). True when clicked.
 static bool rail_button(const char* label, bool selected, float width) {
-    const ImVec4 fill = selected ? theme::accent_fill() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_Button, fill);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_fill_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_fill_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    // Turbo X (2026-10-31): a selected area is an accent bar at the left, a faint accent wash and accent text; the others are
+    // transparent with a hover wash. The whole button keeps its id, so the test ids (###rail_<Area>) are unchanged.
+    ImGui::PushStyleColor(ImGuiCol_Button, selected ? theme::accent_alpha(0.14f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_alpha(0.20f) : theme::kRailHover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_alpha(0.26f) : theme::kRailActive);
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? theme::accent() : ImGui::GetStyleColorVec4(ImGuiCol_Text));
     ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
-    const bool hit = ImGui::Button(label, ImVec2(width, ImGui::GetFrameHeight() + S(8.0f)));
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(14.0f), ImGui::GetStyle().FramePadding.y));
+    const bool hit = ImGui::Button(label, ImVec2(width, ImGui::GetFrameHeight() + S(10.0f)));
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+    if (selected) {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x, a.y + S(6.0f)), ImVec2(a.x + S(3.0f), b.y - S(6.0f)),
+                                                  ImGui::ColorConvertFloat4ToU32(theme::accent()), S(1.5f));
+    }
     return hit;
 }
 
@@ -1896,15 +1907,32 @@ void App::draw_pages() {
     split::set_page(page_key(place_.page));
     // ---- the rail
     const bool narrow = prefs.rail_collapsed;
-    const float rail_w = narrow ? S(44.0f) : S(156.0f);
+    const float rail_w = narrow ? S(48.0f) : S(176.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kRailBg);  // Turbo X: the rail is one step below the window
     ImGui::BeginChild("##rail", ImVec2(rail_w, 0.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleColor();
     {
         const float bw = ImGui::GetContentRegionAvail().x;
-        if (ImGui::SmallButton(narrow ? ">###railwiden" : "<###railnarrow")) {
-            prefs.rail_collapsed = !prefs.rail_collapsed;
-            if (!save_gui_settings()) notify("cannot save the settings", true);
+        // Turbo X: the product mark ("TURBO" in the semibold face, "X 1.0" muted) and the narrow/wide toggle on its right
+        theme::push_title_font(theme::kFontMark);
+        ImGui::TextColored(theme::accent(), narrow ? "X" : "TURBO");
+        theme::pop_title_font();
+        if (!narrow) {
+            ImGui::SameLine(0.0f, S(6.0f));
+            ImGui::AlignTextToFramePadding();
+            theme::muted_text("X 1.0");
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", narrow ? "Show the area names" : "Make the menu narrow");
+        {
+            const char* tl = narrow ? ">###railwiden" : "<###railnarrow";
+            const float tw = ImGui::CalcTextSize(tl, nullptr, true).x + ImGui::GetStyle().FramePadding.x;
+            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - tw));
+            if (ImGui::SmallButton(tl)) {
+                prefs.rail_collapsed = !prefs.rail_collapsed;
+                if (!save_gui_settings()) notify("cannot save the settings", true);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", narrow ? "Show the area names" : "Make the menu narrow");
+        }
+        ImGui::Spacing();
         ImGui::Spacing();
         ImGui::PushID("##shell");
         auto area_button = [&](Area a) {
@@ -1925,9 +1953,11 @@ void App::draw_pages() {
             area_button(a);
         }
         // Settings at the bottom
-        const float bh = ImGui::GetFrameHeight() + S(8.0f);
-        const float bottom_y = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bh;
+        const float bh = ImGui::GetFrameHeight() + S(10.0f);
+        const float bottom_y = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bh - S(10.0f);
         if (bottom_y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(bottom_y);
+        ImGui::Separator();
+        ImGui::Spacing();
         area_button(Area::Settings);
         ImGui::PopID();
     }
@@ -2236,17 +2266,22 @@ void App::draw() {
     // Status line (2.16 step 2): the link in a word and your club; the version, Refresh and the show/hide key are
     // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load
     const auto& st = bridge.state();
-    if (connected()) {
-        ImGui::TextColored(ImVec4(0.45f, 0.9f, 0.45f, 1.0f), "Connected");
-    } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Waiting for your career");
-    }
-    ImGui::SameLine();
+    // Turbo X (2026-10-31): the link as a chip (green = connected, amber = waiting), then the club in plain text
+    ImGui::AlignTextToFramePadding();
+    if (connected()) theme::chip("Connected", theme::ok());
+    else theme::chip("Waiting for your career", theme::warn());
+    ImGui::SameLine(0.0f, S(10.0f));
     if (connected()) {
         const std::string club = st.in_cm && st.user_team > 0 ? model.team_name(st.user_team) : std::string();
-        ImGui::TextDisabled("| %s%s", club.empty() ? "" : (club + " | ").c_str(), st.in_cm ? "career loaded" : "no career loaded");
+        if (!club.empty()) {
+            theme::push_title_font(1.0f);
+            ImGui::TextUnformatted(club.c_str());
+            theme::pop_title_font();
+            ImGui::SameLine(0.0f, S(8.0f));
+        }
+        ImGui::TextDisabled("%s", st.in_cm ? "career loaded" : "no career loaded");
     } else {
-        ImGui::TextDisabled("| %s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
+        ImGui::TextDisabled("%s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
     }
     if (!lua_queue.empty()) {
         ImGui::SameLine();

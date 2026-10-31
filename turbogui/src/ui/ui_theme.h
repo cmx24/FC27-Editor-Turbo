@@ -10,20 +10,21 @@
 namespace turbo::theme {
 
 // ---- palette
-constexpr ImVec4 kAccent{0.26f, 0.52f, 0.96f, 1.0f};  // primary buttons, selected row: the Turbo blue
-constexpr ImVec4 kOk{0.45f, 0.85f, 0.50f, 1.0f};      // proven / applied status text
-constexpr ImVec4 kWarn{1.00f, 0.78f, 0.25f, 1.0f};    // "not proven" banner, pending jobs
-constexpr ImVec4 kErr{1.00f, 0.50f, 0.30f, 1.0f};     // errors: the existing orange-red, kept
-constexpr ImVec4 kMuted{0.70f, 0.72f, 0.76f, 1.0f};   // hints: equals the style's TextDisabled (ui_style.cpp)
-// surfaces of the graphite/navy theme (ui_style.cpp uses the same values; helpers below use them for cards and rules)
-constexpr ImVec4 kCardBg{0.090f, 0.106f, 0.148f, 1.0f};   // a card sits one step above the window (0.055, 0.065, 0.090)
-constexpr ImVec4 kRule{0.24f, 0.28f, 0.36f, 0.55f};       // thin separator / divider line
-constexpr ImVec4 kRailHover{1.0f, 1.0f, 1.0f, 0.07f};     // hover wash on a transparent rail button
-constexpr ImVec4 kRailActive{1.0f, 1.0f, 1.0f, 0.12f};
-
-// 2.22: table column dividers (ImGuiCol_TableBorderStrong / Light): clearly visible on the dark window; there is one theme (dark)
-constexpr ImVec4 kTableBorderStrong{0.52f, 0.58f, 0.70f, 1.0f};
-constexpr ImVec4 kTableBorderLight{0.40f, 0.45f, 0.56f, 1.0f};
+// Turbo X (2026-10-31): the X palette. Mint-teal accent (the game's own highlight hue), deeper slate surfaces, one semibold
+// title font. The names stay: every page reads them through the helpers below.
+constexpr ImVec4 kAccent{0.125f, 0.800f, 0.680f, 1.0f};  // text, check marks, grabs, outlines: mint teal
+constexpr ImVec4 kOk{0.45f, 0.88f, 0.55f, 1.0f};         // proven / applied status text
+constexpr ImVec4 kWarn{1.00f, 0.78f, 0.25f, 1.0f};       // "not proven", pending jobs
+constexpr ImVec4 kErr{1.00f, 0.48f, 0.36f, 1.0f};        // errors
+constexpr ImVec4 kMuted{0.62f, 0.66f, 0.72f, 1.0f};      // hints: equals the style's TextDisabled (ui_style.cpp)
+constexpr ImVec4 kWindowBg{0.039f, 0.051f, 0.071f, 0.985f};
+constexpr ImVec4 kCardBg{0.074f, 0.094f, 0.130f, 1.0f};  // a card sits one step above the window
+constexpr ImVec4 kRule{0.22f, 0.27f, 0.34f, 0.60f};      // thin separator / divider line
+constexpr ImVec4 kRailBg{0.030f, 0.040f, 0.056f, 1.0f};  // the rail is one step below the window
+constexpr ImVec4 kRailHover{1.0f, 1.0f, 1.0f, 0.06f};    // hover wash on a transparent rail button
+constexpr ImVec4 kRailActive{1.0f, 1.0f, 1.0f, 0.10f};
+constexpr ImVec4 kTableBorderStrong{0.40f, 0.46f, 0.56f, 1.0f};
+constexpr ImVec4 kTableBorderLight{0.28f, 0.33f, 0.42f, 1.0f};
 
 inline ImVec4 accent() { return kAccent; }
 inline ImVec4 accent_hover() { return ImVec4(kAccent.x * 1.15f, kAccent.y * 1.15f, kAccent.z * 1.05f, 1.0f); }
@@ -32,9 +33,9 @@ inline ImVec4 accent_active() { return ImVec4(kAccent.x * 0.85f, kAccent.y * 0.8
 // (reads there at >= 4.5:1) but as a fill under the 0.96 text it drew 3.27:1 at rest and 2.65:1 hovered. The fill tokens give the text >= 4.5:1 in all
 // three states (white too, for the rail), keep the hue, stay >= 3:1 against the window, popup and card (WCAG 1.4.11), and hover is the lightest step
 // and active the darkest (test_e3_e4_dupes.h E4a). accent() / accent_hover() / accent_active() stay for text, check marks, grabs and outlines.
-constexpr ImVec4 kAccentFill{0.156f, 0.395f, 0.853f, 1.0f};
-constexpr ImVec4 kAccentFillHover{0.160f, 0.405f, 0.875f, 1.0f};
-constexpr ImVec4 kAccentFillActive{0.150f, 0.380f, 0.820f, 1.0f};
+constexpr ImVec4 kAccentFill{0.075f, 0.600f, 0.505f, 1.0f};        // the FILL of an accent button: darker than the text accent
+constexpr ImVec4 kAccentFillHover{0.095f, 0.680f, 0.575f, 1.0f};
+constexpr ImVec4 kAccentFillActive{0.060f, 0.500f, 0.420f, 1.0f};
 inline ImVec4 accent_fill() { return kAccentFill; }
 inline ImVec4 accent_fill_hover() { return kAccentFillHover; }
 inline ImVec4 accent_fill_active() { return kAccentFillActive; }
@@ -56,8 +57,18 @@ constexpr float kRailWidth = 36.0f;        // the select panel collapsed
 constexpr float kNarrowWindow = 900.0f;    // below this the select panel collapses to the rail
 // ---- type scale (multipliers of the body font; one font, no bold)
 constexpr float kFontBody = 1.0f;
-constexpr float kFontTitle = 1.25f;        // page title only
+constexpr float kFontTitle = 1.35f;        // page title, card titles: the semibold face (title_font) at this size
 constexpr float kFontSmall = 0.85f;        // hints, status
+constexpr float kFontMark = 1.45f;         // the product mark on the rail
+
+// Turbo X: the second face. The overlay loads Segoe UI Semibold next to the body font and stores it here; nullptr = the body font
+// (PushFont(nullptr, size) keeps the current face), so every title helper works without it.
+inline ImFont*& title_font() {
+    static ImFont* f = nullptr;
+    return f;
+}
+inline void push_title_font(float mult = kFontTitle) { ImGui::PushFont(title_font(), ImGui::GetStyle().FontSizeBase * mult); }
+inline void pop_title_font() { ImGui::PopFont(); }
 
 // ---- text helpers (printf style)
 inline void text_colored_v(const ImVec4& c, const char* fmt, va_list args) {
@@ -116,13 +127,52 @@ inline void card_end() { ImGui::EndChild(); }
 
 // A section heading: title-size text, then a thin muted rule across the available width.
 inline void section_title(const char* text) {
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * kFontTitle);
+    push_title_font();
     ImGui::TextUnformatted(text);
     ImGui::PopFont();
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float w = ImGui::GetContentRegionAvail().x;
     ImGui::GetWindowDrawList()->AddLine(p, ImVec2(p.x + w, p.y), ImGui::ColorConvertFloat4ToU32(kRule), 1.0f);
     ImGui::Dummy(ImVec2(0.0f, 1.0f));
+}
+
+// Turbo X (2026-10-31): a card title: a short accent bar, the title in the semibold face, a thin rule under it. Replaces SeparatorText
+// inside cards. Sizes derive from the font size, so it scales with the UI size without S().
+inline void card_title(const char* text) {
+    push_title_font(1.12f);
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(ImVec2(p.x, p.y + fs * 0.14f), ImVec2(p.x + fs * 0.18f, p.y + fs * 0.96f), ImGui::ColorConvertFloat4ToU32(kAccent), fs * 0.09f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fs * 0.55f);
+    ImGui::TextUnformatted(text);
+    pop_title_font();
+    const ImVec2 q = ImGui::GetCursorScreenPos();
+    dl->AddLine(ImVec2(q.x, q.y + 1.0f), ImVec2(q.x + ImGui::GetContentRegionAvail().x, q.y + 1.0f), ImGui::ColorConvertFloat4ToU32(kRule), 1.0f);
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
+}
+
+// Turbo X: a Home tile: a card-coloured rounded button with the area name in the semibold face and one muted line under it.
+// `id` keeps the test id (###home_tile_n). Returns true when clicked.
+inline bool tile(const char* id, const char* name, const char* line, const ImVec2& size) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, kCardBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(kCardBg.x + 0.03f, kCardBg.y + 0.035f, kCardBg.z + 0.045f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_alpha(0.18f));
+    ImGui::PushStyleColor(ImGuiCol_Border, kRule);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // the button's own label is invisible: the text below is drawn by hand
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    const bool hit = ImGui::Button(id, size);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(5);
+    const float fs = ImGui::GetFontSize();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(ImVec2(p.x, p.y + fs * 0.9f), ImVec2(p.x + fs * 0.18f, p.y + size.y - fs * 0.9f), ImGui::ColorConvertFloat4ToU32(kAccent), fs * 0.09f);
+    push_title_font(1.12f);
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(p.x + fs * 0.9f, p.y + fs * 0.75f), ImGui::GetColorU32(ImGuiCol_Text), name);
+    pop_title_font();
+    dl->AddText(ImVec2(p.x + fs * 0.9f, p.y + fs * 0.75f + fs * 1.45f), ImGui::ColorConvertFloat4ToU32(kMuted), line);
+    return hit;
 }
 
 // A rounded filled pill with text (status chip). No interaction; takes the place of one item on the line (SameLine works).

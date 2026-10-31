@@ -541,8 +541,11 @@ bool look_combo(App& app, Studio& s, const Table& t, uint64_t rec, const Subject
 }
 
 bool card_begin(Studio& s, const char* id, const char* title, const char* tag = nullptr) {
+    // Turbo X (2026-10-31): a real card (card background, accent-barred semibold title) in place of a bordered child + SeparatorText
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kCardBg);
     ImGui::BeginChild(id, ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
-    ImGui::SeparatorText(title);
+    ImGui::PopStyleColor();
+    theme::card_title(title);
     ++s.st.cards;
     if (tag) {
         theme::warn_text("%s", tag);
@@ -1267,7 +1270,7 @@ void draw_looks_studio(App& app) {
     const int requests = s.body.requests() + s.big.requests();
     s.st = StudioState();
     s.st.requests = requests;
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * theme::kFontTitle);
+    theme::push_title_font();
     ImGui::TextUnformatted("Appearance Editor");
     ImGui::PopFont();
     ImGui::SameLine();
