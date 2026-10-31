@@ -7,6 +7,7 @@ usage: python -I test_codec15_real.py [--module <path to an fc27_commentary.py>]
 Fail-old: point --module at the pre-port copy, whose write_wavs accepts codec 0x0C / 0x0E only.
 """
 import argparse
+import hashlib
 import importlib.util
 import os
 import shutil
@@ -23,6 +24,8 @@ def main(argv=None):
     ap.add_argument("--ffmpeg", default=shutil.which("ffmpeg"))
     a = ap.parse_args(argv)
     sys.path.insert(0, HERE)
+    with open(a.module, "rb") as f:  # the log names the copy it ran (a fail-old log must say which old module it was)
+        print("module: %s md5 %s" % (os.path.abspath(a.module), hashlib.md5(f.read()).hexdigest()))
     spec = importlib.util.spec_from_file_location("fc27_commentary", a.module)
     fc = importlib.util.module_from_spec(spec)
     sys.modules["fc27_commentary"] = fc
