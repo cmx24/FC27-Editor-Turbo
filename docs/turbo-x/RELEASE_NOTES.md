@@ -2,7 +2,7 @@
 
 **Status: compiled, not proven.** This build came out of the project's own `build_win.sh` with exit 0 and 0 warnings, cross-compiled on Linux with MinGW-w64 GCC 13.2. It has **not run in EA FC 27**. Nobody has seen the overlay draw. Install it only on the throwaway LEICESTER career, after `Protect-TurboFiles.ps1`, and follow `docs/turbo-x/TEST_CARD.md`.
 
-Identity: commit `21c851a (source identical to 230d49a; 21c851a adds only docs)`, `Turbo.dll` md5 `e679e40aea0da72d20f2c6fe9ea8c106`, package `TurboX_21c851a_e679e40a.zip`. The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
+Identity: `Turbo.dll` md5 `8b23d9c157f7c33475ed8f9ad5fa0bc1`, package `TurboX_<commit>_8b23d9c1.zip` (the commit is in the zip name and in its BUILD.txt; the docs commit after the build changes the id, the source does not: src is at ff1c547 + tests at 41cf307). The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
 
 ## What changed against 5.0c/integration @ 00b28622 (the reviewed head)
 
@@ -12,13 +12,14 @@ Everything below follows `docs/review-2026-10-31/CONSENSUS_ACTION_PLAN.md` v2, s
 - **Step 6, menus cut by deletion**: the "Everything (classic)" tab, the duplicate Players > Callnames page, the whole Advanced ("Lab") area and its pages, the "Use the old pages" and "Preview the 4.0 menus" switches, and the 4.0 tree. 49 files, −3,562 lines, six source files deleted. One tab row on the player screen; Callname appears once. What lost its only door is listed in `BUILD_LOG.md`.
 - **Step 7, one picker route**: hair, beard, accessories, tattoos, body type and kit all open `ui_visual_picker.cpp`. The old `item_galleries`, `tattoo_editor` and `gallery_picker` tables are unreachable (marked, not yet deleted: deletion waits for in-game proof, per the plan and Copilot's dissent). Each picker shows "N without picture — show".
 - **Step 8–9, sliders and copy**: Game Settings uses real `SliderInt` on verified rows, written through the existing live block write; "read-only" / "not mapped" on the rest; no staging paragraph; cells ≤ 3 words.
+- **Independent review** (after the merges): one functional regression from the menus cut fixed (CM Tracker → Create player), a false Undo claim removed, Refresh clears stale status, slider rescans throttled, 3D band chooser shows model-only tiles. Details in `BUILD_LOG.md`.
 - **Version**: footer reads `Turbo X 1.0`.
 
 ## What is NOT in this build
 
 - Step 5 (tactics study): the tactics pages still describe the `turbo_settings_apply.exe` flow. Untouched on purpose.
 - Step 7 second half: the old picker code is still compiled in; `PICKER_DELETION_LIST.md` has the line ranges for after the proof.
-- Native tests: being brought in line on `tx-tests`; they cannot run here either way.
+- Native tests: brought in line (the test TU compiles, lint passes) but **not run** here; the legacy UI block of test_main.cpp still drives the deleted classic editor and will fail at runtime until re-routed.
 
 ## Undo
 
