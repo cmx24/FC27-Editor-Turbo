@@ -487,16 +487,6 @@ static void language_line(App& app) {
         ImGui::SetTooltip("Asks the game which names the commentators recorded, so the lists offer only names you can hear.\n"
                           "It runs in small steps while you keep using Turbo.");
     const bool running = app.bank_capture_running();
-    if (app.prefs.advanced_mode) {  // 2.16: a developer diagnostic, shown in the Advanced view only
-        ImGui::SameLine();
-        if (running) ImGui::BeginDisabled();
-        if (ImGui::Button("Capture from the loaded bank###cncapture")) app.start_bank_capture(false);
-        if (running) ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Diagnostic: scans the game's memory for the loaded bank's selection tables and caches what it finds as\n"
-                              "turbo_output\\callnames\\spoken_<lang>.json (the audio-service build is the normal way). A hand-made\n"
-                              "spoken_<lang>.txt under turbo\\callnames overrides either.");
-    }
     ImGui::SameLine();
     if (st.busy) ImGui::TextDisabled("building: %s", st.progress.c_str());
     else if (running) ImGui::TextDisabled("%s", app.bank_capture_status.c_str());

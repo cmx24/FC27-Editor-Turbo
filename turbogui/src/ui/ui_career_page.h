@@ -1,6 +1,6 @@
-// FC 27 LE Turbo GUI - Career tools and Advanced pages (GUI revamp 2.13, track T5; GUI_REVAMP_SPEC.md 1.1 and 4).
-// The pages register themselves with the shell (ui_shell.h TURBO_REGISTER_PAGE) from ui_tools.cpp, ui_cmtracker.cpp,
-// ui_database.cpp and ui_competitions.cpp; this header only names what the tests and the legacy tab need.
+// FC 27 LE Turbo GUI - Career tools pages (GUI revamp 2.13, track T5; GUI_REVAMP_SPEC.md 1.1 and 4).
+// The pages register themselves with the shell (ui_shell.h TURBO_REGISTER_PAGE) from ui_tools.cpp, ui_cmtracker.cpp
+// and ui_competitions.cpp; this header only names what the tests and the legacy tab need.
 #pragma once
 #include <cstddef>
 
@@ -10,8 +10,7 @@ namespace turbo {
 
 class App;
 
-// Draws one of the pages that live in ui_tools.cpp (Transfers, JobOffer, AdvExport, ChangesUndo,
-// AdvBulkEdit, AdvMaintenance) exactly as the shell does. False for any other page.
+// Draws one of the pages that live in ui_tools.cpp (Transfers, JobOffer, ChangesUndo) exactly as the shell does. False for any other page.
 bool draw_career_tools_page(App& app, shell::Page p);
 
 // Changes & undo: the "Undo (n)" number: the rows of Turbo's re-apply log (kept kit edits, kept callnames and kept player
@@ -20,7 +19,7 @@ size_t changes_undo_count(const App& app);
 // The page's lead lines: "Undo (n)" with the three counts, what Forget does, the last re-apply summary
 void changes_undo_summary(App& app);
 
-// Career tools > Maintenance: the career database copy of the league tables (ui_competitions.cpp)
+// The career database copy of the league tables (ui_competitions.cpp; the legacy Competitions panel draws it)
 void draw_career_database_copy(App& app);
 
 // Career tools > CMTracker (ui_cmtracker.cpp): the library page; the same body as the "From CMTracker..." dialog of the player page

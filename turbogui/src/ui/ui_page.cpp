@@ -127,7 +127,7 @@ bool Frame::end() {
     }
     {
         const shell::Place bp = shell::back_place();
-        const bool can = bp.valid() && bp.page != app_.place().page && shell::page_visible(bp.page, app_.prefs.advanced_mode);
+        const bool can = bp.valid() && bp.page != app_.place().page && shell::page_visible(bp.page);
         ImGui::BeginDisabled(!can);
         if (ImGui::Button(kBackLabel)) app_.back();
         ImGui::EndDisabled();

@@ -153,10 +153,6 @@ public:
     std::string preload_line() const;     // "Loading pictures: 812 of 4120" ("" when nothing is loading)
     std::vector<std::string> preload_status() const;  // Status tab: one line per kind of picture (ui/preload.h)
     GuiPrefs prefs;                                   // gui.preload_images, gui.row_density (ui/gui_prefs.h)
-    bool legacy_pages = false;  // 2.16: draw the pre-2.16 panels instead of the new pages (gui.legacy_pages; Settings, Advanced view; the tests set it)
-    // 2.19: Players > Edit a player draws the full editor (draw_players: filters, resizable list and rows, archetype editor) unless the person
-    // opts into the 2.16 card page (gui.player_card_view; the "Card view (beta)" switch on the page)
-    bool player_card_view = false;
     float row_height_applied = 0.0f;                  // the Row height (gui_prefs.h) the style was last built for
     bool lua_images_wanted() const;       // pictures are waiting and Turbo is shown: the host nudges Lua (synthetic event)
     float ui_scale_user = 1.0f;     // "UI size" setting (gui_settings.json gui.ui_scale), 0.6 .. 2.5
@@ -404,9 +400,8 @@ public:
     // Legacy navigation shim (GUI revamp 2.13): request_tab = N lands on shell::area_for(N): 0 players, 1 teams, 2 managers,
     // 3 competitions, 4 database, 5 tools, 6 status, 7 game settings. New code uses go().
     int request_tab = -1;
-    // ---- shell (ui_shell.h): five areas + Advanced, each a strip of pages
-    // Open a page for the next frame (its area comes with it). Ignored when the page is hidden in the current view (Simple
-    // hides the Advanced area) or invalid.
+    // ---- shell (ui_shell.h): areas, each a strip of pages
+    // Open a page for the next frame (its area comes with it). Ignored when the page is invalid.
     void go(shell::Area a, shell::Page p);
     void go(shell::Page p) { go(shell::area_of(p), p); }
     // 3.1 N1: back to the place the last navigation left (shell::back_place()); false when there is none or it is hidden in this view.
@@ -587,13 +582,11 @@ private:
 };
 
 // panels
-void draw_unproven_banner();  // app.cpp: the Advanced view note (gui_prefs.h)
-void draw_players(App& app);
 void draw_teams(App& app);
-// Teams > Tactics tab body (ui_tactics.cpp)
+// Tactics panel body (ui_tactics.cpp)
 void draw_tactics(App& app);
 // "Transfer bans" section for a club (what = "team") or a player ("player"): ui_players.cpp; Teams tab > Overview and
-// the player editor's Contract & Clubs tab
+// the Transfers & money page
 void transfer_ban_section(App& app, const char* what, int64_t id);
 void draw_managers(App& app);
 void draw_competitions(App& app);
@@ -621,7 +614,6 @@ std::string fce_edit_off(App& app, const fce::Located& loc);
 void draw_match_setup(App& app);
 // Clear the game variables the Match setup panel set (its Set buttons) when the host unloads Turbo. Never throws.
 void match_setup_clear_on_exit(App& app);
-void draw_database(App& app);
 void draw_tools(App& app);
 void draw_status(App& app);
 // The Status tab in its three parts (ui_tools.cpp); the Settings page (ui_settings.cpp) draws the first two under its own title

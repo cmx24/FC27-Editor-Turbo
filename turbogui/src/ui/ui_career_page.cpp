@@ -1,4 +1,4 @@
-// FC 27 LE Turbo GUI - the Career pages of the GUI revamp (see ui_career_pages.h): Transfers & money, Manager jobs, My squad and
+// FC 27 LE Turbo GUI - the Career pages of the GUI revamp (see ui_career_pages.h): Transfers Transfers & money, Manager jobs, My squad and money, Manager jobs, the squad cards and
 // Managers & staff. Plain cards (one question per card, one main button, the rest under More), names instead of codes, an honest
 // "Not tested yet" tag where the write is built but not yet seen in game (docs/fc26-parity.md is the proof table), and a question
 // before every action the Undo button cannot bring back.
@@ -763,39 +763,7 @@ static void squad_cards_body(App& app) {
     card_squad_tools(app, team);
 }
 
-// 2.22 G-squad: the first tab of Players > My squad. The sortable squad table of 2.14 for the user's club; outside a career (no club of his own)
-// the club picker of Team > Players stands in, so the page never shows a bare "waiting" line where 2.14 showed a table.
-static void squad_tab(App& app) {
-    int64_t club = g_state.club;
-    if (club <= 0) {
-        ImGui::AlignTextToFramePadding();
-        theme::muted_text("Club");
-        ImGui::SameLine();
-        club_search_box(app, "##sqclub", app.sel_team, S(260.0f));
-        ImGui::Separator();
-        club = app.model.team(app.sel_team) ? app.sel_team : 0;
-    }
-    if (club > 0) squad_table(app, club);
-    else theme::muted_text("Pick a club above to see its squad.");
-}
-
-void draw_career_my_squad(App& app) {
-    if (waiting_for_career(app)) return;
-    Page page(app, "##career_squad", "How is my squad? The table of players, then form, roles, contracts and growth for the whole club.");
-    if (ImGui::BeginTabBar("##career_squad_tabs")) {
-        if (ImGui::BeginTabItem("Squad###sqtabsquad")) {
-            squad_tab(app);
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Career tools###sqtabtools")) {
-            squad_cards_body(app);
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
-}
-
-// The cards alone (Team > Players > Whole squad draws these under the My team preset; the table has a tab of its own there)
+// The squad cards (Team > Players > Whole squad draws these under the My team preset; the table has a tab of its own there)
 void draw_career_squad_cards(App& app) {
     if (waiting_for_career(app)) return;
     Page page(app, "##career_squad", "How is my squad? Form, roles, contracts and growth for the whole club.");

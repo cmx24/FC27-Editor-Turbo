@@ -1000,7 +1000,7 @@ void App::tick(double t) {
 
     edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
     live_tactic_tick(*this);  // Tactics channel E: job results, the read-back 5 s after a write, the kick-off check (ui_live_tactic.cpp)
-    if (!legacy_pages) changes::poll(*this);  // 2.16 wiring: the Changes list follows the features' undo state (in memory, cheap)
+    changes::poll(*this);  // 2.16 wiring: the Changes list follows the features' undo state (in memory, cheap)
     tactic_presets_tick(*this);  // Tactic presets: a load / undo finishes when its channel E job came back (ui_tactic_presets.cpp)
     tuning_tick(*this);  // Gameplay tuning: job results, the undo file, the re-apply of kept values at a career load (ui_tuning.cpp)
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
@@ -1674,18 +1674,6 @@ void App::load_gui_settings() {
     }
     prefs = GuiPrefs::load(gui_settings);  // gui.preload_images, gui.row_density (ui/gui_prefs.h)
     looks::body_show_all(prefs.body_show_all);  // 5.0c RV4: the saved "Show all body types" tick (default off)
-    // the old panels instead of the 2.16 pages: only a stored choice changes the flag (a test sets it directly)
-    if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
-        gui_settings["gui"]["legacy_pages"].is_boolean())
-        legacy_pages = gui_settings["gui"]["legacy_pages"].get<bool>();
-    // 3.0 first start: a STORED "old pages" choice is dropped once (the switch sits under the Lab switch, which starts off); a value set in
-    // memory (a test, Settings in this session) is kept
-    if (prefs.first_30_start && gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
-        gui_settings["gui"]["legacy_pages"].is_boolean() && gui_settings["gui"]["legacy_pages"].get<bool>())
-        legacy_pages = false;
-    if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("player_card_view") &&
-        gui_settings["gui"]["player_card_view"].is_boolean())
-        player_card_view = gui_settings["gui"]["player_card_view"].get<bool>();
     // the asset catalog's commentary team ("" automatic, "*" every team, "dr" ...): Callnames, docs/asset-catalog.md
     if (gui_settings.contains("callnames") && gui_settings["callnames"].is_object()) {
         const json& c = gui_settings["callnames"];
@@ -1698,25 +1686,19 @@ bool App::save_gui_settings() {
     gui_settings["gui"]["toggle_mods"] = toggle_mods;
     gui_settings["gui"]["ui_scale"] = std::round(ui_scale_user * 100.0f) / 100.0f;
     prefs.save(gui_settings);
-    if (legacy_pages) gui_settings["gui"]["legacy_pages"] = true;
-    else if (gui_settings["gui"].is_object()) gui_settings["gui"].erase("legacy_pages");
-    if (player_card_view) gui_settings["gui"]["player_card_view"] = true;
-    else if (gui_settings["gui"].is_object()) gui_settings["gui"].erase("player_card_view");
+    if (gui_settings["gui"].is_object()) {  // the old pages and the card view are gone: a stored choice is dropped, as an unticked one was
+        gui_settings["gui"].erase("legacy_pages");
+        gui_settings["gui"].erase("player_card_view");
+    }
     return bridge.write_gui_settings(gui_settings.dump(2));
 }
 
-// The Advanced view's note on a tab or panel with no proven in-game effect (gui_prefs.h unproven_banner_text)
-void draw_unproven_banner() {
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", unproven_banner_text());
-}
-
 // ---------------------------------------------------------------- main window
-// ---- GUI revamp shell (ui_shell.h): five areas + Advanced, each a strip of pages --------------------------------------------
+// ---- GUI revamp shell (ui_shell.h): areas, each a strip of pages --------------------------------------------
 
 void App::go(shell::Area a, shell::Page p) {
     using namespace shell;
     if (p == Page::None || p == Page::Count || area_of(p) != a) return;
-    if (!page_visible(p, prefs.advanced_mode)) return;
     go_to_ = Place{a, p};
     back_nav_ = false;
 }
@@ -1726,7 +1708,7 @@ void App::go(shell::Area a, shell::Page p) {
 bool App::back() {
     using namespace shell;
     const Place b = back_place();
-    if (!b.valid() || !page_visible(b.page, prefs.advanced_mode || legacy_pages) || b == place_) return false;
+    if (!b.valid() || !page_visible(b.page) || b == place_) return false;
     go_to_ = b;
     back_nav_ = true;
     back_place() = Place{};
@@ -1739,17 +1721,10 @@ static void draw_legacy_page(App& app, shell::Page p) {
     // Transfers lived in Teams (legacy_tab_of) but the legacy request_tab 5 (Turbo Tools) lands on it (area_for): until T5's
     // page is registered it shows the Turbo Tools panel; the Teams panel, transfers included, stays under Squad
     const int lt = p == shell::Page::Transfers ? 5 : shell::legacy_tab_of(p);
-    if (p == shell::Page::AdvDiagnostics) {  // 2.16 step 4: until its own page registers, the health and the log of the old Status panel
-        draw_status_health(app);
-        draw_log_section(app, "diagnostics.log");
-        return;
-    }
     switch (lt) {
-        case 0: draw_players(app); break;
         case 1: draw_teams(app); break;
         case 2: draw_managers(app); break;
         case 3: draw_competitions(app); break;
-        case 4: draw_database(app); break;
         case 5: draw_tools(app); break;
         case 6: draw_status(app); break;
         case 7: draw_game_settings(app); break;  // 2.8: ui_game_settings.cpp (presets applied with the game closed)
@@ -1893,29 +1868,26 @@ static bool rail_button(const char* label, bool selected, float width) {
 }
 
 // Navigation happens in the frame it is asked for (a click, go(), request_tab): the page of the new place is drawn at once.
-// 3.0 layout: [##rail | ##content]. The rail lists the areas (Settings and Lab pinned at the bottom, "<" / ">" narrows it); the content child
+// 3.0 layout: [##rail | ##content]. The rail lists the areas (Settings pinned at the bottom, "<" / ">" narrows it); the content child
 // holds the page strip (segmented buttons) and the page. The rail buttons sit under PushID("##shell") and the strip under PushID("##pages"),
 // as the area tabs and the strip did, so Ui::open_page and the tests' scoped clicks still find them by label.
 void App::draw_pages() {
     using namespace shell;
-    // 3.0: "Use the old pages" (Settings, under the Lab switch; the tests of the pre-2.16 panels set it directly) keeps the Lab reachable:
-    // the old Teams tab (request_tab 1) lands on "My squad (old page)", which is a Lab page now
-    const bool adv = prefs.advanced_mode || legacy_pages;
     const Place frame_start = place_;  // 3.1 N1: the place this frame starts on; where it ends differently, the start is the new back place
     // Legacy request_tab = N (cross-links, tests) -> its new home. Taken before drawing: a panel may request another place
-    // for the next frame. A page the view hides (the Lab is off) is not opened, as the old hidden tabs were not.
+    // for the next frame.
     if (request_tab >= 0) {
         const Place pl = area_for(request_tab);
         request_tab = -1;
-        if (pl.valid() && page_visible(pl.page, adv)) go_to_ = pl;
+        if (pl.valid() && page_visible(pl.page)) go_to_ = pl;
     }
     // A link inside the Club area (club-tools "Kits" link, ui_club_page.h): taken here, same frame
     if (const Page cp = club_take_page_request(); cp != Page::None) go(area_of(cp), cp);
-    if (go_to_.valid() && page_visible(go_to_.page, adv)) place_ = go_to_;
+    if (go_to_.valid() && page_visible(go_to_.page)) place_ = go_to_;
     go_to_ = Place{};
-    // Where we are: the area must be visible in this view (Lab turned off: back to Home), the page one of its own
-    if (!area_visible(place_.area, adv) || area_of(place_.page) != place_.area) {
-        const Area a = area_visible(place_.area, adv) ? place_.area : Area::Home;
+    // Where we are: the area must be one the shell knows (else back to Home), the page one of its own
+    if (!area_visible(place_.area) || area_of(place_.page) != place_.area) {
+        const Area a = area_visible(place_.area) ? place_.area : Area::Home;
         place_ = Place{a, default_page(a)};
     }
     area_page_[static_cast<int>(place_.area)] = place_.page;
@@ -1942,23 +1914,21 @@ void App::draw_pages() {
             std::snprintf(small, sizeof(small), "%c###rail_%s", name[0], name);  // narrow rail: the first letter, a stable id per area
             if (rail_button(narrow ? small : name, place_.area == a, bw) && place_.area != a) {
                 const Page remembered = area_page_[ai];
-                place_ = Place{a, (remembered != Page::None && page_visible(remembered, adv)) ? remembered : default_page(a)};
+                place_ = Place{a, (remembered != Page::None && page_visible(remembered)) ? remembered : default_page(a)};
                 area_page_[ai] = place_.page;
             }
             if (narrow && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", name);
         };
         for (int ai = 0; ai < kAreaCount; ++ai) {
             const Area a = static_cast<Area>(ai);
-            if (a == Area::Settings || a == Area::Advanced || !area_visible(a, adv)) continue;
+            if (a == Area::Settings || !area_visible(a)) continue;
             area_button(a);
         }
-        // Settings and Lab at the bottom
-        const int pinned = 1 + (area_visible(Area::Advanced, adv) ? 1 : 0);
-        const float bh = ImGui::GetFrameHeight() + S(8.0f), sp = ImGui::GetStyle().ItemSpacing.y;
-        const float bottom_y = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - pinned * bh - (pinned - 1) * sp;
+        // Settings at the bottom
+        const float bh = ImGui::GetFrameHeight() + S(8.0f);
+        const float bottom_y = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - bh;
         if (bottom_y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(bottom_y);
         area_button(Area::Settings);
-        if (area_visible(Area::Advanced, adv)) area_button(Area::Advanced);
         ImGui::PopID();
     }
     ImGui::EndChild();
@@ -1982,11 +1952,8 @@ void App::draw_pages() {
     {
         const Place bp = back_place();
         // 4.0 S3: a page with page::Frame draws the frame's own Back (shell::page_has_frame); the shell's must not stand above it.
-        // 4.0 rehearsal (S3 merge): with the old pages on (legacy_pages) the framed new pages are not drawn (draw_new_page is skipped below),
-        // so the page has no frame Back and the shell's must stay; only the 4.0 tree's Squad is framed in both paths (draw_page's tree40 override).
-        // Fail-old: RH\s3_n1_shell.log, case "with the old pages on, every page ... exactly one Back" (10 pages with no Back at all).
-        const bool framed = page_has_frame(place_.page) && (!legacy_pages || place_.page == Page::Squad);
-        if (bp.valid() && bp.page != place_.page && page_visible(bp.page, adv) && !framed) {
+        const bool framed = page_has_frame(place_.page);
+        if (bp.valid() && bp.page != place_.page && page_visible(bp.page) && !framed) {
             const std::string label = std::string("< Back to ") + page_label(bp.page) + "###nav_back";
             ImGui::PushID("##shell");
             if (ImGui::Button(label.c_str())) back();
@@ -2001,7 +1968,7 @@ void App::draw_pages() {
         bool pfirst = !back_drawn;
         const Place before_strip = place_;
         for (Page p : strip) {
-            if (p == Page::GameplayPresets && !tree40()) continue;  // 3.0.1 GUI30K: no slider staging on the old Tactics strip (Lab > Tactics (experimental)); the 4.0 tree lists Game sliders (4.0 S3)
+            if (p == Page::GameplayPresets) continue;  // 3.0.1 GUI30K: no slider staging on the Tactics strip
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
                 place_.page = p;
                 area_page_[static_cast<int>(place_.area)] = p;
@@ -2017,10 +1984,8 @@ void App::draw_pages() {
     }
 
     const Page page = place_.page;
-    if (page_unproven(page)) theme::warn_text("%s", lab_banner_text());  // 3.0: the one amber line on every Lab page
-    // 2.16 wiring: the new page of this id first (ui_pages_216.cpp), unless the old panels were asked for; then the page registered before 2.16;
-    // then the legacy panel
-    if (!(!legacy_pages && draw_new_page(*this, page, adv)) && !draw_page(*this, page, adv)) draw_legacy_page(*this, page);
+    // 2.16 wiring: the new page of this id first (ui_pages_216.cpp); then the page registered before 2.16; then the legacy panel
+    if (!draw_new_page(*this, page) && !draw_page(*this, page)) draw_legacy_page(*this, page);
     ImGui::EndChild();
     // a pane divider that has rested (ui_split.h) is written once, never per frame
     if (prefs.splits.take_dirty() && !save_gui_settings()) notify("cannot save the panel size", true);
@@ -2268,7 +2233,7 @@ void App::draw() {
         }
     }
 
-    // Status line (2.16 step 2): the link in a word and your club; the version, Refresh, the show/hide key and the Advanced switch are
+    // Status line (2.16 step 2): the link in a word and your club; the version, Refresh and the show/hide key are
     // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load
     const auto& st = bridge.state();
     if (connected()) {
@@ -2330,18 +2295,15 @@ void App::draw() {
     }
     {
         // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)
-        const bool new_changes = !legacy_pages;  // 2.16 wiring: the Changes list of ui_changes.cpp, else the kept-edit count of the old page
-        const size_t changes = new_changes ? changes::count() : changes_undo_count(*this);
+        const size_t changes = changes::count();  // 2.16 wiring: the Changes list of ui_changes.cpp
         const std::string label = (changes ? "Changes (" + std::to_string(changes) + ")" : std::string("Changes")) + "###changes";
         const ImGuiStyle& cst = ImGui::GetStyle();
         const float bw = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + cst.FramePadding.x * 2.0f;
-        const float uw = new_changes ? ImGui::CalcTextSize(changes::undo_label(*this).c_str()).x + cst.FramePadding.x * 2.0f + cst.ItemSpacing.x : 0.0f;
+        const float uw = ImGui::CalcTextSize(changes::undo_label(*this).c_str()).x + cst.FramePadding.x * 2.0f + cst.ItemSpacing.x;
         ImGui::SameLine();
         ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - uw - S(16.0f)));
-        if (new_changes) {
-            changes::draw_status_undo(*this);  // "Undo: <what>" / "Nothing to undo"
-            ImGui::SameLine();
-        }
+        changes::draw_status_undo(*this);  // "Undo: <what>" / "Nothing to undo"
+        ImGui::SameLine();
         if (ImGui::Button(label.c_str())) go(shell::area_of(shell::Page::ChangesUndo), shell::Page::ChangesUndo);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Turbo puts back every time you load your career, and how to stop it");
     }

@@ -21,7 +21,6 @@
 #include "ui_tactic_presets.h"
 #include "ui_team_filter.h"
 #include "ui_team_pages.h"
-#include "ui_team_squad_page.h"
 
 namespace turbo {
 
@@ -203,9 +202,7 @@ void squad_table(App& app, int64_t teamid) {
             ImGui::TableNextColumn();
             if (ImGui::Selectable(sr.name.c_str(), false)) {
                 app.sel_player = l.playerid;
-                // the 2.16 page route (Players > Edit a player); the old panels (Settings > Use the old pages) keep the legacy tab index
-                if (app.legacy_pages) app.request_tab = 0;
-                else app.go(shell::Page::PlayerEdit);
+                app.go(shell::Page::PlayerEdit);  // the 2.16 page route (Players > Edit a player)
             }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(p ? position_name(p->position) : "");
@@ -568,14 +565,7 @@ static void team_editor(App& app) {
             mass_actions_tab(app, *tr);
             ImGui::EndTabItem();
         }
-        if (sub_tab_visible(SubTab::TeamsTactics, app.prefs.advanced_mode) && ImGui::BeginTabItem("Tactics")) {
-            draw_unproven_banner();
-            ImGui::BeginChild("##ttac");
-            draw_tactics(app);
-            ImGui::EndChild();
-            ImGui::EndTabItem();
-        }
-        // 2.12: EA's own tactic and gameplay settings as presets; in the Simple view too (its banner says what is not proven)
+        // 2.12: EA's own tactic and gameplay settings as presets (its banner says what is not proven)
         if (ImGui::BeginTabItem("Tactic presets")) {
             ImGui::BeginChild("##tpresets");
             draw_tactic_presets(app);
@@ -601,43 +591,6 @@ void draw_teams(App& app) {
     ImGui::SameLine();
     ImGui::BeginChild("##tedit", ImVec2(0, 0));
     team_editor(app);
-    ImGui::EndChild();
-}
-
-// 4.0 S4: Team > Squad. The club picker of the Teams page (team_list) and the squad table (squad_table, table "##squad", sort and
-// restore logic untouched) inside the one page frame. Opening it with no club picked shows the user's club, as "My club" does.
-void draw_team_squad_page(App& app) {
-    page::Frame f(app, {"team_squad", "Squad", "Pick a club on the left. Click a header to sort; Jersey and Line-up slot are editable.", nullptr});
-    if (!app.connected()) {
-        not_connected_hint();
-        return;
-    }
-    if (!app.model.team(app.sel_team) && app.bridge.state().user_team > 0) app.sel_team = app.bridge.state().user_team;
-    ImGui::BeginChild("##sqpick", ImVec2(S(360.0f), 0), ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders);
-    team_list(app);
-    ImGui::EndChild();
-    ImGui::SameLine();
-    ImGui::BeginChild("##sqbody", ImVec2(0, 0));
-    const TeamRow* tr = app.model.team(app.sel_team);
-    const Table* teams_t = app.db.table("teams");
-    g_squad_state = SquadTableState{};  // this frame's state, not the last squad_table call's (the tests read it)
-    if (!tr) {
-        ImGui::TextDisabled("Pick a club on the left.");
-    } else if (!teams_t || !app.db.table_alive(*teams_t, tr->rec)) {
-        // the guard of the old Squad tab (team_editor): the Jersey and Line-up slot cells write through field_editor / App::edit
-        g_squad_state.club = tr->teamid;
-        g_squad_state.stale_notice = true;
-        database_changed_notice();
-    } else {
-        draw_legacy_picture(app, crest_main_path(tr->teamid), S(40.0f), true);
-        ImGui::SameLine();
-        ImGui::BeginGroup();
-        ImGui::Text("%s", tr->name.c_str());
-        ImGui::TextDisabled("overall %d%s", tr->overall, app.model.is_national_team(tr->teamid) ? ", national team" : "");
-        ImGui::EndGroup();
-        ImGui::Separator();
-        squad_table(app, tr->teamid);
-    }
     ImGui::EndChild();
 }
 
@@ -800,7 +753,7 @@ void draw_managers(App& app) {
     }
     const Table* t = app.db.table("manager");
     if (!t) {
-        ImGui::TextDisabled("FC 27's database has no \"manager\" table under that name. Advanced > Database shows every table (Settings > Show advanced tools).");
+        ImGui::TextDisabled("FC 27's database has no \"manager\" table under that name.");
         return;
     }
     const auto& mgrs = app.model.managers();

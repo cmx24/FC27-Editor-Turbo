@@ -900,7 +900,7 @@ void build_tiles(App& app, Studio& s, int64_t current, int gender, bool manager)
     }
 }
 
-// The tile's tooltip: the generator's real in-game render when one exists (players' generic bodies, Advanced > Diagnostics > Body-type
+// The tile's tooltip: the generator's real in-game render when one exists (players' generic bodies, the Body-type
 // pictures), then the name and the facts. 5.0c E8-body: the grid itself is the figures; the real picture is the tooltip's, never lost.
 void body_tip(App& app, Studio& s, const BodyTile& tile, bool manager) {
     bodytype_thumbs::configure(app.turbo_output());

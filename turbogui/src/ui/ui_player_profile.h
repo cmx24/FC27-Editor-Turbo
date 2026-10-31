@@ -30,8 +30,7 @@ void draw_player_profile_with(App& app, void (*below)(App&));
 void draw_player_ability(App& app);         // [list | editor]
 void draw_player_ability_editor(App& app);  // the editor alone, for App::sel_player
 
-// The page the Profile's "Open Team > Players" button goes to. Page::Squad today (the career squad page that exists); the wiring owner points
-// it at the new Team > Players page when that page has an id.
+// The page the Profile's "Open Team > Players" button goes to (Page::TeamPlayers; ui_pages_216.cpp sets it where the page is drawn).
 shell::Page& profile_team_players_page();
 
 // 2.22: the Classic editor's player list (ui_players.cpp): eight sortable columns and the full filter grid; the Profile and Positions tabs of Edit a

@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <system_error>
 
@@ -48,59 +47,10 @@ static bool run_button(App& app, const char* label, const char* module, const js
     return clicked;
 }
 
-// 2.1: the last overall-follow run of Tools > Bulk edit (turbo_output\overall_follow_undo.json, the small index Lua's
-// features/bulk_edit.lua keeps): when and in which database it was made. Only while the Bulk edit section is open; the
-// file is parsed again only when its time stamp changes (a few hundred bytes).
-struct OverallRun {
-    bool have = false;
-    bool in_cm = true;
-    std::string when, club, session;
-    long long user_team = 0, load_gen = -1, count = 0;
-};
-
-static const OverallRun& last_overall_run(App& app) {
-    static OverallRun run;
-    static std::filesystem::file_time_type stamp{};
-    std::error_code ec;
-    const std::filesystem::path p = app.bridge.root() / "turbo_output" / "overall_follow_undo.json";
-    const auto now = std::filesystem::last_write_time(p, ec);
-    if (ec) {
-        run = OverallRun{};
-        stamp = {};
-        return run;
-    }
-    if (run.have && now == stamp) return run;
-    stamp = now;
-    run = OverallRun{};
-    std::ifstream in(p, std::ios::binary);
-    const json d = json::parse(in, nullptr, false);
-    if (!d.is_object() || !d.contains("runs") || !d["runs"].is_array() || d["runs"].empty()) return run;
-    const json& r = d["runs"].back();
-    if (!r.is_object()) return run;
-    auto str = [&](const char* k) { return r.contains(k) && r[k].is_string() ? r[k].get<std::string>() : std::string(); };
-    auto num = [&](const char* k, long long dflt) { return r.contains(k) && r[k].is_number() ? r[k].get<long long>() : dflt; };
-    run.have = true;
-    run.in_cm = !(r.contains("in_cm") && r["in_cm"].is_boolean()) || r["in_cm"].get<bool>();
-    run.when = str("when");
-    run.club = str("club");
-    run.session = str("session");
-    run.user_team = num("user_team", 0);
-    run.load_gen = num("load_gen", -1);
-    run.count = num("count", 0);
-    return run;
-}
-
 static json& auto_cfg(App& app, const char* name) {
     json& a = app.gui_settings["auto"][name];
     if (!a.is_object()) a = json::object();
     return a;
-}
-
-// A short label before an inline control (label left, control right, on one line with other controls)
-static void inline_label(const char* label) {
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine();
 }
 
 static void apply_auto(App& app, const char* label) {
@@ -111,7 +61,7 @@ static void apply_auto(App& app, const char* label) {
 // ---------------------------------------------------------------- Career tools pages (GUI revamp 2.13, track T5)
 // The old Turbo Tools tab was one long column of headers. Each header is now a section function (the code inside is
 // unchanged: the same run_button / auto_cfg calls); the pages below (registered with the shell at the end of this
-// file) put them under Career tools / Advanced. Chrome only: no tool, no Lua command and no setting changed.
+// file) put them under Career tools. Chrome only: no tool, no Lua command and no setting changed.
 
 // The legacy Tools tab (draw_tools below) draws the pages inside its own collapsing headers: no page frame, and the sections keep the
 // open / closed defaults they always had. On a page the section headers start open: the page is the section.
@@ -333,45 +283,6 @@ static void section_player_career(App& app) {
     }
 }
 
-// ---------------------------------------------------------------- exports
-static void section_exports(App& app) {
-    if (section_header("Exports (CSV in turbo_output)")) {
-        static bool only_mine = false;
-        checkbox_right("Only my club", &only_mine, -1.0f);
-        ImGui::SameLine();
-        run_button(app, "Season stats", "export_season_stats", {{"only_user_team", only_mine}}, true);
-        ImGui::SameLine();
-        run_button(app, "Fixtures & results", "export_fixtures", json::object(), true);
-        ImGui::SameLine();
-        run_button(app, "Transfer history", "export_transfer_history", json::object(), true);
-        static int jersey_team = 0;  // 0 = your club
-        form_label("Jersey numbers of", "Your club when empty, else a club picked by name or ID");
-        club_search_box(app, "##jerseyteam", jersey_team, S(180.0f), "your club, or a club name or ID");
-        ImGui::SameLine();
-        run_button(app, "Jersey numbers", "team_jersey_numbers", {{"teamid", jersey_team}}, false);
-        static char tables[256] = "teams";
-        form_label("Tables", "Database tables to export, separated by commas");
-        ImGui::SetNextItemWidth(S(260.0f));
-        ImGui::InputText("##exptables", tables, sizeof(tables));
-        ImGui::SameLine();
-        json list = json::array();
-        {
-            std::string s = tables, cur;
-            for (char c : s + ",") {
-                if (c == ',') {
-                    size_t a = cur.find_first_not_of(' '), b = cur.find_last_not_of(' ');
-                    if (a != std::string::npos) list.push_back(cur.substr(a, b - a + 1));
-                    cur.clear();
-                } else {
-                    cur += c;
-                }
-            }
-        }
-        run_button(app, "Export tables", "export_table", {{"tables", list}}, false);
-        run_button(app, "Probe report", "probe", json::object(), false);
-    }
-}
-
 // ---------------------------------------------------------------- transfer bans
 static void section_bans(App& app) {
     const BridgeState& st = app.bridge.state();
@@ -392,251 +303,6 @@ static void section_bans(App& app) {
         ImGui::SameLine();
         run_button(app, "Remove all team bans", "transfer_bans", {{"mode", "unban_all_teams"}}, true, "transfer_bans");
     }
-}
-
-// ---------------------------------------------------------------- bulk edit (FC 26 LE v26.3.2 / v26.3.5)
-static void section_bulk_edit(App& app) {
-    const BridgeState& st = app.bridge.state();
-    if (section_header("Bulk edit players")) {
-        static int scope = 0;  // 0 my squad, 1 players shown in the Players list, 2 team IDs, 3 all players
-        static char teams[128] = "";
-        static bool confirm_all = false;
-        static char fnames[4][40] = {};
-        static int fvals[4] = {};
-        static bool use_fit = false, use_form = false, use_morale = false;
-        static bool use_dev = teampreset::growth_default_extra_xp(app.gui_settings);
-        static bool no_decline = teampreset::growth_default_no_decline(app.gui_settings);
-        static int fit = 95, form = 100, morale = 100, bonus_xp = 0;
-        static float xp_mult = 2.0f;
-
-        ImGui::RadioButton("My squad##be", &scope, 0);
-        ImGui::SameLine();
-        ImGui::RadioButton("Players shown in the Players list##be", &scope, 1);
-        ImGui::SameLine();
-        ImGui::RadioButton("Team IDs##be", &scope, 2);
-        ImGui::SameLine();
-        ImGui::RadioButton("All players##be", &scope, 3);
-        if (scope == 1)
-            ImGui::TextDisabled("%zu players: choose them with the Players tab's search and filters", app.list_player_ids.size());
-        if (scope == 2) {
-            form_label("Team IDs", "Numbers separated by commas; or add a club by name with the box on the right");
-            ImGui::SetNextItemWidth(S(200.0f));
-            ImGui::InputTextWithHint("##beteams", "e.g. 1, 241", teams, sizeof(teams));
-            // a club picked by name or ID (ui_club_search.h) joins the list (once)
-            static int64_t add_team = 0;
-            ImGui::SameLine();
-            if (club_search_box(app, "##beaddteam", add_team, S(180.0f), "add a club: name or ID") && add_team != 0) {
-                const std::string id = std::to_string(add_team);
-                std::string list = teams, cur;
-                bool listed = false;
-                for (char c : list + ",") {
-                    if (c >= '0' && c <= '9') {
-                        cur += c;
-                    } else {
-                        listed = listed || cur == id;
-                        cur.clear();
-                    }
-                }
-                while (!list.empty() && (list.back() == ' ' || list.back() == ',')) list.pop_back();
-                list += (list.empty() ? "" : ", ") + id;
-                if (!app.model.team(add_team)) app.notify("Bulk edit: no club has ID " + id, true);
-                else if (!listed && list.size() < sizeof(teams)) std::snprintf(teams, sizeof(teams), "%s", list.c_str());
-            }
-            add_team = 0;
-        }
-        if (scope == 3) checkbox_right("Yes, every player in the database##be", &confirm_all);
-
-        ImGui::SeparatorText("Set fields (players table, range-checked)");
-        for (int i = 0; i < 4; ++i) {
-            char nl[16], vl[16];
-            std::snprintf(nl, sizeof(nl), "##fn%d", i);
-            std::snprintf(vl, sizeof(vl), "##fv%d", i);
-            char fl[16];
-            std::snprintf(fl, sizeof(fl), "Field %d", i + 1);
-            form_label(fl, "A players-table field name, then its value (range-checked)");
-            ImGui::SetNextItemWidth(S(200.0f));
-            ImGui::InputTextWithHint(nl, "field, e.g. potential", fnames[i], sizeof(fnames[i]));
-            ImGui::SameLine();
-            char pl[16];
-            std::snprintf(pl, sizeof(pl), "##fp%d", i);
-            bulk_field_pick(pl, fnames[i], sizeof(fnames[i]));  // ui_parity.h: release clause, wage, contract, ...
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(S(100.0f));
-            ImGui::InputInt(vl, &fvals[i], 0);
-        }
-        ImGui::SeparatorText("Career actions");
-        checkbox_right("Fitness##be", &use_fit);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::SliderInt("##befit", &fit, 5, 95);
-        checkbox_right("Form##be", &use_form);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::SliderInt("##beform", &form, 0, 100);
-        checkbox_right("Morale##be", &use_morale);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(S(160.0f));
-        ImGui::SliderInt("##bemorale", &morale, 0, 100);
-        checkbox_right("Development##be", &use_dev);
-        if (use_dev) {
-            ImGui::SameLine();
-            inline_label("XP multiplier");
-            ImGui::SetNextItemWidth(S(90.0f));
-            ImGui::InputFloat("##bexpmult", &xp_mult, 0.0f, 0.0f, "%.1f");
-            ImGui::SameLine();
-            inline_label("Bonus XP");
-            ImGui::SetNextItemWidth(S(90.0f));
-            ImGui::InputInt("##bebonusxp", &bonus_xp, 0);
-            ImGui::SameLine();
-            checkbox_right("No decline##be", &no_decline, -1.0f);
-        }
-
-        // Build the command; explain why it cannot be sent yet
-        json sc, set = json::object(), actions = json::object();
-        std::string why;
-        if (scope == 0) {
-            sc = {{"user_team", true}};
-        } else if (scope == 1) {
-            sc = {{"playerids", app.list_player_ids}};
-            if (app.list_player_ids.empty()) why = "the Players list shows no players";
-        } else if (scope == 2) {
-            json ids = json::array();
-            std::string cur;
-            for (char c : std::string(teams) + ",") {
-                if (c == ',' || c == ' ') {
-                    if (!cur.empty()) ids.push_back(std::atoll(cur.c_str()));
-                    cur.clear();
-                } else if (c >= '0' && c <= '9') {
-                    cur += c;
-                } else {
-                    why = "team IDs: numbers separated by commas";
-                }
-            }
-            if (ids.empty() && why.empty()) why = "enter at least one team ID";
-            sc = {{"teamids", ids}};
-        } else {
-            sc = {{"all", true}};
-            if (!confirm_all) why = "tick the confirmation to edit every player";
-        }
-        for (int i = 0; i < 4; ++i)
-            if (fnames[i][0]) set[fnames[i]] = fvals[i];
-        if (use_fit) actions["fitness"] = fit;
-        if (use_form) actions["form"] = form;
-        if (use_morale) actions["morale"] = morale;
-        if (use_dev) actions["development"] = {{"xp_multiplier", xp_mult}, {"bonus_xp", bonus_xp}, {"no_decline", no_decline}};
-        if (why.empty() && set.empty() && actions.empty()) why = "set a field or tick an action";
-        if (why.empty() && use_dev)
-            if (const std::string* r = st.unavailable_reason("development_xp")) why = "Development: " + *r;
-        if (why.empty() && (use_fit || use_form || use_morale))
-            if (const std::string* r = st.unavailable_reason("form_morale")) why = *r;
-        json overrides = {{"scope", sc}, {"filters", json::object()}, {"set", set}, {"actions", actions},
-                          {"confirm_all", scope == 3 && confirm_all}};
-        json cmd = {{"op", "run"}, {"module", "bulk_edit"}, {"overrides", overrides}};
-        if (why.empty() && cmd.dump().size() > 3900)
-            why = "too many players for one command: narrow the Players list (about 400 at most) or use All players";
-        if (!why.empty()) ImGui::BeginDisabled();
-        run_button(app, "Apply bulk edit", "bulk_edit", overrides, false, nullptr, true);
-        if (!why.empty()) {
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%s)", why.c_str());
-        }
-        // 2.1: attributes / position in "Set" move each player's overall too (features/bulk_edit.lua, core/overall.lua)
-        ImGui::TextDisabled("Attributes or position set here move each player's overall the way the game works it out.");
-        ImGui::SameLine();
-        // the undo runs only in the database the run wrote (features/bulk_edit.lua checks it again): the run's career or
-        // the main-menu squads, the same club; another load of it (a restart, a reload) asks first
-        const OverallRun& orun = last_overall_run(app);
-        const bool other_load = orun.have && !orun.session.empty() && !st.session.empty() && orun.load_gen >= 0 &&
-                                st.load_gen >= 0 && (orun.session != st.session || orun.load_gen != st.load_gen);
-        const bool other_db = orun.have && (orun.in_cm != st.in_cm || (st.in_cm && orun.user_team != st.user_team));
-        std::string where = !orun.have ? std::string()
-                            : orun.in_cm ? "the career with " + (orun.club.empty() ? std::to_string(orun.user_team) : orun.club)
-                                         : std::string("the main-menu squads");
-        std::string tip = orun.have ? "Last run: " + orun.when + ", " + std::to_string(orun.count) + " overalls, in " + where + "."
-                                    : std::string("No bulk edit has moved an overall yet.");
-        if (other_db) tip += "\nNot this database: load " + where + " to put them back.";
-        else if (other_load) tip += "\nMade before this " + std::string(st.in_cm ? "career" : "database") + " was loaded: asks first.";
-        tip += "\nThe overalls go back only where they are still the ones it wrote (the attributes stay).\n"
-               "Off switch for the overall follow: turbo_output\\overall_follow_off.txt";
-        const bool needs_cm = !orun.have || orun.in_cm;
-        if (other_load && !other_db) {
-            const bool off = app.busy() || (needs_cm && !st.in_cm);
-            if (off) ImGui::BeginDisabled();
-            if (ImGui::Button("Put the overalls back...")) ImGui::OpenPopup("##overall_back_any_load");
-            if (off) ImGui::EndDisabled();
-        } else {
-            if (other_db) ImGui::BeginDisabled();
-            run_button(app, "Put the overalls back", "bulk_edit", {{"undo_overall", true}}, needs_cm);
-            if (other_db) ImGui::EndDisabled();
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tip.c_str());
-        if (ImGui::BeginPopupModal("##overall_back_any_load", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("The last overall follow (%s, %lld overalls, in %s)", orun.when.c_str(), orun.count, where.c_str());
-            ImGui::Text("was made before this %s was loaded. Put them back if this is the same save.", st.in_cm ? "career" : "database");
-            ImGui::TextDisabled("Only overalls still equal to the ones it wrote change.");
-            if (run_button(app, "Put them back", "bulk_edit", {{"undo_overall", true}, {"any_load", true}}, needs_cm))
-                ImGui::CloseCurrentPopup();
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        // after the existing controls, so none of them moves
-        // 2.20 S2: the "My team" preset (core/team_preset.h): exactly five things for every player of your club
-        ImGui::SeparatorText("My team preset");
-        {
-            std::string what;
-            for (const teampreset::Field& f : teampreset::fields()) what += (what.empty() ? "" : ", ") + std::string(f.title);
-            ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextDisabled("For every player of your club: %s. Nothing else is touched (no extra XP, no growth).", what.c_str());
-            ImGui::PopTextWrapPos();
-            const bool ok = st.in_cm && st.user_team > 0 && app.mailbox && !app.busy();
-            if (!ok) ImGui::BeginDisabled();
-            if (ImGui::Button("Apply the My team preset##teampreset")) team_preset_apply(app, st.user_team);
-            if (!ok) ImGui::EndDisabled();
-            if (!ok && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", !st.in_cm ? "Needs a loaded Manager Career" : "Wait for the running command to finish");
-        }
-    }
-
-}
-
-// ---------------------------------------------------------------- maintenance
-static void section_db_maintenance(App& app) {
-    const BridgeState& st = app.bridge.state();
-    if (section_header("Database maintenance")) {
-        static int min_id = 460000;
-        form_label("Generated from ID", "Players with this ID or higher count as generated");
-        ImGui::SetNextItemWidth(S(120.0f));
-        ImGui::InputInt("##genfromid", &min_id, 0);
-        ImGui::SameLine();
-        run_button(app, "Count", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", false}}, false);
-        ImGui::SameLine();
-        const std::string* no_delete = st.unavailable_reason("delete_players");
-        if (no_delete) ImGui::BeginDisabled();
-        if (ImGui::Button("Delete...")) ImGui::OpenPopup("##confirmdel");
-        if (no_delete) {
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", no_delete->c_str());
-        }
-        if (ImGui::BeginPopupModal("##confirmdel", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Delete every player with ID >= %d? This cannot be undone.", min_id);
-            if (run_button(app, "Delete", "delete_generated_players", {{"min_playerid", min_id}, {"confirm", true}}, false,
-                           "delete_players"))
-                ImGui::CloseCurrentPopup();
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-        ImGui::Separator();
-        static bool generic = true;
-        run_button(app, "Capture real-face list", "headmodels", {{"mode", "capture"}}, false);
-        ImGui::SameLine();
-        checkbox_right("Generic head for others", &generic, -1.0f);
-        ImGui::SameLine();
-        run_button(app, "Apply real-face list", "headmodels", {{"mode", "apply"}, {"generic_for_others", generic}}, false);
-    }
-
 }
 
 // ---------------------------------------------------------------- safety (Changes & undo page)
@@ -661,23 +327,6 @@ using shell::Page;
 
 // One page = one editor panel (the "##editor" child of page::frame) with its sections; no select panel, no footer
 // button (the pages' own primary buttons sit in the sections, drawn with the accent colour).
-void editor_exports(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_exports(app);
-    form_label_width(0.0f);
-}
-void editor_bulk(App& app, void*) {
-    form_label_width(S(170.0f));
-    section_bulk_edit(app);
-    form_label_width(0.0f);
-}
-void editor_maintenance(App& app, void*) {
-    form_label_width(S(170.0f));
-    // 2.16 step 4: Career tools > Maintenance (the league-table copy the game does not read) is a section of Advanced > Maintenance
-    if (section_header("Career database copy")) draw_career_database_copy(app);
-    section_db_maintenance(app);
-    form_label_width(0.0f);
-}
 void editor_changes(App& app, void*) {
     form_label_width(S(170.0f));
     changes_undo_summary(app);
@@ -695,15 +344,6 @@ void show(App& app, shell::page::DrawFn editor) {
     if (g_unframed) editor(app, nullptr);
     else shell::page::frame(app, nullptr, editor, nullptr, nullptr);
 }
-// Pages that run Lua tools show the two-line preamble first
-void lua_tool_page(App& app, shell::page::DrawFn editor) {
-    if (!tools_preamble(app)) return;
-    show(app, editor);
-}
-
-void page_exports(App& app) { lua_tool_page(app, editor_exports); }
-void page_adv_bulk(App& app) { lua_tool_page(app, editor_bulk); }
-void page_adv_maintenance(App& app) { lua_tool_page(app, editor_maintenance); }
 // Transfers and Job offer: the panels are the Squad track's (draw_transfers / draw_job_offer, weak references: see ui_career_page.h)
 // Until it exports draw_job_offer, a club's job offer is a tab of the club panel under Squad & Players > Squad (the old Teams panel):
 // the page says where and opens it. P213 triage (2026-10-17): the installed 2.13.0 build said only "not part of this build" here (and
@@ -741,20 +381,14 @@ bool draw_career_tools_page(App& app, shell::Page p) {
     switch (p) {
         case Page::Transfers: page_transfers(app); return true;
         case Page::JobOffer: page_job_offer(app); return true;
-        case Page::AdvExport: page_exports(app); return true;
         case Page::ChangesUndo: page_changes(app); return true;
-        case Page::AdvBulkEdit: page_adv_bulk(app); return true;
-        case Page::AdvMaintenance: page_adv_maintenance(app); return true;
         default: return false;
     }
 }
 
 TURBO_REGISTER_PAGE(shell::Page::Transfers, page_transfers);
 TURBO_REGISTER_PAGE(shell::Page::JobOffer, page_job_offer);
-TURBO_REGISTER_PAGE(shell::Page::AdvExport, page_exports);
 TURBO_REGISTER_PAGE(shell::Page::ChangesUndo, page_changes);
-TURBO_REGISTER_PAGE(shell::Page::AdvBulkEdit, page_adv_bulk);
-TURBO_REGISTER_PAGE(shell::Page::AdvMaintenance, page_adv_maintenance);
 
 // Legacy entry (the old Turbo Tools tab, until the shell track removes it from app.cpp): every page of this file one after the other, so nothing is unreachable while the tab bar still exists. No section is drawn twice: the pages
 // both in one frame).
@@ -769,13 +403,7 @@ void draw_tools(App& app) {
     section_scouting(app);
     section_budget(app);
     section_player_career(app);
-    // Honest Simple view (2.16 step 3): the Advanced content of this old panel (exports, bulk edit, deleting generated players) is on the
-    // Advanced pages; the Simple view does not show it here
-    const bool adv = app.prefs.advanced_mode;
-    if (adv) section_exports(app);
     section_bans(app);
-    if (adv) section_bulk_edit(app);
-    if (adv) section_db_maintenance(app);
     section_safety(app);
     draw_game_editors(app);
     g_unframed = false;

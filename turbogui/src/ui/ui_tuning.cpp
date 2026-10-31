@@ -24,7 +24,6 @@
 #include "file_picker.h"
 #include "imgui.h"
 #include "ui_shell.h"
-#include "ui_tactics_pages.h"
 
 namespace turbo {
 
@@ -1832,18 +1831,5 @@ void tuning_tick(App& app) {
         g.error = "unknown error";
     }
 }
-
-// 2.13: Advanced > Gameplay tuning (was Competitions > Gameplay tuning). The amber line is the only addition; drawn only in the Advanced view
-void draw_tuning_page(App& app) {
-    if (!app.connected()) {
-        not_connected_hint();
-        return;
-    }
-    draw_unproven_line("docs/GUI_AUDIT.md");
-    ImGui::BeginChild("##tuning");
-    draw_tuning(app);
-    ImGui::EndChild();
-}
-TURBO_REGISTER_PAGE(shell::Page::AdvGameplayTuning, draw_tuning_page);
 
 }  // namespace turbo

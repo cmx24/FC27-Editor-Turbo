@@ -1,6 +1,5 @@
 // FC 27 LE Turbo GUI - Settings area, the one page (3.0 track C): Look and feel, Pictures, Show / hide key, Layout (5.0b-B), the connection and
-// health summary (technical details collapsed), the log (collapsed), and at the bottom the switch that shows the Lab and the
-// one for the old pages. The health pieces are the old Status tab's, drawn by ui_tools.cpp.
+// health summary (technical details collapsed) and the log (collapsed). The health pieces are the old Status tab's, drawn by ui_tools.cpp.
 #include <cstdio>
 
 #include "app.h"
@@ -113,17 +112,6 @@ void draw_layout(App& app) {
     }
 }
 
-// The two switches at the bottom: the Lab and the old pages
-void draw_lab_switches(App& app) {
-    ImGui::Separator();
-    if (ImGui::Checkbox("Show the Lab (tools not proven in game)###advview", &app.prefs.advanced_mode)) save_or_complain(app);
-    note("Adds the Lab to the left menu. It holds tools that are not proven to show up in your match.");
-    if (app.prefs.advanced_mode) {
-        if (ImGui::Checkbox("Use the old pages###legacypages", &app.legacy_pages)) save_or_complain(app);
-        note("Shows the pages of earlier Turbo versions instead of the new ones, for as long as it is ticked.");
-    }
-}
-
 void draw_settings_page(App& app) {
     if (collapsing_section(app, "settings.preferences", "Look and feel", true)) {
         draw_look_and_feel(app);
@@ -147,8 +135,6 @@ void draw_settings_page(App& app) {
         draw_status_health(app);  // pictures, health, technical details (collapsed)
     }
     draw_log_section(app, "settings.log");
-    ImGui::Spacing();
-    draw_lab_switches(app);
 }
 
 }  // namespace

@@ -350,7 +350,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             out.group.back() = looks::body_is_specific(c, &cat, manager, generic_codes) ? g_specific : g_generic;
             // 5.0c E8-body: every body type is a figure drawn in code on one height scale (no picture file, players and managers alike)
             out.src.back() = kSrcFigure;
-            // the generator's real in-game render (Advanced > Diagnostics > Body-type pictures, players only): the large preview shows it
+            // the generator's real in-game render (the Body-type pictures run, players only): the large preview shows it
             // when it exists; the tile and the fallback stay the figure
             out.files.back() = bodytype_thumbs::thumb(c, manager);
             out.shape.back() = bodyshape::body_shape(manager, c, &cat);

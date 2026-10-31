@@ -19,19 +19,10 @@ namespace {
 
 HomeState g_home;
 
-// 5.0b-A: "Player looks" / "Manager looks" go to the Appearance tab with that subject, in one click. The 4.0 tree has the Appearance tab on
-// the Player card (tab 2) under its Players / Managers switch; the old tree has the Appearance Editor page, whose list has its own switch.
+// 5.0b-A: "Player looks" / "Manager looks" go to the Appearance Editor page with that subject, in one click (its list has its own switch).
 void open_looks(App& app, bool managers) {
-    if (shell::tree40()) {
-        shell::player_edit_tab() = 2;
-        shell::player_edit_who() = managers ? 1 : 0;
-        shell::manager_edit_tab() = managers ? 1 : 0;
-        looks::looks_studio_show_managers(false);  // the Players tab's Appearance is the players list; managers have their own tab
-        app.go(shell::Page::PlayerEdit);
-    } else {
-        looks::looks_studio_show_managers(managers);
-        app.go(shell::Page::LooksStudio);
-    }
+    looks::looks_studio_show_managers(managers);
+    app.go(shell::Page::LooksStudio);
 }
 
 // 5.0b-A: the next button goes on the same line when it fits in the window, else on the next line (a narrow window, a big UI size, must not clip it:
@@ -65,16 +56,15 @@ void section_title(const char* text) {
 struct Tile {
     shell::Area area;
     const char* line;
-    const char* line40;  // the line in the 4.0 tree (shell::tree40()); nullptr = the area has no tile there
 };
 const Tile kTiles[] = {
-    {shell::Area::Squad, "Edit a player, create and clone, callnames", "Players and managers: profile, attributes, appearance, creation"},
-    {shell::Area::Looks, "Faces, hair, boots and the rest of the look", nullptr},
-    {shell::Area::Club, "Kits, name and crest, squad and transfers", "Squad, players, transfers, kits, club and crest"},
-    {shell::Area::Tactics, "Tactic presets and team sheet", "Tactic presets and team sheet"},
-    {shell::Area::GameSettings, "Game Type Settings, CPU Sliders, presets", "Game Type Settings, CPU Sliders, presets"},
-    {shell::Area::Career, "Standings, money, manager jobs, season pack", "Standings, money, manager jobs, season pack"},
-    {shell::Area::Settings, "UI size, pictures, the show / hide key", "UI size, pictures, the show / hide key"},
+    {shell::Area::Squad, "Edit a player, create and clone, callnames"},
+    {shell::Area::Looks, "Faces, hair, boots and the rest of the look"},
+    {shell::Area::Club, "Kits, name and crest, squad and transfers"},
+    {shell::Area::Tactics, "Tactic presets and team sheet"},
+    {shell::Area::GameSettings, "Game Type Settings, CPU Sliders, presets"},
+    {shell::Area::Career, "Standings, money, manager jobs, season pack"},
+    {shell::Area::Settings, "UI size, pictures, the show / hide key"},
 };
 
 }  // namespace
@@ -173,11 +163,9 @@ void draw_home(App& app) {
         ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
         int col = 0;
         for (const Tile& t : kTiles) {
-            const char* line = shell::tree40() ? t.line40 : t.line;
-            if (!line) continue;  // 4.0 tree: no Looks tile
             const char* name = shell::area_label(t.area);
             char lbl[160];
-            std::snprintf(lbl, sizeof(lbl), "%s\n%s###home_tile_%d", name, line, static_cast<int>(t.area));
+            std::snprintf(lbl, sizeof(lbl), "%s\n%s###home_tile_%d", name, t.line, static_cast<int>(t.area));
             if (col > 0) ImGui::SameLine();
             if (ImGui::Button(lbl, ImVec2(w > S(120.0f) ? w : S(120.0f), h))) app.go(t.area, shell::default_page(t.area));
             ++g_home.tiles;
@@ -187,7 +175,7 @@ void draw_home(App& app) {
     }
 }
 
-// Registered the ordinary way (as the Appearance Editor is): the page also draws while Settings > Use the old pages is on, Home has no old panel
+// Registered the ordinary way (as the Appearance Editor is): Home has no old panel
 TURBO_REGISTER_PAGE(shell::Page::Home, draw_home);
 
 }  // namespace turbo

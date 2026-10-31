@@ -1,5 +1,5 @@
 // FC 27 LE Turbo GUI - Teams > Tactic presets (2.12): save and load the EA game's OWN tactic and gameplay settings as Turbo JSON
-// (core/tactic_presets.h). Visible in the Simple view (it is a tab of the team editor, not under Tactics): the game applies the values
+// (core/tactic_presets.h). It is a tab of the team editor, not under Tactics: the game applies the values
 // natively; Turbo only writes them with the same guarded channel E job as the Tactics card (ui_live_tactic.h) and stages the settings sliders
 // with the Game settings tab's staging (ui_game_settings.h). Nothing here is proven in a played match yet: the banner says so.
 //   Save current  reads your club's live tactic (channel E) and the Custom sliders block of the settings file into
@@ -57,7 +57,6 @@ struct GameplayPageState {
     std::vector<std::string> names;     // presets with a sliders block
     int selected = -1;                  // index into the shown list (-1 = none)
     bool can_apply = false, can_undo = false;
-    bool advanced_section = false;      // the old Game settings view was drawn (Advanced view only)
     bool read_back_ok = false;          // the last load of the selected preset finished ("loaded")
 };
 const GameplayPageState& gameplay_page_state();
