@@ -69,7 +69,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& /*le*/) {
         club_40_test::hide(ui);
     });
 
-    run_case("E15 preview b: a click plays <lang folder>\<id>.wav; a row without a wav plays nothing", [&] {
+    run_case("E15 preview b: a click plays <lang folder> + id.wav; a row without a wav plays nothing", [&] {
         open_card();
         fake->played.clear();
         CHECK(ui.click("##play_c1002"), "disabled button pressed (nothing may happen)");
