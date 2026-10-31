@@ -542,6 +542,12 @@ ui_game_settings.cpp	SmallButton	Export...##gsexp	1
 ui_game_settings.cpp	SmallButton	Import...##gsimp	1
 ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
+ui_gear_thumbs.cpp	BeginPopupModal	###gearthumbsconfirm	1
+ui_gear_thumbs.cpp	Button	###gearthumbsno	1
+ui_gear_thumbs.cpp	Button	###gearthumbsyes	1
+ui_gear_thumbs.cpp	OpenPopup	###gearthumbsconfirm	1
+ui_gear_thumbs.cpp	SmallButton	###gearthumbscancel	1
+ui_gear_thumbs.cpp	SmallButton	###gearthumbsgo	1
 ui_home.cpp	-	###home_game_settings	1
 ui_home.cpp	-	###home_manager_looks	1
 ui_home.cpp	-	###home_manager_miniface	1

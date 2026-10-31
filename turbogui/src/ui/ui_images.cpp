@@ -29,6 +29,7 @@
 #include "core/look_pickers.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "ui_gear_thumbs.h"
 #include "ui_asset_browser.h"
 #include "ui_bodytypes.h"
 #include "ui_images.h"
@@ -652,6 +653,10 @@ static bool send_capture(App& app, MinifaceEditor& ed, const MinifaceTarget& t, 
     if (!svc) return false;
     seed_capture_id(app, ed, t);
     if (ed.capture_id <= 0) return false;
+    if (*gear_thumbs_busy_text()) {  // Turbo X: the gear picture run owns the capture service
+        if (!quiet) ed.error = std::string("3D model: ") + gear_thumbs_busy_text();
+        return false;
+    }
     capture::Request r;
     r.id = ed.capture_id;
     r.second_id = t.teamid > 0 ? static_cast<int32_t>(t.teamid) : -1;  // managers too: the game's builder passes the team id

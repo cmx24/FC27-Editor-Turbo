@@ -24,6 +24,7 @@
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
+#include "ui_gear_thumbs.h"
 #include "ui_bodytypes.h"
 #include "ui_face_tile.h"
 #include "ui_faces3d_gate.h"
@@ -1726,13 +1727,14 @@ void tick_faces3d(App& app) {
     }
     // 2.20: the minifaces of heads given in a career (their copies need no service; a render in flight owns it)
     if (!g_mini.empty()) {
-        const bool free = g_r3d.inflight.empty() && !faces3d_preview_pending() && !*bodytype_thumbs_busy_text();
+        const bool free = g_r3d.inflight.empty() && !faces3d_preview_pending() && !*bodytype_thumbs_busy_text() && !*gear_thumbs_busy_text();
         if (tick_minifaces(app, svc, free, ImGui::GetTime())) return;
     }
     if (!svc) return;
     // the 3D hair preview (ui_faces3d_gate.cpp) waits for its own picture: send nothing meanwhile, or its answer could be taken here
     if (g_r3d.inflight.empty() && faces3d_preview_pending()) return;
     if (g_r3d.inflight.empty() && *bodytype_thumbs_busy_text()) return;  // 2.17 looks T: the body-type picture maker owns the service
+    if (g_r3d.inflight.empty() && *gear_thumbs_busy_text()) return;      // Turbo X: so does the gear picture maker
     const double now = ImGui::GetTime();
     if (!g_r3d.inflight.empty()) {
         for (int n = 0; n < kResultsPerFrame && !g_r3d.inflight.empty(); ++n) {

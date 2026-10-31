@@ -28,6 +28,7 @@
 #include "ui_body_figure.h"
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
+#include "ui_gear_thumbs.h"
 #include "ui_fcedit_pictures.h"
 #include "ui_images.h"
 #include "ui_shell.h"
@@ -153,7 +154,7 @@ public:
             if (why) *why = "The game draws pictures only in its menus, not in a match or while it loads.";
             return false;
         }
-        if (st.busy || faces3d_preview_pending() || faces3d_running()) {
+        if (st.busy || faces3d_preview_pending() || faces3d_running() || *gear_thumbs_busy_text()) {
             if (why) *why = "Still drawing the last picture...";
             return false;
         }
@@ -1111,6 +1112,7 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
                 break;
             }
         bodytype_thumbs_card_button(app, static_cast<int32_t>(who.id), have_pictures);
+        gear_thumbs_button(app, static_cast<int32_t>(who.id));  // Turbo X: every look item without a picture (want.json)
     }
     if (picked >= 0 && picked != current) {
         Value before;
