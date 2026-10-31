@@ -126,7 +126,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const GuiPrefs keep_prefs = app.prefs;
     const float keep_scale = app.ui_scale_user;
     const int keep_vk = app.toggle_vk, keep_mods = app.toggle_mods;
-    const bool keep_legacy = app.legacy_pages, keep_card = app.player_card_view, keep_visible = app.visible;
+    const bool keep_visible = app.visible;
     const ImVec2 keep_ds = ImGui::GetIO().DisplaySize;
     const std::function<void(const std::string&)> keep_hook = app.log_hook;
     std::vector<std::string> hooked;  // what reached the turbo_gui.log callback
@@ -295,8 +295,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     app.ui_scale_user = keep_scale;
     app.toggle_vk = keep_vk;
     app.toggle_mods = keep_mods;
-    app.legacy_pages = keep_legacy;
-    app.player_card_view = keep_card;
     app.visible = keep_visible;
     ui.frames(3);
 }

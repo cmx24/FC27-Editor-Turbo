@@ -138,7 +138,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const page::Record* rec = page::last_record("fixture");
         CHECK(rec && !rec->back_enabled && ui.find("###pg_back", "##uipage_test") != nullptr, "drawn and disabled with nothing to go back to");
         const shell::Place here = app.place();
-        const shell::Place target = here.page == shell::Page::Standings ? shell::Place{shell::Area::Squad, shell::Page::Squad}
+        const shell::Place target = here.page == shell::Page::Standings ? shell::Place{shell::Area::Squad, shell::Page::PlayerEdit}
                                                                          : shell::Place{shell::Area::Career, shell::Page::Standings};
         shell::back_place() = target;
         ui.frames(2);

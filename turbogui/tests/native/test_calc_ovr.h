@@ -44,13 +44,9 @@ static std::vector<int64_t> list_order() {
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     (void)le;
     using shell::Page;
-    const bool was_legacy = app.legacy_pages;
-    const bool was_advanced = app.prefs.advanced_mode;
     const int64_t old_sel_player = app.sel_player;
     const int64_t old_sel_team = app.sel_team;
     const int was_tab = shell::player_edit_tab();
-    app.prefs.advanced_mode = false;
-    app.legacy_pages = false;
 
     run_case("Calc OVR: every model row holds compute_overall(position, attributes), -1 when it cannot be worked out", [&] {
         CHECK(app.model.players().size() > 3, "the test world has players");
@@ -167,8 +163,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
               "a third click returns to the database order");
     });
 
-    app.legacy_pages = was_legacy;
-    app.prefs.advanced_mode = was_advanced;
     app.sel_player = old_sel_player;
     app.sel_team = old_sel_team;
     shell::player_edit_tab() = was_tab;

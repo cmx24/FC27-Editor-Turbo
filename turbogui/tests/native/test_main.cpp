@@ -4182,8 +4182,6 @@ static void test_ui() {
                 return std::string(b);
             };
         app.prefs.window_rt.apply_pending = true;  // 3.0.1: the rectangle above is placed on the next frame (it is only applied when the tracker asks: earlier cases had already drawn frames, so the old 1180x760 stayed)
-        app.prefs.advanced_mode = true;  // the cases below drive Tactics, Gameplay tuning, Match setup, Database: Advanced view (default is Simple)
-        app.legacy_pages = true;  // 2.16 wiring: the cases below drive the pre-2.16 panels (the new pages have their own cases, test_page_*.h)
         // 1.2.5: keeping player edits for every career load and syncing your players' development plans have their own
         // case ("UI: kept player edits ..."); off for the cases before it, which edit your club's players with nobody
         // answering the mailbox
@@ -6087,26 +6085,8 @@ static void test_ui() {
             CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Standings) && ui.find("Career", "FC 27 LE Turbo", "##shell") != nullptr,
                   "two views");
             CHECK(ui.find("Try again") != nullptr, "live view: not reachable without the FCE interface");
-            app.prefs.advanced_mode = true;  /* 2.16 step 4: the database copy is a section of Advanced > Maintenance */
-            CHECK(ui.open_page("Lab", "Maintenance") && ui.find("Career database copy") != nullptr, "database view");
-            ui.frames(2);
-            const Table* lt = app.db.table("leagueteamlinks");
-            CHECK(lt != nullptr, "leagueteamlinks");
-            CHECK(ui.find("League") != nullptr, "league combo");
-            CHECK(ui.find("2##lt1") != nullptr && ui.find("1##lt7") != nullptr, "Arsenal 2nd, Everton 1st (stale positions)");
-            CHECK(ui.click("Recalculate points"), "Recalculate points");
-            uint64_t ars = app.db.find(*lt, "teamid", 1), eve = app.db.find(*lt, "teamid", 7);
-            CHECK(app.db.get_int(*lt, ars, "points") == 10 && app.db.get_int(*lt, eve, "points") == 4, "3 per win, 1 per draw");
-            CHECK(app.db.get_int(*lt, ars, "nummatchesplayed") == 4, "played");
-            CHECK(ui.click("Write table positions"), "Write table positions");
-            CHECK(app.db.get_int(*lt, ars, "currenttableposition") == 1 && app.db.get_int(*lt, eve, "currenttableposition") == 2,
-                  "Arsenal top");
-            ui.frames(2);
-            CHECK(ui.click("1##lt1"), "select Arsenal");
-            CHECK(ui.find("##v", "##lteam", "homewins") != nullptr, "line editor shown");
-            CHECK(ui.type_into(ui.find("##v", "##lteam", "homewins"), "3"), "edit home wins");
-            CHECK(app.db.get_int(*lt, ars, "homewins") == 3, "home wins written");
-            CHECK(ui.toast_contains("Table positions:"), "result toast");
+            // 2026-10-31 (5.0c menus step 6): the database copy's page (Lab > Maintenance, draw_career_database_copy) went with the Lab; the
+            // Recalculate points / Write table positions / line editor checks that followed here had no route left
         });
 
         run_case("UI: Players > Miniface: picture file to custom DDS, backup, remove", [&] {

@@ -233,15 +233,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     // Commit 2 (S7b): the bar Undo is off on Bulk edit and Player creation (each page::Spec sets show_undo=false), and every other
     // Frame page keeps it (Data export, the S1 worked example, is the witness). Bulk edit has its own ###bk_undo that restores the whole run;
     // the bar Undo took back only the newest Changes row (one player's edits; changes::poll folds the per-field steps into one row per player).
-    // FAILS on 7e888096 (S7 tip): both pages draw ###pg_undo.
-    run_case("S7b page::Frame: no bar Undo on Bulk edit and Player creation, the bar Undo stays on Data export", [&] {
+    // FAILS on 7e888096 (S7 tip): both pages draw ###pg_undo. (2026-10-31: the Data export page, whose bar Undo stayed, went with the Lab.)
+    run_case("S7b page::Frame: no bar Undo on Bulk edit and Player creation", [&] {
         if (app.busy()) app.mailbox->cancel();
         app.lua_queue.clear();
         app.sel_player = 0;
         bulkedit::reset();
         struct PageCase { const char* id; void (*fn)(App&); bool undo; };
-        for (const PageCase& pc : {PageCase{"bulk_edit", draw_bulk_edit, false}, PageCase{"player_creation", draw_player_creation, false},
-                                   PageCase{"data_export", draw_data_export_page, true}}) {
+        for (const PageCase& pc : {PageCase{"bulk_edit", draw_bulk_edit, false}, PageCase{"player_creation", draw_player_creation, false}}) {  // 2026-10-31: data_export (Advanced > Data export, undo = true) went with the Lab
             page::reset_for_tests();
             g_page = pc.fn;
             show(ui);

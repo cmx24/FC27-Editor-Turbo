@@ -441,10 +441,8 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
     // 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): the left menu has a "Game settings" area that holds
     // the page; Home's first row opens it in one click; with the Lab and Advanced mode OFF the page shows the preset row with "Load into the game";
     // "Settings" is "Turbo settings". Fails on cc02b820 (no such area, Home has no such button, the page is a pointer to the Lab).
-    run_case("sliders-rw UI: findability_game_settings_area (left menu 'Game settings', Home 1 click, Load into the game with advanced_mode=false)", [&] {
+    run_case("sliders-rw UI: findability_game_settings_area (left menu 'Game settings', Home 1 click, Load into the game)", [&] {
         namespace sh = turbo::shell;
-        const bool adv = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         app.go(sh::Page::Home);
         ui.frames(3);
         CHECK(ui.find("Game settings", "##rail", "##shell") != nullptr, "the left menu lists 'Game settings'");
@@ -461,7 +459,6 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Game settings", "##rail", "##shell") || ui.click("Game settings"), "left menu: Game settings");
         ui.frames(3);
         CHECK(app.place() == sh::place_of(sh::Page::GameplayPresets), "the left menu opens the page (1 click)");
-        app.prefs.advanced_mode = adv;
         app.go(sh::Page::Home);
         ui.frames(2);
     });

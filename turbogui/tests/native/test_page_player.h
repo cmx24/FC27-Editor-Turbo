@@ -1,7 +1,8 @@
-// Native tests (2026-10-17, GUI revamp step 5, brief 2.16-gui-pages track "player"): the Player page (ui/ui_player_page.cpp).
-// Included by test_main.cpp after test_club_page.h; player_page_test::ui_cases runs inside the UI block, a real App. The page is drawn
-// through the Ui hook g_ui_extra (a separate window "##playerpage_test" after the app's own frame), as the Club & Kits page test does:
-// the page is not registered with the shell yet (revamp-2 step 4 wires it), so it is drawn directly.
+// Native tests (2026-10-17, GUI revamp step 5, brief 2.16-gui-pages track "player"): the player list filter (ui/ui_player_page.h) and the
+// 3.1 N2 / N3 navigation cases on the real App. Included by test_main.cpp after test_club_page.h; player_page_test::ui_cases runs inside
+// the UI block, a real App.
+// 2026-10-31 (5.0c menus step 6): the card page itself (draw_player_page, "Card view (beta)") was deleted with the classic tab; its cases
+// (list / chips / cards, Overall +1, More) went with it.
 #pragma once
 #include "ui/ui_player_page.h"
 #include "ui/ui_shell.h"
@@ -14,18 +15,6 @@ namespace player_page_test {
 
 using namespace turbo;
 
-static void draw_extra(App& app) {
-    const ImVec2 ds = ImGui::GetIO().DisplaySize;
-    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) ImGui::SetNextWindowFocus();  // a modal keeps the focus it needs
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ds);
-    if (ImGui::Begin("##playerpage_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) draw_player_page(app);
-    ImGui::End();
-}
-static void show(Ui& ui) {
-    g_ui_extra = draw_extra;
-    ui.frames(3);
-}
 static void hide(Ui& ui) {
     g_ui_extra = nullptr;
     ui.frames(2);
@@ -33,7 +22,6 @@ static void hide(Ui& ui) {
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     (void)le;
-    const char* W = "##playerpage_test";
     const int64_t saved_sel = app.sel_player;
 
     run_case("PlayerPage: the filter is pure (name, club, free agents, position, a typed ID) and shows no ID column", [&] {
@@ -70,112 +58,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(!player_page_matches(p, f, 0), "position: not his");
     });
 
-    run_case("PlayerPage: list, search, chips, cards, no old tabs and no field search", [&] {
-        if (app.busy()) ui.click("Cancel");
-        app.lua_queue.clear();
-        app.sel_player = 1001;
-        show(ui);
-        CHECK(ui.find("##ppsearch", W) != nullptr, "search box");
-        CHECK(ui.find("Free agents###pp_chip_free", W) != nullptr, "chip: free agents");
-        CHECK(ui.find("##pppos", W) != nullptr, "position filter");
-        const PlayerPageState& st = player_page_state();
-        CHECK(st.listed > 3, "the list holds players: " + std::to_string(st.listed));
-        CHECK(ui.find("ID", W) == nullptr && ui.find("Player ID", W) == nullptr, "no ID column or ID label on the page");
-        CHECK(ui.find("###pp1001", W) != nullptr && ui.find("###pp1005", W) != nullptr, "players listed by name, one row each");
-        // pick a player from the list
-        app.sel_player = 0;
-        ui.frames(2);
-        CHECK(player_page_state().playerid == 0, "nobody picked: no cards");
-        CHECK(ui.click("###pp1005", W), "click a row");
-        ui.frames(2);
-        CHECK(app.sel_player == 1005 && st.playerid == 1005, "the click picked him");
-        const PlayerRow* pr = app.model.player(1005);
-        CHECK(pr && st.headline.find("overall") != std::string::npos && st.headline.find(std::to_string(pr->overall)) != std::string::npos,
-              "headline: " + st.headline);
-        CHECK(st.headline.find("ID") == std::string::npos && st.headline.find("1005") == std::string::npos, "the headline names no ID");
-        // the cards, in order
-        CHECK(ui.find("###pp_face", "pp_looks") != nullptr, "Looks: Choose a real face");
-        CHECK(st.face_line == "Real face" || st.face_line == "Generic face", "Looks: a plain face line: " + st.face_line);
-        const ItemRec* hair = ui.find("###pp_hair", "pp_looks");
-        CHECK(hair != nullptr, "Looks: hair and beard fold-out");
-        CHECK(hair && hair->label == "Hair and beard###pp_hair", "the fold says no restart is needed: " + (hair ? hair->label : std::string("?")));
-        CHECK(ui.find("+1###pp_ovr_up", "pp_skills") != nullptr && ui.find("-1###pp_ovr_down", "pp_skills") != nullptr, "Skills: overall +1 / -1");
-        CHECK(ui.find("###pp_sk_pace", "pp_skills") != nullptr && ui.find("###pp_sk_def", "pp_skills") != nullptr, "Skills: the groups");
-        CHECK(ui.find("###pp_sk_gk", "pp_skills") == nullptr || pr->positions[0] == 0, "Skills: Goalkeeping only for a goalkeeper");
-        CHECK(ui.find("###pp_otherpos", "pp_position") != nullptr, "Position & style: other positions fold-out");
-        CHECK(ui.find("###pp_names", "pp_name") != nullptr && ui.find("###pp_callname", "pp_name") != nullptr, "Name & commentary: two fold-outs");
-        // the old panel's clutter is gone
-        for (const char* gone : {"Profile", "Names", "Attributes", "PlayStyles", "Appearance", "Miniface", "Contract & Clubs", "Callname", "All fields", "Growth",
-                                 "Transfer / Loan...", "Terminate loan", "Repair names"})
-            CHECK(ui.find(gone, W) == nullptr, std::string("no old tab or button: ") + gone);
-        CHECK(ui.find("##fieldsearch", W) == nullptr && ui.find("##ptabs", W) == nullptr, "no field search and no tab bar");
-        // the moves wait inside More
-        CHECK(ui.find("###pp_release", W) == nullptr && ui.find("###pp_delete", W) == nullptr, "Release and Delete are not on the page until More is opened");
-        CHECK(ui.find("###pp_more", W) != nullptr, "More");
-        // search narrows the list
-        CHECK(ui.type_into(ui.find("##ppsearch", W), "zzzz-no-such-player"), "type a search");
-        ui.frames(2);
-        CHECK(st.listed == 0, "nobody matches");
-        CHECK(ui.type_into(ui.find("##ppsearch", W), ""), "clear the search");
-        ui.frames(2);
-        CHECK(st.listed > 3, "everybody again");
-        hide(ui);
-    });
-
-    run_case("PlayerPage: Overall +1 goes through the shared overall edit and Undo takes it back", [&] {
-        app.sel_player = 1001;
-        show(ui);
-        const Table* t = app.db.table("players");
-        const PlayerRow* pr = app.model.player(1001);
-        CHECK(t && pr, "player 1001");
-        if (!t || !pr) {
-            hide(ui);
-            return;
-        }
-        const int64_t before = app.db.get_int(*t, pr->rec, "overallrating", 0);
-        const size_t undo0 = app.undo_count(1001);
-        CHECK(ui.click("+1###pp_ovr_up", W), "click +1");
-        ui.frames(2);
-        const int64_t after = app.db.get_int(*t, pr->rec, "overallrating", 0);
-        CHECK(after == before + 1, "overall " + std::to_string(before) + " -> " + std::to_string(after));
-        CHECK(app.undo_count(1001) > undo0, "an undo step was kept");
-        CHECK(ui.find("###pp_undo", W) != nullptr, "the Undo button is on the page");
-        CHECK(ui.click("###pp_undo", W), "click Undo");
-        ui.frames(2);
-        CHECK(app.db.get_int(*t, pr->rec, "overallrating", 0) == before, "Undo put the overall back");
-        hide(ui);
-    });
-
-    run_case("PlayerPage: More holds the moves, every one that cannot be undone asks first and says so", [&] {
-        app.sel_player = 1002;
-        app.lua_queue.clear();
-        if (app.busy()) ui.click("Cancel");
-        show(ui);
-        CHECK(ui.click("###pp_more", W), "open More");
-        ui.frames(2);
-        CHECK(player_page_state().more_open, "More is open");
-        for (const char* l : {"###pp_move", "###pp_release", "###pp_endloan", "###pp_tlist", "###pp_llist", "###pp_unlist", "###pp_delete"})
-            CHECK(ui.find(l, W) != nullptr, std::string("in More: ") + l);
-        CHECK(ui.find("Export...", W) != nullptr && ui.find("Clone...", W) != nullptr && ui.find("Import...", W) != nullptr, "the player files are in More");
-        const bool in_cm = app.bridge.state().in_cm;
-        if (in_cm) {
-            // Release: a confirmation first, nothing sent until it is accepted
-            ui.click("###pp_release", W);
-            ui.frames(3);
-            const std::string c = player_page_state().confirm_text;
-            if (!c.empty()) {
-                CHECK(c.find("Release") != std::string::npos && c.find("cannot bring this back") != std::string::npos, "the dialog says it cannot be undone: " + c);
-                CHECK(!app.busy(), "nothing sent before the answer");
-                CHECK(ui.click("Cancel###pp_confirm_no"), "Cancel");
-                ui.frames(2);
-                CHECK(!app.busy() && player_page_state().confirm_text.empty(), "cancelled: nothing sent, dialog gone");
-            } else {
-                // the rules refuse this release for him: the button only explained why
-                CHECK(!app.busy(), "refused by the move rules: nothing sent");
-            }
-        }
-        hide(ui);
-    });
     // 3.1 N2 (Defect 3, navigation loops): the top-bar search lands on Attributes & roles (CHANGE-4), whatever Player tab was open before
     run_case("Shell 3.1 N2: a player found with the top-bar search opens on tab 1 (Attributes & roles), not the tab left open", [&] {
         hide(ui);

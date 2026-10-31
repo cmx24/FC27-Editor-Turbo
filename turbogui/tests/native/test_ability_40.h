@@ -49,10 +49,8 @@
     const auto tail = [](const std::string& text) { return text.size() > 1200 ? text.substr(text.size() - 1200) : text; };
 
     run_case("S6 ability tab: the Player type & tier card is drawn before Positions, and the old stand-in wording is gone", [&] {
-        const bool advanced0 = app.prefs.advanced_mode;
         const int64_t sel0 = app.sel_player;
         app.sel_player = 1001;
-        app.prefs.advanced_mode = false;
         profile_page_test::show(ui, profile_page_test::Which::Ability);
         // every section heading is drawn (each read after scrolling to its section)
         const char* const heads[] = {"Player type & tier", "Overall and potential", "Positions", "Playing style and roles", "Attributes", "PlayStyles and traits"};
@@ -102,20 +100,16 @@
         CHECK(has(stand_in, "Reshaping to a player type is not available here; Overall +1 / -1 still works."), "the new stand-in line is drawn: ..." + tail(stand_in));
         CHECK(!has(stand_in, "is added when this page is wired in"), "the stand-in line names no integration step");
         profile_page_test::hide(ui);
-        app.prefs.advanced_mode = advanced0;
         app.sel_player = sel0;
     });
 
     run_case("S6 ability tab: coded fields show their descriptors (positions, roles, PlayStyle and Trait boxes)", [&] {
-        const bool advanced0 = app.prefs.advanced_mode;
         const int64_t sel0 = app.sel_player;
-        app.prefs.advanced_mode = false;
         app.sel_player = 1004;
         const Table* t = app.db.table("players");
         const PlayerRow* pr = app.model.player(1004);
         CHECK(t && pr, "player 1004");
         if (!t || !pr) {
-            app.prefs.advanced_mode = advanced0;
             app.sel_player = sel0;
             return;
         }
@@ -370,7 +364,6 @@
         }
         profile_page_test::hide(ui);
         while (app.undo_count(1004) > undo0) app.undo(1004);  // the fixture player as it was
-        app.prefs.advanced_mode = advanced0;
         app.sel_player = sel0;
     });
 
