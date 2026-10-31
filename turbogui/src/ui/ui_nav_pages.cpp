@@ -154,7 +154,7 @@ void cn_list(App& app) {
     {
         const bool lit = g.no_callname;
         if (!g.ready) ImGui::BeginDisabled();
-        if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent());
+        if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent_fill());
         if (ImGui::SmallButton("No callname yet###cn_none")) g.no_callname = !g.no_callname;
         if (lit) ImGui::PopStyleColor();
         if (!g.ready) ImGui::EndDisabled();

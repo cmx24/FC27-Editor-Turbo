@@ -20,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -75,6 +76,7 @@
 #include "ui/ui_faces.h"
 #include "ui/ui_faces3d_gate.h"
 #include "ui/ui_identity.h"
+#include "ui/ui_style.h"  // 5.0c E4: apply_turbo_theme, to read the applied palette
 #include "ui/ui_images.h"
 #include "core/look_pickers.h"       // 5.0b-A: the one registry of look attributes
 #include "core/looks_fields_data.h"  // (n_values of a field, for the dead-button check)
@@ -4754,14 +4756,16 @@ static void test_ui() {
             CHECK(picked, "manager 502");
             CHECK(ui.click("Appearance", "##medit"), "manager Appearance tab");
             ui.frames(2);
+            // 5.0c E3: the 3D section is drawn open inside the Look card (##mlook), no longer a section of ##mapp, no fold to open
+            ui.frames(2);
             faces3d_set_choice(true, 502, 155, 46);
             ui.frames(1);
-            CHECK(ui.click("Apply hair & beard", "##mapp"), "Apply hair & beard (manager)");
+            CHECK(ui.click("Apply hair & beard", "##mlook"), "Apply hair & beard (manager)");
             CHECK(app.db.get_int(*mt, mrec, "hairtypecode", 0) == faces3d::hair_band_code(155) &&
                       app.db.get_int(*mt, mrec, "facialhairtypecode", 0) == faces3d::beard_band_code(46),
                   "manager row: band codes of 155 / 46");
             ui.frames(1);
-            CHECK(ui.click("His own hair & beard", "##mapp"), "His own hair & beard (manager)");
+            CHECK(ui.click("His own hair & beard", "##mlook"), "His own hair & beard (manager)");
             CHECK(app.db.get_int(*mt, mrec, "hairtypecode", 0) == h0 && app.db.get_int(*mt, mrec, "facialhairtypecode", 0) == b0,
                   "manager row: his own codes back");
             app.faces3d_report = nullptr;
@@ -9973,6 +9977,8 @@ static void test_ui() {
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
+#include "test_e3_e4_dupes.h"  // 5.0c E3 + E4: one hair editor on the manager Appearance tab; filled accent buttons >= 4.5:1
+#include "test_e3_dupes.h"  // 5.0c E3: Apply hair & beard lives in the Look card, not a second pane
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h

@@ -375,10 +375,12 @@
             const std::vector<std::string>& picked = managers ? lp_manager_picked : lp_player_picked;
             const std::vector<LpTyped>& typed = managers ? lp_manager_typed : lp_player_typed;
             int want_rows = 0, want_all = 0;
+            // 5.0c E3: a real-face manager (headclasscode 0, the person shown) has ONE hair / beard editor, the 3D section: the generic rows are not drawn
+            const int64_t shown_hc = managers && !app.model.managers().empty() && t->has("headclasscode") ? app.db.get_int(*t, app.model.managers()[0].rec, "headclasscode", -1) : -1;
             for (const std::string& c : picked) {
                 if (!t->has(c)) continue;
                 ++want_all;
-                if (!dedicated(c)) ++want_rows;
+                if (!dedicated(c) && !(managers && lpk::band_owned(lpk::kManager, c.c_str(), shown_hc))) ++want_rows;
             }
             for (const LpTyped& ty : typed) want_all += t->has(ty.column) ? 1 : 0;
             CHECK(want_rows >= 8, who + "the fixture table holds enough look columns for the check: " + std::to_string(want_rows));

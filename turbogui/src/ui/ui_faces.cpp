@@ -17,6 +17,7 @@
 #include "core/field_labels.h"
 #include "core/game_heads.h"
 #include "core/image.h"
+#include "core/look_pickers.h"
 #include "core/player_capture.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -2357,7 +2358,7 @@ void manager_real_face_picker(App& app, int64_t managerid) {
 }
 
 // ---------------------------------------------------------------- Managers > Appearance
-void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
+void manager_appearance(App& app, const Table& t, const ManagerRow& m, bool look_card_above) {
     ImGui::BeginChild("##mapp");
     const int64_t head = app.db.get_int(t, m.rec, "headassetid", 0);
     // heads_staff_<managerid>, else heads_staff_<headassetid>, else his generic manager head's picture (G1 2026-10-17)
@@ -2373,17 +2374,24 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m) {
                         pic.empty() ? "none in the game files" : file_part(pic).c_str(), static_cast<long long>(m.managerid));
     ImGui::EndGroup();
     manager_real_face_picker(app, m.managerid);
-    ImGui::SeparatorText("Hair & beard (3D)");
-    faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp
+    if (!look_card_above) {
+        ImGui::SeparatorText("Hair & beard (3D)");
+        faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp
+    }
     ImGui::SeparatorText("Outfit");
     item_galleries(app, t, m.rec, true);  // the game's outfit pictures (ui_images.cpp)
-    ImGui::SeparatorText("Appearance fields");
-    ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his picture as it is: Choose a real face changes both together.");
-    field_grid(app, t, m.rec,
-               {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode", "skintypecode",
-                "skincomplexion", "haircolorcode", "hairtypecode", "hairstylecode", "facialhairtypecode", "facialhaircolorcode",
-                "eyecolorcode", "eyebrowcode", "bodytypecode", "height", "weight", "outfitid"},
-               "##mappgrid", 2);
+    if (!look_card_above) {
+        ImGui::SeparatorText("Appearance fields");
+        ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his picture as it is: Choose a real face changes both together.");
+        // 5.0c E3: the 3D section above is the hair and beard editor of a real face (look::band_owned): its two columns are not typed here too
+        const int64_t hc = app.db.get_int(t, m.rec, "headclasscode", -1);
+        std::vector<std::string> cols;
+        for (const char* c : {"headassetid", "headclasscode", "hashighqualityhead", "headtypecode", "headvariation", "skintonecode", "skintypecode",
+                              "skincomplexion", "haircolorcode", "hairtypecode", "hairstylecode", "facialhairtypecode", "facialhaircolorcode",
+                              "eyecolorcode", "eyebrowcode", "bodytypecode", "height", "weight", "outfitid"})
+            if (!look::band_owned(look::kManager, c, hc)) cols.push_back(c);
+        field_grid(app, t, m.rec, cols, "##mappgrid", 2);
+    }
     ImGui::EndChild();
 }
 

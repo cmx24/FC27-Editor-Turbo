@@ -656,7 +656,7 @@ void pick_value(App& app, const Table& t, const Field& f, Row& r) {
 // ---------------------------------------------------------------- the page
 bool chip(const char* label, bool* on) {
     const bool lit = *on;
-    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent());
+    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent_fill());
     const bool hit = ImGui::SmallButton(label);
     if (lit) ImGui::PopStyleColor();
     if (hit) *on = !*on;

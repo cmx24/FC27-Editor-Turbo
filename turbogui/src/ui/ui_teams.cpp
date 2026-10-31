@@ -895,8 +895,9 @@ void draw_managers(App& app) {
                 if (ImGui::BeginTabItem("Appearance", nullptr, mtab_flag(1))) {
                     now_mtab = 1;
                     // 5.0b integration (track A's ask): A's ONE Look card for this manager (its rows come from the look registry), in a pane
-                    // of its own above the real-face chooser. The chooser and its Hair & beard (3D) section (ui_faces.cpp:2360-2377) stay:
-                    // that section keeps the manager's only hair / beard Undo (A's deviation 24, merged as is by the Pit wall 03:11).
+                    // of its own above the real-face chooser. 5.0c E3: that card is the manager's ONE hair editor: the 3D hair and beard section
+                    // (with the only hair / beard Undo, A's deviation 24) is drawn OPEN at the top of the card for a real face
+                    // (ui_looks_studio.cpp look_card_body; the generic Hair / Beard rows are then not drawn: look::band_owned), and the raw grid of the same columns under the chooser is gone (manager_appearance, look_card_above).
                     ImGui::BeginChild("##mlook", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.5f));
                     looks::Subject who;
                     who.manager = true;
@@ -906,7 +907,7 @@ void draw_managers(App& app) {
                     who.name = m.name;
                     looks::look_card(app, who, m.rec);
                     ImGui::EndChild();
-                    manager_appearance(app, *t, m);  // real-face chooser (ui_faces.cpp)
+                    manager_appearance(app, *t, m, true);  // real-face chooser + outfit pictures (ui_faces.cpp)
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("Miniface", nullptr, mtab_flag(2))) {

@@ -182,6 +182,14 @@ inline const char* section_reason(Section s, int64_t headclasscode) {
     return "";
 }
 
+// 5.0c E3 (R1): on a REAL-FACE manager (headclasscode 0) the hair and beard are edited in the 3D band space, so the Look card draws ONE editor
+// for them (the faces gate's 3D section, with its Undo) INSTEAD of the generic Hair / Beard rows: the card never has two pickers for the
+// same attribute. The generic rows stay on every other head; "All fields" keeps the typed entry of both columns (Amendment A3).
+inline bool band_owned(Subject s, const char* column, int64_t headclasscode) {
+    if (s != kManager || headclasscode != 0 || !column) return false;
+    return std::strcmp(column, "hairtypecode") == 0 || std::strcmp(column, "facialhairtypecode") == 0;
+}
+
 // The generic id of a band pick written as its band code (0 = not on the band list); `column` hairtypecode or facialhairtypecode
 inline int64_t band_code(const char* column, int64_t generic_id) {
     if (column && std::strcmp(column, "hairtypecode") == 0) return faces3d::hair_band_code(generic_id);

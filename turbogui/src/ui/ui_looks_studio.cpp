@@ -855,6 +855,8 @@ void face_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
 }
 
 void hair_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+    // 5.0c E3: a manager's hair and beard are edited in the Look card below (look_card_body, hair3d): one editor, not a second copy here
+    if (who.manager) return;
     card_begin(s, "##lshair", "Hair & beard");
     // closed until opened: the faces card looks at a file every frame it is drawn (ui_faces3d_gate.cpp), as on the Appearance tab
     ImGui::SetNextItemOpen(false, ImGuiCond_Once);
@@ -1072,16 +1074,32 @@ void miniface_card(App& app, Studio& s, const Subject& who, const Table& t, uint
 // 5.0b-A: the Look card - ONE card for a player and for a manager, drawn FROM the registry (core/look_pickers.h): a row for every look attribute
 // the person's table holds (picture, in-game name, Change; hair and beard are one row each), except those a card of their own draws (Face,
 // Body type, Tattoos). The fold "All fields" is today's field grid: every look column of the registry and the typed-only ones, typed.
-void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+// 5.0c E3 (fix round, review R1): hair3d = this card is the manager's ONE hair and beard editor (the Teams > Managers > Appearance tab and the
+// Looks page). A REAL-FACE manager (headclasscode 0) is edited in the 3D band space, so the card draws the faces gate's 3D section
+// (Apply hair & beard, His own hair & beard = the only Undo) OPEN, in place of the generic Hair and Beard rows (look::band_owned): exactly one
+// picker for each attribute. Every other head keeps the generic rows. The typed entry of both columns stays in "All fields" (Amendment A3).
+void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec, bool hair3d = false) {
     card_begin(s, "##lslook", "Look");
     ++s.st.look_cards;
-    s.st.look_rows += vp::look_rows(app, t, rec, who.manager);
+    bool band = false;
+    if (hair3d && who.manager && t.has("headclasscode") && app.db.get_int(t, rec, "headclasscode", -1) == 0) {
+        for (const ManagerRow& m : app.model.managers()) {
+            if (m.managerid != who.id) continue;
+            band = true;
+            ImGui::SeparatorText("Hair and beard (3D)###look3dnode");
+            faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp: the faces3d band writer, Apply, His own hair & beard
+            break;
+        }
+    }
+    s.st.look_rows += vp::look_rows(app, t, rec, who.manager, band);
     if (s.force_all_fields) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
     else if (s.fold_was_forced) ImGui::SetNextItemOpen(false, ImGuiCond_Always);
     else ImGui::SetNextItemOpen(false, ImGuiCond_Once);
     s.fold_was_forced = s.force_all_fields;
     if (ImGui::TreeNode("All fields###lslookall")) {
         const look::Subject sj = who.manager ? look::kManager : look::kPlayer;
+        // 5.0c E3 (review R5): the warning of the removed manager grid (ui_faces.cpp manager_appearance) lives next to the typed head columns now
+        if (who.manager) hint_line("Changing his head id or head class here leaves his picture as it is: Choose a real face changes both together.");
         for (const look::LookPicker* p : look::pickers_for(sj))
             if (t.has(p->column)) fold_field(app, s, t, rec, who, p->column);
         for (const char* c : look::typed_only(sj))
@@ -1108,7 +1126,7 @@ void cards_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_
     miniface_card(app, s, who, *t, rec);
     fields_card(app, s, who, *t, rec, Card::Accessories);
     fields_card(app, s, who, *t, rec, Card::KitFit);
-    look_card_body(app, s, who, *t, rec);  // 5.0b-A: ONE Look card, its rows from the registry (core/look_pickers.h)
+    look_card_body(app, s, who, *t, rec, who.manager);  // 5.0b-A: ONE Look card, its rows from the registry (core/look_pickers.h)
     // tests (looks_studio_open_all_fields_for_tests): the card is the last one and a test cannot scroll; ImGui skips the items of a card that is
     // out of the pane's view, so the pane goes to its end while the test holds the fold open
     if (s.force_all_fields) ImGui::SetScrollY(ImGui::GetScrollMaxY());
@@ -1126,7 +1144,7 @@ std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique
 void look_card(App& app, const Subject& who, uint64_t rec) {
     const Table* t = app.db.table(who.manager ? "manager" : "players");
     if (!t || !who.valid()) return;
-    look_card_body(app, studio(), who, *t, rec);
+    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: with the 3D hair and beard fold
 }
 
 // ---------------------------------------------------------------- public: body-type grid
