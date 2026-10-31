@@ -42,8 +42,9 @@ namespace {
 
 // ---------------------------------------------------------------- the fields of Accessories and Kit fit
 // Track F's core/looks_fields_data.h (generated from the FC 27 schema and the census, research_20261017\LOOKS_FIELDS.md): the title
-// and the value labels go on screen; its evidence and notes are developer text and stay off it. Accessories = the accessory slots,
-// boots and goalkeeper gloves; Kit fit = sleeves, shirt, shorts, socks for players and the outfit for managers.
+// and the value labels go on screen; its evidence and notes are developer text and stay off it. Accessories (the card "Boots, gloves,
+// accessories" for players) = the accessory slots, boots and goalkeeper gloves; Kit fit = sleeves, shirt, shorts, socks for players and
+// the outfit for managers.
 enum class Card { Accessories, KitFit };
 
 bool in_card(const data::LookField& f, Card c, bool manager) {
@@ -999,7 +1000,8 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
 
 void fields_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec, Card which) {
     const bool kit = which == Card::KitFit;
-    card_begin(s, kit ? "##lskit" : "##lsgear", kit ? (who.manager ? "Outfit" : "Kit fit") : "Accessories", kNotTested);
+    // the title says what the card holds (three words at most): a player's gear card is boots, goalkeeper gloves and the accessory slots
+    card_begin(s, kit ? "##lskit" : "##lsgear", kit ? (who.manager ? "Outfit" : "Kit fit") : (who.manager ? "Accessories" : "Boots, gloves, accessories"), kNotTested);
     int drawn = 0;
     for (const data::LookField& f : data::kLookFields) {
         if (!in_card(f, which, who.manager) || !t.has(f.name)) continue;
