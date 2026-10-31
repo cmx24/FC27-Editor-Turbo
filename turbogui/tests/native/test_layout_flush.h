@@ -260,9 +260,9 @@ static void run() {
         seen = ImVec2(0.0f, 0.0f);
         for (int i = 0; i < 6; ++i) frame();
         CHECK(near_f(seen.x, 640.0f) && near_f(seen.y, 470.0f), fmt("reopened at 640x470 (the base reopened at the default): %.0fx%.0f", seen.x, seen.y));
-        g_ui_scale = 1.25f;  // a UI size change keeps the proportion
         close_it = true;
         for (int i = 0; i < 6; ++i) frame();
+        g_ui_scale = 1.25f;  // a UI size change (dialog closed) keeps the proportion
         open_it = true;
         for (int i = 0; i < 6; ++i) frame();
         CHECK(near_f(seen.x, 800.0f, 2.0f) && near_f(seen.y, 587.5f, 2.0f), fmt("at UI size 1.25 the stored 640x470 opens at 800x588: %.0fx%.0f", seen.x, seen.y));
