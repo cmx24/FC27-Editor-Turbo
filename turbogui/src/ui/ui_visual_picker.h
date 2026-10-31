@@ -100,6 +100,7 @@ uint32_t visual_picker_tile_icon(int64_t code);     // the packed class icon (0 
 std::string visual_picker_tile_name(int64_t code);  // the name under the tile ("Bald" for hair 0), "" for a code not in the list
 size_t visual_picker_png_probes();         // tests: PNG headers read so far by the hair / beard palette probe (review E10-12: only files with no game preview)
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters
+std::vector<int64_t> visual_picker_shown_codes();  // 5.0c E8: the codes left after the search and the group / favourite filters, in order
 std::vector<int64_t> visual_picker_codes();  // those codes themselves (tests: 3.2 one picker, one catalogue per field)
 bool visual_picker_apply(App& app);        // what Apply does (on the record the picker was opened for)
 void visual_picker_close();

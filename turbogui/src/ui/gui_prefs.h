@@ -375,6 +375,7 @@ struct GuiPrefs {
     SplitStore splits;                            // 2.22: the widths of the list panes the person dragged
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
     bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
+    bool body_show_all = false;    // gui.body_show_all (5.0c RV4): the Body type window's "Show all body types" tick, default off, saved with the layout
     bool first_30_start = false;   // run time only: load() found no gui.version >= 3.0.0 and hid the Lab
 
     bool section_open(const std::string& id, bool default_open) const {
@@ -403,6 +404,8 @@ struct GuiPrefs {
         if (p.first_30_start) p.advanced_mode = false;  // 3.0 first start: the Lab starts hidden, once
         auto rc = g->find("rail_collapsed");
         if (rc != g->end() && rc->is_boolean()) p.rail_collapsed = rc->get<bool>();
+        auto ba = g->find("body_show_all");
+        if (ba != g->end() && ba->is_boolean()) p.body_show_all = ba->get<bool>();
         auto pi = g->find("preload_images");
         if (pi != g->end() && pi->is_boolean()) p.preload_images = pi->get<bool>();
         auto rd = g->find("row_density");
@@ -434,6 +437,7 @@ struct GuiPrefs {
         for (const auto& kv : sections_open) so[kv.first] = kv.second;
         g["sections_open"] = so;
         g["rail_collapsed"] = rail_collapsed;
+        g["body_show_all"] = body_show_all;
         g["version"] = kShellGuiVersion;
         // 5.0 T7 D1: a start that fell back to maximized does not overwrite the stored choice (WindowTracker::fell_back)
         WindowPrefs w = window;

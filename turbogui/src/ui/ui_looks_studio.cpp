@@ -1116,7 +1116,7 @@ void look_card(App& app, const Subject& who, uint64_t rec) {
 }
 
 // ---------------------------------------------------------------- public: body-type grid
-// 5.0c RV4 (Cassio): manager bodies that draw the same figure are one tile; ticked "Show all bodies" lists every code again
+// 5.0c RV4 (Cassio): manager bodies that draw the same figure are one tile; ticked "Show all body types" lists every code again
 static bool g_all_bodies = false;
 void body_show_all(bool on) { g_all_bodies = on; }
 bool body_show_all() { return g_all_bodies; }
@@ -1128,6 +1128,25 @@ std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manage
     // "Manager body N" are gone (Cassio 5.0c-FIX.md E8).
     const std::string name = bodyshape::body_name(manager, code, cat);
     return name.empty() ? std::string("His own body") : name;
+}
+
+std::set<int64_t> body_generic_codes(const bodytype::Catalog* cat) {
+    std::set<int64_t> generic;
+    if (const labels::NamedCodes* n = labels::named_codes("bodytypecode"))
+        for (const auto& e : *n) generic.insert(e.first);
+    if (const data::LookField* pf = data::find_look_field(data::LookSubject::Player, "bodytypecode"))
+        for (int32_t i = 0; i < pf->n_values; ++i)
+            if (pf->values[i].src != data::LookSrc::StyleN) generic.insert(pf->values[i].code);
+    if (cat)
+        for (int64_t c : cat->codes())
+            if (cat->named(c)) generic.insert(c);
+    return generic;
+}
+
+bool body_is_specific(int64_t code, const bodytype::Catalog* cat, bool manager, const std::set<int64_t>& generic) {
+    // a manager's body is the named set 81-89 and the game's sizes; the styles only a few managers hold (12, 131, 381) have no name
+    if (manager) return bodyshape::body_name(true, code, cat).empty();
+    return generic.count(code) == 0;
 }
 
 std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t current, int gender, bool manager) {

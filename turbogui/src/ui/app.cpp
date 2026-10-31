@@ -1673,6 +1673,7 @@ void App::load_gui_settings() {
         }
     }
     prefs = GuiPrefs::load(gui_settings);  // gui.preload_images, gui.row_density (ui/gui_prefs.h)
+    looks::body_show_all(prefs.body_show_all);  // 5.0c RV4: the saved "Show all body types" tick (default off)
     // the old panels instead of the 2.16 pages: only a stored choice changes the flag (a test sets it directly)
     if (gui_settings.contains("gui") && gui_settings["gui"].is_object() && gui_settings["gui"].contains("legacy_pages") &&
         gui_settings["gui"]["legacy_pages"].is_boolean())
