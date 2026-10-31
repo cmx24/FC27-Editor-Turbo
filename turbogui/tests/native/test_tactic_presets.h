@@ -475,8 +475,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["managers"] = hex_addr(SheetWorld::kManagers);
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;  // the Simple view
         ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));  // 2.13: wide enough for the select panel (it is a rail under S(900))
         ui.frames(2);
         // the tab
@@ -798,7 +796,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(gsettings_test::md5s(settings) == folder_before, "the settings folder is still untouched");
         CHECK(fs::exists(reapply, ec) == reapply_existed && (!reapply_existed || md5_of_file(reapply) == reapply_md5), "reapply_edits.json is byte for byte what it was");
         // clean up
-        app.prefs.advanced_mode = was_advanced;
         app.team_sheet = nullptr;
         for (const char* f : {tsheet::opt_in_file(), tsheet::kill_switch_file(), tsheet::undo_file(), tp::last_load_file(), gsettings::pending_file()}) fs::remove(out / f, ec);
         fs::remove_all(tp::presets_dir(out), ec);

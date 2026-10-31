@@ -155,8 +155,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const int old_manager = app.sel_manager;
     ui.frames(3);
 
-    run_case("Looks studio: the Appearance Editor opens in the Simple view", [&] {
-        app.prefs.advanced_mode = false;
+    run_case("Looks studio: the Appearance Editor opens from the area tab", [&] {
         looks::looks_studio_reset_for_tests();
         app.capture = nullptr;
         // 2.20: the Appearance Editor is the only page of its area, so the area tab opens it (there is no page strip)

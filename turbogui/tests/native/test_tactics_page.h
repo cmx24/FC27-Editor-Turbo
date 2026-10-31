@@ -242,8 +242,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         game_settings_reset();
         std::vector<std::string> hooked;
         app.log_hook = [&hooked](const std::string& x) { hooked.push_back(x); };
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));
 
         // ---- Tactic presets (the page the navigation draws)
@@ -267,29 +265,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(hooked_has(hooked, "tactic presets: live read (refresh): tactic not read: "), "Refresh reads the live tactic again");
         CHECK(s.names.size() == 5 && s.selected == 0, "the list and the pick survive Refresh");
 
-        // ---- Game sliders (the page the navigation draws)
-        show(ui, draw_offline_slider_section);  // 3.0.1 GUI30K: the Lab section (Lab > Tactics (experimental))
-        ui.frames(4);
-        const GameSlidersPageState& g3 = game_sliders_page_state();
-        CHECK(g3.drawn && g3.names.size() == 5 && g3.skipped.empty(), "Game sliders lists the five: " + std::to_string(g3.names.size()));
-        CHECK(has(g3.sliders_now, "Custom sliders now: ") && has(g3.sliders_now, " values"), "the Custom sliders block in the Simple view: " + g3.sliders_now);
-        CHECK(hooked_has(hooked, "game sliders: store scan: 5 listed, 0 skipped"), "its scan is logged");
-        CHECK(ui.click("Synthetic sliders 1  -  88 sliders###gsel0", kWin), "click the first slider preset");
-        ui.frames(3);
-        CHECK(g3.selected == 0 && hooked_has(hooked, "game sliders: picked \"Synthetic sliders 1\""), "picked and logged");
-        CHECK(has(g3.counts_line, "confirmed on the Custom screen"), "the plan of the picked preset is stated: " + g3.counts_line);
-        CHECK(ui.click("Refresh###gsrefresh", kWin), "Refresh");
-        ui.frames(3);
-        CHECK(g3.refreshes == 1 && has(g3.message, "Read again: 5 slider presets"), "Refresh counted: " + g3.message);
-        CHECK(hooked_has(hooked, "game sliders: refresh: 5 slider preset(s) listed, 0 file(s) skipped; custom sliders read: "), "and logged");
+        // (2026-10-31, 5.0c menus step 6: the offline slider staging section, draw_offline_slider_section on Lab > Tactics (experimental), was deleted
+        // with the Lab; Game settings > Game settings & CPU sliders writes live, test_sliders_rw.h)
 
-        // ---- a file that cannot be used is shown, not dropped
-        { std::ofstream(tp::presets_dir(out) / "BROKEN.json", std::ios::binary) << "{"; }
-        CHECK(ui.click("Refresh###gsrefresh", kWin), "Refresh with a broken file");
-        ui.frames(3);
-        CHECK(g3.names.size() == 5 && g3.skipped.size() == 1 && has(g3.skipped[0], "BROKEN.json"), "the broken file is named: " + (g3.skipped.empty() ? std::string("-") : g3.skipped[0]));
-
-        app.prefs.advanced_mode = was_advanced;
         app.log_hook = nullptr;
         ui.extra_draw = nullptr;
         ui.frames(2);
@@ -339,8 +317,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["managers"] = hex_addr(SheetWorld::kManagers);
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));
         live_tactic_set_opt_in(app, true);
         // Cassio's careers: the club's tactic record is not marked active
@@ -376,7 +352,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         fs::remove(out / tsheet::opt_in_file(), ec);
         app.team_sheet = nullptr;
         app.log_hook = nullptr;
-        app.prefs.advanced_mode = was_advanced;
         ui.extra_draw = nullptr;
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 60;

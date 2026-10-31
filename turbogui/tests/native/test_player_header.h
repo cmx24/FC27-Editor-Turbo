@@ -14,13 +14,11 @@ using namespace turbo;
 
 static void ui_cases(App& app, Ui& ui) {
     using shell::Page;
-    const bool was_legacy = app.legacy_pages;
     const int64_t was_sel = app.sel_player;
     const int was_tab = shell::player_edit_tab();
 
     run_case("Players 3.0: header card shows the selected player's name and OVR above the five tabs", [&] {
         if (app.busy()) ui.click("Cancel");
-        app.legacy_pages = false;  // the new pages
         shell::player_edit_tab() = 0;
         app.sel_player = 1001;
         app.go(Page::PlayerEdit);
@@ -50,7 +48,6 @@ static void ui_cases(App& app, Ui& ui) {
 
     shell::player_edit_tab() = was_tab;
     app.sel_player = was_sel;
-    app.legacy_pages = was_legacy;
     app.go(Page::PlayerEdit);
     ui.frames(3);
 }

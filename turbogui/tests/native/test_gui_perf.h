@@ -326,8 +326,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("gui perf: per-frame cost of every page, shown and hidden (file-system calls on the render thread)", [&] {
         ui.frames(3);
         CHECK(app.connected(), "connected: " + app.db_error);
-        const bool adv_was = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = true;
         app.visible = true;
         const fs::path seeded = seed_cache(app);
         // custom_file lists a mods\legacy folder again while it is under 2 s old (core/legacy.cpp); the cases before this one
@@ -361,9 +359,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         std::vector<Cost> all;
         for (int ai = 0; ai < shell::kAreaCount; ++ai) {
             const shell::Area a = static_cast<shell::Area>(ai);
-            if (!shell::area_visible(a, true)) continue;
+            if (!shell::area_visible(a)) continue;
             for (shell::Page p : shell::pages_of(a)) {
-                if (!shell::page_visible(p, true)) continue;
+                if (!shell::page_visible(p)) continue;
                 open(app, ui, a, p);
                 all.push_back(measure(ui, std::string(shell::area_label(a)) + " > " + shell::page_label(p), kFrames));
             }
@@ -390,7 +388,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 #ifdef _WIN32
         if (counting) fs_hooks_off();
 #endif
-        app.prefs.advanced_mode = adv_was;
         app.hook_report = saved_report;
         std::error_code ec;
         if (!seeded.empty()) fs::remove_all(seeded, ec);

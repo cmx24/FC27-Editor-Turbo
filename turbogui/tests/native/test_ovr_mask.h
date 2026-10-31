@@ -129,7 +129,6 @@ static void ui_cases(App& app, Ui& ui) {
     });
 
     run_case("Shown OVR: the player header field writes the career's ovr_mask.json only, refuses bad values, Clear removes it", [&] {
-        const bool was_legacy = app.legacy_pages;
         const int64_t was_sel = app.sel_player;
         const std::string was_career = app.reapply.career;
         const fs::path career_dir = app.turbo_output() / "careers" / kCareer;
@@ -143,7 +142,6 @@ static void ui_cases(App& app, Ui& ui) {
         if (fs::exists(career_dir) && dir_s.compare(0, root_s.size(), root_s) == 0) fs::remove_all(career_dir, ec);
         CHECK(!fs::exists(career_dir), "no stale career folder left from an earlier run");
         if (app.busy()) ui.click("Cancel");
-        app.legacy_pages = false;
         app.sel_player = 1001;
         app.go(Page::PlayerEdit);
         ui.frames(4);
@@ -169,7 +167,6 @@ static void ui_cases(App& app, Ui& ui) {
             fs::remove_all(career_dir, ec);
             app.reapply.career = was_career;
             app.sel_player = was_sel;
-            app.legacy_pages = was_legacy;
             ui.frames(2);
             return;
         }
@@ -221,7 +218,6 @@ static void ui_cases(App& app, Ui& ui) {
         fs::remove_all(career_dir, ec);
         app.reapply.career = was_career;
         app.sel_player = was_sel;
-        app.legacy_pages = was_legacy;
         ui.frames(2);
     });
 }

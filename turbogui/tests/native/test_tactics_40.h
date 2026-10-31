@@ -10,7 +10,7 @@
 //   - Team sheet & bench still shows the captain and takers read-out (the existing button "Read from the game") and the bench option;
 //   - Game sliders is the GUI30K pointer drawn inside the frame: where the section went, the honest "no effect seen in game" label
 //     verbatim, the link (###gsmoved), and NO slider staging (no list, no Refresh, no Prepare);
-//   - the Lab page still draws the section (heading and label).
+//   - (2026-10-31: the Lab page and its copy of the section are gone, 5.0c menus step 6.)
 #pragma once
 #include "ui/ui_page.h"
 #include "ui/ui_tactic_presets.h"
@@ -90,14 +90,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("S10 + 10-28 findability: Game settings & CPU sliders inside page::Frame draws the preset row (no Lab pointer, no Tactics staging)", [&] {
-        const bool was_adv = app.prefs.advanced_mode;
-        for (bool adv : {false, true}) {
+        {
             changes_page_test::Sandbox sb(app, ui);
-            app.prefs.advanced_mode = adv;
             tactics_pages_reset();
             page::reset_for_tests();
             show(ui, draw_game_sliders_page, 8);
-            const std::string how = adv ? " (Lab on)" : " (Lab off)";
+            const std::string how;  // 2026-10-31: one view (the Lab and GuiPrefs::advanced_mode are gone)
             check_frame("game_sliders", "Game settings & CPU sliders");
             const GameSlidersPageState& s = game_sliders_page_state();
             CHECK(s.drawn, "the page body ran" + how);
@@ -105,23 +103,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(find(ui, "Load into the game###gsload") != nullptr, "the preset row: Load into the game" + how);
             CHECK(find(ui, "###gsrefresh") == nullptr && find(ui, "Prepare###gsprepare") == nullptr && find(ui, "###gsel0") == nullptr,
                   "no list, no Refresh, no Prepare on the Tactics page" + how);
-            CHECK(s.lab_heading.empty() && s.lab_label.empty(), "the offline slider section was not drawn here" + how);
             const std::string& txt = g_text;
             CHECK(txt.find("Game sliders moved to the Lab") == std::string::npos, "no 'moved to the Lab' pointer text" + how);
             hide(ui);
             page::reset_for_tests();
         }
-        app.prefs.advanced_mode = was_adv;
     });
-
-    run_case("S10 Lab > Tactics (experimental) keeps its own copy of the section until the in-game PASS", [&] {
-        changes_page_test::Sandbox sb(app, ui);
-        tactics_pages_reset();
-        show(ui, draw_lab_tactics_page, 8);
-        const GameSlidersPageState& s = game_sliders_page_state();
-        CHECK(s.lab_heading == kOfflineSlidersHeading && s.lab_label == kOfflineSlidersLabel, "the Lab page draws the section heading and the label");
-        hide(ui);
-    });
+    // (2026-10-31, 5.0c menus step 6: the "Lab > Tactics (experimental) keeps its own copy of the section" case went with the Lab page and the
+    // offline slider staging, draw_lab_tactics_page / kOfflineSlidersHeading)
 }
 
 }  // namespace tactics40_test

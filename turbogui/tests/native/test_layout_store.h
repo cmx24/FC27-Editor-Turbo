@@ -626,12 +626,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 #ifdef TURBO_HAVE_LAYOUT_STORE
     const GuiPrefs keep_prefs = app.prefs;
     const bool keep_visible = app.visible;
-    const bool keep_legacy = app.legacy_pages;
     const std::function<void(const std::string&)> keep_hook = app.log_hook;
     const float keep_rate = ImGui::GetIO().IniSavingRate;
     const std::map<std::string, float> keep_parked = app.layout_splits_parked_;
     app.visible = true;
-    app.legacy_pages = false;  // the suite runs the old pages by default (test_nav_220.h:121): they draw the old Settings panel, which has no Layout section; the game default is the new pages
     ImGui::GetIO().IniSavingRate = 0.1f;
     ImGui::GetCurrentContext()->SettingsDirtyTimer = 0.0f;  // an earlier case may have left a 5 s countdown running (MarkIniSettingsDirty keeps a running timer)
     MemSink m;
@@ -717,7 +715,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     app.prefs = keep_prefs;
     app.prefs.window_rt = WindowTracker();
     app.visible = keep_visible;
-    app.legacy_pages = keep_legacy;
     ui.frames(3);
 #else
     (void)app;

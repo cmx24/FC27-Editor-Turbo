@@ -101,13 +101,13 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          third_party/imgui/imgui_widgets.cpp third_party/imgui/backends/imgui_impl_null.cpp \
          src/core/t3db.cpp src/core/squad_role.cpp src/core/model.cpp src/core/bridge.cpp src/core/le_log.cpp src/core/memmap.cpp src/core/image.cpp src/core/legacy.cpp src/core/devops.cpp src/core/callnames.cpp src/core/teamnames.cpp src/core/sigscan.cpp src/core/gamethread.cpp src/core/fce_standings.cpp src/core/player_capture.cpp src/core/game_calls.cpp src/core/standings_refresh.cpp src/core/transfer_list.cpp src/core/player_move.cpp src/core/player_create.cpp src/core/player_morale.cpp src/core/commentary_bank.cpp src/core/commentary_audio.cpp src/core/reveal.cpp src/core/manager_rules.cpp src/core/match_setup.cpp src/core/reapply.cpp src/core/team_preset.cpp src/core/crest_serve.cpp src/core/career_faces.cpp \
          src/core/face_filter.cpp src/core/face3d_looks.cpp src/core/hair_catalog.cpp src/core/user_text.cpp src/ui/ui_faces.cpp src/core/bodytype_catalog.cpp src/core/body_shape.cpp src/ui/ui_body_figure.cpp src/ui/ui_bodytypes.cpp \
-         src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_database.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/core/season_pack.cpp src/core/kit_fonts.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/core/kit_import.cpp src/core/kit_swap.cpp src/core/attrib_ebx.cpp src/core/oodle_dispatch.cpp src/ui/ui_kits.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
+         src/ui/app.cpp src/ui/widgets.cpp src/ui/ui_players.cpp src/ui/ui_teams.cpp src/ui/ui_tools.cpp src/ui/textures.cpp src/ui/ui_images.cpp src/ui/ui_competitions.cpp src/ui/ui_callnames.cpp src/ui/ui_names.cpp src/ui/ui_presets.cpp src/ui/ui_cmtracker.cpp src/core/cmtracker.cpp src/core/season_pack.cpp src/core/kit_fonts.cpp src/ui/geo.cpp src/core/overall.cpp src/core/archetypes.cpp src/ui/ui_identity.cpp src/core/kit_import.cpp src/core/kit_swap.cpp src/core/attrib_ebx.cpp src/core/oodle_dispatch.cpp src/ui/ui_kits.cpp src/ui/ui_standings.cpp src/ui/ui_match.cpp src/ui/ui_reapply.cpp \
          src/core/archetype_gen.cpp src/ui/ui_archetype_populate.cpp \
          src/core/lua_loader.cpp src/core/faces3d.cpp src/ui/ui_faces3d_gate.cpp \
          src/ui/file_picker.cpp \
          src/ui/ui_player_profile.cpp \
          src/ui/ui_looks_studio.cpp \
-         src/ui/ui_career_page.cpp src/ui/ui_diagnostics_page.cpp src/ui/ui_kits_page.cpp src/ui/ui_club_voice.cpp \
+         src/ui/ui_career_page.cpp src/ui/ui_kits_page.cpp src/ui/ui_club_voice.cpp \
          src/ui/ui_crest_shirt.cpp src/ui/ui_team_players.cpp src/ui/ui_team_transfers.cpp \
          src/core/asset_catalog.cpp src/ui/ui_asset_browser.cpp \
          src/core/hub_customise.cpp src/ui/ui_club_tools.cpp \
@@ -116,7 +116,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/core/rdbm_resources.cpp src/ui/ui_visual_picker.cpp src/ui/ui_setpiece_card.cpp \
          src/core/transfer_stats.cpp src/core/scouts.cpp src/ui/ui_parity.cpp \
          src/core/callname_audio.cpp src/ui/ui_callname_play.cpp src/core/callname_voice.cpp src/core/club_voice.cpp src/core/callname_voice_host.cpp \
-         src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_nav_pages.cpp src/ui/ui_pages_216.cpp src/ui/ui_player_header.cpp src/ui/ui_player_page.cpp src/ui/ui_style.cpp \
+         src/ui/ui_zoom.cpp src/ui/ui_shell.cpp src/ui/ui_team_filter.cpp src/ui/ui_role_rules.cpp src/ui/ui_club_search.cpp src/ui/ui_settings.cpp src/ui/ui_club_page.cpp src/ui/ui_pages_216.cpp src/ui/ui_player_header.cpp src/ui/ui_player_page.cpp src/ui/ui_style.cpp \
          src/ui/ui_tactics_page.cpp \
          src/ui/ui_player_creation.cpp \
          src/ui/ui_bulk_edit.cpp \

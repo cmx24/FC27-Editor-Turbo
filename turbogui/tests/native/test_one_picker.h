@@ -213,8 +213,13 @@
             present.insert(s.id);
             std::printf("    %-26s %s:%d  %s  [%s]%s%s\n", s.id, s.file, op_line(txt, pos), s.kind, owner.c_str(), s.reason[0] ? "  reason: " : "", s.reason);
         }
-        CHECK(present.count("vp-grid") && present.count("studio-body-card") && present.count("raw-players-appearance") && present.count("faces3d-gallery"),
+        // 2026-10-31: the classic editor's raw grids (ui_players.cpp ##appgrid / ##rolegrid, 5.0c menus step 6) and the ##f3pick call site
+        // (ui_faces3d_gate.cpp gallery_picker(app, ..., step 7) are gone from the source: the table keeps their rows (printed ABSENT), the
+        // anchors are the sites that still exist
+        CHECK(present.count("vp-grid") && present.count("studio-body-card") && present.count("raw-manager-appearance") && present.count("gallery-choose"),
               "the anchors of the table are in the source (a renamed function must be updated here, not dropped)");
+        CHECK(!present.count("raw-players-appearance") && !present.count("raw-players-roles") && !present.count("faces3d-gallery"),
+              "the classic editor's raw grids and the ##f3pick call site stay deleted");
         // Amendment B3: no q6 owner; B2: q6-nopicker only for the managers' eyes and skin boxes
         for (const OpSite& s : op_sites) CHECK(std::string(s.owner) != "q6", std::string("no plain q6 owner (Amendment B3): ") + s.id);
 
@@ -258,7 +263,7 @@
                 }
             }
             std::printf("  ONE-PICKER completeness: %d option-offering statements naming a look field, %d unlisted\n", statements, unlisted);
-            CHECK(statements >= 5, fmt("the scan found the known statements (%d; 5.0c E3: the managers' raw grid takes a filtered column list, so its statement no longer names a look field and 6 became 5)", statements));
+            CHECK(statements >= 3, fmt("the scan found the known statements (%d; 5.0c E3: 6 became 5; 2026-10-31: the classic editor's two raw grids went with it, 5 became 3)", statements));
         }
 
         // ---- 3. the kit rule and the shared body list are checked in the cases below
@@ -516,38 +521,6 @@
         op_fixture_off(before);
     });
 
-    // ---- the Simple player page, no RDBM26 folder: "Choose a real face..." keeps the Eyes and Skin boxes (q6-nopicker)
-    run_case("UI 3.2 one picker (fix 1): Simple player page, no RDBM26 folder: the real-face chooser keeps its Eyes and Skin boxes, never Hair / Beard; with a folder they go", [&] {
-        const int64_t saved_sel = app.sel_player;
-        app.sel_player = 1001;
-        visual_pictures_override((test_tmp_dir("one_picker_simple") / "nowhere").u8string());
-        visual_pictures_refresh(app);
-        player_page_test::show(ui);
-        CHECK(ui.click("###pp_face", "pp_looks"), "the Simple page's Choose a real face button");
-        ui.frames(3);
-        if (const ItemRec* own = ui.find("His own head##faces")) {
-            const std::string win = own->window;
-            CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr, "no Hair / Beard copy boxes (their pickers are in Appearance)");
-            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
-                  "NO LOST CAPABILITY (5.0b-C): the Eyes and Skin boxes became the What to copy control (Head + eyes + skin), also on the Simple page");
-            const fs::path pics = test_tmp_dir("one_picker_simple_rdbm") / "Resources";
-            for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
-                fs::create_directories((pics / sub).parent_path());
-                std::ofstream(pics / sub, std::ios::binary) << "\x89PNG";
-            }
-            visual_pictures_override(pics.u8string());
-            visual_pictures_refresh(app);
-            ui.frames(3);
-            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
-                  "with an RDBM26 folder too: no Eyes / Skin boxes, What to copy stays");
-        } else {
-            CHECK(false, "the chooser opened from the Simple page (His own head)");
-        }
-        ui.click("Close##faces");
-        ui.frames(2);
-        player_page_test::hide(ui);
-        visual_pictures_override("");
-        visual_pictures_refresh(app);
-        app.sel_player = saved_sel;
-    });
+    // (2026-10-31, 5.0c menus step 6: the "Simple player page" case, q6-nopicker, went with the card page draw_player_page; the chooser's What to copy
+    // control is covered on the Appearance Editor by test_face_chooser_layout.h)
 }

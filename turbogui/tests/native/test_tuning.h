@@ -2089,6 +2089,26 @@ static std::string ui_knobs() {
     return t;
 }
 
+// The Gameplay tuning view in a window of its own (the page that held it, Advanced > Gameplay tuning, was deleted on 2026-10-31 with the Lab;
+// ui_tuning.cpp's draw_tuning and tuning_tick stay). Drawn after app.draw() through the Ui hook g_ui_extra of test_main.cpp.
+static void draw_tuning_window(App& app) {
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowFocus();
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ds);
+    if (ImGui::Begin("##tuning_test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) draw_tuning(app);
+    ImGui::End();
+}
+static void show_tuning_view(App& app, Ui& ui) {
+    app.go(turbo::shell::Page::Home);
+    g_ui_extra = draw_tuning_window;
+    ui.frames(3);
+}
+static void hide_tuning_view(Ui& ui) {
+    g_ui_extra = nullptr;
+    ui.frames(2);
+}
+
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("UI: gameplay tuning 2.4 (M3) - no profile and the tab never opened: no locate at all; the profile on: located", [&] {
         tuning_reset();
@@ -2180,9 +2200,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         write_state();
         const long long gen = app.bridge.state().load_gen;
         CHECK(app.bridge.state().match_phase == "hub" && gen >= 1, "the bridge reports the hub");
-        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
-        app.prefs.advanced_mode = true;
-        app.go(shell::Page::AdvGameplayTuning);
+        // 2026-10-31 (5.0c menus step 6): Advanced > Gameplay tuning is gone with the Lab; the view (ui_tuning.cpp draw_tuning) is drawn in its own
+        // window through the Ui hook, as test_club_page.h draws its pages
+        show_tuning_view(app, ui);
         ui.frames(3);
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
@@ -2437,7 +2457,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
+        hide_tuning_view(ui);  // leave the tuning view (was: Advanced > Gameplay tuning, before that the Competitions tab's live view)
         ui.frames(2);
     });
     run_case("UI: Gameplay tuning 2.6 pagefix - the search matches label/id/group/category/field only, the differences count the game and the sliders (never an "
@@ -2518,9 +2538,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st.erase("prematch_t");
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
-        app.prefs.advanced_mode = true;
-        app.go(shell::Page::AdvGameplayTuning);
+        // 2026-10-31 (5.0c menus step 6): Advanced > Gameplay tuning is gone with the Lab; the view (ui_tuning.cpp draw_tuning) is drawn in its own
+        // window through the Ui hook, as test_club_page.h draws its pages
+        show_tuning_view(app, ui);
         ui.frames(3);
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
@@ -2778,7 +2798,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
+        hide_tuning_view(ui);  // leave the tuning view (was: Advanced > Gameplay tuning, before that the Competitions tab's live view)
         ui.frames(2);
     });
 
@@ -2832,9 +2852,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             write_state();
         };
         set_phase("hub");
-        // 2.13 shell: Gameplay tuning is Advanced > Gameplay tuning (request_tab 3 now lands on Tactics & Gameplay > Standings)
-        app.prefs.advanced_mode = true;
-        app.go(shell::Page::AdvGameplayTuning);
+        // 2026-10-31 (5.0c menus step 6): Advanced > Gameplay tuning is gone with the Lab; the view (ui_tuning.cpp draw_tuning) is drawn in its own
+        // window through the Ui hook, as test_club_page.h draws its pages
+        show_tuning_view(app, ui);
         ui.frames(3);
         ui.frames(70);
         const TuningViewState& s = tuning_view_state();
@@ -2948,7 +2968,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["seq"] = saved.value("seq", 0LL) + 50;
         write_state();
         tuning_reset();
-        app.go(turbo::shell::Page::Standings);  // leave Advanced > Gameplay tuning (was: the Competitions tab's live view)
+        hide_tuning_view(ui);  // leave the tuning view (was: Advanced > Gameplay tuning, before that the Competitions tab's live view)
         ui.frames(2);
     });
 }

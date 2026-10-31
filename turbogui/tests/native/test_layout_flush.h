@@ -302,10 +302,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const std::string keep_file = read_file(file);
     const GuiPrefs keep_prefs = app.prefs;
     const bool keep_visible = app.visible;
-    const bool keep_legacy = app.legacy_pages;
     const ImVec2 keep_override = g_display_override;
     app.visible = true;
-    app.legacy_pages = false;
     g_display_override = ImVec2(1920.0f, 1080.0f);
 
     run_case("e6-layout E: the main panel resized and then hidden inside the debounce is written to gui.window", [&] {
@@ -416,7 +414,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     }
     app.prefs = keep_prefs;
     app.visible = keep_visible;
-    app.legacy_pages = keep_legacy;
     g_display_override = keep_override;
     app.load_gui_settings();
     ui.frames(4);

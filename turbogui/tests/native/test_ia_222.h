@@ -1,17 +1,16 @@
 // Native tests (2026-10-19, brief 2.22-G-ia): layout and organisation. Included by test_main.cpp after test_page_profile.h; ia222_test::ui_cases runs inside the
 // UI block (a real App on the simulated game), with the pages reached the way a user reaches them (app.go / the shell), not drawn by function.
 //
-//   a  Players > Commentary names is a real page (a player list and the callname editor); NO page of the navigation is a signpost any more
+//   a  (deleted 2026-10-31 with the Callnames page and the old-pages signposts, 5.0c menus step 6)
 //   b  Edit a player > Positions, attributes & PlayStyles opens with the card "Player type & tier" (the 5-tier Tier combo in view, one Player type
 //      picker, archetype_bar once), open by default, collapsible, remembered
 //   c  the Create player dialog starts with Player type & tier; Potential, Birth date, Nationality and Foot are under Profile; one picker
-//   d  the outer tab "Classic editor" (was "All fields")
+//   d  (deleted 2026-10-31 with the classic tab, 5.0c menus step 6)
 //   e  the Appearance Editor has the Tattoos card and the whole miniface editor, open
-//   h  Edit a player's default list is the Classic editor's: one sortable table of 8 columns and the full filter grid
+//   h  Edit a player's default list is one sortable table of 8 columns and the full filter grid
 // Cases are named "G-ia: ..." so TURBO_TEST_ONLY="g-ia" runs them alone.
 #pragma once
 #include "ui/ui_looks_studio.h"
-#include "ui/ui_nav_pages.h"
 #include "ui/ui_player_profile.h"
 #include "ui/ui_presets.h"
 #include "ui/ui_shell.h"
@@ -41,73 +40,11 @@ static int count_items(const std::string& label) {
 static void ui_cases(App& app, Ui& ui, fs::path le) {
     (void)le;
     using shell::Page;
-    const bool was_legacy = app.legacy_pages;
-    const bool was_adv = app.prefs.advanced_mode;
-    const bool was_card = app.player_card_view;
     const int64_t was_sel = app.sel_player;
     const int was_tab = shell::player_edit_tab();
     const ImVec2 old_display = ImGui::GetIO().DisplaySize;
     ImGui::GetIO().DisplaySize = ImVec2(1920.0f, 1080.0f);  // the screen the check is made on: nothing may need a scroll to be seen
-    app.legacy_pages = false;
-    app.player_card_view = false;
-
-    run_case("G-ia: no page of the navigation is a signpost (no Open ... button), in the Simple view and in Advanced", [&] {
-        for (bool adv : {false, true}) {
-            app.prefs.advanced_mode = adv;
-            for (int pi = 1; pi < shell::kPageCount; ++pi) {
-                const Page p = static_cast<Page>(pi);
-                if (!shell::page_visible(p, adv)) continue;
-                app.go(p);
-                ui.frames(3);
-                CHECK(ui.find("###navgo") == nullptr, std::string("not a signpost: ") + shell::page_label(p) + (adv ? " (Advanced)" : ""));
-            }
-        }
-        app.prefs.advanced_mode = false;
-    });
-
-    run_case("G-ia: Commentary names is a real page: a player list, and the callname editor of the picked player beside it, one selection with Edit a player", [&] {
-        if (app.busy()) ui.click("Cancel");
-        app.prefs.advanced_mode = false;
-        app.sel_player = 0;
-        CHECK(ui.open_page("Players", "Callnames") && app.place() == shell::place_of(Page::CommentaryNames), "Players > Commentary names opens");
-        ui.frames(4);
-        const CommentaryNamesState& cs = commentary_names_state();
-        CHECK(ui.find("###navgo") == nullptr, "no signpost button");
-        CHECK(ui.find("##cnsearch") != nullptr && ui.find("##cnclub") != nullptr, "search and club filter");
-        CHECK(cs.all > 3 && cs.listed == cs.all, "the list holds every player: " + std::to_string(cs.listed) + " of " + std::to_string(cs.all));
-        CHECK(!cs.editor_shown, "nobody picked: no editor yet");
-        CHECK(cs.callnames_ready, "the callname index is built, so the column and the filter work");
-        CHECK(cs.first_listed > 0 && !cs.now_of_first.empty(), "the Callname now column has text: '" + cs.now_of_first + "'");
-        CHECK(ui.find("No callname yet###cn_none") != nullptr, "the No callname yet filter");
-        // pick a player: the editor is on the same page, and Edit a player has the same player
-        const int64_t pid = cs.first_listed;
-        const std::string id = "###cn" + std::to_string(pid);
-        CHECK(ui.click(id), "click the first player");
-        ui.frames(3);
-        CHECK(app.sel_player == pid && cs.editor_shown && cs.editor_playerid == pid, "the callname editor is drawn for him on this page");
-        CHECK(!cs.now_of_selected.empty(), "his Callname now: '" + cs.now_of_selected + "'");
-        app.go(Page::PlayerEdit);
-        ui.frames(3);
-        CHECK(app.sel_player == pid, "Edit a player shows the same player (one selection)");
-        // the filter narrows the list
-        app.go(Page::CommentaryNames);
-        ui.frames(3);
-        const size_t all = cs.listed;
-        CHECK(ui.click("No callname yet###cn_none"), "No callname yet");
-        ui.frames(3);
-        CHECK(cs.listed <= all, "the filter does not add players: " + std::to_string(cs.listed) + " of " + std::to_string(all));
-        CHECK(ui.click("No callname yet###cn_none"), "filter off");
-        ui.frames(3);
-        CHECK(cs.listed == all, "everybody again");
-        CHECK(ui.type_into(ui.find("##cnsearch"), "zzzz-no-such-player"), "search");
-        ui.frames(3);
-        CHECK(cs.listed == 0, "nobody matches");
-        CHECK(ui.type_into(ui.find("##cnsearch"), ""), "search cleared");
-        ui.frames(3);
-        CHECK(cs.listed == all, "everybody again after the search");
-    });
-
-    run_case("G-ia: Edit a player (Profile and Positions tabs) lists players in the Classic editor's sortable 8-column table with the full filter grid", [&] {
+    run_case("G-ia: Edit a player (Profile and Positions tabs) lists players in one sortable 8-column table with the full filter grid", [&] {
         for (int tab : {0, 1}) {
             shell::player_edit_tab() = tab;
             app.sel_player = 1001;
@@ -136,7 +73,6 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
     run_case("G-ia: Positions tab: Player type & tier is the first card, with the 5 tiers in view, one player type picker, the player type bar once", [&] {
         shell::player_edit_tab() = 1;
         app.sel_player = 1001;
-        app.prefs.advanced_mode = false;
         app.go(Page::PlayerEdit);
         ui.frames(4);
         const PlayerAbilityState& st = player_ability_state();
@@ -176,26 +112,12 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         CHECK(player_ability_state().attribute_sliders > 0, "attribute sliders drawn: " + std::to_string(player_ability_state().attribute_sliders));
     });
 
-    run_case("G-ia: the outer tab is Classic editor (was All fields); the Classic editor keeps its own tabs and its own player type bar", [&] {
-        shell::player_edit_tab() = 4;
-        app.sel_player = 1001;
-        app.go(Page::PlayerEdit);
-        ui.frames(4);
-        CHECK(ui.find("Everything (classic)###pe_allfields") != nullptr, "the tab is called Everything (classic)");
-        CHECK(ui.find("All fields###pe_allfields") == nullptr, "no outer tab called All fields");
-        CHECK(ui.find("Card view (beta)###pcardview") != nullptr, "it holds the full editor and the Card view switch");
-        shell::player_edit_tab() = 0;
-        app.go(Page::PlayerEdit);
-        ui.frames(3);
-    });
-
     run_case("G-ia: Create player dialog: Player type & tier first, Potential / Birth date / Nationality / Foot under Profile, one Player type picker", [&] {
         if (app.busy()) ui.click("Cancel");
-        shell::player_edit_tab() = 4;
         app.sel_player = 1002;
-        app.go(Page::PlayerEdit);
+        app.go(Page::CreatePlayer);  // 2026-10-31: the classic tab (##pedit) is gone; the editor panel of Players > Create player has the same button
         ui.frames(4);
-        CHECK(ui.click("Create player...", "##pedit"), "open the Create player dialog");
+        CHECK(ui.click("Create player..."), "open the Create player dialog");
         ui.frames(3);
         const CreatePrefillState& cp = create_prefill_state();
         const std::vector<std::string> want = {"Player type & tier", "Names", "Club", "Profile", "Attributes"};
@@ -217,13 +139,11 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
             if (attrs) CHECK(r->rect.Min.y < attrs->rect.Min.y, std::string("before the attributes: ") + id);
         }
         CHECK(ui.click("Cancel##pcreate", "##pcreate"), "close the dialog");
-        shell::player_edit_tab() = 0;
         app.go(Page::PlayerEdit);
         ui.frames(3);
     });
 
     run_case("G-ia: Appearance Editor: the Tattoos card and the whole miniface editor are on the page, open, no extra click", [&] {
-        app.prefs.advanced_mode = false;
         app.sel_player = 1001;
         looks::looks_studio_reset_for_tests();
         CHECK(ui.click("Looks", "FC 27 LE Turbo", "##shell"), "Appearance Editor tab");
@@ -258,7 +178,6 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         };
         CHECK(reach("An image file") || reach("The 3D model"), "the miniface editor's source tabs are drawn");
         CHECK(reach("A player's miniface") && reach("Head model / youth face"), "the miniface editor's other tabs");
-        CHECK(ui.find("###navgo") == nullptr, "no signpost");
         // 3.0.1: the picture picker now probes its shortcut folders when it opens (ui_images.cpp file_browser_modal), not on every frame it is
         // closed: the very first open must still show them. A home folder of our own, so the check holds on any machine.
         {
@@ -295,9 +214,6 @@ static void ui_cases(App& app, Ui& ui, fs::path le) {
         }
     });
 
-    app.legacy_pages = was_legacy;
-    app.prefs.advanced_mode = was_adv;
-    app.player_card_view = was_card;
     app.sel_player = was_sel;
     shell::player_edit_tab() = was_tab;
     ImGui::GetIO().DisplaySize = old_display;

@@ -1,5 +1,4 @@
-// Native tests (4.0 GUI overhaul, slice S1): the page template (ui/ui_page.h) and its worked example, Advanced > Data export
-// (ui/ui_diagnostics_page.cpp). Included by test_main.cpp after test_page_changes.h and test_page_advanced.h; ui_page_test::ui_cases
+// Native tests (4.0 GUI overhaul, slice S1): the page template (ui/ui_page.h). Included by test_main.cpp after test_page_changes.h; ui_page_test::ui_cases
 // runs inside the UI block (a real App), drawing pages through the Ui hook g_ui_extra in a window "##uipage_test".
 //
 // What is guarded:
@@ -7,12 +6,10 @@
 //     (Apply only when the page has one);
 //   - Undo is the Changes list's global Undo (a player edit made elsewhere is taken back from the bar; no undo store of the page);
 //   - Back goes through App::back(), is disabled with no place to go back to, and is a button (not Escape-only);
-//   - the status line is worded "Done: ..." / "Couldn't ...: ..." by the one helper;
-//   - the worked example (Data export) draws the template's bar and keeps its folder button and the Exports buttons.
-// The Data export case sits OUTSIDE the __has_include guard on purpose: it looks the bar up by its stable ids, so it FAILS on the
-// 3.1.0 base (9a1e888, no template) and passes with the template. The fixture cases need ui_page.h and are compiled only with it.
+//   - the status line is worded "Done: ..." / "Couldn't ...: ..." by the one helper.
+// 2026-10-31 (5.0c menus step 6): the worked-example case on Advanced > Data export went with the Advanced area (ui_diagnostics_page.cpp deleted).
+// The fixture cases need ui_page.h and are compiled only with it.
 #pragma once
-#include "ui/ui_diagnostics_page.h"
 #if __has_include("ui/ui_page.h")
 #include "ui/ui_page.h"
 #define TURBO_HAVE_UI_PAGE 1
@@ -141,7 +138,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const page::Record* rec = page::last_record("fixture");
         CHECK(rec && !rec->back_enabled && ui.find("###pg_back", "##uipage_test") != nullptr, "drawn and disabled with nothing to go back to");
         const shell::Place here = app.place();
-        const shell::Place target = here.page == shell::Page::Standings ? shell::Place{shell::Area::Squad, shell::Page::Squad}
+        const shell::Place target = here.page == shell::Page::Standings ? shell::Place{shell::Area::Squad, shell::Page::PlayerEdit}
                                                                          : shell::Place{shell::Area::Career, shell::Page::Standings};
         shell::back_place() = target;
         ui.frames(2);
@@ -171,28 +168,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         page::reset_for_tests();
     });
 #endif
-
-    // Outside the guard: FAILS on the 3.1.0 base (no template, no bar), passes with it
-    run_case("Advanced > Data export (template page): the bar with Undo and Back, no Apply; the folder button and Exports buttons stay", [&] {
-        changes_page_test::Sandbox sb(app, ui);
-        diagnostics_reset_for_tests();
-        shell::back_place() = shell::Place{};
-        show(ui, draw_data_export_page);
-        CHECK(diagnostics_state().export_page_drawn, "the page ran");
-        CHECK(ui.find("###pg_undo", "##uipage_test") != nullptr, "the template's Undo button");
-        CHECK(ui.find("###pg_back", "##uipage_test") != nullptr, "the template's Back button");
-        CHECK(ui.find("###pg_apply", "##uipage_test") == nullptr, "no Apply: this page stages nothing");
-        CHECK(ui.find("Open the export folder##dataexport", "##uipage_test") != nullptr, "the folder button");
-        if (app.mailbox) {
-            for (const char* b : {"Season stats", "Fixtures & results", "Transfer history", "Jersey numbers", "Export tables", "Probe report"})
-                CHECK(ui.find(b, "##uipage_test") != nullptr, std::string("export button: ") + b);
-        }
-#ifdef TURBO_HAVE_UI_PAGE
-        const page::Record* rec = page::last_record("data_export");
-        CHECK(rec && rec->title == "Data export" && !rec->has_apply && rec->bar.size() == 2, "the frame recorded the page");
-#endif
-        hide(ui);
-    });
 }
 
 }  // namespace ui_page_test

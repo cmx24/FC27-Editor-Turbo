@@ -218,8 +218,6 @@ static void ui_cases_club_search(App& app, Ui& ui, SimMemory& mem, uint64_t kMb)
     // 3.1 N4 (Defect 3, navigation loops): a club found with the top-bar search keeps a Club page (Kits here), now showing that club;
     // from any other page it opens the club's squad
     run_case("Shell 3.1 N4: the top-bar search on Club > Kits keeps Kits for a club hit; from Home it opens the club's squad", [&] {
-        const bool was_adv = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         app.go(turbo::shell::Page::Kits);
         ui.frames(3);
         CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::Kits), "on Club > Kits");
@@ -236,6 +234,5 @@ static void ui_cases_club_search(App& app, Ui& ui, SimMemory& mem, uint64_t kMb)
         CHECK(app.sel_team == 7 && app.place() == turbo::shell::place_of(turbo::shell::Page::TeamPlayers), "from Home it opens Club > Squad");
         app.go(turbo::shell::Page::Home);
         ui.frames(2);
-        app.prefs.advanced_mode = was_adv;
     });
 }

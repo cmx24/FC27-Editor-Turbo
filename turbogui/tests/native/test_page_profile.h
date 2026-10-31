@@ -91,7 +91,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const ArchetypeBarFn real_bar = g_ability_archetype_bar;
 
     run_case("ProfilePage: the Team > Players link defaults to the squad page the app has today, and the hook starts empty", [&] {
-        CHECK(profile_team_players_page() == shell::Page::Squad, "link target");
+        CHECK(profile_team_players_page() == shell::Page::TeamPlayers, "link target");
         CHECK(g_ability_archetype_bar != nullptr, "the full player-type editor is hooked up");
     });
 

@@ -7,12 +7,10 @@
 //       the count must be <= 2, and the feature's marker must be on screen after the last click.
 // BEHAVIOURAL: before this change the manager's 3D-model miniface row was Home > Manager looks > Miniface > The 3D model (3 clicks, INGAME_CHECKS
 // E9, "one over the override"). Home had no "Manager miniface (3D)" tile, so row E9 below cannot find its first click and fails.
-run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and lands on its marker; every page is <= 2 clicks from Home with one Back (4.0 tree)", [&] {
-    const bool was_tree = shell::tree40();
-    const bool was_legacy = app.legacy_pages;
-    const bool was_adv = app.prefs.advanced_mode;
+// 2026-10-31 (5.0c menus step 6): the 4.0 tree (shell::tree40(), the Players / Managers card) is gone; Home's looks tiles open the Appearance
+// Editor (ui_home.cpp open_looks), whose cards hold the real-face chooser and the whole miniface editor (test_ia_222.h).
+run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and lands on its marker; every page is <= 2 clicks from Home with one Back", [&] {
     const int was_tab = shell::player_edit_tab();
-    const int was_who = shell::player_edit_who();
     const int was_mtab = shell::manager_edit_tab();
     const bool was_req = shell::miniface_3d_request();
     const int was_sel = app.sel_manager;
@@ -22,10 +20,7 @@ run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and la
     shell::clear_registry_for_tests();  // as test_integration_50b.h: the unfiltered suite arrives with an emptied registry, a filtered run must prove the same path
     shell::register_page(shell::Page::Home, draw_home);
     shell::register_page(shell::Page::LooksStudio, turbo::looks::draw_looks_studio);
-    app.legacy_pages = false;
-    app.prefs.advanced_mode = false;
     ui.big_window();
-    shell::tree40() = true;
     app.sel_manager = 0;
     shell::miniface_3d_request() = false;
 
@@ -33,10 +28,10 @@ run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and la
     int walked = 0, over_two = 0;
     for (int a = 0; a < shell::kAreaCount; ++a) {
         const shell::Area ar = static_cast<shell::Area>(a);
-        if (!shell::area_visible(ar, false)) continue;
+        if (!shell::area_visible(ar)) continue;
         for (shell::Page p : shell::pages_of(ar)) {
             if (p == shell::Page::Home) continue;
-            if (!shell::page_visible(p, false)) continue;
+            if (!shell::page_visible(p)) continue;
             const std::string what = std::string(shell::area_label(ar)) + " > " + shell::page_label(p) + ": ";
             app.go(shell::Page::Home);
             ui.frames(4);
@@ -78,17 +73,16 @@ run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and la
         const char* marker_win;
     };
     const std::vector<Row> rows = {
-        {"S2 Player looks", {{"###home_player_looks", "", ""}}, shell::Page::PlayerEdit, "", ""},
-        {"S2 Manager looks", {{"###home_manager_looks", "", ""}}, shell::Page::PlayerEdit, "Details", "##medit"},
-        {"E7 manager real-face picker button (Manager looks lands on Appearance)", {{"###home_manager_looks", "", ""}}, shell::Page::PlayerEdit, "Choose a real face...", "##medit"},
-        // E9: was Home > Manager looks > Miniface > The 3D model (3 clicks); now one tile that opens the Miniface tab on its 3D-model source
-        {"E9 manager miniface, The 3D model", {{"###home_manager_miniface", "", ""}}, shell::Page::PlayerEdit, "Generate from 3D model", "##medit"},
+        {"S2 Player looks", {{"###home_player_looks", "", ""}}, shell::Page::LooksStudio, "###lsmine", ""},
+        {"S2 Manager looks", {{"###home_manager_looks", "", ""}}, shell::Page::LooksStudio, "", ""},
+        {"E7 manager real-face picker button (Manager looks lands on the Appearance Editor)", {{"###home_manager_looks", "", ""}}, shell::Page::LooksStudio, "Choose a real face...###lsface", ""},
+        // E9: was Home > Manager looks > Miniface > The 3D model (3 clicks); now one tile that opens the Appearance Editor with the Miniface card's 3D-model source asked for
+        {"E9 manager miniface, The 3D model", {{"###home_manager_miniface", "", ""}}, shell::Page::LooksStudio, "", ""},
         {"V0 Settings version line", {{shell::area_label(shell::Area::Settings), "FC 27 LE Turbo", "##shell"}}, shell::Page::Settings, "", ""},
     };
     for (const Row& r : rows) {
         const std::string what = std::string(r.id) + ": ";
         shell::manager_edit_tab() = 0;
-        shell::player_edit_who() = 0;
         shell::player_edit_tab() = 0;
         shell::miniface_3d_request() = false;
         app.go(shell::Page::Home);
@@ -109,11 +103,7 @@ run_case("test_nav_2clicks: every INGAME_CHECKS Home route is <= 2 clicks and la
     shell::clear_registry_for_tests();
     for (int i = 1; i < shell::kPageCount; ++i)
         if (saved[i]) shell::register_page(static_cast<shell::Page>(i), saved[i]);
-    shell::tree40() = was_tree;
-    app.legacy_pages = was_legacy;
-    app.prefs.advanced_mode = was_adv;
     shell::player_edit_tab() = was_tab;
-    shell::player_edit_who() = was_who;
     shell::manager_edit_tab() = was_mtab;
     shell::miniface_3d_request() = was_req;
     shell::back_place() = was_back;

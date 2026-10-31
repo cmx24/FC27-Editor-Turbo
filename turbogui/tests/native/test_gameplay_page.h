@@ -36,45 +36,21 @@ static void show_page(Ui& ui, void (*fn)(App&)) {
 }
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
-    run_case("T4 pages: registered with the shell at start-up (Tactic presets, Gameplay presets, Standings, the three Advanced pages)", [&] {
+    run_case("T4 pages: registered with the shell at start-up (Tactic presets, Gameplay presets, Standings)", [&] {
         CHECK(tactic_pages_registered_at_start(), "Tactic presets and Gameplay presets registered themselves");
         // the other pages register from their own .cpp the same way; the registry was cleared by test_shell_app, so register by hand and draw
+        // (2026-10-31, 5.0c menus step 6: the three Advanced pages, page_unproven and the amber line went with the Lab)
         using namespace turbo::shell;
         clear_registry_for_tests();
-        CHECK(register_page(Page::AdvTactics, draw_tactics_page) && register_page(Page::AdvMatchSetup, draw_match_setup_page) &&
-                  register_page(Page::AdvGameplayTuning, draw_tuning_page) && register_page(Page::Standings, draw_standings_page) &&
-                  register_page(Page::GameplayPresets, draw_gameplay_presets) && register_page(Page::TacticPresets, draw_tactic_presets),
+        CHECK(register_page(Page::Standings, draw_standings_page) && register_page(Page::GameplayPresets, draw_gameplay_presets) &&
+                  register_page(Page::TacticPresets, draw_tactic_presets),
               "the page functions are the registrable ones");
-        CHECK(page_unproven(Page::AdvTactics) && page_unproven(Page::AdvMatchSetup) && page_unproven(Page::AdvGameplayTuning) &&
-                  !page_unproven(Page::TacticPresets) && !page_unproven(Page::Standings) && !page_unproven(Page::GameplayPresets) &&
-                  page_effect_unmeasured(Page::GameplayPresets),
-              "which pages carry the amber line: only the three not-proven ones; Gameplay presets is the mixed page");
-        // Simple: the Advanced pages are never drawn, so no amber line; Advanced: the line is drawn once per frame
-        const int before = unproven_line_draws();
-        ui.extra_draw = [&app]() {
-            ImGui::SetNextWindowPos(ImVec2(0, 0));
-            ImGui::SetNextWindowSize(ImVec2(1100, 700));
-            ImGui::Begin("T4 amber", nullptr, ImGuiWindowFlags_NoSavedSettings);
-            draw_page(app, Page::AdvTactics, false);
-            ImGui::End();
-        };
-        ui.frames(3);
-        CHECK(unproven_line_draws() == before, "Simple view: the not-proven page draws nothing (no amber line)");
-        ui.extra_draw = [&app]() {
-            ImGui::SetNextWindowPos(ImVec2(0, 0));
-            ImGui::SetNextWindowSize(ImVec2(1100, 700));
-            ImGui::Begin("T4 amber", nullptr, ImGuiWindowFlags_NoSavedSettings);
-            draw_page(app, Page::AdvTactics, true);
-            ImGui::End();
-        };
-        ui.frames(3);
-        CHECK(unproven_line_draws() == before + 3, "Advanced view: the amber line once per frame: " + std::to_string(unproven_line_draws() - before));
-        ui.extra_draw = nullptr;
-        ui.frames(2);
+        CHECK(page_effect_unmeasured(Page::GameplayPresets) && !page_effect_unmeasured(Page::TacticPresets) && !page_effect_unmeasured(Page::Standings),
+              "Gameplay presets is the mixed page (write proven, effect on play not measured)");
         clear_registry_for_tests();  // as test_shell_app left it
     });
 
-    run_case("T4 pages: Gameplay presets - the slider presets only, plain wording, Apply goes through start_load, Advanced section only when Advanced", [&] {
+    run_case("T4 pages: Gameplay presets - the slider presets only, plain wording, Apply goes through start_load, Game settings & CPU sliders on the page", [&] {
         tactic_presets_reset();
         live_tactic_reset();
         const fs::path out = le / "turbo_output";
@@ -107,15 +83,12 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         tp::Preset tc2 = tc;
         CHECK(!tc2.settings.present && tp::write_preset(tp::presets_dir(out), tc2, &err), "ONLYTAC written: " + err);
 
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         show_page(ui, draw_gameplay_presets);
         ui.frames(4);
         const GameplayPageState& g = gameplay_page_state();
         CHECK(g.drawn && g.names == std::vector<std::string>({"SLIDERS"}), "the list holds the presets with a sliders block only");
         CHECK(g.note.find("Write + EA screen read-back proven, on-pitch effect not measured") != std::string::npos, "the one plain sentence: " + g.note);
         CHECK(ui.find("Apply preset##gpload", "T4 test page") != nullptr && !g.can_apply, "one primary action, off until a preset is picked");
-        CHECK(!g.advanced_section, "Simple view: the old Game settings view is not drawn");
         CHECK(ui.click("SLIDERS  -  " + std::to_string(values.size()) + " sliders##gpsel0", "T4 test page"), "picked SLIDERS");
         ui.frames(3);
         CHECK(g.selected == 0 && g.can_apply, "selected, Apply is enabled");
@@ -126,20 +99,16 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Cancel##tpno", "Load tactic preset"), "cancelled");
         ui.frames(3);
         CHECK(!s.confirm_open && !fs::exists(out / gsettings::pending_file(), ec), "Cancel stages nothing");
-        // Advanced: the old Game settings view appears under a section of the page
-        app.prefs.advanced_mode = true;
-        ui.frames(3);
         // 10-28 findability: no second copy; one link line to Game settings > Game settings & CPU sliders
-        CHECK(game_settings_view_state().drawn && ui.find("###gslink_gp", "T4 test page") == nullptr && !gameplay_page_state().advanced_section,
-              "the page draws Game settings & CPU sliders itself, no Advanced gate and no link to itself");
+        ui.frames(3);
+        CHECK(game_settings_view_state().drawn && ui.find("###gslink_gp", "T4 test page") == nullptr,
+              "the page draws Game settings & CPU sliders itself, no link to itself");
         // the Tactic presets page lists both presets; the same Apply button id family, one primary action
-        app.prefs.advanced_mode = false;
         show_page(ui, draw_tactic_presets);
         ui.frames(4);
         CHECK(tactic_presets_state().names.size() == 2 && ui.find("Apply preset##tpload", "T4 test page") != nullptr, "Tactic presets page: both presets, its own primary action");
         ui.extra_draw = nullptr;
         ui.frames(2);
-        app.prefs.advanced_mode = was_advanced;
         tactic_presets_reset();
         game_settings_set_paths(fs::path(), fs::path());
         game_settings_reset();

@@ -303,13 +303,11 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("###gsload"), "Load again");
         ui.frames(2);
         CHECK(s.preset_line.find("Applied in game now") != std::string::npos, "second load: " + s.preset_line);
-        // no game memory: it says it was NOT applied; nothing is staged for a file --apply refuses (flag 00)
+        // no game memory: it says it was not applied; nothing is staged (tx-settings: live write only, no apply tool)
         app.regions_hook = nullptr;
         CHECK(ui.click("###gsload"), "Load without memory");
         ui.frames(2);
-        CHECK(s.preset_line.find("NOT applied in the game") != std::string::npos && s.preset_line.find("Nothing staged") != std::string::npos &&
-                  !fs::exists(out / pending_file(), ec),
-              s.preset_line);
+        CHECK(s.preset_line == "Not applied: Game must be running (Turbo inside FC 27)" && !fs::exists(out / pending_file(), ec), s.preset_line);
         app.regions_hook = saved_hook;
         for (uint64_t p = kBase / SimMemory::kPage; p <= (kBase + 0x2000) / SimMemory::kPage; ++p) mem.pages.erase(p);  // free the test heap: the next case checks it is free
         fs::remove(out / pending_file(), ec);
@@ -441,10 +439,8 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
     // 10-28 findability (game-gui-architect override 6, briefs/NEXT_GUI_FINDABILITY.md step 1): the left menu has a "Game settings" area that holds
     // the page; Home's first row opens it in one click; with the Lab and Advanced mode OFF the page shows the preset row with "Load into the game";
     // "Settings" is "Turbo settings". Fails on cc02b820 (no such area, Home has no such button, the page is a pointer to the Lab).
-    run_case("sliders-rw UI: findability_game_settings_area (left menu 'Game settings', Home 1 click, Load into the game with advanced_mode=false)", [&] {
+    run_case("sliders-rw UI: findability_game_settings_area (left menu 'Game settings', Home 1 click, Load into the game)", [&] {
         namespace sh = turbo::shell;
-        const bool adv = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         app.go(sh::Page::Home);
         ui.frames(3);
         CHECK(ui.find("Game settings", "##rail", "##shell") != nullptr, "the left menu lists 'Game settings'");
@@ -461,7 +457,6 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         CHECK(ui.click("Game settings", "##rail", "##shell") || ui.click("Game settings"), "left menu: Game settings");
         ui.frames(3);
         CHECK(app.place() == sh::place_of(sh::Page::GameplayPresets), "the left menu opens the page (1 click)");
-        app.prefs.advanced_mode = adv;
         app.go(sh::Page::Home);
         ui.frames(2);
     });

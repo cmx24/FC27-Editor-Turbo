@@ -1,5 +1,5 @@
 // Native tests (2026-10-17, GUI revamp step 7, brief 2.16-gui-pages track "kits"): the tidy Kits & club pages of ui/ui_kits_page.cpp
-// (draw_kits_page, draw_club_identity_page, draw_kit_diagnostics). Included by test_main.cpp after test_club_page.h (it reuses the kit
+// (draw_kits_page, draw_club_identity_page; draw_kit_diagnostics went with the Lab on 2026-10-31). Included by test_main.cpp after test_club_page.h (it reuses the kit
 // fixtures and the kept-rows helper); page_kits_test::ui_cases runs inside the UI block, a real App, before test_shell_app clears the page
 // registry. The pages are not registered with the shell (the navigation re-cut wires them in), so they are drawn through the Ui hook
 // g_ui_extra in a window of their own, "##kitspage_test", as test_club_page.h does for the pages it replaces.
@@ -386,7 +386,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         hide(ui);
     });
 
-    run_case("Kits page: Club name, colours & crest has its three cards; Kit diagnostics keeps every developer control", [&] {
+    run_case("Kits page: Club name, colours & crest has its three cards", [&] {
         app.sel_team = 7;
         show(ui, draw_club_identity_page);
         CHECK(ui.find("##nfull", "##kpname") && ui.find("##nshort", "##kpname") && ui.find("Save", "##kpname"), "Name: the form with its Save");
@@ -396,8 +396,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(has(pt.all, "have no Undo yet"), "the honest line: name and colour changes cannot be undone yet");
         CHECK(!has(pt.only, "Home kit") && !has(pt.only, "(ID "), "no kit colours, no club number on the page");
         CHECK(!has(pt.only, "Undo last"), "no promise of an Undo that does not exist");
-        show(ui, draw_kit_diagnostics);
-        CHECK(ui.find("Import kit zip...", "##kitspage_test") && ui.find("Import team folder...", "##kitspage_test"), "Kit diagnostics: the old Kits body, all of it");
         hide(ui);
     });
     club_40_test::ui_cases(app, ui, le);  // test_club_40.h (4.0 S9): both pages in the page template, the Staff tab, one descriptor

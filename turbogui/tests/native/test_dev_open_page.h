@@ -8,7 +8,7 @@
 // Only names that exist at 9a1e888 are used here, so on that commit this file builds and the op answers "unknown op open_page".
 //
 // What is proven: every page of every area opens by the labels drawn on the rail and the page strip, the answer names the page drawn
-// (app.place()); the names are the ones Ui::open_page clicks; unknown area / page, a Lab page in the Simple view and missing fields are
+// (app.place()); the names are the ones Ui::open_page clicks; unknown area / page and missing fields are
 // refused by name and leave the place alone; hidden, the op does not show Turbo, answers pending and the page is there once shown;
 // a request no frame answers gives up after 5 s and a later frame does not navigate; a request the overlay TOOK (one frame, shown or
 // hidden) but never confirmed is answered ok:false taken:true, never as "page not opened" (the page is open, or opens when shown),
@@ -60,11 +60,10 @@ static std::string where(const App& app) {
 
 static void ui_cases(App& app, Ui& ui) {
     using namespace turbo::shell;
-    const bool adv0 = app.prefs.advanced_mode, vis0 = app.visible;
+    const bool vis0 = app.visible;
 
     run_case("dev service open_page: every page of every area opens by its rail and strip labels, the answer names the page drawn", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         ui.frames(2);
         Rig rig(ui, true);
         int opened = 0;
@@ -94,12 +93,11 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("dev service open_page: the op and the click helper (Ui::open_page) use the same names", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         Rig rig(ui, true);
         const struct {
             const char* area;
             const char* page;
-        } pairs[] = {{"Career", "Standings"}, {"Club", "Kits"}, {"Players", "Staff"}, {"Lab", "Row editor"}};
+        } pairs[] = {{"Career", "Standings"}, {"Club", "Kits"}, {"Players", "Staff"}, {"Tactics", "Team sheet & bench"}};
         for (const auto& pr : pairs) {
             CHECK(rig.open("Home", "Home").value("ok", false), "back to Home first");
             CHECK(ui.open_page(pr.area, pr.page), std::string("clicks reach ") + pr.area + " > " + pr.page);
@@ -110,9 +108,8 @@ static void ui_cases(App& app, Ui& ui) {
         }
     });
 
-    run_case("dev service open_page: unknown area or page, a Lab page in the Simple view, missing fields: refused by name, place kept", [&] {
+    run_case("dev service open_page: unknown area or page, a deleted Lab page, missing fields: refused by name, place kept", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         Rig rig(ui, true);
         CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
         const Place before = app.place();
@@ -128,13 +125,11 @@ static void ui_cases(App& app, Ui& ui) {
               "unknown area named, with the areas: " + r.dump());
         CHECK(rig.open("Career", "Kits").value("ok", true) == false, "a page of another area is unknown in this one");
         CHECK(app.place() == before, "place kept after the unknown area (" + where(app) + ")");
-        app.prefs.advanced_mode = false;
+        // 2026-10-31 (5.0c menus step 6): the Lab is gone, so its name is an unknown area now, like any other
         r = rig.open("Lab", "Database");
         e = r.value("error", "");
-        CHECK(!r.value("ok", true) && e.find("Lab > Database") != std::string::npos && e.find("Simple view") != std::string::npos,
-              "a Lab page in the Simple view is refused by name: " + r.dump());
-        CHECK(app.place() == before, "place kept after the hidden Lab page (" + where(app) + ")");
-        app.prefs.advanced_mode = true;
+        CHECK(!r.value("ok", true) && e.find("unknown area 'Lab'") != std::string::npos, "the deleted Lab is an unknown area: " + r.dump());
+        CHECK(app.place() == before, "place kept after the deleted Lab page (" + where(app) + ")");
         r = rig.svc->run({{"op", "open_page"}, {"area", "Career"}});
         CHECK(!r.value("ok", true) && r.value("error", "").find("page") != std::string::npos, "page missing: " + r.dump());
         r = rig.svc->run({{"op", "open_page"}, {"page", "Standings"}, {"area", 3}});
@@ -144,7 +139,6 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("dev service open_page: Turbo hidden -> not shown by the op, answer pending, the page is there once Turbo is shown", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         Rig rig(ui, true);
         CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
         app.visible = false;
@@ -160,7 +154,6 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("dev service open_page: no overlay frame -> gives up after 5 s, a later frame does not navigate", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         {
             Rig rig(ui, true);
             CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
@@ -179,7 +172,6 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("dev service open_page: request taken by one frame, then the overlay stalls -> ok:false taken:true, not 'page not opened'; the late answer is dropped", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         {
             Rig rig(ui, true);
             CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
@@ -205,7 +197,6 @@ static void ui_cases(App& app, Ui& ui) {
 
     run_case("dev service open_page: taken while Turbo is hidden, then no frame -> ok:false taken:true; the page opens once Turbo is shown", [&] {
         app.visible = true;
-        app.prefs.advanced_mode = true;
         {
             Rig rig(ui, true);
             CHECK(rig.open("Career", "Standings").value("ok", false), "start on Career > Standings");
@@ -223,7 +214,6 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(app.place() == place_of(Page::Kits), "hidden case: shown, the page is there (now " + where(app) + ")");
     });
 
-    app.prefs.advanced_mode = adv0;
     app.visible = vis0;
     ui.frames(2);
 }
