@@ -90,6 +90,8 @@ void visual_picker_request(const std::string& field);
 void visual_picker_select(int64_t code);   // what a click on a tile does
 TileSource visual_picker_tile_source(int64_t code);  // of the open picker (NamesOnly: not in the list)
 bool visual_picker_tile_writable(int64_t code, std::string* why = nullptr);  // the catalog gate, greyed tiles
+// 5.0c E10-12: why a grey tile (TileSource::Placeholder) of the open picker has no picture ("" for a tile that has one, or a code not in the list)
+std::string visual_picker_tile_reason(int64_t code);
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters
 std::vector<int64_t> visual_picker_codes();  // those codes themselves (tests: 3.2 one picker, one catalogue per field)
 bool visual_picker_apply(App& app);        // what Apply does (on the record the picker was opened for)

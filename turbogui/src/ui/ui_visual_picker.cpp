@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -62,6 +63,7 @@ struct Source {  // what one picker shows
     std::vector<uint8_t> src;           // kSrc* per code
     std::vector<char> writable, hidden;
     std::vector<std::string> why, tag, tip;
+    std::vector<std::string> cap, reason;  // 5.0c E10-12: a grey tile's short word in its box, and why it has no picture ("" on tiles that have one)
     std::vector<int> group;             // index into groups, -1 = none
     std::vector<std::string> groups;    // eyebrow styles, generic head models
     std::unordered_map<int64_t, int> pos;
@@ -108,6 +110,7 @@ struct State {
     std::unordered_map<std::string, fs::path> set_dirs;  // set id -> its folder in res (empty: none)
     vis::FolderIndex index;                              // directory listings of the sets (per-file lookups)
     std::unordered_map<std::string, uint32_t> colours;   // colour file -> IM_COL32 (decoded once)
+    std::unordered_map<std::string, bool> palette;       // 5.0c E11: RDBM26 PNG -> "is a palette (colour type 3) strand map"; probed once per file
     char folder_edit[300] = "";
     bool folder_edit_init = false;
     // textures
@@ -151,6 +154,7 @@ const fs::path& resources(App& app) {
         s.set_dirs.clear();
         s.index.reset();
         s.colours.clear();
+        s.palette.clear();
         for (size_t i = 0; i < vis::set_count(); ++i) {
             const vis::SetDef& d = vis::set_at(i);
             fs::path dir;
@@ -214,7 +218,29 @@ void push_tile(Source& o, int64_t code, std::string name) {
     o.why.emplace_back();
     o.tag.emplace_back();
     o.tip.emplace_back();
+    o.cap.emplace_back();
+    o.reason.emplace_back();
     o.group.push_back(-1);
+}
+
+// 5.0c E11: RDBM26's hair PNGs of PNG colour type 3 (palette) are strand flow maps (green / blue), not pictures of a haircut: 326 of the 788
+// files of its hairstyle folder. The type is byte 25 of the file (8-byte signature, then the IHDR chunk: length, "IHDR", width, height,
+// bit depth, colour type). A short, unreadable or non-PNG file is not a palette PNG (it stays what it was: the picture decoder says
+// "no picture" for it). Probed once per file, forgotten when the pictures folder is looked at again.
+bool is_palette_png(const fs::path& file) {
+    State& s = st();
+    const std::string key = file.u8string();
+    const auto hit = s.palette.find(key);
+    if (hit != s.palette.end()) return hit->second;
+    bool palette = false;
+    std::ifstream in(file, std::ios::binary);
+    unsigned char h[26];
+    if (in.read(reinterpret_cast<char*>(h), sizeof h) && in.gcount() == static_cast<std::streamsize>(sizeof h)) {
+        static const unsigned char kSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        palette = std::memcmp(h, kSig, sizeof kSig) == 0 && std::memcmp(h + 12, "IHDR", 4) == 0 && h[25] == 3;
+    }
+    s.palette[key] = palette;
+    return palette;
 }
 
 int group_index(Source& o, const std::string& g) {
@@ -343,12 +369,39 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 const auto gi = gpos.find(code);
                 gp = gi != gpos.end() ? ge[gi->second].preview : (light ? gallery_picture_path(app, field, code) : std::string());
             }
+            // 5.0c E11 (D1): for hair and beard an RDBM26 palette PNG is a strand map, never the tile's picture: the game's lit preview
+            // wins, else the grey tile (it still writes: the code is the game's). Other sets' type-3 PNGs (boots, gloves...) are real pictures.
+            bool palette_only = false;
+            if ((field == "hairtypecode" || field == "facialhairtypecode") && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
+                file.clear();
+                palette_only = gp.empty();
+            }
             out.files[k] = file;
             out.game[k] = gp;
             if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
             else out.src[k] = ((!have_res || !d) && !gal) ? kSrcNames : kSrcBlank;
+            if (out.src[k] == kSrcBlank) {  // 5.0c E10-12 (D4): every grey tile says why it has no picture (hover) and the word in its box
+                const auto gi = gpos.find(code);
+                const GalleryEntry* e = gi != gpos.end() ? &ge[gi->second] : nullptr;
+                if (code == 0 && gal) {
+                    out.cap[k] = "none";
+                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald: there is no hair to draw." : "No facial hair: there is nothing to draw.";
+                } else if (palette_only) {
+                    out.cap[k] = "strand map only";
+                    out.reason[k] = "RDBM26 has only a strand map for this code (not a picture of it) and the game ships no preview picture for it.";
+                } else if (e && e->model_only) {
+                    out.cap[k] = "3D model, no picture";
+                    out.reason[k] = "The game ships a 3D model for this code but no picture of it.";
+                } else if (gal && out.catalog) {
+                    out.reason[k] = "This code is not in the game's asset catalogue.";
+                } else if (gal) {
+                    out.reason[k] = "The game's picture list has no preview for this code.";
+                } else {
+                    out.reason[k] = "RDBM26 has no picture for this code.";
+                }
+            }
             if (out.eyebrow && !file.empty()) out.tip[k] = "style picture";
             if (!light) {
                 const auto gi = gpos.find(code);
@@ -473,12 +526,12 @@ void draw_swatch_colour(uint32_t col, ImVec2 a, ImVec2 box) {
     dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 110), side * 0.12f, 1.5f);
 }
 
-void draw_blank(const Source& src, ImVec2 a, ImVec2 box) {
+void draw_blank(const Source& src, size_t k, ImVec2 a, ImVec2 box) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float side = std::min(box.x, box.y);
     const ImVec2 p0(a.x + (box.x - side) * 0.5f, a.y + (box.y - side) * 0.5f);
     dl->AddRectFilled(p0, ImVec2(p0.x + side, p0.y + side), IM_COL32(58, 58, 64, 255), 4.0f);
-    box_text(dl, p0, ImVec2(side, side), src.kind == vis::data::kGif ? "no animation yet" : "no picture yet");
+    box_text(dl, p0, ImVec2(side, side), !src.cap[k].empty() ? src.cap[k].c_str() : src.kind == vis::data::kGif ? "no animation yet" : "no picture yet");
 }
 
 bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, ImVec2 box) {
@@ -505,7 +558,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             return true;
         }
         case kSrcBlank:
-            draw_blank(src, a, box);
+            draw_blank(src, k, a, box);
             return false;
         case kSrcNames:
             box_text(ImGui::GetWindowDrawList(), a, box, "no picture");
@@ -515,7 +568,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
     }
     const fs::path& f = src.files[k];
     if (f.empty()) {
-        draw_blank(src, a, box);
+        draw_blank(src, k, a, box);
         return false;
     }
     if (src.kind == vis::data::kGif) {
@@ -657,8 +710,9 @@ TileIo tile(App& app, const Source& src, int idx, ImVec2 box, int64_t selected, 
     const float fs_small = ImGui::GetFontSize() * 0.85f;
     const float cw = font->CalcTextSizeA(fs_small, FLT_MAX, 0.0f, cbuf).x;
     dl->AddText(font, fs_small, ImVec2(a.x + std::max(0.0f, (cell.x - cw) * 0.5f), np.y + line), ImGui::GetColorU32(ImGuiCol_TextDisabled), cbuf);
-    if (io.hovered && (name.size() > 18 || !src.tip[k].empty() || !src.writable[k] || !src.tag[k].empty())) {
+    if (io.hovered && (name.size() > 18 || !src.tip[k].empty() || !src.writable[k] || !src.tag[k].empty() || !src.reason[k].empty())) {
         std::string tip = name;
+        if (src.src[k] == kSrcBlank && !src.reason[k].empty()) tip += "\n" + src.reason[k];
         if (!src.tip[k].empty()) tip += (src.tip[k][0] == '\n' ? "" : "\n") + src.tip[k];
         if (!src.writable[k] && src.tip[k].find("Cannot be applied") == std::string::npos) tip += "\nCannot be applied: " + src.why[k];
         ImGui::SetTooltip("%s", tip.c_str());
@@ -1011,6 +1065,12 @@ bool visual_picker_tile_writable(int64_t code, std::string* why) {
     return i < 0 || src.writable[static_cast<size_t>(i)];
 }
 
+std::string visual_picker_tile_reason(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 || src.src[static_cast<size_t>(i)] != kSrcBlank ? std::string() : src.reason[static_cast<size_t>(i)];
+}
+
 size_t visual_picker_list_size() { return st().src.codes.size(); }
 std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 
@@ -1034,6 +1094,7 @@ void visual_pickers_shutdown() {
     p = nullptr;
     st().uploaded.clear();
     st().colours.clear();
+    st().palette.clear();
 }
 
 // 5.0b-A, the single write path: a pick that changes the 3D head (look::render_changes: head, hair, beard, eyes, skin, body) drops the cached
