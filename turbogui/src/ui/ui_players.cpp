@@ -1455,12 +1455,10 @@ static void player_editor(App& app) {
                                 code_value_text("headclasscode", app.db.get_int(*t, p->rec, "headclasscode", 0)).c_str());
             real_face_picker(app, p->playerid);
             ImGui::SeparatorText("Hair & beard (3D)");
-            faces3d_gate_section(app, *t, *p);  // ui_faces3d_gate.cpp
-            ImGui::SeparatorText("Tattoos");
-            tattoo_editor(app, *t, p->rec);
-            ImGui::SeparatorText("Hair, boots, gloves and accessories");
-            item_galleries(app, *t, p->rec);
-            visual_pickers_section(app, *t, p->rec);  // ui_visual_picker.cpp (2.20 V): run style, free kick and looks by animation / picture
+            faces3d_gate_section(app, *t, *p);  // ui_faces3d_gate.cpp: the band writer of a real face; its chooser is the one picker (step 7)
+            // step 7 (2026-10-31): ONE picker for hair, beard, tattoos, boots, gloves, accessories, body type, kit, run style...
+            // (ui_visual_picker.cpp); the tattoo_editor and item_galleries tables of ui_images.cpp are no longer drawn here
+            visual_pickers_section(app, *t, p->rec);
             ImGui::SeparatorText("Every appearance field");
             ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his miniface as it is: Choose a real face changes both together.");
             std::vector<std::string> names;

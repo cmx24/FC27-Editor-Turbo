@@ -1,3 +1,7 @@
+// TURBO-X: unreachable since 2026-10-31; delete after in-game proof of ui_visual_picker (step 7).
+//   Scope of that deletion in THIS file: tattoo_editor and item_galleries (and their helpers: gear_cell, gear_tooltip, tile_tag, text_tile,
+//   hair_combo / hair_matches / HairFilter, gallery_pick_list / gallery_pick_path / gallery_picture / gallery_picture_cell), each marked
+//   TURBO-X below. The miniface editor, the picture boxes and the merged-picker catalog layer (gallery_* for ui_visual_picker.cpp) stay.
 // FC 27 LE Turbo GUI - pictures in the Turbo window: minifaces (players and managers), the real-face picker, the tattoo
 // picker, and a file browser for pictures on the PC.
 #include <chrono>
@@ -1424,6 +1428,8 @@ static void build_tattoos(App& app) {
                     g_tattoos.end());
 }
 
+// TURBO-X: unreachable since 2026-10-31; delete after in-game proof of ui_visual_picker (step 7).
+// (The seven tattoo fields are gallery fields of the one picker now: gallery_entries / gallery_write_ok below, vp rows in the pages.)
 void tattoo_editor(App& app, const Table& t, uint64_t rec) {
     static int open_area = -1;
     static bool all_areas = false;
@@ -2036,14 +2042,28 @@ static void toggle_favourite(App& app, const char* field, int64_t id) {
 // ---- 2.22 merged pickers: the game gallery of a field, read by ui_visual_picker.cpp (one grid per field: RDBM picture, else
 // the game's preview, else a grey tile). The catalog rules (what may be written, Hidden / 3D only / Preview only tags, the
 // write log) stay here, in one place.
+// Step 7 (2026-10-31): the seven tattoo fields share one gallery (the game's tattoo pictures, the save's tattoo table and the catalog's
+// tattoo family: what tattoo_editor used to read), and the manager outfit is a gallery field too (what the ##gallerypick modal of
+// item_galleries used to show). The field name of the tattoo def is a real tattoo field so gear::family_of_field finds the family.
+static const GalleryDef kTattooGallery = {"tattoohead", "Tattoo", {{"tattoo", "item_", "_0"}, {nullptr, nullptr, nullptr}}, nullptr};
+
+int tattoo_area_index(const std::string& field) {
+    for (size_t a = 0; a < sizeof(kTattooAreas) / sizeof(kTattooAreas[0]); ++a)
+        if (field == kTattooAreas[a][0]) return static_cast<int>(a);
+    return -1;
+}
+
 static const GalleryDef* merged_def_of(const std::string& field, bool manager) {
     if (manager) {
         for (const GalleryDef& d : kManagerGalleries)
-            if (field == d.field && field != std::string("outfitid")) return &d;
+            if (field == d.field) return &d;
         return nullptr;
     }
+    if (tattoo_area_index(field) >= 0) return &kTattooGallery;
     return gallery_def_of(field);
 }
+
+static bool is_tattoo_def(const GalleryDef* g) { return g == &kTattooGallery; }
 
 bool gallery_has(const std::string& field, bool manager) { return merged_def_of(field, manager) != nullptr; }
 
@@ -2068,6 +2088,7 @@ static GalleryEntry entry_of(App& app, const GalleryDef& g, const gear::Item& it
     e.writable = it.writable;
     e.why = it.why;
     e.hidden = it.hidden;
+    e.in_table = it.known;
     if (e.model_only) e.tag = it.model ? "3D only" : "3D, content_ts";
     if (it.model_ts && !it.in_save) e.tag = "Not checked";
     else if (!it.model && !it.preview.empty() && !it.in_save && !it.known && !it.writable) e.tag = "Preview only";
@@ -2079,21 +2100,51 @@ static GalleryEntry entry_of(App& app, const GalleryDef& g, const gear::Item& it
     return e;
 }
 
+// The areas a tattoo id is made for (bit per kTattooAreas entry); 0 = not in the save's tattoo table
+static uint32_t tattoo_areas_of(int64_t id) {
+    for (const TattooRow& tr : g_tattoos)
+        if (tr.id == id) return tr.areas;
+    return 0;
+}
+
 std::vector<GalleryEntry> gallery_entries(App& app, const std::string& field, bool manager, int64_t colour) {
     std::vector<GalleryEntry> out;
     const GalleryDef* g = merged_def_of(field, manager);
     if (!g) return out;
     const gear::FamilyView& v = merged_view(field, manager);
+    const bool tattoo = is_tattoo_def(g);
+    if (tattoo) build_tattoos(app);
     if (v.active) {
+        if (tattoo) {
+            // every tattoo the game ships + the save's tattoo table (the table's ids stay listed and writable whatever the catalog says)
+            const gear::IdSet& table = tattoo_table_ids(app);
+            const std::vector<int64_t> table_ids(table.begin(), table.end());
+            for (const gear::Item& it : gear::items(v, gear_used(app, field), &table, table_ids))
+                if (it.id > 0) {
+                    out.push_back(entry_of(app, *g, it, colour));
+                    out.back().areas = tattoo_areas_of(it.id);
+                }
+            return out;
+        }
         for (const gear::Item& it : gear::items(v, gear_used(app, field)))
             if (it.id > 0) out.push_back(entry_of(app, *g, it, colour));
         return out;
     }
-    for (int64_t id : gallery_ids(app, *g)) {
+    std::vector<int64_t> ids = gallery_ids(app, *g);
+    if (tattoo) {  // no catalog: the save's tattoo table and the game's tattoo pictures
+        for (const TattooRow& tr : g_tattoos) ids.push_back(tr.id);
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+    }
+    for (int64_t id : ids) {
         if (id <= 0) continue;
         GalleryEntry e;
         e.id = id;
         e.preview = item_path(app, *g, id, colour);
+        if (tattoo) {
+            e.areas = tattoo_areas_of(id);
+            e.in_table = e.areas != 0 || tattoo_table_ids(app).count(id) != 0;
+        }
         out.push_back(std::move(e));
     }
     return out;
@@ -2103,12 +2154,15 @@ bool gallery_write_ok(App& app, const std::string& field, bool manager, int64_t 
     if (why) why->clear();
     const gear::FamilyView& v = merged_view(field, manager);
     if (!v.active) return true;
+    if (is_tattoo_def(merged_def_of(field, manager))) return gear::writable(v, gear_used(app, field), id, why, &tattoo_table_ids(app));
     return gear::writable(v, gear_used(app, field), id, why);
 }
 
 bool gallery_hidden(App& app, const std::string& field, bool manager, int64_t id) {
     const gear::FamilyView& v = merged_view(field, manager);
-    return v.active && gear::item(v, gear_used(app, field), id).hidden;
+    if (!v.active) return false;
+    if (is_tattoo_def(merged_def_of(field, manager))) return gear::item(v, gear_used(app, field), id, &tattoo_table_ids(app)).hidden;
+    return gear::item(v, gear_used(app, field), id).hidden;
 }
 
 void gallery_log_hidden(App& app, const Table& t, uint64_t rec, const std::string& field, int64_t old_v, int64_t new_v) {
@@ -2172,6 +2226,8 @@ static bool hair_matches(const HairFilter& hf, int64_t id) {
     return true;
 }
 
+// TURBO-X: unreachable since 2026-10-31; delete after in-game proof of ui_visual_picker (step 7).
+// (Its rows are the one picker's rows now: visual_pickers_section / vp::rows; the manager outfit is a gallery field of it, merged_def_of.)
 void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
     static HairFilter hf;
     static int open_gal = -1;

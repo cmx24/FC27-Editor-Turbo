@@ -2609,7 +2609,18 @@ void manager_appearance(App& app, const Table& t, const ManagerRow& m, bool look
         faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp
     }
     ImGui::SeparatorText("Outfit");
-    item_galleries(app, t, m.rec, true);  // the game's outfit pictures (ui_images.cpp)
+    // step 7 (2026-10-31): the ONE picker's rows (ui_visual_picker.cpp) with the game's outfit pictures, in place of item_galleries
+    // (ui_images.cpp). Without the Look card above (Career > Managers & staff), the generic hair and beard rows it drew come along too,
+    // unless the 3D section above owns them (a real-face manager, look::band_owned).
+    {
+        std::vector<std::string> outfit_rows = {"outfitid", "seasonaloutfitid"};
+        if (!look_card_above) {
+            const int64_t hc_rows = t.has("headclasscode") ? app.db.get_int(t, m.rec, "headclasscode", -1) : -1;
+            for (const char* c : {"hairtypecode", "facialhairtypecode"})
+                if (!look::band_owned(look::kManager, c, hc_rows)) outfit_rows.push_back(c);
+        }
+        vp::rows(app, t, m.rec, outfit_rows, true);
+    }
     if (!look_card_above) {
         ImGui::SeparatorText("Appearance fields");
         ImGui::TextDisabled("Changing headassetid / headclasscode here leaves his picture as it is: Choose a real face changes both together.");

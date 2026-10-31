@@ -1,3 +1,6 @@
+// TURBO-X: unreachable since 2026-10-31; delete after in-game proof of ui_visual_picker (step 7).
+//   Scope of that deletion in THIS file: only the old "##f3pick" chooser (gallery_picker + matches, marked below). The band writer
+//   (faces3d_gate_section / faces3d_manager_section, raw_write, the preview backup, "His own hair & beard") stays: it is the proven path.
 // FC 27 LE Turbo GUI - Players / Managers > Appearance > "Hair & beard (3D)" (ui_faces3d_gate.h). A look is two DB codes in the
 // Turbo bands (core/faces3d.h, template v4): written live, drawn by the game at its next model build, no restart. The saved list
 // of older versions (players.json) is still read at game start; the hook's state comes from App::faces3d_report.
@@ -25,6 +28,7 @@
 #include "ui_bodytype_thumbs.h"
 #include "ui_faces.h"
 #include "ui_images.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -110,7 +114,55 @@ std::string beard_label(int id) {
     return std::to_string(id);
 }
 
-bool matches(const std::string& label, const char* search) {
+// Step 7 (2026-10-31): the chooser of this section is the ONE picker (ui_visual_picker.cpp, vp::open_choice): the same window, tiles,
+// names and pictures as the Hair / Beard rows, listing only the band's generic ids. A thumbnail of the id chosen now (from the picker's
+// own sources), its label, "Choose...", "None". The pick comes back through vp::take_choice; nothing is written here: "Apply hair &
+// beard" below writes the band codes through raw_write, as before (the proven path, CHANGELOG.md:115).
+bool band_chooser(App& app, const Table& t, uint64_t rec, bool manager, const char* title, const char* field, int64_t& value,
+                  const std::vector<int>& ids, std::string (*name)(int)) {
+    bool changed = false;
+    ImGui::PushID(field);
+    const float thumb = S(56.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(title);
+    ImGui::SameLine();
+    if (value > 0) {
+        vp::draw_code_picture(app, t, rec, field, manager, value, thumb);
+    } else {  // his own scanned hair or beard: no generic model stands for it
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(thumb, thumb));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(a, ImVec2(a.x + thumb, a.y + thumb), IM_COL32(58, 58, 64, 255), 4.0f);
+        const ImVec2 ts = ImGui::CalcTextSize("his own");
+        dl->AddText(ImVec2(a.x + (thumb - ts.x) * 0.5f, a.y + (thumb - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), "his own");
+    }
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : "his own");
+    if (ImGui::Button("Choose...##pick")) vp::open_choice(app, t, rec, field, manager, ids, value);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3D models that fit real faces, with their pictures. Nothing is written until Apply hair & beard.");
+    if (value > 0) {
+        ImGui::SameLine();
+        if (ImGui::Button("None##pickclear")) {
+            value = 0;
+            changed = true;
+        }
+    }
+    ImGui::EndGroup();
+    int64_t picked = 0;
+    if (vp::take_choice(field, &picked)) {
+        value = picked;
+        changed = true;
+    }
+    vp::window(app, t, rec);  // the picker window, in this button's id scope
+    ImGui::PopID();
+    return changed;
+}
+
+// TURBO-X: unreachable since 2026-10-31; delete after in-game proof of ui_visual_picker (step 7).
+// (band_chooser above replaced it: the "##f3pick" modal below, matches(), GateUi::hair_search / beard_search / hair_length, and
+// ui_images.h gallery_pick_list / gallery_pick_path / gallery_picture_cell / gallery_picture go with it.)
+[[maybe_unused]] bool matches(const std::string& label, const char* search) {
     if (!search[0]) return true;
     std::string a = label, b = search;
     for (auto& c : a) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -121,8 +173,8 @@ bool matches(const std::string& label, const char* search) {
 // Gallery picker over a verified-id list (2.10): a thumbnail of the current id, its label, and a modal grid of the game's
 // own preview pictures (the Players > Appearance gallery cell, ui_images.cpp). A cell with no preview shows the text label
 // instead. 0 = none. `length` (hair only, may be null): the length filter; -1 = any.
-bool gallery_picker(App& app, const char* title, const char* field, int64_t& value, const std::vector<int>& ids, char* search,
-                    size_t search_size, int* length, std::string (*name)(int)) {
+[[maybe_unused]] bool gallery_picker(App& app, const char* title, const char* field, int64_t& value, const std::vector<int>& ids, char* search,
+                                     size_t search_size, int* length, std::string (*name)(int)) {
     bool changed = false;
     ImGui::PushID(field);
     const float thumb = S(56.0f);
@@ -441,12 +493,10 @@ struct Pick {
 };
 Pick g_pick;
 
-void pickers(App& app, bool manager, int64_t id, const Look& now) {
+void pickers(App& app, const Table& t, uint64_t rec, bool manager, int64_t id, const Look& now) {
     if (g_pick.manager != manager || g_pick.id != id) g_pick = Pick{manager, id, now.hair, now.beard};
-    gallery_picker(app, "Hair", "hairtypecode", g_pick.hair, faces3d::band_hair_ids(), g.hair_search, sizeof(g.hair_search), &g.hair_length,
-                   hair_label);
-    gallery_picker(app, "Beard", "facialhairtypecode", g_pick.beard, faces3d::band_beard_ids(), g.beard_search, sizeof(g.beard_search), nullptr,
-                   beard_label);
+    band_chooser(app, t, rec, manager, "Hair", "hairtypecode", g_pick.hair, faces3d::band_hair_ids(), hair_label);
+    band_chooser(app, t, rec, manager, "Beard", "facialhairtypecode", g_pick.beard, faces3d::band_beard_ids(), beard_label);
 }
 
 }  // namespace
@@ -605,7 +655,7 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     }
     const std::map<std::string, int64_t> cur = read_look(app, t, p.rec);
     const Look now = look_of(cur);
-    pickers(app, false, p.playerid, now);
+    pickers(app, t, p.rec, false, p.playerid, now);
     const bool changed = g_pick.hair != now.hair || g_pick.beard != now.beard;
     if (!changed) ImGui::BeginDisabled();
     if (ImGui::Button("Apply hair & beard")) {
@@ -737,7 +787,7 @@ void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m) {
     }
     const std::map<std::string, int64_t> cur = read_look(app, t, m.rec);
     const Look now = look_of(cur);
-    pickers(app, true, m.managerid, now);
+    pickers(app, t, m.rec, true, m.managerid, now);
     const bool changed = g_pick.hair != now.hair || g_pick.beard != now.beard;
     if (!changed) ImGui::BeginDisabled();
     if (ImGui::Button("Apply hair & beard")) {

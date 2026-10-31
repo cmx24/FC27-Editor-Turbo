@@ -115,7 +115,8 @@ void real_face_picker(App& app, int64_t target_pid);
 size_t real_face_count(App& app);
 // Give target the head model of owner (validated writes); used by the picker and by tests
 bool apply_real_face(App& app, int64_t target_pid, int64_t owner_pid, const RealFaceOptions& o, std::string* msg, bool* in_step = nullptr);
-// Tattoo per body area with preview and picker
+// TURBO-X step 7 (2026-10-31): the two below have NO caller left in the UI (the one picker of ui_visual_picker.h draws their rows);
+// they are deleted after the in-game proof. Tattoo per body area with preview and picker
 void tattoo_editor(App& app, const Table& t, uint64_t rec);
 // Hair, facial hair, boots, GK gloves and accessories (players) or the outfit (managers: manager = true) with the game's
 // preview pictures, picker grids and favourites
@@ -160,8 +161,9 @@ bool gallery_picture(App& app, const std::string& field, int64_t id, float side,
 bool gallery_picture_cell(App& app, const std::string& field, int64_t id, float side, const std::string& caption,
                           const std::string& fallback_text, const char* bid, bool selected, bool none = false);
 // ---- 2.22 merged pickers (ui_visual_picker.cpp): the game gallery of a field behind the one grid. The catalog rules stay here.
-// Fields with a game gallery: players' hair, facial hair, boots, small-sided boots, GK gloves, accessories 1-4; managers' hair and
-// facial hair (the manager outfit keeps its own gallery in item_galleries).
+// Fields with a game gallery: players' hair, facial hair, boots, small-sided boots, GK gloves, accessories 1-4, the seven tattoo
+// fields (step 7, 2026-10-31: the save's tattoo table + the game's tattoo pictures + the catalog's tattoo family); managers' hair,
+// facial hair and outfit (step 7: the outfit too).
 struct GalleryEntry {
     int64_t id = 0;
     std::string preview;      // the game's picture path ("" = none: 3D only, or not listed)
@@ -170,9 +172,13 @@ struct GalleryEntry {
     bool writable = true;
     std::string why;          // why it cannot be applied ("" = it can)
     bool hidden = false;      // in the game files, no row of the save uses it
-    std::string tag;          // "3D only", "Hidden", "Preview only", "Not checked" or ""
-    std::string tip;          // the catalog's extra hover lines
+    std::string tag;          // "3D only", "Hidden", "Preview only", "Not checked" or "" (data state; the one picker no longer shows it)
+    std::string tip;          // the catalog's extra hover lines (data state; the one picker no longer shows them)
+    uint32_t areas = 0;       // tattoos: the body areas the save's tattoo table makes it for (bit per tattoo_area_index); 0 = not in the table
+    bool in_table = false;    // tattoos: the save's tattoo table has the id
 };
+// Tattoos: the index (0..6: head, front, back, left arm, right arm, left leg, right leg) of a tattoo field, -1 for any other field
+int tattoo_area_index(const std::string& field);
 bool gallery_has(const std::string& field, bool manager = false);
 const char* gallery_title(const std::string& field, bool manager = false);  // "Hair", "Facial hair", "Boots" ... ("" = none)
 // Every id the game lists for the field (ascending, no 0), with the catalog's flags; colour: the player's accessory colour
