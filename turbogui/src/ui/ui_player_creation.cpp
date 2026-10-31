@@ -65,7 +65,7 @@ void rebuild_list(App& app, const PlayerPageFilter& f, int64_t user_team) {
 // A filter chip: a small toggle button that lights up when on
 bool chip(const char* label, bool* on) {
     const bool lit = *on;
-    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent());
+    if (lit) ImGui::PushStyleColor(ImGuiCol_Button, theme::accent_fill());
     const bool hit = ImGui::SmallButton(label);
     if (lit) ImGui::PopStyleColor();
     if (hit) *on = !*on;

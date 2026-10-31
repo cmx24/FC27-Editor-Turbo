@@ -20,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -74,6 +75,7 @@
 #include "core/face_filter.h"
 #include "ui/ui_faces.h"
 #include "ui/ui_faces3d_gate.h"
+#include "ui/ui_style.h"  // 5.0c E4: apply_turbo_theme, to read the applied palette
 #include "ui/ui_identity.h"
 #include "ui/ui_images.h"
 #include "core/look_pickers.h"       // 5.0b-A: the one registry of look attributes
@@ -9973,6 +9975,7 @@ static void test_ui() {
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
+#include "test_e3_e4_dupes.h"  // 5.0c E4: filled accent buttons >= 4.5:1
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         test_asset_app_ui(app, ui, le);    // test_asset_app.h

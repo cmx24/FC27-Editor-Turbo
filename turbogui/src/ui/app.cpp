@@ -1768,10 +1768,10 @@ static bool strip_button(const char* label, bool selected, bool first) {
         ImGui::SameLine();
         if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();  // the next line
     }
-    const ImVec4 fill = selected ? theme::accent() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    const ImVec4 fill = selected ? theme::accent_fill() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, fill);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_fill_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_fill_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
     const bool hit = ImGui::Button(label);
     ImGui::PopStyleColor(3);
     return hit;
@@ -1880,10 +1880,10 @@ static void draw_global_search(App& app) {
 // 3.0 shell: one button of the left rail (an area). Full width, the selected one filled with the accent; `label` is what the button shows
 // (the area name, or its first letter in the narrow rail). True when clicked.
 static bool rail_button(const char* label, bool selected, float width) {
-    const ImVec4 fill = selected ? theme::accent() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    const ImVec4 fill = selected ? theme::accent_fill() : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, fill);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_fill_hover() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_fill_active() : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
     ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
     const bool hit = ImGui::Button(label, ImVec2(width, ImGui::GetFrameHeight() + S(8.0f)));
     ImGui::PopStyleVar();
