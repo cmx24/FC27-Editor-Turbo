@@ -235,7 +235,7 @@ static void run() {
                   "switching on planned the kit and published from its plan: " + st.message);
             CHECK(log.find("kit swap: planned team 95 home in") != std::string::npos && log.find("kit swap: table from plans") != std::string::npos, "logged: " + log);
         }
-        const pfs::path plan = dir / "swap_plan.bin";
+        const pfs::path plan = dir / "swap_plan_4.bin";  // Runtime::plan_path: the 4.0 plan file name (5.0c base-32-red: the test still wrote swap_plan.bin, so the damaged-plan and load_swap_plan checks hit a file the Runtime never reads)
         const std::string state_before = read_text(w.le / "turbo_output" / "kits" / "swap_state.json");
         const std::string plan_before = read_text(plan);
         auto boot = [&](const std::string& build, const std::string& expect_reason, const std::string& expect_why, const std::string& what) {
