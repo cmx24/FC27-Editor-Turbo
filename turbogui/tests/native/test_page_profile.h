@@ -100,13 +100,19 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.lua_queue.clear();
         app.sel_player = 1001;
         show(ui, Which::Profile);
-        // 2.22 (G-ia, CHANGE h): the list is the Classic editor's: search, the filter grid, one sortable table of 8 columns
+        // 2.22 (G-ia, CHANGE h): the list is the Classic editor's: search and the filter grid. Turbo X (DESIGN_SPEC_X.md): the grid is behind
+        // the "Filters" fold, the chips are on the search line, the rows are people (the Selectable's label is still the player's ID)
         CHECK(ui.find("##psearch", W) != nullptr, "search box");
+        CHECK(ui.find("###pl_chip_mine", W) != nullptr && ui.find("###pl_chip_free", W) != nullptr && ui.find("###pl_chip_gk", W) != nullptr, "the chips");
+        CHECK(ui.open_filters(W), "the Filters fold opens");
         CHECK(ui.find("Clear##filters", W) != nullptr, "the filter grid (Clear filters)");
         CHECK(ui.find("##fpos", W) != nullptr && ui.find("##fteam", W) != nullptr && ui.find("##fnat", W) != nullptr, "position, club and nationality filters");
+        CHECK(ui.click("###pl_filters", W), "fold the filters again");
+        ui.frames(2);
+        CHECK(ui.find("##fpos", W) == nullptr, "folded: the grid is out of the way");
         const PlayerProfileState& st = player_profile_state();
         CHECK(st.listed > 3, "the list holds players: " + std::to_string(st.listed));
-        CHECK(ui.find("1001", W) != nullptr && ui.find("1005", W) != nullptr, "players listed (ID column of the Classic list)");
+        CHECK(ui.find("1001", W) != nullptr && ui.find("1005", W) != nullptr, "players listed (the rows' ids are the player IDs)");
         // nobody picked: no editor
         app.sel_player = 0;
         ui.frames(2);

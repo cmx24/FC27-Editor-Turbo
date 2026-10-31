@@ -4,6 +4,7 @@
 #pragma once
 #include <cfloat>
 #include <cstdarg>
+#include <cstdio>
 
 #include "imgui.h"
 
@@ -210,6 +211,145 @@ inline bool rail_button(const char* label, bool selected, float width) {
     ImGui::PopStyleColor(4);
     ImGui::PopStyleVar();
     return hit;
+}
+
+// ---- Turbo X (2026-10-31, DESIGN_SPEC_X.md "Players > Player"): people rows, stat tiles, the segmented control, empty states.
+// Sizes passed in are SCALED px; everything derived from the font scales by itself.
+
+// Moves the cursor right so that an item `w` px wide sits in the middle of the available width.
+inline void center_x(float w) {
+    const float room = ImGui::GetContentRegionAvail().x - w;
+    if (room > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room * 0.5f);
+}
+
+// A small rounded number pill drawn at `p` (top-left): accent fill when `key`, else the frame colour. Returns its size.
+inline ImVec2 number_pill(ImDrawList* dl, const ImVec2& p, const char* text, bool key) {
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const ImVec2 size(ts.x + fs * 0.8f, ts.y + fs * 0.2f);
+    const ImU32 bg = key ? ImGui::ColorConvertFloat4ToU32(kAccentFill) : ImGui::GetColorU32(ImGuiCol_FrameBg);
+    const ImU32 fg = key ? IM_COL32(255, 255, 255, 255) : ImGui::GetColorU32(ImGuiCol_Text);
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), bg, size.y * 0.5f);
+    dl->AddText(ImVec2(p.x + fs * 0.4f, p.y + fs * 0.1f), fg, text);
+    return size;
+}
+
+// A person row: [picture] name (semibold) / one muted line, and an OVR pill at the right (accent when >= 85). `id` is the
+// Selectable's label and so its test id (the player's ID, say): its own text is invisible, the row is drawn by hand, so the ID
+// is never on screen. Selected = accent bar at the left + accent wash. `draw_picture()` is called with the cursor at the
+// picture slot (`picture` px square, vertically centred); it draws an item of that size. Returns true when clicked; *hovered
+// (optional) says whether the row is under the mouse (the caller's tooltip; the picture item is the last item, not the row).
+template <class DrawPicture>
+inline bool person_row(const char* id, const char* name, const char* line, int ovr, bool selected, float height, float picture,
+                       DrawPicture draw_picture, bool* hovered = nullptr) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float fs = ImGui::GetFontSize();
+    const float pad = fs * 0.5f;
+    ImGui::PushStyleColor(ImGuiCol_Header, accent_alpha(0.16f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, accent_alpha(selected ? 0.22f : 0.08f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, accent_alpha(0.28f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // the label is the id only
+    const bool hit = ImGui::Selectable(id, selected, ImGuiSelectableFlags_None, ImVec2(w, height));
+    ImGui::PopStyleColor(4);
+    if (hovered) *hovered = ImGui::IsItemHovered();
+    const ImVec2 after = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (selected) dl->AddRectFilled(ImVec2(p.x, p.y + fs * 0.2f), ImVec2(p.x + fs * 0.18f, p.y + height - fs * 0.2f), ImGui::ColorConvertFloat4ToU32(kAccent), fs * 0.09f);
+    // the pill, right-aligned and vertically centred
+    char num[16];
+    std::snprintf(num, sizeof num, "%d", ovr);
+    const ImVec2 ps = ImGui::CalcTextSize(num);
+    const ImVec2 pill_size(ps.x + fs * 0.8f, ps.y + fs * 0.2f);
+    const ImVec2 pill_pos(p.x + w - pad - pill_size.x, p.y + (height - pill_size.y) * 0.5f);
+    number_pill(dl, pill_pos, num, ovr >= 85);
+    // the two text lines, clipped before the pill
+    const float x = p.x + pad + picture + fs * 0.6f;
+    const float two = fs * 2.25f;  // name line + muted line
+    const float y = p.y + (height - two) * 0.5f;
+    dl->PushClipRect(ImVec2(x, p.y), ImVec2(pill_pos.x - fs * 0.4f, p.y + height), true);
+    push_title_font(1.0f);
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), name);
+    pop_title_font();
+    dl->AddText(ImVec2(x, y + fs * 1.2f), ImGui::ColorConvertFloat4ToU32(kMuted), line);
+    dl->PopClipRect();
+    // the picture, in its slot
+    ImGui::SetCursorScreenPos(ImVec2(p.x + pad, p.y + (height - picture) * 0.5f));
+    draw_picture();
+    ImGui::SetCursorScreenPos(after);
+    return hit;
+}
+
+// A stat tile: a card `width` px wide, the label small and muted, the value big in the semibold face (`value_col` null = the
+// text colour). stat_tile_begin / stat_tile_end let the caller add a line under the value (the Shown OVR field); stat_tile
+// is the plain tile. Always pair stat_tile_begin with stat_tile_end (it is BeginChild). height 0 = as tall as its content.
+inline bool stat_tile_begin(const char* id, const char* label, const char* value, float width, float height = 0.0f, const ImVec4* value_col = nullptr) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kCardBg);
+    ImGui::PushStyleColor(ImGuiCol_Border, kRule);
+    const ImGuiChildFlags flags = ImGuiChildFlags_Borders | (height <= 0.0f ? ImGuiChildFlags_AutoResizeY : 0);
+    const bool open = ImGui::BeginChild(id, ImVec2(width, height), flags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleColor(2);
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * kFontSmall);
+    muted_text("%s", label);
+    ImGui::PopFont();
+    push_title_font(1.8f);
+    if (value_col) ImGui::PushStyleColor(ImGuiCol_Text, *value_col);
+    ImGui::TextUnformatted(value);
+    if (value_col) ImGui::PopStyleColor();
+    pop_title_font();
+    return open;
+}
+inline void stat_tile_end() { ImGui::EndChild(); }
+inline void stat_tile(const char* id, const char* label, const char* value, float width, float height = 0.0f, const ImVec4* value_col = nullptr) {
+    stat_tile_begin(id, label, value, width, height, value_col);
+    stat_tile_end();
+}
+// The height a stat tile takes with `extra_lines` frame-high lines under the value (so tiles in a row can be given one height).
+inline float stat_tile_height(int extra_lines = 0) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float fs = ImGui::GetFontSize();
+    return st.WindowPadding.y * 2.0f + fs * kFontSmall + fs * 1.8f + st.ItemSpacing.y * (1 + extra_lines) + ImGui::GetFrameHeight() * extra_lines + 2.0f;
+}
+
+// A segmented control: `n` pill buttons on one line, the selected one accent-tinted. Each label keeps its own ImGui id
+// (write them "Text###id"). Returns true when the selection changed; `selected` is updated.
+inline bool segmented(const char* const* labels, int n, int& selected) {
+    bool changed = false;
+    const float fs = ImGui::GetFontSize();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, fs);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(fs * 0.8f, ImGui::GetStyle().FramePadding.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(fs * 0.35f, ImGui::GetStyle().ItemSpacing.y));
+    for (int i = 0; i < n; ++i) {
+        const bool on = i == selected;
+        if (i > 0) ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, on ? accent_alpha(0.22f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, on ? accent_alpha(0.30f) : kRailHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_alpha(0.36f));
+        ImGui::PushStyleColor(ImGuiCol_Text, on ? kAccent : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        if (ImGui::Button(labels[i]) && !on) {
+            selected = i;
+            changed = true;
+        }
+        ImGui::PopStyleColor(4);
+    }
+    ImGui::PopStyleVar(3);
+    return changed;
+}
+
+// An empty state: a third of the way down the available space, `title` centred in the title face and, when given, one muted
+// line under it. The caller draws its two actions after this (center_x to centre them).
+inline void empty_state(const char* title, const char* line = nullptr) {
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    ImGui::Dummy(ImVec2(0.0f, avail.y * 0.3f));
+    push_title_font();
+    center_x(ImGui::CalcTextSize(title).x);
+    ImGui::TextUnformatted(title);
+    pop_title_font();
+    if (line && *line) {
+        center_x(ImGui::CalcTextSize(line).x);
+        muted_text("%s", line);
+    }
+    ImGui::Dummy(ImVec2(0.0f, ImGui::GetFontSize() * 0.5f));
 }
 
 }  // namespace turbo::theme

@@ -885,6 +885,12 @@ ui_player_profile.cpp	SmallButton	###ab_none	1
 ui_player_profile.cpp	TreeNodeEx	###ab_roles	1
 ui_player_profile.cpp	TreeNodeEx	###pf_flags	1
 ui_players.cpp	-	###bulkundo	1
+ui_players.cpp	-	###pl_chip_att	1
+ui_players.cpp	-	###pl_chip_def	1
+ui_players.cpp	-	###pl_chip_free	1
+ui_players.cpp	-	###pl_chip_gk	1
+ui_players.cpp	-	###pl_chip_mid	1
+ui_players.cpp	-	###pl_chip_mine	1
 ui_players.cpp	-	##arch	1
 ui_players.cpp	-	##archpos	1
 ui_players.cpp	-	##fcont	1
@@ -896,13 +902,14 @@ ui_players.cpp	-	Make %s his main position (now %s)##archadopt	1
 ui_players.cpp	-	Set potential##dvp	1
 ui_players.cpp	-	Use %d##archclosest	1
 ui_players.cpp	BeginChild	##archchg	1
+ui_players.cpp	BeginChild	##players	1
 ui_players.cpp	BeginCombo	##fgender	1
 ui_players.cpp	BeginCombo	##floan	1
 ui_players.cpp	BeginCombo	##fstyle	1
+ui_players.cpp	BeginCombo	##psort	1
 ui_players.cpp	BeginPopupModal	Apply archetype	1
 ui_players.cpp	BeginTable	##chg	1
 ui_players.cpp	BeginTable	##pfilters	1
-ui_players.cpp	BeginTable	##players	1
 ui_players.cpp	Button	###archpreview	1
 ui_players.cpp	Button	###archundo	1
 ui_players.cpp	Button	Apply##arch	1
@@ -924,6 +931,7 @@ ui_players.cpp	PushID	sqrole	1
 ui_players.cpp	Selectable	Any PlayStyle	1
 ui_players.cpp	SliderInt	Points per week##dvw	1
 ui_players.cpp	SmallButton	Clear##filters	1
+ui_players.cpp	TreeNodeEx	###pl_filters	1
 ui_players.cpp	checkbox_right	+ only	1
 ui_players.cpp	checkbox_right	Free agent	1
 ui_players.cpp	checkbox_right	My club	1

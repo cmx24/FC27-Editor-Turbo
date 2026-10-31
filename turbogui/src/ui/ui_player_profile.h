@@ -37,6 +37,8 @@ shell::Page& profile_team_players_page();
 // player draw the same one (one list, one set of filters, one selection). classic_player_list_rows() = rows of its last frame.
 void draw_classic_player_list(App& app);
 size_t classic_player_list_rows();
+// Turbo X: the empty state's asks of the list, taken at its next draw: focus the search box once, tick the My club chip
+void classic_player_list_request(bool focus_search, bool my_club);
 
 // The player-type editor (Overall +1/-1, role, wanted overall, preview, Apply, Undo) is archetype_bar() in ui_players.cpp, which is `static`
 // there, so a new file cannot link to it. The Integrator sets this pointer ONCE, from ui_players.cpp, with one line at the end of that file:
