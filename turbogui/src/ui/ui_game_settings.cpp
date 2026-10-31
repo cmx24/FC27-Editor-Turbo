@@ -287,14 +287,6 @@ void load_preset(App& app) {
     app.notify(g.preset_line, true);
 }
 
-void discard_pending(App& app) {
-    std::error_code ec;
-    fs::remove(out_dir(app) / pending_file(), ec);
-    g.preset_line = ec ? "The staged file could not be removed: " + ec.message() : std::string("Staged preset discarded");
-    log_line(app, "game settings: " + g.preset_line);
-    read_pending(app);
-}
-
 void import_preset(App& app, const fs::path& from) {
     std::vector<uint8_t> b;
     Preset p;
@@ -585,17 +577,8 @@ void draw_presets(App& app) {
     if (ImGui::Button("Save current##gssave")) save_current(app);
     for (const std::string& e : g.preset_errors) ImGui::TextDisabled("A preset file was skipped: %s", e.c_str());
     if (!g.preset_line.empty()) ImGui::TextWrapped("%s", g.preset_line.c_str());
-    // a file another page staged (the tactics pages, game_settings_stage): shown so it can be discarded here; this tab stages nothing
-    if (g.have_pending) {
-        g_state.pending_line = "Staged by the tactics page: \"" + g.pending.preset + "\", " + std::to_string(g.pending.values.size()) + " slider(s) (" +
-                               g.pending.staged + ")";
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", g_state.pending_line.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Discard staged##gsdiscard")) discard_pending(app);
-    } else if (!g.pending_err.empty()) {
-        g_state.pending_line = std::string("turbo_output\\") + pending_file() + " is not used: " + g.pending_err;
-        ImGui::TextDisabled("%s", g_state.pending_line.c_str());
-    }
+    // Turbo X (2026-10-31): the tactics page's staging (settings_pending.json) is no longer shown or discarded here: this page has no
+    // staging at all (sliders write live). game_settings_stage / _unstage still read it for the tactics page; pending_line stays "".
 }
 
 }  // namespace
@@ -723,8 +706,9 @@ void draw_game_settings(App& app) {
     g_state.drawn = true;
     try {
         first_look(app);
-        ImGui::TextWrapped("FC 27's own game settings (Settings > Game Settings), as the game saved them last.");
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Verified sliders write into the running game at once (not proven in game).");
+        // Turbo X (2026-10-31): one short line each; the proof caveat lives in the per-row tooltip ("Not proven in game"), not here
+        ImGui::TextWrapped("The game's own settings, as last saved.");
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Verified rows write into the running game on release.");
         g_state.closed_note = true;
         // the file
         if (g.snap.ok) {
@@ -750,6 +734,8 @@ void draw_game_settings(App& app) {
                                           " verified in game"
                                     : "No slider map: " + g.map_err;
         if (g.map_ok) g_state.map_line += ", " + std::to_string(int(g.map.entries.size()) - verified_count()) + " read-only";
+        // Turbo X (2026-10-31): the file name carries a map id, not the running build; name the build the verification applies to
+        if (g.map_ok && !game_build(app).empty()) g_state.map_line += " (verified on build " + game_build(app) + ")";
         ImGui::TextDisabled("%s", g_state.map_line.c_str());
         if (g.map_ok && verified_count() == 0) ImGui::TextDisabled("No slider verified yet: every value is read-only.");
         // the presets first (short), then the long list of values

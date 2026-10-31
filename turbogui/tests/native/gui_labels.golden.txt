@@ -533,7 +533,6 @@ ui_game_settings.cpp	OpenPopup	##gsimppick	1
 ui_game_settings.cpp	OpenPopup	Delete preset?##gsdeletepop	1
 ui_game_settings.cpp	OpenPopup	Rename preset##gsrenamepop	1
 ui_game_settings.cpp	SmallButton	Delete...##gsdel	1
-ui_game_settings.cpp	SmallButton	Discard staged##gsdiscard	1
 ui_game_settings.cpp	SmallButton	Duplicate##gsdup	1
 ui_game_settings.cpp	SmallButton	Export...##gsexp	1
 ui_game_settings.cpp	SmallButton	Import...##gsimp	1
