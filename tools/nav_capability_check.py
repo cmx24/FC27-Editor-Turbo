@@ -517,7 +517,43 @@ def check(old_src, new_src, pitwall=None, allow=None):
             results.append(("FAIL", "[%s] %s" % (src, name), "defined but no page reaches: " + ", ".join(defined)))
         else:
             results.append(("FAIL", "[%s] %s" % (src, name), "none of these functions exists: " + ", ".join(syms)))
+    results.extend(two_click_rows(new, new_src, pitwall))
     return results, len(caps), files, lost
+
+
+def two_click_rows(nav, new_src, pitwall):
+    """5.0c E16 (Cassio: NAVCAP asserts the 2-click bound for every row). Static model of the shell: click 1 = the area's rail entry, click 2 =
+    the page in the strip (the first page of an area is what the rail opens: 1 click). Every page row must belong to an area that has a rail
+    label (else it is unreachable), and every Home control id (###home_*) that a brief's INGAME_CHECKS.md names as a 1-click route must be
+    defined in ui_home.cpp. The walked version (real clicks, one Back) is tests/native/test_nav_2clicks.h."""
+    rows = []
+    first = {}
+    for p in nav.order:
+        first.setdefault(nav.pages[p][0], p)
+    for p in nav.order:
+        area = nav.pages[p][0]
+        clicks = 1 if first[area] == p else 2
+        if nav.area_labels and area not in nav.area_labels:
+            rows.append(("FAIL", "two clicks: %s" % p, "area %s has no rail label (page not reachable from Home)" % area))
+        elif clicks > 2:
+            rows.append(("FAIL", "two clicks: %s" % p, "%d clicks from Home (bound 2)" % clicks))
+        else:
+            rows.append(("PASS", "two clicks: %s" % p, "%d click(s) from Home (rail %s%s)" % (clicks, nav.area_labels.get(area, area), "" if clicks == 1 else " + strip")))
+    home = blank_comments(new_src.get("ui_home.cpp", ""))
+    path = os.path.join(pitwall, "briefs", "5.0c", "INGAME_CHECKS.md") if pitwall else ""
+    ids = set()
+    try:
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                ids = set(re.findall(r"###(home_[A-Za-z0-9_]+)", fh.read()))
+    except OSError:
+        pass
+    for i in sorted(ids):
+        if "###" + i in home:
+            rows.append(("PASS", "two clicks: Home route ###" + i, "defined in ui_home.cpp (1 click from Home)"))
+        else:
+            rows.append(("FAIL", "two clicks: Home route ###" + i, "named by INGAME_CHECKS.md but not defined in ui_home.cpp (route is longer than 2 clicks or missing)"))
+    return rows
 
 
 def print_results(results, ncaps, files, quiet=False, lost=()):
@@ -643,6 +679,17 @@ def self_test():
     ok(list(al) == ["foo"] and len(er) == 2, "allow-list parser: comments skipped, 3 fields required, duplicates refused: %d errors" % len(er))
     real, errs = read_allow(os.path.join(os.path.dirname(os.path.abspath(__file__)), "nav_capability_allow.txt"))
     ok(not errs, "tools/nav_capability_allow.txt parses (%d entries): %s" % (len(real), "; ".join(errs) or "no errors"))
+    tc = two_click_rows(nav, {"ui_home.cpp": 'btn("A###home_a");'}, None)
+    ok([r[0] for r in tc] == ["PASS", "PASS", "PASS"] and "1 click" in tc[0][2] and "2 click" in tc[1][2], "two clicks: first page of an area 1 click, the next 2")
+    nav.area_labels = {"One": "First"}
+    ok([r[0] for r in two_click_rows(nav, {}, None)] == ["PASS", "PASS", "FAIL"], "two clicks: a page whose area has no rail label FAILs")
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        os.makedirs(os.path.join(td, "briefs", "5.0c"))
+        with open(os.path.join(td, "briefs", "5.0c", "INGAME_CHECKS.md"), "w", encoding="utf-8") as fh:
+            fh.write("Home button ###home_a and ###home_gone\n")
+        got = [r[0] for r in two_click_rows(nav, {"ui_home.cpp": 'btn("A###home_a");'}, td)][-2:]
+        ok(got == ["PASS", "FAIL"], "two clicks: an INGAME_CHECKS Home id missing from ui_home.cpp FAILs: %s" % got)
     print("SELF-TEST " + ("PASSED" if not bad else "FAILED"))
     return 1 if bad else 0
 
@@ -662,7 +709,10 @@ def main():
         return self_test()
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     src = a.src or os.path.join(repo, UI_DIR)
-    pitwall = a.pitwall or os.environ.get("TURBO_PITWALL") or os.path.abspath(os.path.join(repo, "..", "..", "PITWALL"))
+    pitwall = a.pitwall or os.environ.get("TURBO_PITWALL")
+    if not pitwall:  # the main repo sits two levels under the project root, a turbo_dev worktree one level under turbo_dev
+        cands = [os.path.abspath(os.path.join(repo, "..", "..", "PITWALL")), os.path.abspath(os.path.join(repo, "..", "PITWALL"))]
+        pitwall = next((c for c in cands if os.path.isdir(c)), cands[0])
     old_src, last = None, "empty tree"
     for ref in ([a.base] if a.base else list(DEFAULT_BASES)):
         try:

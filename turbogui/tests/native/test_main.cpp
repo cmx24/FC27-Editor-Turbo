@@ -10042,6 +10042,7 @@ static void test_ui() {
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
 #include "test_e3_e4_dupes.h"  // 5.0c E3 + E4: one hair editor on the manager Appearance tab; filled accent buttons >= 4.5:1
 #include "test_e3_dupes.h"  // 5.0c E3: Apply hair & beard lives in the Look card, not a second pane
+#include "test_nav_2clicks.h"  // 5.0c E16 two-clicks: every INGAME_CHECKS Home route <= 2 clicks, one Back on every page (walked with real clicks)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
         face_tile_test::ui_cases(app, ui, le);  // test_face_tile.h (5.0c E7-realface)

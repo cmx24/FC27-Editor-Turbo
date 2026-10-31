@@ -374,12 +374,13 @@ ui_club_tools.cpp	CollapsingHeader	Your club: customisation hub (crest, stadium,
 ui_club_tools.cpp	OpenPopup	Licensed stadium##clubcust	1
 ui_club_tools.cpp	SmallButton	Open Kits##clubtoolskits	1
 ui_club_tools.cpp	checkbox_right	My save is backed up	1
-ui_club_voice.cpp	-	)##cv	1
+ui_club_voice.cpp	-	##cv	1
 ui_club_voice.cpp	-	> No club name (not verified in game)##cv0	1
 ui_club_voice.cpp	-	No club name (not verified in game)##cv0	1
 ui_club_voice.cpp	BeginChild	##cvlist	1
 ui_club_voice.cpp	Button	Save##cvsave	1
 ui_club_voice.cpp	Button	Use its own name##cvundo	1
+ui_club_voice.cpp	Checkbox	Show special ids##cvspecial	1
 ui_club_voice.cpp	InputTextWithHint	##cvsearch	1
 ui_club_voice.cpp	RadioButton	All careers##cvscope	1
 ui_club_voice.cpp	RadioButton	This career##cvscope	1
@@ -573,6 +574,7 @@ ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
 ui_home.cpp	-	###home_game_settings	1
 ui_home.cpp	-	###home_manager_looks	1
+ui_home.cpp	-	###home_manager_miniface	1
 ui_home.cpp	-	###home_player_looks	1
 ui_home.cpp	-	###home_preset_season	1
 ui_home.cpp	-	###home_preset_tactics	1
@@ -669,6 +671,7 @@ ui_images.cpp	Checkbox	Favourites only	1
 ui_images.cpp	Checkbox	Remove plain background	1
 ui_images.cpp	Checkbox	Show tattoos made for other areas too	1
 ui_images.cpp	Checkbox	Start from the descriptor the game used itself	1
+ui_images.cpp	Checkbox	Update the picture when the look changes	1
 ui_images.cpp	InputInt	Game id	1
 ui_images.cpp	InputInt	extra (-1 = preset)	1
 ui_images.cpp	InputInt	mode (-1 = preset)	1
@@ -781,6 +784,7 @@ ui_live_tactic.cpp	TreeNode	Slots (11)##ltslots	1
 ui_live_tactic.cpp	checkbox_right	Channel E on (turbo_output\\call_team_sheet_on.txt)##ltopt	1
 ui_live_tactic.cpp	checkbox_right	Keep my bench order after Team Management##ltbench	1
 ui_looks_studio.cpp	-	##	1
+ui_looks_studio.cpp	-	###look3dnode	1
 ui_looks_studio.cpp	-	###lsdraw	1
 ui_looks_studio.cpp	-	###lsundo	1
 ui_looks_studio.cpp	-	##bt	1
@@ -986,7 +990,7 @@ ui_player_profile.cpp	-	##ab_stylegrid	1
 ui_player_profile.cpp	-	##pf_detailgrid	1
 ui_player_profile.cpp	-	##pf_flaggrid	1
 ui_player_profile.cpp	BeginChild	##editor	1
-ui_player_profile.cpp	BeginChild	##select	1
+ui_player_profile.cpp	-	##select	1
 ui_player_profile.cpp	BeginTable	##bits	1
 ui_player_profile.cpp	BeginTable	##sl	1
 ui_player_profile.cpp	Button	###pf_team	1
@@ -1695,6 +1699,7 @@ ui_visual_picker.cpp	Button	Cancel##vpcancel	1
 ui_visual_picker.cpp	Button	Change##vpchange	1
 ui_visual_picker.cpp	Button	Choose...	1
 ui_visual_picker.cpp	Checkbox	Favourites only##vpfav	1
+ui_visual_picker.cpp	Checkbox	Show all body types##vpallbodies	1
 ui_visual_picker.cpp	InputText	###vpfolder	1
 ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
 ui_visual_picker.cpp	InvisibleButton	##tile	1

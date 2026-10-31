@@ -249,6 +249,11 @@ int& manager_edit_tab() {
     return tab;
 }
 
+bool& miniface_3d_request() {
+    static bool req = false;
+    return req;
+}
+
 Place& back_place() {
     static Place p;
     return p;

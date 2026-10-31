@@ -863,13 +863,8 @@ void hair_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         card_end();
         return;
     }
-    if (!who.manager) {
-        if (const PlayerRow* p = app.model.player(who.id)) faces3d_gate_section(app, t, *p);  // ui_faces3d_gate.cpp
-    } else {
-        const auto& mgrs = app.model.managers();
-        if (app.sel_manager >= 0 && app.sel_manager < static_cast<int>(mgrs.size()))
-            faces3d_manager_section(app, t, mgrs[static_cast<size_t>(app.sel_manager)]);  // ui_faces3d_gate.cpp
-    }
+    // players only (a manager returned above): his hair and beard are in the Look card
+    if (const PlayerRow* p = app.model.player(who.id)) faces3d_gate_section(app, t, *p);  // ui_faces3d_gate.cpp
     const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
     // a generic head takes the game's hairstyles: they are rows of the Look card below (ONE picker for each, 5.0b-A)
     if (hc != 0) hint_line("This is a generic head: pick his hair and beard in the Look card below.");
@@ -1117,11 +1112,11 @@ std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique
 void look_card(App& app, const Subject& who, uint64_t rec) {
     const Table* t = app.db.table(who.manager ? "manager" : "players");
     if (!t || !who.valid()) return;
-    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: with the 3D hair and beard fold
+    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: a real-face manager gets the 3D hair and beard section, open, at the top of the card
 }
 
 // ---------------------------------------------------------------- public: body-type grid
-// 5.0c RV4 (Cassio): manager bodies that draw the same figure are one tile; ticked "Show all bodies" lists every code again
+// 5.0c RV4 (Cassio): manager bodies that draw the same figure are one tile; ticked "Show all body types" lists every code again
 static bool g_all_bodies = false;
 void body_show_all(bool on) { g_all_bodies = on; }
 bool body_show_all() { return g_all_bodies; }
@@ -1133,6 +1128,25 @@ std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manage
     // "Manager body N" are gone (Cassio 5.0c-FIX.md E8).
     const std::string name = bodyshape::body_name(manager, code, cat);
     return name.empty() ? std::string("His own body") : name;
+}
+
+std::set<int64_t> body_generic_codes(const bodytype::Catalog* cat) {
+    std::set<int64_t> generic;
+    if (const labels::NamedCodes* n = labels::named_codes("bodytypecode"))
+        for (const auto& e : *n) generic.insert(e.first);
+    if (const data::LookField* pf = data::find_look_field(data::LookSubject::Player, "bodytypecode"))
+        for (int32_t i = 0; i < pf->n_values; ++i)
+            if (pf->values[i].src != data::LookSrc::StyleN) generic.insert(pf->values[i].code);
+    if (cat)
+        for (int64_t c : cat->codes())
+            if (cat->named(c)) generic.insert(c);
+    return generic;
+}
+
+bool body_is_specific(int64_t code, const bodytype::Catalog* cat, bool manager, const std::set<int64_t>& generic) {
+    // a manager's body is the named set 81-89 and the game's sizes; the styles only a few managers hold (12, 131, 381) have no name
+    if (manager) return bodyshape::body_name(true, code, cat).empty();
+    return generic.count(code) == 0;
 }
 
 std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t current, int gender, bool manager) {

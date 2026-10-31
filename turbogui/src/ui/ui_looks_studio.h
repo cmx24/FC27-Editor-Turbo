@@ -23,6 +23,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -83,9 +84,14 @@ std::string body_caption(int64_t code, const bodytype::Catalog* cat, bool manage
 // Managers: their own set (track F). `current` is always offered.
 std::vector<int64_t> body_grid_codes(const bodytype::Catalog* cat, int64_t current, int gender, bool manager = false);
 // 5.0c RV4: off (the default, and at every Body type window open) = manager bodies that draw the same figure show as one tile with a
-// plain name; on ("Show all bodies") = every code of the set, with "(n of m)" names (nothing is lost: each code stays reachable).
+// plain name; on ("Show all body types", saved in gui_settings.json gui.body_show_all) = every code of the set, with "(n of m)" names (nothing is lost: each code stays reachable).
 void body_show_all(bool on);
 bool body_show_all();
+// 5.0c E8: the old modal's Generic / Specific filter. Generic = a body type something names (the game's Live Editor names, field_labels, the probe);
+// Specific = the body model of an individual player (a manager's unnamed own style counts as specific). `generic` is body_generic_codes() of the
+// same catalog, computed once per list.
+std::set<int64_t> body_generic_codes(const bodytype::Catalog* cat);
+bool body_is_specific(int64_t code, const bodytype::Catalog* cat, bool manager, const std::set<int64_t>& generic);
 
 // ---- Accessories and Kit fit: the fields each card edits for a player or a manager (the table's own field names)
 std::vector<std::string> card_fields(bool manager, bool kit_fit);
