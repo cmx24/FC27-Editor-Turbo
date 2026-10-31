@@ -72,6 +72,15 @@ std::string team_code_from(const std::string& name) {
     return tnames::utf8_upper_basic(clean_team_abbr(letters, 3));
 }
 
+// Letters (UTF-8 characters) in a value once cleaned the way a Save cleans it (no ';', trimmed), before any cut to a cap. A cut is
+// reported only when this is over the cap: upper-casing, a trailing space or a ';' never counts as letters dropped.
+static size_t abbr_letters(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : clean_team_abbr(s, 1024))
+        if ((c & 0xC0) != 0x80) ++n;
+    return n;
+}
+
 TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, const std::string& short_name, const std::string& code,
                             const std::string& long_name) {
     TeamNameSave res;
@@ -157,6 +166,18 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     } else {
         res.line = "Not saved: " + problems.substr(2) + " (live names are off: " + app.team_names_why_off() + ").";
     }
+    // E14: say it when typed letters were dropped (the Abbreviation box takes 4 letters, the Short name 15)
+    if (res.ok) {
+        std::string cuts;
+        if (abbr_letters(code) > tnames::kMaxLen[tnames::Abbr3])
+            cuts += " Abbreviation cut to " + std::to_string(tnames::kMaxLen[tnames::Abbr3]) + " letters.";
+        if (abbr_letters(short_name) > tnames::kMaxLen[tnames::Abbr15])
+            cuts += " Short name cut to " + std::to_string(tnames::kMaxLen[tnames::Abbr15]) + " letters.";
+        if (!cuts.empty()) {
+            res.line += cuts;
+            res.warning = true;
+        }
+    }
     res.detail = full + (e.long_name.empty() ? "" : " (long: " + e.long_name + ")") + " | " + e.text[tnames::Abbr15] + " | " +
                  e.text[tnames::Abbr10] + " | " + e.text[tnames::Abbr3] + ": " +
                  (res.live ? "given to the game now" : "not live") + "; " + res.detail + problems;
@@ -170,7 +191,8 @@ struct NameForm {
     char name[64] = "";        // the display name (TeamName_<id>, teams.teamname)
     char long_name[128] = "";  // Turbo's only (FC 27 has no string for it)
     char short_name[64] = "";  // up to 15 letters
-    char code[16] = "";        // up to 3 letters
+    // up to kMaxLen[Abbr3] (4) letters; room for 4 bytes a letter, so a longer typed code reaches Save and is reported as cut
+    char code[tnames::kMaxLen[tnames::Abbr3] * 4 + 1] = "";
     TeamNameSave last;         // the last Save (shown under the button)
     bool saved = false;
 };
@@ -284,9 +306,9 @@ void team_name_editor(App& app, const Table& t, uint64_t rec, int64_t teamid) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Abbreviation");
     ImGui::SameLine(label_w);
-    ImGui::SetNextItemWidth(S(80.0f));
+    ImGui::SetNextItemWidth(S(110.0f));
     ImGui::InputTextWithHint("##ncode", hint3.c_str(), g_name.code, sizeof(g_name.code));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3-letter abbreviation (match scoreboard: to be confirmed in game); empty = made from the name");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Up to 4 letters (match scoreboard: 4 is not yet confirmed in game); longer is cut; empty = the first 3 letters of the name");
     ImGui::Spacing();
     if (ImGui::Button("Save")) {
         TeamNameSave r = save_team_name(app, teamid, g_name.name, g_name.short_name, g_name.code, g_name.long_name);

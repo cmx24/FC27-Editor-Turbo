@@ -33,8 +33,12 @@ namespace tnames {
 // The four strings of a club, in the order of the Kind values
 enum Kind : int { Full = 0, Abbr15 = 1, Abbr10 = 2, Abbr3 = 3 };
 constexpr int kKinds = 4;
-// Longest value per kind: the name in bytes (teams.teamname holds 59 + NUL), the short forms in characters
-constexpr size_t kMaxLen[kKinds] = {59, 15, 10, 3};
+// Longest value per kind: the name in bytes (teams.teamname holds 59 + NUL), the short forms in characters.
+// Abbr3 = 4 (5.0c E14, Cassio 10-30: "why do some teams have 4, i.e. LOSC"): 4 is the longest abbreviation value seen
+// (FCGB in a career CSV, and Cassio's LOSC report), an EVIDENCE FLOOR, not a measured limit of the game's scoreboard (the
+// teams table has no abbreviation column, only the TeamName_Abbr3_<id> string). If the game proves wider, only this
+// constant changes: the store, Live Editor's CSV (core/teamnames.cpp) and the Save button (ui/ui_identity.cpp) all read it.
+constexpr size_t kMaxLen[kKinds] = {59, 15, 10, 4};
 // A value as Turbo keeps it: no ';', no line breaks, trimmed, cut to kMaxLen without halving a UTF-8 sequence
 // (clean_team_name / clean_team_abbr, the same rules as Live Editor's CSV)
 std::string clean_value(const std::string& s, Kind k);

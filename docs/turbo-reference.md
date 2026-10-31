@@ -387,7 +387,7 @@ Every competition list of the Competitions tab (Live standings, Match setup filt
   `core/teamnames.*`; RE: `docs/re/team_names.md`). One form (four boxes since 1.1.4): **Display name** (what every
   screen shows, `TeamName_<id>` + `teams.teamname`), **Long name** ("Associazione Calcio Milan": FC 27 has no string
   for it, so Turbo keeps it in its store only and the game never shows it), **Short name** (lists, fixtures; at most 15
-  letters), **Abbreviation** (3 letters, scoreboard), and one **Save**. An empty short name or code is made from the name
+  letters), **Abbreviation** (up to 4 letters, scoreboard; 4 is the longest value seen, not a measured game limit; the one made from the name is still the first 3), and one **Save**. An empty short name or code is made from the name
   (shown as the box's hint: the whole name when it fits, else cut at a word end; the first three letters, upper case);
   the 10-letter form the game also asks for is made from the short name. Save, in this order:
   1. publishes the club's four strings to the `team_names` hook and keeps them in `turbo_output\team_names.json`

@@ -3931,7 +3931,7 @@ static void test_team_names_live() {
         CHECK(err == "4 bad entries dropped" && c.entries.size() == 2, "bad entries dropped: " + err);
         const tnames::Entry* f = c.find(5);
         CHECK(f && f->name() == "ABC" && f->text[tnames::Abbr15] == "Borussia Moench" && f->text[tnames::Abbr10] == "Borussia M" &&
-                  f->text[tnames::Abbr3] == "\xC3\x96ST",
+                  f->text[tnames::Abbr3] == "\xC3\x96STE",  // 5.0c E14: the abbreviation cap is 4 letters (was 3)
               "cleaned, cut by characters: " + (f ? f->text[tnames::Abbr3] : std::string()));
         CHECK(c.find(11) && c.find(11)->name() == "Last wins", "duplicates: the last one wins");
         // 1.1.4: the long name ("long"): kept, cleaned, round trip; files without it (1.1.x) load; a wrong type drops the entry
@@ -4066,6 +4066,27 @@ static void test_team_names_live() {
         TeamNamesCsv csv;
         csv.set_team_names(9, "\xC3\x96sters IF", "\xC3\x96ST", "\xC3\x96sters IF", "\xC3\x96sters IF");
         CHECK(csv.get("TeamName_Abbr3_9") == "\xC3\x96ST", "a 3-letter code with a 2-byte letter is kept whole in Live Editor's file");
+    });
+
+    // 5.0c E14: the club abbreviation is 4 letters wide (LOSC), not 3. 4 is an evidence floor (the longest value seen), not a measured
+    // game limit: one constant (tnames::kMaxLen[Abbr3]) owns it for Turbo's store, Live Editor's CSV and the Save button.
+    run_case("live team names: E14 the abbreviation takes 4 letters (LOSC) in the store, Live Editor's CSV and clean_value", [&] {
+        CHECK(tnames::kMaxLen[tnames::Abbr3] == 4 && tnames::kMaxLen[tnames::Abbr10] == 10 && tnames::kMaxLen[tnames::Abbr15] == 15 &&
+                  tnames::kMaxLen[tnames::Full] == 59,
+              "caps: Abbr3 4, Abbr10 10, Abbr15 15, name 59");
+        CHECK(tnames::clean_value("LOSC", tnames::Abbr3) == "LOSC", "clean_value keeps LOSC: " + tnames::clean_value("LOSC", tnames::Abbr3));
+        CHECK(tnames::clean_value("LOSCX", tnames::Abbr3) == "LOSC" && tnames::clean_value("LOS ", tnames::Abbr3) == "LOS", "5 letters cut to 4, trailing space trimmed");
+        CHECK(tnames::clean_value("\xC3\x96STE", tnames::Abbr3) == "\xC3\x96STE", "4 letters with a 2-byte letter are kept whole");
+        TeamNamesCsv csv;
+        csv.set_team_names(9, "Lille", "LOSC", "Lille", "Lille");
+        CHECK(csv.get("TeamName_Abbr3_9") == "LOSC", "Live Editor's file keeps LOSC: " + csv.get("TeamName_Abbr3_9"));
+        csv.set_team_names(9, "Lille", "LOSCX", "LilleMetropoleFootballClub", "LilleMetropoleFootballClubLong");
+        CHECK(csv.get("TeamName_Abbr3_9") == "LOSC" && csv.get("TeamName_Abbr10_9").size() == 10 && csv.get("TeamName_Abbr15_9").size() == 15,
+              "5 letters cut to 4; the 10 and 15 caps are unchanged");
+        // no regression: the code Turbo makes from a name stays 3 letters; only what is typed may be 4
+        CHECK(team_code_from("Everton Blues") == "EVE" && team_code_from("Lille OSC") == "LIL" && team_code_from("1. FC K\xC3\xB6ln") == "1FC",
+              "the made code is still 3 letters");
+        CHECK(clean_team_abbr("\xC3\x96STERREICH", 3) == "\xC3\x96ST", "clean_team_abbr(.., 3) unchanged");
     });
 
     run_case("live team names: built-in signatures resolve on the real bytes of build 6AB9813C-211EF000 (Lookup, assign, the guard, Live Editor's hook)", [&] {
@@ -4983,6 +5004,33 @@ static void test_ui() {
             CHECK(ui.type_into(ui.find("##nlong", "##tname"), ""), "clear the long name");
             CHECK(ui.click("Save", "##tname"), "Save");
             CHECK(app.team_names.find(7)->long_name.empty() && read_json(store)["teams"][0]["long"] == "", "empty long name");
+
+            // ---- 5.0c E14: a 4-letter abbreviation (LOSC) is kept everywhere, a longer one is cut with a message
+            {
+                CHECK(ui.type_into(ui.find("##ncode", "##tname"), "losc"), "type the 4-letter code in lower case");
+                CHECK(ui.click("Save", "##tname"), "Save");
+                CHECK(fake.shows("TeamName_Abbr3_7") == "LOSC", "the game's next lookup: " + fake.shows("TeamName_Abbr3_7"));
+                CHECK(st.result_line == "Saved: shown in the game now.", "no cut message for 4 letters in lower case: " + st.result_line);
+                CHECK(read_file(csvf).find("TeamName_Abbr3_7;LOSC\n") != std::string::npos, "Live Editor's file keeps LOSC");
+                CHECK(app.team_names.find(7) && app.team_names.find(7)->text[tnames::Abbr3] == "LOSC" && read_json(store)["teams"][0]["abbr3"] == "LOSC",
+                      "store keeps LOSC: " + read_json(store).dump());
+                {
+                    App again(mem, le, 0, "restart");  // a Turbo restart reads the store back through clean_value
+                    CHECK(again.team_names.find(7) && again.team_names.find(7)->text[tnames::Abbr3] == "LOSC", "LOSC read back at start-up");
+                }
+                TeamNameSave c = save_team_name(app, 7, "Everton FC", "", "LCFC");
+                CHECK(c.ok && c.line == "Saved: shown in the game now." && fake.shows("TeamName_Abbr3_7") == "LCFC", "4 letters: " + c.line);
+                c = save_team_name(app, 7, "Everton FC", "", "LCFCX");
+                CHECK(c.ok && c.warning && c.line.find("Abbreviation cut to 4 letters") != std::string::npos && fake.shows("TeamName_Abbr3_7") == "LCFC",
+                      "5 letters: cut to LCFC and said so: " + c.line);
+                c = save_team_name(app, 7, "Everton FC", "", "LCF ");
+                CHECK(c.ok && c.line == "Saved: shown in the game now." && fake.shows("TeamName_Abbr3_7") == "LCF", "a trailing space is not a cut: " + c.line);
+                c = save_team_name(app, 7, "Everton FC", "A very long short name here", "tof");
+                CHECK(c.ok && c.warning && c.line.find("Short name cut to 15 letters") != std::string::npos && c.line.find("Abbreviation cut") == std::string::npos,
+                      "a short name over 15 letters is said to be cut: " + c.line);
+                c = save_team_name(app, 7, "Everton FC", "Toffees", "tof");  // back to what the next steps expect
+                CHECK(c.ok && c.line == "Saved: shown in the game now." && fake.shows("TeamName_Abbr3_7") == "TOF", "restored: " + c.line);
+            }
 
             // ---- the hook switched off (kill switch): Save falls back, the line says why
             fake.on = false;
