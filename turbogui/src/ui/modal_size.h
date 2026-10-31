@@ -23,6 +23,7 @@ inline ImVec2 wanted(const char* id, ImVec2 dflt) {
     const float sc = g_ui_scale > 0.0f ? g_ui_scale : 1.0f;
     SplitStore& st = split::store();
     float w = st.get(key(id, 'w'), dflt.x) * sc, h = st.get(key(id, 'h'), dflt.y) * sc;
+    if (!st.has(key(id, 'w')) && !st.has(key(id, 'h'))) return ImVec2(w, h);  // nothing stored: the dialog's own default, as before
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
     if (ds.x > 0.0f) w = std::min(w, ds.x);
     if (ds.y > 0.0f) h = std::min(h, ds.y);
