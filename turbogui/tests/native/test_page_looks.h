@@ -470,7 +470,26 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.sel_player = 3001;
         show(ui);
         ui.frames(12);
-        CHECK(looks::studio_state().thumbs == 0, "generator pictures are no longer the grid: " + std::to_string(looks::studio_state().thumbs));
+        CHECK(looks::studio_state().thumbs == 0, "generator pictures are not the grid (figures are): " + std::to_string(looks::studio_state().thumbs));
+        // 5.0c RV3: the generator's real render is not lost - it is the tooltip of the tile that has one (code 4); a tile with none (5) shows none
+        {
+            const ItemRec* t5 = ui.find(tile_label(app, 5), "##looksstudio_test");
+            CHECK(t5 != nullptr, "tile 5 is on screen");
+            if (t5) {
+                ImGui::GetIO().AddMousePosEvent(t5->rect.GetCenter().x, t5->rect.GetCenter().y);
+                ui.frames(3);
+                CHECK(looks::studio_state().thumbs == 0, "hovering a tile with no generator picture shows none: " + std::to_string(looks::studio_state().thumbs));
+            }
+            const ItemRec* t4 = ui.find(tile_label(app, 4), "##looksstudio_test");
+            CHECK(t4 != nullptr, "tile 4 is on screen");
+            if (t4) {
+                ImGui::GetIO().AddMousePosEvent(t4->rect.GetCenter().x, t4->rect.GetCenter().y);
+                ui.frames(4);
+                CHECK(looks::studio_state().thumbs >= 1, "hovering tile 4 shows its generator picture in the tooltip: " + std::to_string(looks::studio_state().thumbs));
+            }
+            ImGui::GetIO().AddMousePosEvent(-1.0f, -1.0f);
+            ui.frames(2);
+        }
         CHECK(looks::studio_state().figures == looks::studio_state().body_tiles && looks::studio_state().figures >= 10, "a figure on every tile: " + std::to_string(looks::studio_state().figures) + " of " + std::to_string(looks::studio_state().body_tiles));
         CHECK(looks::studio_state().body_tiles >= 10, "every body has its tile: " + std::to_string(looks::studio_state().body_tiles));
         CHECK(ui.find(tile_label(app, 5), "##looksstudio_test") != nullptr, "every tile keeps its name: " + tile_label(app, 5));

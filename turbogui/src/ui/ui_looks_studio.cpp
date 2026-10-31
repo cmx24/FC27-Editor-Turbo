@@ -393,10 +393,6 @@ struct Studio {
     char body_search[48] = "";
     std::vector<BodyTile> tiles;
     std::string tiles_key;
-    std::set<int64_t> thumbs_loaded;   // codes whose picture reached a texture (their next draws cost nothing)
-    int thumb_frame = -1, thumb_loads = 0;  // new picture loads of this frame (at most kThumbLoadsPerFrame)
-    double manifest_at = -1.0;          // App::now of the last look at manifest.json (every kManifestEvery s)
-    int64_t manifest_stamp = 0;         // its time stamp then (0 = none)
     std::string body_result;
     bool body_result_error = false;
     // the page's own Undo for managers
@@ -905,6 +901,25 @@ void build_tiles(App& app, Studio& s, int64_t current, int gender, bool manager)
     }
 }
 
+// The tile's tooltip: the generator's real in-game render when one exists (players' generic bodies, Advanced > Diagnostics > Body-type
+// pictures), then the name and the facts. 5.0c E8-body: the grid itself is the figures; the real picture is the tooltip's, never lost.
+void body_tip(App& app, Studio& s, const BodyTile& tile, bool manager) {
+    bodytype_thumbs::configure(app.turbo_output());
+    const fs::path pic = bodytype_thumbs::thumb(tile.code, manager);
+    ImGui::BeginTooltip();
+    if (!pic.empty()) {
+        TextureCache::Pic p = app.textures.file(pic, bodytype_thumbs::kGridWidth);
+        if (p.tex) {
+            const ImVec2 a = ImGui::GetCursorScreenPos();
+            draw_fitted(p.tex, p.w, p.h, a, S(160.0f), S(160.0f));
+            ImGui::Dummy(ImVec2(S(160.0f), S(160.0f)));
+            ++s.st.thumbs;
+        }
+    }
+    ImGui::TextUnformatted(tile.tip.c_str());
+    ImGui::EndTooltip();
+}
+
 void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
     card_begin(s, "##lsbody", "Body type");
     if (!t.has("bodytypecode")) {
@@ -944,12 +959,12 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
                 const ImVec2 p0 = ImGui::GetCursorScreenPos();
                 if (ImGui::InvisibleButton("##btpic", ImVec2(tw, fig))) picked = tile.code;
                 const bool hovered = ImGui::IsItemHovered();
-                if (hovered) ImGui::SetTooltip("%s", tile.tip.c_str());
+                if (hovered) body_tip(app, s, tile, who.manager);
                 bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(p0.x + (tw - fig) * 0.5f, p0.y), ImVec2(fig, fig), tile.shape, selected, hovered);
                 ++s.st.figures;
                 const std::string label = tile.caption + "##bt" + std::to_string(tile.code);
                 if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(tw, 0.0f))) picked = tile.code;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tile.tip.c_str());
+                if (ImGui::IsItemHovered()) body_tip(app, s, tile, who.manager);
                 ImGui::PopID();
                 ImGui::EndGroup();
                 ++s.st.body_tiles;
@@ -1183,9 +1198,6 @@ void looks_studio_reset_for_tests() {
     s.tiles.clear();
     s.tiles_key.clear();
     s.body_result.clear();
-    s.thumbs_loaded.clear();
-    s.manifest_at = -1.0;
-    s.manifest_stamp = 0;
     s.manager_undo.clear();
     s.st = StudioState();
     g_timeout = 25.0;

@@ -249,6 +249,9 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             push_tile(out, c, looks::body_caption(c, &cat, manager));
             // 5.0c E8-body: every body type is a figure drawn in code on one height scale (no picture file, players and managers alike)
             out.src.back() = kSrcFigure;
+            // the generator's real in-game render (Advanced > Diagnostics > Body-type pictures, players only): the large preview shows it
+            // when it exists; the tile and the fallback stay the figure
+            out.files.back() = bodytype_thumbs::thumb(c, manager);
             out.shape.back() = bodyshape::body_shape(manager, c, &cat);
             out.tip.back() = bodyshape::body_detail(manager, c, &cat) + "\nBody type " + std::to_string(c);
         }
@@ -512,6 +515,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
         }
         case kSrcFigure: {
             const float side = std::min(box.x, box.y);
+            if (large && !src.files[k].empty() && draw_still(app, src.files[k], 320, a, box, true)) return true;
             bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(a.x + (box.x - side) * 0.5f, a.y), ImVec2(side, side), src.shape[k], false, false);
             return true;
         }
@@ -779,6 +783,7 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
             if (ImGui::SmallButton("Clear##vphairclear")) s.hair = HairFacets();
         }
     }
+    if (s.src.body) bodytype_risky_box(app, t, rec);  // 5.0c E8-body: the old gallery's "allow a player-specific body" box lives here now
     if ((s.ui.names_only || (!s.src.body && resources(app).empty())) && s.src.kind != vis::data::kNone) where_pictures_line(app, s.src);
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
     filter(app, s);
@@ -1063,7 +1068,7 @@ bool visual_apply(App& app, const Table& t, uint64_t rec, const std::string& fie
         return false;
     }
     if (field == "bodytypecode") {
-        const bool ok = apply_bodytype(app, t, rec, code, false, msg);
+        const bool ok = apply_bodytype(app, t, rec, code, bodytype_allow_risky(), msg);
         if (ok) forget_head_render(app, t, rec, field);
         return ok;
     }

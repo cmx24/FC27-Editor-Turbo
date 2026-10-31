@@ -150,7 +150,6 @@ inline void core_cases() {
 }
 
 inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
-    (void)ui;
     (void)le;
     run_case("Body picker: V1 apply_bodytype writes the manager set 81-89 on a generic head and still refuses a player-specific body there", [&] {
         const Table* m = app.db.table("manager");
@@ -169,6 +168,103 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(ok && app.db.get_int(*m, m503, "bodytypecode") == code, "manager set " + std::to_string(code) + " written on a generic head: " + msg);
             app.db.set_int(*m, m503, "bodytypecode", before);
         }
+    });
+
+    // RV6: the caption text (the picker's own Text colour) against every ground a tile name sits on, 4.5:1 (WCAG 1.4.3)
+    run_case("Body picker: RV6 caption contrast - the name text against the window and the selected / hovered / pressed row is 4.5:1 or better", [&] {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        ImVec4 tv = st.Colors[ImGuiCol_Text];
+        tv.w = 1.0f;
+        const ImU32 text = ImGui::ColorConvertFloat4ToU32(tv);
+        std::string bad;
+        const struct {
+            ImGuiCol col;
+            const char* what;
+        } grounds[] = {{ImGuiCol_WindowBg, "WindowBg"}, {ImGuiCol_Header, "Header (selected)"}, {ImGuiCol_HeaderHovered, "HeaderHovered"}, {ImGuiCol_HeaderActive, "HeaderActive"}};
+        for (const auto& g : grounds) {
+            ImVec4 c = st.Colors[g.col];
+            c.w = 1.0f;
+            const float r = bodyfig::contrast_ratio(text, ImGui::ColorConvertFloat4ToU32(c));
+            if (r < 4.5f) bad += std::string(" ") + g.what + " " + std::to_string(r);
+        }
+        CHECK(bad.empty(), "caption contrast below 4.5:1:" + bad);
+    });
+
+    // T4 / RV1: ONE entry point per page. The button every page calls is drawn here in a window of its own, for a player and for a
+    // manager; each opens the same visual picker, every tile a figure, and the old modal is nowhere.
+    run_case("Body picker: T4 the Body type button (player and manager) opens the one visual picker of figures, no modal gallery", [&] {
+        for (bool manager : {false, true}) {
+            const Table* t = app.db.table(manager ? "manager" : "players");
+            CHECK(t && t->has("bodytypecode"), "table with bodytypecode");
+            if (!t || !t->has("bodytypecode")) return;
+            const uint64_t rec = manager ? app.db.find(*t, "managerid", 503) : app.db.find(*t, "playerid", 2002);
+            CHECK(rec != 0, "the record exists");
+            if (rec == 0) return;
+            const std::string who = manager ? "manager 503" : "player 2002";
+            const int64_t before = app.db.get_int(*t, rec, "bodytypecode");
+            ui.extra_draw = [&app, t, rec, manager]() {
+                ImGui::SetNextWindowPos(ImVec2(40.0f, 40.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(620.0f, 120.0f), ImGuiCond_Always);
+                ImGui::Begin("##bpt4", nullptr, ImGuiWindowFlags_NoSavedSettings);
+                bodytype_gallery_button(app, *t, rec, manager);
+                ImGui::End();
+            };
+            ui.frames(3);
+            CHECK(ui.find("Body types...##btopen", "##bpt4") == nullptr, who + ": no 'Body types...' modal button");
+            CHECK(ui.find("Body type...##btopen", "##bpt4") != nullptr && ui.find("Copy body type from player...##btcopybtn", "##bpt4") != nullptr,
+                  who + ": one 'Body type...' button and the copy button");
+            CHECK(ui.click("Body type...##btopen", "##bpt4"), who + ": click Body type...");
+            ui.frames(4);
+            CHECK(visual_picker_ui().open && visual_picker_ui().field == "bodytypecode", who + ": the visual picker opened for bodytypecode");
+            CHECK(ui.find("Reload##btreload") == nullptr && ui.find("Use##bt4") == nullptr, who + ": the 7-column modal gallery is not on screen");
+            const size_t n = visual_picker_list_size();
+            CHECK(n >= 10 && static_cast<size_t>(visual_picker_ui().source_figure) == n && visual_picker_ui().source_rdbm + visual_picker_ui().source_game == 0,
+                  fmt("%s: all %zu tiles are figure tiles (figure %d)", who.c_str(), n, visual_picker_ui().source_figure));
+            size_t fig = 0;
+            std::set<std::string> names;
+            for (int64_t c : visual_picker_codes()) {
+                if (visual_picker_tile_source(c) == TileSource::Figure) ++fig;
+                names.insert(looks::body_caption(c, &bodytype_catalog(app), manager));
+            }
+            CHECK(fig == n && names.size() == n, fmt("%s: figure tiles %zu, distinct plain names %zu of %zu", who.c_str(), fig, names.size(), n));
+            if (manager) {
+                // the manager set writes through the picker onto a generic head (V1 through the UI path); a player-specific body does not
+                visual_picker_select(82);
+                CHECK(visual_picker_apply(app) && app.db.get_int(*t, rec, "bodytypecode") == 82, who + ": 82 written through the picker: " + visual_picker_ui().last_result);
+                visual_picker_select(20);
+                CHECK(!visual_picker_apply(app) && app.db.get_int(*t, rec, "bodytypecode") == 82, who + ": a player-specific body stays refused: " + visual_picker_ui().last_result);
+            }
+            CHECK(ui.click("Cancel##vpcancel", "###vispicker"), who + ": close the window");
+            ui.frames(3);
+            CHECK(!visual_picker_ui().open, who + ": picker closed");
+            app.db.set_int(*t, rec, "bodytypecode", before);
+        }
+        ui.extra_draw = nullptr;
+        ui.frames(2);
+    });
+
+    // T4 on the pages this harness cannot open: every caller of the entry point still calls it, and nothing in src/ui can open the old modal
+    run_case("Body picker: T4 source scan - the five pages call the one entry point; the 'Body types##bt' modal and its 7-column rows are gone", [&] {
+        namespace sfs = std::filesystem;
+        const sfs::path ui_dir = sfs::path(g_lua).parent_path().parent_path().parent_path() / "src" / "ui";
+        auto read = [&](const sfs::path& f) {
+            std::ifstream in(f, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        CHECK(sfs::exists(ui_dir / "ui_bodytypes.cpp"), "source folder found: " + ui_dir.string());
+        for (const char* f : {"ui_player_page.cpp", "ui_players.cpp", "ui_career_page.cpp", "ui_teams.cpp", "ui_images.cpp"})
+            CHECK(read(ui_dir / f).find("bodytype_gallery_button(") != std::string::npos, std::string(f) + " calls bodytype_gallery_button");
+        std::string leaks;
+        for (const auto& e : sfs::directory_iterator(ui_dir)) {
+            if (e.path().extension() != ".cpp") continue;
+            const std::string s = read(e.path());
+            for (const char* needle : {"Body types##bt", "Body types...##btopen", "##btlist", "Used by players only##btused"})
+                if (s.find(needle) != std::string::npos) leaks += " " + e.path().filename().string() + ":" + needle;
+        }
+        CHECK(leaks.empty(), "the old modal gallery survives in:" + leaks);
+        const std::string b = read(ui_dir / "ui_bodytypes.cpp");
+        CHECK(b.find("vp::open(app, t, rec, \"bodytypecode\", manager)") != std::string::npos && b.find("vp::window(app, t, rec)") != std::string::npos,
+              "the entry point opens and draws the visual picker");
     });
 }
 

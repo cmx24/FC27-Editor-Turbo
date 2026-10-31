@@ -97,7 +97,7 @@ struct StudioState {
     std::string undo_label;    // "Undo: Body type" ("" = nothing to undo)
     int listed = 0;            // people in the list after the search
     int body_tiles = 0;        // tiles of the body-type grid drawn
-    int thumbs = 0;            // of them with their picture drawn
+    int thumbs = 0;            // generator pictures shown in a tile tooltip (hover; the grid itself is figures)
     int figures = 0;           // of them drawn as a figure (ui_body_figure.h): equals body_tiles, players and managers
     int fields = 0;            // field editors in Accessories and Kit fit
     int look_cards = 0;        // 5.0b-A: Look cards drawn this frame (the registry's card: ONE)
