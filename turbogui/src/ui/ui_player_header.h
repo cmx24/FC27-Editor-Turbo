@@ -16,9 +16,10 @@ class App;
 // player's record is no longer alive (another career loaded).
 bool draw_player_header(App& app);
 
-// Pit wall decision 10-25 15:35 (advisor): the "Shown OVR (display only)" row stays OFF in the TEST build, because nothing in game
-// reads it and it would pass for the in-game OVR mask that is blocked. Flip to true only on Cassio's later F8 decision.
-constexpr bool kShowOvrMaskField = false;
+// Pit wall decision 10-25 15:35 (advisor): the "Shown OVR (display only)" row stayed OFF in the TEST build, because nothing in game
+// reads it and it would pass for the in-game OVR mask that is blocked. 10-31 (tx-ovr, the owner's "OVR mask" ask): ON, so the row is
+// reachable on Players > Player (the header card above the tabs); still display only, nothing in game reads it. Set false to hide it again.
+constexpr bool kShowOvrMaskField = true;
 
 // What the last call drew (plain text is not an ImGui item, so the tests read it here)
 struct PlayerHeaderState {

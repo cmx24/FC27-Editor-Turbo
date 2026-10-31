@@ -399,6 +399,9 @@ void draw_values(App& app) {
         std::vector<const Entry*> es;
         for (const Entry& e : g.map.entries)
             if (e.group == grp) es.push_back(&e);
+        // sliders first, then the read-only rows, each half in map order; a group with a slider opens by default so a slider is on screen
+        std::stable_partition(es.begin(), es.end(), [](const Entry* e) { return slider_row(*e); });
+        const size_t n_sliders = size_t(std::count_if(es.begin(), es.end(), [](const Entry* e) { return slider_row(*e); }));
         for (const Entry* e : es) {
             GameSettingsViewState::Row r;
             r.id = e->id;
@@ -409,8 +412,9 @@ void draw_values(App& app) {
             r.state = !mapped(*e) ? "not mapped" : e->verified ? "verified" : "read-only";
             g_state.rows.push_back(r);
         }
-        const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) + ")##gs_" + grp;
-        if (!ImGui::CollapsingHeader(head.c_str(), grp == "user" || grp == "cpu" ? ImGuiTreeNodeFlags_DefaultOpen : 0)) continue;
+        const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) +
+                                 (n_sliders > 0 ? ", " + std::to_string(n_sliders) + (n_sliders == 1 ? " slider" : " sliders") : std::string()) + ")##gs_" + grp;
+        if (!ImGui::CollapsingHeader(head.c_str(), n_sliders > 0 ? ImGuiTreeNodeFlags_DefaultOpen : 0)) continue;
         if (es.empty()) {
             ImGui::TextDisabled("Nothing in the slider map for this group.");
             continue;
