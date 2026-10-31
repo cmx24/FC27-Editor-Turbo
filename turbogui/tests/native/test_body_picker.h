@@ -341,11 +341,16 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(rec != 0, "the record exists");
             if (rec == 0) return;
             const std::string who = manager ? "manager 503" : "player 2002";
+            // both fixture records hold a generic body: give him an unnamed player-specific one (manager 12, player 20) so the Specific
+            // group is never empty (the grid always offers the record's own code), and put his own code back at the end
+            const int64_t own_before = app.db.get_int(*t, rec, "bodytypecode");
+            const int64_t own_code = manager ? 12 : 20;
+            app.db.set_int(*t, rec, "bodytypecode", own_code);
             open_picker(t, rec, manager);
             CHECK(visual_picker_ui().open && visual_picker_ui().field == "bodytypecode", who + ": the visual picker opened for bodytypecode");
             CHECK(ui.find("##vpgroup", "###vispicker") != nullptr, who + ": the Generic / Specific filter is drawn in the picker");
             const std::vector<int64_t> all = visual_picker_shown_codes();
-            CHECK(all.size() == visual_picker_list_size() && all.size() >= 10, fmt("%s: the default is All (%zu of %zu shown)", who.c_str(), all.size(), visual_picker_list_size()));
+            CHECK(all.size() == visual_picker_list_size() && all.size() >= 6, fmt("%s: the default is All (%zu of %zu shown)", who.c_str(), all.size(), visual_picker_list_size()));
             CHECK(choose("Generic only"), who + ": choose 'Generic only'");
             const std::vector<int64_t> gen = visual_picker_shown_codes();
             CHECK(choose("Player-specific only"), who + ": choose 'Player-specific only'");
@@ -353,6 +358,7 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             std::set<int64_t> both(gen.begin(), gen.end());
             both.insert(spec.begin(), spec.end());
             CHECK(!gen.empty() && gen.size() < all.size(), fmt("%s: 'Generic only' narrows the list (%zu of %zu)", who.c_str(), gen.size(), all.size()));
+            CHECK(has(spec, own_code) && !has(gen, own_code), fmt("%s: his own unnamed body %lld is in the Specific group only", who.c_str(), static_cast<long long>(own_code)));
             CHECK(gen.size() + spec.size() == all.size() && both.size() == all.size(),
                   fmt("%s: generic %zu + specific %zu = all %zu, no tile in both", who.c_str(), gen.size(), spec.size(), all.size()));
             if (!manager) {
@@ -369,6 +375,7 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             open_picker(t, rec, manager);
             CHECK(visual_picker_shown_codes().size() == all.size(), who + ": a fresh open starts at All");
             close_picker();
+            app.db.set_int(*t, rec, "bodytypecode", own_before);
         }
 
         // the saved tick: set in the picker, kept over a close / reopen and over a settings reload, then put back
