@@ -1659,7 +1659,10 @@ static void head3d_failed(const Head3d& h, const std::string& why) {
         g_r3d.game_br_log = true;
         drop_game_heads();
     }
-    if (!tripped && h.in_batch && g_r3d.batch && n < kMaxHeadFails && !g_r3d.queued.count(k)) {
+    // re-review 10-31: once the route is off, a hidden head that was still in flight when the breaker tripped is not queued again either
+    // (failure() returns false after the trip, so `tripped` alone let those heads back into the Render all queue)
+    const bool route_off = h.game_head && game_breaker().off;
+    if (!route_off && h.in_batch && g_r3d.batch && n < kMaxHeadFails && !g_r3d.queued.count(k)) {
         g_r3d.queue.push_back(h);
         g_r3d.queued.insert(k);
         return;
@@ -2341,7 +2344,11 @@ static void chooser_body(App& app, Chooser& ch, bool manager_target) {
                     ImGui::TextDisabled("%s ID %lld, face #%lld%s", f->manager ? "manager" : "player", static_cast<long long>(f->id),
                                         static_cast<long long>(f->headassetid),
                                         f->hq == 1 ? ", high quality" : "");
-                    if (!has3d && use3d && rid > 0)
+                    if (!has3d && tsrc == face_tile::Source::Unavailable)  // re-review 10-31: the tile shows the initials, not a flat picture
+                        ImGui::TextDisabled("%s", why.full.c_str());
+                    else if (!has3d && tsrc == face_tile::Source::Rendering)
+                        ImGui::TextDisabled("3D pending: the game ships no flat picture for this head; it is rendering its 3D head now.");
+                    else if (!has3d && use3d && rid > 0)
                         ImGui::TextDisabled(head3d_given_up(head3d_key(f->manager, rid))
                                                 ? "3D failed: the game could not render this head, so the flat picture stays."
                                                 : "3D pending: the game has not rendered this head yet, so the flat picture shows meanwhile.");

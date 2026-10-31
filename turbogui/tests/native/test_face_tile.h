@@ -244,6 +244,68 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.hook_report = saved_hook;
     });
 
+    // ---- T2b (re-review 2026-10-31): the breaker holds in "Render all" too. With 5 heads per request the 12th failure is the 2nd answer
+    // of the 3rd request; the 3 heads after it failed once only, and eb603573 queued them again (failure() is false after the trip), so a
+    // 4th request went out after "Turbo stops asking".                                  [behavioural: fails on eb603573]
+    run_case("5.0c E7 T2b: Render all: once 12 hidden heads failed, the heads still in flight are not asked again (no request after the trip)", [&] {
+        fs::remove_all(r3d, ec);
+        forget_renders(app);
+        fs::create_directories(cdir, ec);
+        write_catalog(cdir, 20, false, "2026-10-30T12:00:00-04:00");
+        auto saved_hook = app.hook_report;
+        app.hook_report = [&]() {
+            HookReport r;
+            r.build = kKey;
+            return r;
+        };
+        load_catalog(app, ui, "test: E7 catalog for Render all");
+        auto fake = std::make_shared<FakeCapture>();
+        fake->st.installed = true;
+        fake->st.available = false;  // nothing goes out before Render all is pressed
+        fake->st.reason = "ready";
+        fake->st.max_batch = 5;
+        app.capture = fake;
+        app.request_tab = 0;
+        ui.frames(2);
+        CHECK(open_hidden_scope(ui), "open the chooser on the Hidden scope");
+        ui.frames(3);
+        std::string all;
+        for (const auto& kv : g_items) {
+            const std::string& l = kv.second.label;
+            if (kv.second.frame == g_frame && l.size() > 8 && l.compare(l.size() - 8, 8, "##r3dall") == 0) all = l;
+        }
+        CHECK(!all.empty(), "the Render all button is shown for the hidden heads with no picture");
+        if (all.empty()) return;
+        CHECK(ui.click(all, "Choose a real face"), all);
+        CHECK(fake->requests.empty(), "nothing sent while the game is unavailable");
+        fake->st.available = true;
+        for (int round = 0; round < 30; ++round) {
+            answer(*fake, [](int32_t) { return false; });  // the game never renders a head id no row uses
+            ui.frames(6);
+        }
+        // the request that carried the 12th failure
+        size_t cum = 0, trip_req = fake->requests.size();
+        for (size_t i = 0; i < fake->requests.size() && trip_req == fake->requests.size(); ++i) {
+            for (const auto& e : capture::request_entries(fake->requests[i]))
+                if (e.id >= 90000) ++cum;
+            if (cum >= 12) trip_req = i;  // face_tile::kBreakerFails (a literal: the 5.0b tree has no ui_face_tile.h)
+        }
+        CHECK(trip_req < fake->requests.size(), fmt("12 hidden heads failed (%zu asked in %zu requests)", cum, fake->requests.size()));
+        CHECK(fake->requests.size() == trip_req + 1,
+              fmt("no request after the one that tripped the breaker (tripped in request %zu, %zu requests sent)", trip_req + 1, fake->requests.size()));
+        fake->pending = false;
+        fake->answers.clear();
+        faces3d_stop();
+        if (ui.find("Close##faces")) ui.click("Close##faces");
+        ui.frames(2);
+        app.capture.reset();
+        fs::remove_all(r3d, ec);
+        forget_renders(app);
+        fs::remove(cdir / (std::string("catalog_") + kKey + ".json"), ec);
+        load_catalog(app, ui, "test: E7 catalog removed");
+        app.hook_report = saved_hook;
+    });
+
 #ifdef TURBO_FACE_TILE_DEBUG_API
     // ---- T3 / T4
     run_case("5.0c E7 T3/T4: a name-match head's tile: a picture source (never 'unavailable' while a render is possible) and chips that do not overlap", [&] {
