@@ -1072,9 +1072,23 @@ void miniface_card(App& app, Studio& s, const Subject& who, const Table& t, uint
 // 5.0b-A: the Look card - ONE card for a player and for a manager, drawn FROM the registry (core/look_pickers.h): a row for every look attribute
 // the person's table holds (picture, in-game name, Change; hair and beard are one row each), except those a card of their own draws (Face,
 // Body type, Tattoos). The fold "All fields" is today's field grid: every look column of the registry and the typed-only ones, typed.
-void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
+// 5.0c E3: fold3d = the Teams > Managers > Appearance tab, where this card is the ONE hair editor of the manager (the 3D section and the raw
+// grid under it are gone, ui_teams.cpp): a real-face manager gets the 3D hair and beard fold on top of the rows (closed until opened: the faces
+// card reads a file every frame it is drawn). The Looks page passes false: its own hair_card above draws the same section.
+void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec, bool fold3d = false) {
     card_begin(s, "##lslook", "Look");
     ++s.st.look_cards;
+    if (fold3d && who.manager && t.has("headclasscode") && app.db.get_int(t, rec, "headclasscode", -1) == 0) {
+        for (const ManagerRow& m : app.model.managers()) {
+            if (m.managerid != who.id) continue;
+            ImGui::SetNextItemOpen(false, ImGuiCond_Once);
+            if (ImGui::TreeNode("3D hair and beard###look3dnode")) {
+                faces3d_manager_section(app, t, m);  // ui_faces3d_gate.cpp: the faces3d band writer, Apply, His own hair & beard
+                ImGui::TreePop();
+            }
+            break;
+        }
+    }
     s.st.look_rows += vp::look_rows(app, t, rec, who.manager);
     if (s.force_all_fields) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
     else if (s.fold_was_forced) ImGui::SetNextItemOpen(false, ImGuiCond_Always);
@@ -1126,7 +1140,7 @@ std::unique_ptr<PreviewSource> make_game_screen_hint() { return std::make_unique
 void look_card(App& app, const Subject& who, uint64_t rec) {
     const Table* t = app.db.table(who.manager ? "manager" : "players");
     if (!t || !who.valid()) return;
-    look_card_body(app, studio(), who, *t, rec);
+    look_card_body(app, studio(), who, *t, rec, true);  // 5.0c E3: the Teams > Managers tab: with the 3D hair and beard fold
 }
 
 // ---------------------------------------------------------------- public: body-type grid

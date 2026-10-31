@@ -40,8 +40,10 @@ bool apply_game_head(App& app, int64_t head_id, int64_t target_id, bool target_i
 // match_manager / match_label set; rebuilt when the save or the catalog changes
 const std::vector<faces::Face>& manager_match_faces(App& app);
 
-// Managers > Appearance tab: current miniface and head, "Choose a real face...", the appearance fields
-void manager_appearance(App& app, const Table& t, const ManagerRow& m);
+// Managers > Appearance tab: current miniface and head, "Choose a real face...", the outfit pictures, the appearance fields.
+// look_card_above (5.0c E3): the caller draws the Look card above (ui_teams.cpp): that card is then the ONE hair editor, so the "Hair & beard (3D)"
+// section (a fold of the card now) and the raw "Appearance fields" grid (every column is in the card's rows or its All fields fold) are not drawn.
+void manager_appearance(App& app, const Table& t, const ManagerRow& m, bool look_card_above = false);
 void manager_real_face_picker(App& app, int64_t managerid);
 // Give a manager the head of a player (owner_is_manager false) or of another manager: the head fields (and hair, beard,
 // eyes, skin when asked) of the manager table, and the owner's picture as the manager's own heads_staff_<managerid>
