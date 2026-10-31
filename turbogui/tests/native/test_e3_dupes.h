@@ -118,14 +118,16 @@
         CHECK(guard != std::string::npos && grid != std::string::npos && grid > guard, "the raw grid is inside the guard");
         CHECK(guard != std::string::npos && lit != std::string::npos && lit > guard, "the grid's id literal stays inside the guard (test_one_picker.h holds it)");
         const std::string studio = e3_slurp(e3_ui / "ui_looks_studio.cpp");
-        const size_t lc = studio.find("look_card_body(");
+        const size_t lc = studio.find("void look_card_body(");
         CHECK(!studio.empty() && lc != std::string::npos, "read ui_looks_studio.cpp look_card_body");
-        const size_t lc_end = studio.find("
-}", lc == std::string::npos ? 0 : lc);
-        const std::string lbody = lc == std::string::npos || lc_end == std::string::npos ? std::string() : studio.substr(lc, lc_end - lc);
-        CHECK(lbody.find("faces3d_manager_section(") != std::string::npos, "the Look card body draws the 3D section");
-        CHECK(lbody.find("TreeNode") == std::string::npos && lbody.find("CollapsingHeader") == std::string::npos, "the 3D section is not behind a fold in the Look card body");
-        CHECK(lbody.find("skip_band_rows") != std::string::npos || lbody.find("band") != std::string::npos, "the Look card body tells look_rows to skip the band-owned rows");
+        // the span from the card's start to the registry rows: the 3D section is there, open (no fold), and look_rows is told to skip the band-owned rows
+        const size_t s0 = lc == std::string::npos ? std::string::npos : studio.find("card_begin(", lc);
+        const size_t s1 = s0 == std::string::npos ? std::string::npos : studio.find("vp::look_rows(", s0);
+        const std::string span = s1 == std::string::npos ? std::string() : studio.substr(s0, s1 - s0);
+        CHECK(!span.empty(), "found the span between card_begin and vp::look_rows in look_card_body");
+        CHECK(span.find("faces3d_manager_section(") != std::string::npos, "the Look card body draws the 3D section before the rows");
+        CHECK(span.find("TreeNode") == std::string::npos && span.find("CollapsingHeader") == std::string::npos, "the 3D section is not behind a fold in the Look card body");
+        CHECK(s1 != std::string::npos && studio.find(", band)", s1) == s1 + std::string("vp::look_rows(app, t, rec, who.manager").size(), "look_rows is told to skip the band-owned rows (', band)')");
         CHECK(body.find("item_galleries(") != std::string::npos, "the Outfit galleries stay (their pictures are the only outfit picker of this pane)");
         CHECK(body.find("Choose a real face...") != std::string::npos, "the real-face chooser button stays");
     });

@@ -1098,6 +1098,8 @@ void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uin
     s.fold_was_forced = s.force_all_fields;
     if (ImGui::TreeNode("All fields###lslookall")) {
         const look::Subject sj = who.manager ? look::kManager : look::kPlayer;
+        // 5.0c E3 (review R5): the warning of the removed manager grid (ui_faces.cpp manager_appearance) lives next to the typed head columns now
+        if (who.manager) hint_line("Changing his head id or head class here leaves his picture as it is: Choose a real face changes both together.");
         for (const look::LookPicker* p : look::pickers_for(sj))
             if (t.has(p->column)) fold_field(app, s, t, rec, who, p->column);
         for (const char* c : look::typed_only(sj))
