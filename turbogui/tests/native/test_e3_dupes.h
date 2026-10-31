@@ -23,11 +23,7 @@
     };
 
     run_case("5.0c E3a: a real-face manager's Appearance tab edits hair and beard in ONE place, the Look card's 3D section", [&] {
-        const bool was_tree = shell::tree40();
-        const bool was_legacy = app.legacy_pages;
-        const bool was_adv = app.prefs.advanced_mode;
         const int was_tab = shell::player_edit_tab();
-        const int was_who = shell::player_edit_who();
         const int was_mtab = shell::manager_edit_tab();
         const int was_sel = app.sel_manager;
         shell::PageFn saved[shell::kPageCount] = {};
@@ -35,10 +31,7 @@
         shell::clear_registry_for_tests();
         shell::register_page(shell::Page::Home, draw_home);
         shell::register_page(shell::Page::LooksStudio, turbo::looks::draw_looks_studio);
-        app.legacy_pages = false;
-        app.prefs.advanced_mode = false;
         ui.big_window();
-        shell::tree40() = true;
         const Table* mt = app.db.table("manager");
         CHECK(mt && mt->has("headclasscode"), "the test world has the manager table with headclasscode");
         if (mt && mt->has("headclasscode") && !app.model.managers().empty()) {
@@ -53,11 +46,12 @@
             st.running_build = "6AC07E31-2145C000";
             app.faces3d_report = [st]() { return st; };
             shell::player_edit_tab() = 0;
-            shell::player_edit_who() = 0;
-            shell::manager_edit_tab() = 0;
+            // 2026-10-31 (5.0c menus step 6): the 4.0 tree's manager card is gone; the manager tabs (##mtabs) live on Players > Staff and the
+            // Appearance tab is asked for through manager_edit_tab(), as Home's tiles do
             app.go(shell::Page::Home);
             ui.frames(5);
-            CHECK(ui.click("###home_manager_looks"), "click Home's Manager looks tile");
+            shell::manager_edit_tab() = 1;
+            app.go(shell::Page::Staff);
             ui.frames(6);
             CHECK(ui.find("Choose a real face...", "##medit") != nullptr, "the manager's Appearance tab is open");
             ui.frames(3);
@@ -88,11 +82,7 @@
         shell::clear_registry_for_tests();
         for (int i = 1; i < shell::kPageCount; ++i)
             if (saved[i]) shell::register_page(static_cast<shell::Page>(i), saved[i]);
-        shell::tree40() = was_tree;
-        app.legacy_pages = was_legacy;
-        app.prefs.advanced_mode = was_adv;
         shell::player_edit_tab() = was_tab;
-        shell::player_edit_who() = was_who;
         shell::manager_edit_tab() = was_mtab;
         app.sel_manager = was_sel;
         turbo::looks::looks_studio_show_managers(false);

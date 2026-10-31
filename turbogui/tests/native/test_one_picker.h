@@ -516,38 +516,6 @@
         op_fixture_off(before);
     });
 
-    // ---- the Simple player page, no RDBM26 folder: "Choose a real face..." keeps the Eyes and Skin boxes (q6-nopicker)
-    run_case("UI 3.2 one picker (fix 1): Simple player page, no RDBM26 folder: the real-face chooser keeps its Eyes and Skin boxes, never Hair / Beard; with a folder they go", [&] {
-        const int64_t saved_sel = app.sel_player;
-        app.sel_player = 1001;
-        visual_pictures_override((test_tmp_dir("one_picker_simple") / "nowhere").u8string());
-        visual_pictures_refresh(app);
-        player_page_test::show(ui);
-        CHECK(ui.click("###pp_face", "pp_looks"), "the Simple page's Choose a real face button");
-        ui.frames(3);
-        if (const ItemRec* own = ui.find("His own head##faces")) {
-            const std::string win = own->window;
-            CHECK(ui.find("Hair", win) == nullptr && ui.find("Beard", win) == nullptr, "no Hair / Beard copy boxes (their pickers are in Appearance)");
-            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
-                  "NO LOST CAPABILITY (5.0b-C): the Eyes and Skin boxes became the What to copy control (Head + eyes + skin), also on the Simple page");
-            const fs::path pics = test_tmp_dir("one_picker_simple_rdbm") / "Resources";
-            for (const char* sub : {"runstyle/runstyle_0.gif", "eyecolor/eyecolor_0.png", "skintone/skintone_1.png"}) {
-                fs::create_directories((pics / sub).parent_path());
-                std::ofstream(pics / sub, std::ios::binary) << "\x89PNG";
-            }
-            visual_pictures_override(pics.u8string());
-            visual_pictures_refresh(app);
-            ui.frames(3);
-            CHECK(ui.find("Eyes", win) == nullptr && ui.find("Skin", win) == nullptr && ui.find("##whatcopy", win) != nullptr,
-                  "with an RDBM26 folder too: no Eyes / Skin boxes, What to copy stays");
-        } else {
-            CHECK(false, "the chooser opened from the Simple page (His own head)");
-        }
-        ui.click("Close##faces");
-        ui.frames(2);
-        player_page_test::hide(ui);
-        visual_pictures_override("");
-        visual_pictures_refresh(app);
-        app.sel_player = saved_sel;
-    });
+    // (2026-10-31, 5.0c menus step 6: the "Simple player page" case, q6-nopicker, went with the card page draw_player_page; the chooser's What to copy
+    // control is covered on the Appearance Editor by test_face_chooser_layout.h)
 }

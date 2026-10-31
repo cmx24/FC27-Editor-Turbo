@@ -492,23 +492,6 @@ static void test_ux_resize() {
         CHECK(!q.cancelled() && q.add(PreloadKind::ClubMiniface, "k1") && q.size() == 1, "the same path is accepted again after reset");
     });
 
-    run_case("settings: gui.advanced_mode (Simple/Advanced view): default Simple, round trip, tab visibility", [&] {
-        CHECK(!GuiPrefs::load(json::object()).advanced_mode && !GuiPrefs::load(json::parse("{\"gui\":{\"advanced_mode\":\"yes\"}}")).advanced_mode,
-              "default Simple; wrong type keeps Simple");
-        json j = json::parse("{\"gui\":{\"ui_scale\":1.2}}");
-        GuiPrefs s;
-        s.advanced_mode = true;
-        s.save(j);
-        CHECK(j["gui"]["advanced_mode"] == true && j["gui"]["ui_scale"] == 1.2 && GuiPrefs::load(j).advanced_mode, "round trip, other keys kept");
-        for (int t = 0; t < TabCount; ++t) CHECK(top_tab_visible(t, true), "Advanced shows every tab");
-        CHECK(top_tab_visible(TabPlayers, false) && top_tab_visible(TabTeams, false) && top_tab_visible(TabTools, false) &&
-                  top_tab_visible(TabStatus, false) && !top_tab_visible(TabDatabase, false) && !top_tab_visible(TabGameSettings, false),
-              "Simple hides Database and Game settings only");
-        CHECK(!sub_tab_visible(SubTab::TeamsTactics, false) && sub_tab_visible(SubTab::TeamsTactics, true) &&
-                  !sub_tab_visible(SubTab::CompetitionsGameplayTuning, false) && !sub_tab_visible(SubTab::CompetitionsMatchSetup, false),
-              "Tactics, tuning and match setup are Advanced only");
-    });
-
     run_case("settings: gui.preload_images defaults to true, gui.row_density to normal; malformed values keep the defaults; round trip", [&] {
         const GuiPrefs d = GuiPrefs::load(json::object());
         CHECK(d.preload_images && d.row_density == RowDensity::Normal, "defaults");
@@ -595,8 +578,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     const fs::path file = le / "turbo_output" / "gui_settings.json";
     const std::string keep_file = read_file(file);
     const GuiPrefs keep_prefs = app.prefs;
-    const bool keep_legacy = app.legacy_pages;
-    app.legacy_pages = false;  // the 2.16+ pages (page::frame), as test_p213.h does
     auto fresh_settings = [&](const char* body) {
         std::error_code ec;
         fs::remove(file, ec);
@@ -744,7 +725,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     {
         std::ofstream(file.string(), std::ios::binary) << keep_file;
         app.prefs = keep_prefs;
-        app.legacy_pages = keep_legacy;
         split::reset_runtime_for_tests();
         ui.frames(4);
     }

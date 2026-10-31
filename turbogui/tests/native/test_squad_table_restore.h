@@ -99,14 +99,16 @@ static bool click_header(Ui& ui, const char* name) {
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     using shell::Page;
     const json original_state = read_json(le / "turbo_output" / "bridge_state.json");
-    const bool was_legacy = app.legacy_pages;
-    const bool was_advanced = app.prefs.advanced_mode;
     const int64_t old_sel_team = app.sel_team;
     const int64_t old_sel_player = app.sel_player;
     const int was_tab = shell::player_edit_tab();
     const int64_t mine = app.bridge.state().user_team;
-    app.prefs.advanced_mode = false;
-    app.legacy_pages = false;  // the new pages (the cases of the other tracks run with the old ones)
+    // 2026-10-31 (5.0c menus step 6): Players > My squad ("My squad (old page)", Page::Squad, a Lab page since 3.0) is gone; the cases that
+    // opened it open Team > Players for my club instead (the same squad_table, test case 1 above shows the route)
+    auto open_my_squad = [&](const char* what) {
+        app.sel_team = mine;
+        CHECK(ui.open_page("Club", "Squad") && app.place() == shell::place_of(Page::TeamPlayers), what);
+    };
 
     run_case("Squad table: Team > Players opens on the Squad list tab (any club), six sortable columns", [&] {
         const TeamRow* inter = app.model.team(241);
@@ -130,17 +132,15 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(drawn_order(app, 241) == db_order(app, 241), "no header clicked: the database order");
     });
 
-    run_case("Squad table: Players > My squad opens on the Squad tab; Age sorts, reverses, resets; OVR sorts high to low", [&] {
-        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
-        ui.frames(2);  // the rail draws the Lab from the next frame on
+    run_case("Squad table: Team > Players on my club opens on the Squad list tab; Age sorts, reverses, resets; OVR sorts high to low", [&] {
         CHECK(mine > 0 && app.model.links_of_team(mine).size() >= 5, "the test world has my club with a squad");
-        CHECK(ui.open_page("Lab", "My squad (old page)") && app.place() == shell::place_of(Page::Squad), "Players > My squad opens");
+        open_my_squad("Team > Players opens on my club");
         ui.frames(3);
         const SquadTableState& st = squad_table_state();
         CHECK(st.table_drawn && st.club == mine && st.rows == app.model.links_of_team(mine).size(),
-              fmt("the Squad tab shows my club: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
-        CHECK(ui.find("###sqtabsquad", "FC 27 LE Turbo") != nullptr && ui.find("###sqtabtools", "FC 27 LE Turbo") != nullptr, "tabs Squad and Career tools");
-        CHECK(squad_table_now() != nullptr && squad_table_now()->ColumnsCount == 7, "the seven-column table is the first thing on the page");
+              fmt("the Squad list tab shows my club: club %lld rows %zu", static_cast<long long>(st.club), st.rows));
+        CHECK(ui.find("###tptabsquadlist", "FC 27 LE Turbo") != nullptr, "the Squad list tab");
+        CHECK(squad_table_now() != nullptr && squad_table_now()->ColumnsCount == 7, "the seven-column table is on the page");
         CHECK(st.sort_column == -1, "database order until a header is clicked");
         const std::vector<int64_t> base = db_order(app, mine);
         CHECK(drawn_order(app, mine) == base, "rows in database order: " + ids(drawn_order(app, mine)));
@@ -163,10 +163,8 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: a click on a name opens Players > Edit a player with that player (the page route, not request_tab)", [&] {
-        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
-        ui.frames(2);  // the rail draws the Lab from the next frame on
         app.request_tab = -1;
-        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
+        open_my_squad("Team > Players on my club");
         ui.frames(3);
         const std::string nm = app.model.player_name(1005);
         CHECK(ui.find(nm, "##squad") != nullptr, "Gabriel Jesus is in the table: " + nm);
@@ -195,9 +193,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     });
 
     run_case("Squad table: a Jersey edit writes teamplayerlinks.jerseynumber of that player's row only, through App::edit", [&] {
-        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
-        ui.frames(2);  // the rail draws the Lab from the next frame on
-        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
+        open_my_squad("Team > Players on my club");
         ui.frames(3);
         const Table* lt = app.db.table("teamplayerlinks");
         CHECK(lt != nullptr, "the links table");
@@ -248,49 +244,23 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
     });
 
-    run_case("Squad table: outside a career My squad shows the club picker and the table of the picked club", [&] {
-        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
-        ui.frames(2);  // the rail draws the Lab from the next frame on
+    run_case("Squad table: outside a career Team > Players shows the table of the picked club", [&] {
         json st = original_state;
         st["user_team"] = 0;
         st["in_cm"] = false;
         write_state(app, ui, le, st);
         CHECK(app.bridge.state().user_team == 0, "no club of his own");
         app.sel_team = 241;
-        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
+        CHECK(ui.open_page("Club", "Squad") && app.place() == shell::place_of(Page::TeamPlayers), "Team > Players");
         ui.frames(3);
-        CHECK(ui.find("##sqclub", "FC 27 LE Turbo") != nullptr || ui.find("###sqtabsquad", "FC 27 LE Turbo") != nullptr, "the page is drawn");
+        CHECK(ui.find("###tptabsquadlist", "FC 27 LE Turbo") != nullptr, "the page is drawn");
         CHECK(squad_table_state().table_drawn && squad_table_state().club == 241 && squad_table_state().rows == 3,
               fmt("the table of the picked club: %lld", static_cast<long long>(squad_table_state().club)));
-        bool picker = false;
-        for (const auto& kv : g_items)
-            if (kv.second.frame == g_frame && kv.second.label.find("##sqclub") != std::string::npos) picker = true;
-        CHECK(picker, "the club picker is inline");
         write_state(app, ui, le, original_state);
         CHECK(app.bridge.state().user_team == mine, "the career is back");
     });
 
-    run_case("Squad table: the Career tools tab keeps the five cards", [&] {
-        app.prefs.advanced_mode = true;  // 3.0.1: My squad (old page) is a Lab page since 3.0 (c497923a, ui_shell.cpp:66): the Lab is shown only with Advanced on (b153e489)
-        ui.frames(2);  // the rail draws the Lab from the next frame on
-        CHECK(ui.open_page("Lab", "My squad (old page)"), "Players > My squad");
-        ui.frames(3);
-        CHECK(ui.click("###sqtabtools", "FC 27 LE Turbo"), "the Career tools tab");
-        ui.frames(4);
-        int cards = 0;
-        for (const char* c : {"##career_form", "##career_roles", "##career_contracts", "##career_growth", "##career_tools"})
-            for (const auto& kv : g_items)
-                if (kv.second.frame == g_frame && kv.second.window.find(c) != std::string::npos) {
-                    ++cards;
-                    break;
-                }
-        CHECK(cards == 5, fmt("the five cards are there: %d", cards));
-        CHECK(ui.click("###sqtabsquad", "FC 27 LE Turbo"), "back to the Squad tab");
-        ui.frames(3);
-    });
-
     run_case("Squad table: four more v2.14 capabilities are on the default route (All clubs, More tools, All managers, kept player edits)", [&] {
-        app.prefs.advanced_mode = false;  // 3.0.1: back to the Simple view (the My squad cases above need the Lab)
         const ImVec2 old_display = ImGui::GetIO().DisplaySize;
         ImGui::GetIO().DisplaySize = ImVec2(1280.0f, 3400.0f);  // a whole page fits
         ui.frames(3);
@@ -338,8 +308,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
     });
 
-    app.legacy_pages = was_legacy;
-    app.prefs.advanced_mode = was_advanced;
     app.sel_team = old_sel_team;
     app.sel_player = old_sel_player;
     shell::player_edit_tab() = was_tab;
