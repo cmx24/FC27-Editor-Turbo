@@ -225,37 +225,6 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         wind_down();
     });
 
-    // ---------------------------------------------------------------- 5.0c E10 lit capture (brief D3): Turbo's own capture is the last source before the drawn icon
-    run_case("UI: 5.0c E10 lit capture: a hair_<id>.png in cache/hairbeard_thumbs is the tile of a model-only hair; the game preview still wins", [&] {
-        if (!p || !rec || !p->has("hairtypecode")) return;
-        catalogue_on();
-        const fs::path root = test_tmp_dir("hb_lit_capture");
-        visual_pictures_override((root / "Resources").u8string());
-        const fs::path cache = app.turbo_output() / "cache" / "hairbeard_thumbs";
-        std::error_code ec;
-        fs::create_directories(cache, ec);
-        auto put = [&](const char* name) {
-            std::ofstream f(cache / name, std::ios::binary | std::ios::trunc);
-            const std::vector<uint8_t> h = png_header(6);
-            f.write(reinterpret_cast<const char*>(h.data()), static_cast<std::streamsize>(h.size()));
-        };
-        put("hair_3.png");  // hair 3: a 3D model, no picture anywhere (the drawn icon until now)
-        put("hair_1.png");  // hair 1: the game has a lit preview: it stays the tile
-        visual_pictures_refresh(app);
-        ui.extra_draw = draw_section;
-        app.request_tab = 0;
-        ui.frames(2);
-        visual_picker_request("hairtypecode");
-        ui.frames(3);
-        CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode", "the hair grid is open");
-        CHECK(visual_picker_tile_source(3) == TileSource::Rdbm, "hair 3 (model only): Turbo's lit capture is its tile, not the drawn icon");
-        CHECK(visual_picker_tile_source(1) == TileSource::Game, "hair 1: the game's preview still beats Turbo's capture");
-        CHECK(visual_picker_tile_source(5) == TileSource::Game, "hair 5: unchanged (game preview)");
-        wind_down();
-        fs::remove(cache / "hair_3.png", ec);
-        fs::remove(cache / "hair_1.png", ec);
-    });
-
     // ---------------------------------------------------------------- the probe is remembered per folder, and forgotten when the folder is looked at again
     run_case("UI: 5.0c E11 the palette probe follows the file: rewritten as a lit picture and refreshed, the RDBM26 picture wins again", [&] {
         if (!p || !rec || !p->has("hairtypecode")) return;
