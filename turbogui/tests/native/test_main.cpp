@@ -3157,6 +3157,32 @@ public:
         if (!r) dump("click target not found: '" + label + "' in '" + win + "'");
         return click(r);
     }
+    // Players > Player (Page::PlayerEdit, on screen already): pick a row of the list, which the Profile tab draws in its ##select pane, then
+    // open the tab wanted (###pe_profile, ###pe_ability, ###pe_appearance, ###pe_callname). 2026-10-31: the classic tab's ##plist is gone
+    bool pick_player(const std::string& row, const std::string& tab = "###pe_profile") {
+        if (!click("###pe_profile")) return false;
+        frames(2);
+        if (!click(row, "##select")) return false;
+        frames(2);
+        if (tab == "###pe_profile") return true;
+        const bool ok = click(tab);
+        frames(2);
+        return ok;
+    }
+    // Team > Players > All clubs: the club browser and the club editor (ui_teams.cpp draw_teams: ##tlist, ##tedit and its tabs), the home of the
+    // classic Teams panel since 2.22. 2026-10-31: request_tab = 1 (the Teams tab) lands nowhere (shell::area_for)
+    bool open_all_clubs() {
+        app.go(turbo::shell::Page::TeamPlayers);
+        frames(2);
+        const bool ok = click("###tptabclubs");
+        frames(2);
+        return ok;
+    }
+    // The item on screen, or scrolled on screen when it is drawn below the fold (2026-10-31: the 3.0 pages are longer than the test window)
+    const ItemRec* reach(const std::string& label, const std::string& win = "", const std::string& scope = "") {
+        if (const ItemRec* r = find(label, win, scope)) return r;
+        return find_scrolling(label, win, scope);
+    }
     // The item drawn this frame with this label whose centre is outside the visible part of its window: scroll that window with the mouse wheel until
     // it is visible (at most 8 steps). A layout that grows by one line (a page strip that wraps, a longer label) must not turn a click into "not found".
     const ItemRec* find_scrolling(const std::string& label, const std::string& win, const std::string& scope) {
@@ -4273,18 +4299,22 @@ static void test_ui() {
             CHECK(!preview_preset_file(g_out / "missing.csv").ok, "missing file refused");
         });
 
+        // 2026-10-31 (5.0c menus step 6): the classic ten-tab editor (##plist, ##pedit, ##attr, ##prof, ##ps) is gone. The cases below run on
+        // Players > Player (Page::PlayerEdit, ##pe_tabs): the list is the ##select pane of the Profile and Attributes & roles tabs
+        // (draw_classic_player_list, the same filters), the editor the ##editor pane; the attribute boxes, the PlayStyles grid, the enum combos
+        // and the overall box are sections of Attributes & roles (ui_player_profile.cpp draw_player_ability), reached by scrolling (ui.reach)
         run_case("UI: Players list, select with the mouse, edit an attribute", [&] {
             CHECK(ui.click("Players"), "Players tab");
-            CHECK(ui.click("1002", "##plist"), "row 1002");
+            CHECK(ui.click("###pe_ability"), "Attributes & roles tab");
+            CHECK(ui.click("1002", "##select"), "row 1002");
             CHECK(app.sel_player == 1002, fmt("selected %lld", static_cast<long long>(app.sel_player)));
-            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
-            const ItemRec* acc = ui.find("##v", "##attr", "acceleration");
+            const ItemRec* acc = ui.reach("##v", "##editor", "acceleration");
             CHECK(acc != nullptr, "acceleration box");
             CHECK(ui.type_into(acc, "97"), "type 97");
             const Table* p = app.db.table("players");
             uint64_t rec = app.db.find(*p, "playerid", 1002);
             CHECK(app.db.get_int(*p, rec, "acceleration") == 97, fmt("acceleration = %lld", static_cast<long long>(app.db.get_int(*p, rec, "acceleration"))));
-            CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), "200"), "type 200");
+            CHECK(ui.type_into(ui.reach("##v", "##editor", "acceleration"), "200"), "type 200");
             CHECK(app.db.get_int(*p, rec, "acceleration") == 97, "out of range not written");
             CHECK(ui.toast_contains("outside the field range"), "error shown");
         });
@@ -4360,12 +4390,12 @@ static void test_ui() {
         });
 
         run_case("UI: search box filters the list", [&] {
-            const ItemRec* s = ui.find("##psearch", "##plist");
+            const ItemRec* s = ui.find("##psearch", "##select");
             CHECK(s != nullptr, "search box");
             ui.type_into(s, "saliba");
-            CHECK(ui.find("1003", "##plist") != nullptr && ui.find("1001", "##plist") == nullptr, "only Saliba listed");
-            ui.type_into(ui.find("##psearch", "##plist"), "");
-            CHECK(ui.find("1001", "##plist") != nullptr, "filter cleared");
+            CHECK(ui.find("1003", "##select") != nullptr && ui.find("1001", "##select") == nullptr, "only Saliba listed");
+            ui.type_into(ui.find("##psearch", "##select"), "");
+            CHECK(ui.find("1001", "##select") != nullptr, "filter cleared");
         });
 
         run_case("UI: Players list filters (position, PlayStyle, PlayStyle+, retiring, OVR, POT, age)", [&] {
@@ -4381,18 +4411,18 @@ static void test_ui() {
             const size_t all = app.model.players().size();
             ui.frames(2);
             CHECK(app.list_player_ids.size() == all, "no filter: everyone listed");
-            CHECK(ui.click("Retiring", "##plist"), "Retiring");
+            CHECK(ui.click("Retiring", "##select"), "Retiring");
             CHECK(expect([](const PlayerRow& p) { return p.retiring; }) && app.list_player_ids.size() == 1, "retiring: one player");
-            CHECK(ui.click("Retiring", "##plist"), "Retiring off");
-            CHECK(ui.click("##fstyle", "##plist"), "PlayStyle combo");
+            CHECK(ui.click("Retiring", "##select"), "Retiring off");
+            CHECK(ui.click("##fstyle", "##select"), "PlayStyle combo");
             CHECK(ui.click(playstyle1_names()[0], "##Combo"), "first PlayStyle");
             CHECK(expect([](const PlayerRow& p) { return (p.playstyles & 1) != 0; }) && !app.list_player_ids.empty(), "PlayStyle bit 0");
-            CHECK(ui.click("+ only", "##plist"), "+ only");
+            CHECK(ui.click("+ only", "##select"), "+ only");
             CHECK(expect([](const PlayerRow& p) { return (p.playstyles_plus & 1) != 0; }) && app.list_player_ids.size() == 1,
                   "PlayStyle+ bit 0: one player");
-            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(ui.click("Clear##filters", "##select"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared");
-            CHECK(ui.click("##fpos", "##plist"), "position combo");
+            CHECK(ui.click("##fpos", "##select"), "position combo");
             CHECK(ui.find("Show all internal positions", "##Combo") != nullptr, "the internal-codes toggle is offered");
             CHECK(ui.find(position_name(1), "##Combo") == nullptr && ui.find("RCB (internal, plays as CB)", "##Combo") == nullptr &&
                       ui.find("Any position", "##Combo") != nullptr && ui.find("ST", "##Combo") != nullptr,
@@ -4401,7 +4431,7 @@ static void test_ui() {
             CHECK(expect([](const PlayerRow& p) { return std::count(std::begin(p.positions), std::end(p.positions), 14) > 0; }) &&
                       expect([](const PlayerRow& p) { return player_passes_position(p, 14, false); }) && app.list_player_ids.size() > 1,
                   "position 14 as any of the 7 preferred positions");
-            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(ui.click("Clear##filters", "##select"), "Clear");
             // an internal code passes the filter of the visible position it plays as (core/model.h position_plays_as): 1003 is stored
             // as CB (5); as RCB (4) he must still be listed under the CB filter, and drop out once "Show all internal positions" (exact
             // codes) is ticked in the combo
@@ -4409,40 +4439,40 @@ static void test_ui() {
                 const Table* pt = app.db.table("players");
                 const uint64_t r1003 = pt ? app.db.find(*pt, "playerid", 1003) : 0;
                 CHECK(r1003 && app.db.get_int(*pt, r1003, "preferredposition1") == 5, "1003 is stored as CB");
-                CHECK(ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter");
+                CHECK(ui.click("##fpos", "##select") && ui.click("CB", "##Combo"), "CB filter");
                 CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
                           std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
                       "CB: 1003 listed");
                 CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 4), "1003 stored as RCB");
                 app.model.refresh_player(1003, kToday);
                 CHECK(app.model.player(1003) && app.model.player(1003)->positions[0] == 4, "the model row shows RCB");
-                CHECK(ui.click("Clear##filters", "##plist") && ui.click("##fpos", "##plist") && ui.click("CB", "##Combo"), "CB filter again");
+                CHECK(ui.click("Clear##filters", "##select") && ui.click("##fpos", "##select") && ui.click("CB", "##Combo"), "CB filter again");
                 CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, false); }) &&
                           std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1,
                       "CB filter: a player stored as RCB is listed (he plays as CB)");
-                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions on");
+                CHECK(ui.click("##fpos", "##select") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions on");
                 CHECK(position_show_all(), "the toggle is on");
                 CHECK(ui.click("CB", "##Combo"), "close the popup (CB stays picked)");
                 CHECK(expect([](const PlayerRow& p) { return player_passes_position(p, 5, true); }) &&
                           std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 0,
                       "with the toggle on the filter is exact: the RCB player is not listed under CB");
-                CHECK(ui.click("##fpos", "##plist") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions off");
+                CHECK(ui.click("##fpos", "##select") && ui.click("Show all internal positions", "##Combo"), "Show all internal positions off");
                 CHECK(!position_show_all(), "the toggle is off again");
                 CHECK(ui.click("CB", "##Combo"), "close the popup");
                 CHECK(std::count(app.list_player_ids.begin(), app.list_player_ids.end(), 1003) == 1, "RCB player back under CB");
                 CHECK(r1003 && app.db.set_int(*pt, r1003, "preferredposition1", 5), "1003 restored to CB");
                 app.model.refresh_player(1003, kToday);
-                CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+                CHECK(ui.click("Clear##filters", "##select"), "Clear");
                 CHECK(app.list_player_ids.size() == all, "cleared after the position cases");
             }
-            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "87"), "OVR from 87");
+            CHECK(ui.type_into(ui.find("##ovr_from", "##select"), "87"), "OVR from 87");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87; }), "OVR >= 87");
-            CHECK(ui.type_into(ui.find("##age_to", "##plist"), "25"), "age to 25");
+            CHECK(ui.type_into(ui.find("##age_to", "##select"), "25"), "age to 25");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.age >= 0 && p.age <= 25; }), "and age <= 25");
-            CHECK(ui.type_into(ui.find("##pot_from", "##plist"), "90"), "POT from 90");
+            CHECK(ui.type_into(ui.find("##pot_from", "##select"), "90"), "POT from 90");
             CHECK(expect([](const PlayerRow& p) { return p.overall >= 87 && p.potential >= 90 && p.age >= 0 && p.age <= 25; }),
                   "and POT >= 90");
-            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(ui.click("Clear##filters", "##select"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared again");
             // two-sided: age BETWEEN two numbers, overall up to a value, and from > to is pulled back (core/range_filter.h)
             int lo_age = 99, hi_age = -1;
@@ -4450,59 +4480,54 @@ static void test_ui() {
                 if (p.age >= 0) lo_age = std::min(lo_age, p.age), hi_age = std::max(hi_age, p.age);
             CHECK(hi_age > lo_age, fmt("test world ages span %d..%d", lo_age, hi_age));
             const int a_from = lo_age + 1, a_to = hi_age - 1;
-            CHECK(ui.type_into(ui.find("##age_from", "##plist"), std::to_string(a_from)), "age from");
-            CHECK(ui.type_into(ui.find("##age_to", "##plist"), std::to_string(a_to)), "age to");
+            CHECK(ui.type_into(ui.find("##age_from", "##select"), std::to_string(a_from)), "age from");
+            CHECK(ui.type_into(ui.find("##age_to", "##select"), std::to_string(a_to)), "age to");
             CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to; }) && app.list_player_ids.size() < all,
                   fmt("age between %d and %d", a_from, a_to));
-            CHECK(ui.type_into(ui.find("##ovr_to", "##plist"), "80"), "OVR to 80");
+            CHECK(ui.type_into(ui.find("##ovr_to", "##select"), "80"), "OVR to 80");
             CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall <= 80; }), "and OVR <= 80 (upper bound only)");
-            CHECK(ui.type_into(ui.find("##ovr_from", "##plist"), "90"), "OVR from 90 while to is 80");
+            CHECK(ui.type_into(ui.find("##ovr_from", "##select"), "90"), "OVR from 90 while to is 80");
             CHECK(expect([&](const PlayerRow& p) { return p.age >= a_from && p.age <= a_to && p.overall >= 90 && p.overall <= 90; }),
                   "from above to: to follows (90-90)");
-            CHECK(ui.click("Clear##filters", "##plist"), "Clear");
+            CHECK(ui.click("Clear##filters", "##select"), "Clear");
             CHECK(app.list_player_ids.size() == all, "cleared after the ranges");
-            CHECK(ui.click("Free agent", "##plist"), "Free agent");
+            CHECK(ui.click("Free agent", "##select"), "Free agent");
             CHECK(expect([](const PlayerRow& p) { return p.club == 0; }), "free agents: players without a club");
-            CHECK(ui.click("Free agent", "##plist"), "Free agent off");
+            CHECK(ui.click("Free agent", "##select"), "Free agent off");
             CHECK(app.list_player_ids.size() == all, "everyone again");
         });
 
         run_case("UI: PlayStyles All/None buttons and a single bit", [&] {
-            CHECK(ui.click("PlayStyles", "##pedit"), "PlayStyles tab");
+            // the PlayStyles and traits section of Attributes & roles (playstyle_bits: a "##bits" grid per field, All / None after it)
+            CHECK(app.sel_player == 1002 && ui.find("###pe_ability") != nullptr, "player 1002 on Attributes & roles");
             const Table* p = app.db.table("players");
             uint64_t rec = app.db.find(*p, "playerid", 1002);
-            CHECK(ui.click("All", "##ps", "trait1"), "All (trait1)");
+            CHECK(ui.click("###ab_all", "##editor", "trait1"), "All (trait1)");
             CHECK(app.db.get_int(*p, rec, "trait1") == (1 << 30) - 1, "all PlayStyles");
-            CHECK(ui.click("None", "##ps", "trait1"), "None (trait1)");
+            CHECK(ui.click("###ab_none", "##editor", "trait1"), "None (trait1)");
             CHECK(app.db.get_int(*p, rec, "trait1") == 0, "no PlayStyles");
-            // bit checkboxes ("<name>##<bit>") of trait1 are the topmost ones on the PlayStyles tab
-            const ItemRec* bit0 = nullptr;
-            for (const auto& kv : g_items) {
-                const ItemRec& r = kv.second;
-                if (r.frame != g_frame || r.window.find("##ps") == std::string::npos) continue;
-                if (r.label.size() < 3 || r.label.compare(r.label.size() - 3, 3, "##0") != 0) continue;
-                if (!bit0 || r.rect.Min.y < bit0->rect.Min.y) bit0 = &r;
-            }
+            // bit checkboxes ("<name>###ab_bit<bit>") of trait1, the first set of the section
+            const ItemRec* bit0 = ui.reach(std::string(playstyle1_names()[0]) + "###ab_bit0", "##editor");
             CHECK(bit0 != nullptr, "first PlayStyle checkbox");
             ui.click(bit0);
             CHECK(app.db.get_int(*p, rec, "trait1") == 1, fmt("bit 0 set: %lld", static_cast<long long>(app.db.get_int(*p, rec, "trait1"))));
         });
 
-        run_case("UI: Profile tab shows the corrected birth date and age", [&] {
-            CHECK(ui.click("Profile", "##pedit"), "Profile tab");
-            CHECK(ui.find("##v", "##prof", "overallrating") != nullptr, "overall box");
+        run_case("UI: the overall box of Attributes & roles writes the row and refreshes the list", [&] {
+            // (was "Profile tab shows the corrected birth date and age": the overall box moved to Attributes & roles > Overall and potential)
+            CHECK(ui.reach("##v", "##editor", "overallrating") != nullptr, "overall box");
             const Table* p = app.db.table("players");
             uint64_t rec = app.db.find(*p, "playerid", 1002);
-            CHECK(ui.type_into(ui.find("##v", "##prof", "overallrating"), "91"), "type overall");
+            CHECK(ui.type_into(ui.reach("##v", "##editor", "overallrating"), "91"), "type overall");
             CHECK(app.db.get_int(*p, rec, "overallrating") == 91, "overall written");
             CHECK(app.model.player(1002)->overall == 91, "list row refreshed");
         });
 
-        run_case("UI: Profile: enum combo (preferred foot) and undo of the last edits", [&] {
+        run_case("UI: Attributes & roles: enum combo (preferred foot) and undo of the last edits", [&] {
             const Table* p = app.db.table("players");
             uint64_t rec = app.db.find(*p, "playerid", 1002);
             int64_t foot0 = app.db.get_int(*p, rec, "preferredfoot");
-            CHECK(ui.click("##e", "##prof", "preferredfoot"), "preferred foot combo");
+            CHECK(ui.click("##e", "##editor", "preferredfoot"), "preferred foot combo (Playing style and roles)");
             ui.frames(2);
             const char* want = foot0 == 1 ? "Left##2" : "Right##1";
             CHECK(ui.click(want, "##Combo"), "pick the other foot");
@@ -4511,22 +4536,20 @@ static void test_ui() {
             // undo: the foot, then the overall (91 from the previous case)
             size_t n = app.undo_count(1002);
             CHECK(n >= 2, fmt("undo steps recorded: %zu", n));
-            CHECK(ui.click(fmt("Undo (%zu)##pundo", n), "##pedit"), "Undo button");
+            CHECK(ui.click(fmt("Undo (%zu)###ab_undo", n), "##editor"), "Undo button (the editor header)");
             CHECK(app.db.get_int(*p, rec, "preferredfoot") == foot0, "foot back");
             CHECK(ui.toast_contains("undone: Preferred Foot"), "toast names the field");
             CHECK(app.undo(1002), "undo the overall");
             CHECK(app.db.get_int(*p, rec, "overallrating") != 91 && app.model.player(1002)->overall != 91, "overall back, list row refreshed");
             // a slider writes through the same range check: click the middle of acceleration's slider
-            CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
-            const ItemRec* sl = ui.find("##s", "##attr", "acceleration");
+            const ItemRec* sl = ui.reach("##s", "##editor", "acceleration");
             CHECK(sl != nullptr, "acceleration slider");
             const Field* af = p->field("acceleration");
             CHECK(ui.click(sl), "click the slider");
             int64_t acc = app.db.get_int(*p, rec, "acceleration");
             CHECK(acc >= af->min && acc <= af->max(), fmt("slider value %lld inside %lld..%lld", (long long)acc, (long long)af->min, (long long)af->max()));
-            CHECK(ui.type_into(ui.find("##v", "##attr", "acceleration"), "500"), "type 500 in the box next to it");
+            CHECK(ui.type_into(ui.reach("##v", "##editor", "acceleration"), "500"), "type 500 in the box next to it");
             CHECK(app.db.get_int(*p, rec, "acceleration") == acc && ui.toast_contains("outside the field range"), "out of range refused");
-            CHECK(ui.find("Pace  (average", "##attr") != nullptr || true, "group average header drawn");
         });
 
 
@@ -4848,7 +4871,7 @@ static void test_ui() {
         });
 
         run_case("UI: Teams, squad jersey edit, jump to player", [&] {
-            CHECK(ui.click("Teams"), "Teams tab");
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(app.sel_team == 7, "team selected");
             CHECK(ui.click("Squad", "##tedit"), "Squad tab");
@@ -4861,7 +4884,7 @@ static void test_ui() {
             CHECK(ui.click("Jordan Pickford", "##tedit"), "click player in squad");
             ui.frames(2);
             CHECK(app.sel_player == 2001, "player selected from squad");
-            CHECK(ui.find("1002", "##plist") != nullptr, "Players tab opened");
+            CHECK(app.place() == turbo::shell::place_of(turbo::shell::Page::PlayerEdit), "Players > Player opened (the page route)");
         });
 
         // Teams > Name (1.1.1): one form, one Save. Save publishes the names to the host's hook (a fake here: what the
@@ -4914,8 +4937,7 @@ static void test_ui() {
             // ---- no hook (this build of Turbo has none): Save still writes everything, the line says when it shows
             CHECK(app.team_names_service == nullptr && app.team_names_status_line() == "Live team names: off (not in this build of Turbo) | 0 renamed clubs",
                   "no service: " + app.team_names_status_line());
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Name", "##tedit"), "Name tab");
             ui.frames(2);
@@ -5152,8 +5174,7 @@ static void test_ui() {
             fs::path pics = le / "turbo_crests";
             fs::create_directories(pics);
             { std::ofstream f(pics / "badge.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton");
             CHECK(ui.click("Crest", "##tedit"), "Crest tab");
             ui.frames(80);  // missing.txt is read once a second; the plan is rebuilt every half second while waiting
@@ -5231,8 +5252,7 @@ static void test_ui() {
 
         run_case("UI: Teams > Job offer tab: prefilled with the selected team, button gated by the capability, confirmation sends the job_offer module", [&] {
             app.mailbox->cancel();
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Job offer", "##tedit"), "Job offer tab");
             ui.frames(2);
@@ -5327,8 +5347,7 @@ static void test_ui() {
 
         run_case("UI: Teams > Mass actions: one button per action, confirmation, the team_mass module gets the team and the action", [&] {
             app.mailbox->cancel();
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
             ui.frames(2);
@@ -5391,8 +5410,7 @@ static void test_ui() {
 
         run_case("UI: Squad roles rule editor: add rule, Preview (command and table from role_preview.json), Apply, Clear saved rule, kill-switch status", [&] {
             app.mailbox->cancel();
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             app.sel_team = 1;  // the user's club (Arsenal)
             ui.frames(2);
             CHECK(ui.click("Mass actions", "##tedit"), "Mass actions tab");
@@ -6096,8 +6114,9 @@ static void test_ui() {
             { std::ofstream f(pics / "face.png", std::ios::binary); f.write(reinterpret_cast<const char*>(kTestPng), sizeof(kTestPng)); }
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.click("1002", "##plist"), "player 1002");
-            CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
+            // 2026-10-31 (5.0c menus step 6): the classic Miniface tab is gone; the same editor (ui_images.cpp miniface_editor) is the Player miniface
+            // card of the Looks tab (Players > Player > Looks = the Appearance Editor for the picked player, ui_looks_studio.cpp)
+            CHECK(ui.pick_player("1002", "###pe_appearance"), "player 1002, Looks tab");
             ui.frames(3);
             app.legacy.flush();  // want.txt is written at most every 0.5 s
             std::string want = read_file(le / "turbo_output" / "cache" / "legacy" / "want.txt");
@@ -6150,8 +6169,7 @@ static void test_ui() {
             app.capture.reset();
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.click("1002", "##plist"), "player 1002");
-            CHECK(ui.click("Miniface", "##pedit"), "Miniface tab");
+            CHECK(ui.pick_player("1002", "###pe_appearance"), "player 1002, Looks tab (the Player miniface card)");  // 2026-10-31: the classic Miniface tab is gone
             CHECK(ui.click("The 3D model", "##mface"), "3D model tab");
             ui.frames(2);
             CHECK(ui.find("Generate from 3D model") != nullptr, "button drawn without a service");
@@ -7122,8 +7140,7 @@ static void test_ui() {
             CHECK(ui.click("Cancel"), "cancel");
             CHECK(ui.click("Profile", "##pedit"), "back to Profile");
             // Teams > Overview: the club's ban section
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Overview", "##tedit"), "Overview tab");
             ui.frames(2);
@@ -7162,9 +7179,8 @@ static void test_ui() {
             app.bank_capture_status.clear();
             app.request_tab = 0;
             ui.frames(3);
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1001", "###pe_callname"), "row 1001 (Saka), Callname tab");
             ui.frames(2);
             CHECK(ui.click("###cncapture"), "the memory scan is manual now (the audio service is the automatic path)");
             for (int i = 0; i < 500 && app.bank_capture_running(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -7261,9 +7277,8 @@ static void test_ui() {
             app.spoken_build_status.clear();
             app.request_tab = 0;
             ui.frames(3);
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1001", "###pe_callname"), "row 1001 (Saka), Callname tab");
             ui.frames(4);
             CHECK(app.spoken_auto_tried && svc->probes == 1 && svc->requests == 1 && app.spoken_watch.bound_seen() == 1,
                   fmt("no list and no cache: a probe answers 'bound', the build starts by itself (probes %d, builds %d)", svc->probes, svc->requests));
@@ -7364,7 +7379,7 @@ static void test_ui() {
                       app.spoken_watch_line().find("Create Player") != std::string::npos && app.spoken_watch_line().find("not bound in this screen") != std::string::npos,
                   "watcher line: " + app.spoken_watch_line());
             CHECK(svc->last.probe && svc->last.names.size() >= 5 && svc->last.names.size() <= 64 && svc->last.players.empty(), fmt("the probe asked a sample of %zu ids", svc->last.names.size()));
-            CHECK(ui.click("1001", "##plist") && ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.pick_player("1001", "###pe_callname"), "Callname tab");
             ui.frames(2);
             CHECK(app.spoken_watch_line().find("not built yet") != std::string::npos && !app.callnames.spoken.verified, "the tab shows the watcher line (drawn from spoken_watch_line)");
             CHECK(svc->probes == 1, "no second probe within the interval");
@@ -7433,9 +7448,8 @@ static void test_ui() {
               std::ofstream(loaded_language_path(le).string(), std::ios::trunc) << saved_language_json(sv); }
             app.request_tab = 0;
             ui.frames(3);
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1001", "###pe_callname"), "row 1001 (Saka), Callname tab");
             ui.frames(2);
             CHECK(app.callnames.lang == "ita_it" && app.callnames.spoken.verified, "language detected on first draw: " + app.callnames.lang);
             CHECK(app.callnames.index.built && app.callnames.index.names.size() == 5, fmt("picker index built: %zu names", app.callnames.index.names.size()));
@@ -7505,8 +7519,7 @@ static void test_ui() {
             CHECK(ui.click("Cancel"), "cancel");
             // a player with an editedplayernames row (3002, his shirt name emptied as 1.0.2's rows left it): the row is
             // edited in place FIRST (shown names and his shirt name), then the name id; nothing queued
-            CHECK(ui.click("3002", "##plist"), "row 3002 (Ali Zed)");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.pick_player("3002", "###pe_callname"), "row 3002 (Ali Zed), Callname tab");
             uint64_t erec = app.db.find(*et, "playerid", 3002);
             CHECK(erec && app.db.set(*et, erec, *et->field("playerjerseyname"), Value::of_str("")), "his shirt name emptied");
             CHECK(ui.type_into(ui.find("##cnsearch"), "saka"), "type saka");
@@ -7534,7 +7547,7 @@ static void test_ui() {
             // a full editedplayernames table and no row of his (1002): nothing written, nothing queued (never an insert
             // into a full table)
             CHECK(mem.wr(et->header + 0x78, ep_written) && mem.wr(et->header + 0x7A, ep_written), "editedplayernames made full");
-            CHECK(ui.click("1002", "##plist") && ui.click("Callname", "##pedit"), "row 1002");
+            CHECK(ui.pick_player("1002", "###pe_callname"), "row 1002");
             CHECK(ui.type_into(ui.find("##cnsearch"), "kan") && ui.click("17", "##cnames"), "pick Kane");
             uint64_t rec1002 = app.db.find(*pt, "playerid", 1002);
             const int64_t last1002 = app.db.get_int(*pt, rec1002, "lastnameid");
@@ -7559,7 +7572,7 @@ static void test_ui() {
             CHECK(app.db.set_int(*mt0, r1003, "playerid", 1003) && app.db.set_int(*mt0, r1003, "commentaryid", 900010), "row restored");
             CHECK(mem.wr(mt0->header + 0x78, pm_cap) && mem.wr(mt0->header + 0x7A, pm_cap), "playernamemap capacity restored");
             CHECK(ui.click("Refresh##cn"), "refresh the index");
-            CHECK(ui.click("3002", "##plist") && ui.click("Callname", "##pedit"), "back to 3002");
+            CHECK(ui.pick_player("3002", "###pe_callname"), "back to 3002");
             // BY PLAYER: copy player 1003's callname (900010) to 3002 -> no playernamemap row yet: queued for Lua
             CHECK(ui.click("By player", "##cname"), "By player tab");
             CHECK(ui.type_into(ui.find("##cpsearch"), "saliba"), "type saliba");
@@ -7686,8 +7699,7 @@ static void test_ui() {
                       "index rebuilt, no list");
             }
             // a player with a playernamemap row (2001, 950000): edited in place; then its removal asks for confirmation and queues Lua
-            CHECK(ui.click("2001", "##plist"), "row 2001");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.pick_player("2001", "###pe_callname"), "row 2001, Callname tab");
             CallnameInfo r2001 = app.callnames.resolve(*app.model.player(2001), app.db);
             CHECK(r2001.commentaryid == 950000 && r2001.source == CallnameSource::PlayerSpecific, "player-specific callname shown");
             CHECK(ui.click("By player", "##cname"), "By player tab");
@@ -7760,9 +7772,8 @@ static void test_ui() {
             app.callnames.refreshed = false;
             app.request_tab = 0;
             ui.frames(3);
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1001", "##plist"), "row 1001 (Saka)");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1001", "###pe_callname"), "row 1001 (Saka), Callname tab");
             ui.frames(2);
             const CallnameTabState& st = callname_tab_state();
             CHECK(app.callnames.masters.loaded() && app.callnames.masters.real_players.size() == 2, "the FC 26 list is loaded: " + app.callnames.masters_error);
@@ -8101,9 +8112,8 @@ static void test_ui() {
             CHECK(fv.publishes == 1 && fv.last.empty() && fv.refreshes >= 1,
                   fmt("published once the service is there (%d), switches refreshed (%d)", fv.publishes, fv.refreshes));
             CHECK(app.voice_status_line() == "Voice swaps: on | 0 swaps | lines changed 0 | kick-off set 0", "status: " + app.voice_status_line());
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1002", "##plist"), "row 1002");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1002", "###pe_callname"), "row 1002, Callname tab");
             ui.frames(2);
             const CallnameTabState& st = callname_tab_state();
             CHECK(st.playerid == 1002 && st.own == 0 && app.callnames.masters.fc27(), "1002 opened, the FC 27 master loaded: " + app.callnames.masters_error);
@@ -8415,8 +8425,7 @@ static void test_ui() {
             CHECK(app.db.get_int(*KT(), k11, "teamcolorprimr") == 99 && hooked_line("re-apply").empty(), "no re-apply for the same career");
 
             // ---- the panels: the status line and Forget (Teams > Colours: Everton's home kit), Remove (Callname: 1006)
-            app.request_tab = 1;
-            ui.frames(2);
+            CHECK(ui.open_all_clubs(), "Team > Players > All clubs (the club editor)");
             CHECK(ui.click("7", "##tlist"), "Everton row");
             CHECK(ui.click("Colours", "##tedit"), "Colours tab");
             ui.frames(2);
@@ -8425,9 +8434,8 @@ static void test_ui() {
             CHECK(!app.reapply.kit(7, 0, 70) && app.reapply.kit(1, 1, 11), "Everton's kit forgotten, Arsenal's kept");
             app.request_tab = 0;
             ui.frames(2);
-            CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
-            CHECK(ui.click("1006", "##plist"), "row 1006");
-            CHECK(ui.click("Callname", "##pedit"), "Callname tab");
+            CHECK(ui.click("###pe_profile") && ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared (Profile tab, the list pane)");
+            CHECK(ui.pick_player("1006", "###pe_callname"), "row 1006, Callname tab");
             ui.frames(2);
             CHECK(ui.find("Forget##cnkeep") != nullptr, "kept callname shown with Forget");
             CHECK(ui.click("Remove player-specific callname..."), "remove button");
