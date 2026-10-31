@@ -726,17 +726,17 @@ Plan plan_preset(const Preset& p, const SliderMap& m) {
     for (const auto& kv : p.values) {
         const Entry* e = m.entry(kv.first);
         if (!e) {
-            out.skipped.push_back(kv.first + ": not in the slider map");
+            out.skipped.push_back(kv.first + ": not in map");
             continue;
         }
         if (e->index < 0 && e->custom_index < 0) {
-            out.skipped.push_back(e->label + ": not mapped yet");
+            out.skipped.push_back(e->label + ": not mapped");
             continue;
         }
         const bool table_only = !e->verified && e->inferred() && p.include_unverified;
         if (!e->verified && !table_only) {
-            out.skipped.push_back(e->label + (e->inferred() ? ": mapped from the game's table but not seen on the EA screen yet (the preset does not include unverified sliders)"
-                                                            : ": not verified in game yet (read-only)"));
+            // 5.0 copy: a reason is at most 6 words ("<label>: <reason>")
+            out.skipped.push_back(e->label + (e->inferred() ? ": table-mapped only, read-only" : ": not verified, read-only"));
             continue;
         }
         int v = kv.second;

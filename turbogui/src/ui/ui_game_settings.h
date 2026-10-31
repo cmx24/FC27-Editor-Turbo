@@ -1,12 +1,13 @@
 // FC 27 LE Turbo GUI - the "Game settings" tab: the game's own settings file (Settings > Game Settings: match, player, the User and CPU
-// sliders), read-only here, and presets of its values (core/game_settings.h).
+// sliders) and presets of its values (core/game_settings.h).
 //
 // The overlay runs inside FC 27, and the game keeps its settings in memory and saves them to a NEW file name: so this tab never writes
-// the settings file. It reads the one Settings<timestamp> file (first look and Refresh only), lists every slider of the slider map with
-// its value now ("not mapped yet" / "not verified: read-only"), and manages presets in turbo_output\settings_presets (Save current,
-// Load = stage turbo_output\settings_pending.json, Rename, Delete, Duplicate, Import, Export). The staged file is applied by
-// turbo\turbo_settings_apply.exe --apply with the game CLOSED (backup, CRC, Undo); the tab says so. It never touches CmMgrC* (careers),
-// Squads* or ProfileOptions*. A preset holds and stages only sliders verified in game (none in 2.8: the marker launch proves the map).
+// the settings file. It reads the one Settings<timestamp> file (first look and Refresh only) and lists every slider of the slider map
+// with its value now. 5.0 sliders: a VERIFIED slider with a Custom index is a real slider; releasing it writes that one value into the
+// running game's Custom block (gsettings::live, the same path as Load; NOT proven in game). Other rows are "read-only" / "not mapped".
+// Presets live in turbo_output\settings_presets (Save current, Load = the live write of the preset, Rename, Delete, Duplicate, Import,
+// Export). This tab stages nothing for the apply tool any more; game_settings_stage / _unstage below stay for the tactics pages.
+// It never touches CmMgrC* (careers), Squads* or ProfileOptions*.
 #pragma once
 #include <filesystem>
 #include <map>
@@ -24,13 +25,14 @@ struct GameSettingsViewState {
     std::string map_line;    // "slider_map_6AC07E31.json: 85 sliders, 0 verified" / why not
     bool closed_note = false;  // the "close and relaunch, never CmMgrC*" note was drawn
     struct Row {
-        std::string id, label, group, value, state;  // value: "50" / "not mapped yet"; state: "verified" / "not verified: read-only" / "not mapped yet"
+        std::string id, label, group, value, state;  // value: "50" / "-" (none, or not mapped); state: "verified" / "read-only" / "not mapped"
     };
     std::vector<Row> rows;
     int slots = 0;                     // candidate slots listed (read-only)
     std::vector<std::string> presets;  // names
     std::string preset_line;           // the last Save / Load / Rename / Delete / Duplicate / Import / Export outcome
-    std::string pending_line;          // the staged file ("" = none)
+    std::string live_line;             // 5.0 sliders: the last slider write's outcome ("<label> = N written ..." / "Not applied: <why>"; "" = none)
+    std::string pending_line;          // a file the tactics page staged ("" = none)
     std::vector<std::string> preset_errors;
     int file_reads = 0;                // how often the settings file was read (first look, Refresh, after Save)
 };
