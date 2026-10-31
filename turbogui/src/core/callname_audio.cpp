@@ -79,6 +79,7 @@ void parse_master_audio(const nlohmann::json& j, MasterAudio& out) {
             read_bank(*it, "generic", out.generic);
             read_bank(*it, "real", out.real);
             read_bank(*it, "real_link", out.real_link);
+            read_bank(*it, "real_high", out.real_high);
         }
     } catch (const std::exception&) {
         const uint64_t gen = out.gen;
@@ -87,10 +88,12 @@ void parse_master_audio(const nlohmann::json& j, MasterAudio& out) {
     }
 }
 
-fs::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, int64_t segment, bool link) {
+fs::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, int64_t segment, bool link, bool high) {
     const std::string seg = std::to_string(segment);
-    const char* prefix = kind == CallnameAudioKind::Generic ? "pSIMPLE_SURNAME_" : link ? "pPLAYER_NAMES_LINK_" : "pPLAYER_NAMES_SIMPLE_";
-    return fs::u8path(wav_dir) / (kind == CallnameAudioKind::Generic ? "generic" : link ? "real_link" : "real") / (prefix + seg + "_" + seg + ".wav");
+    const bool gen = kind == CallnameAudioKind::Generic;
+    const char* prefix = gen ? "pSIMPLE_SURNAME_" : high ? "pPLAYER_NAMES_HIGH_" : link ? "pPLAYER_NAMES_LINK_" : "pPLAYER_NAMES_SIMPLE_";
+    const char* folder = gen ? "generic" : high ? "real_high" : link ? "real_link" : "real";
+    return fs::u8path(wav_dir) / folder / (prefix + seg + "_" + seg + ".wav");
 }
 
 std::vector<fs::path> callname_wavs(const MasterAudio& a, CallnameAudioKind kind, int64_t id) {
@@ -100,16 +103,17 @@ std::vector<fs::path> callname_wavs(const MasterAudio& a, CallnameAudioKind kind
         out.push_back(fs::u8path(a.wav_dir) / (std::to_string(id) + ".wav"));
         return out;
     }
-    auto add = [&](const std::unordered_map<int64_t, std::vector<int64_t>>& bank, bool link) {
+    auto add = [&](const std::unordered_map<int64_t, std::vector<int64_t>>& bank, bool link, bool high) {
         auto it = bank.find(id);
         if (it == bank.end()) return;
-        for (int64_t s : it->second) out.push_back(callname_wav_path(a.wav_dir, kind, s, link));
+        for (int64_t s : it->second) out.push_back(callname_wav_path(a.wav_dir, kind, s, link, high));
     };
     if (kind == CallnameAudioKind::Generic) {
-        add(a.generic, false);
+        add(a.generic, false, false);
     } else {
-        add(a.real, false);
-        add(a.real_link, true);
+        add(a.real, false, false);
+        add(a.real_link, true, false);
+        add(a.real_high, false, true);  // preview only: the high-intensity variations, after the kick-off ones
     }
     return out;
 }

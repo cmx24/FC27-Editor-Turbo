@@ -872,6 +872,11 @@ static bool voice_pick_buttons(App& app, const Table& t, const PlayerRow& p, con
     if (!gate.ok) ImGui::TextColored(kOrange, "Not usable in matches: %s", gate.why.c_str());
     if (r.own()) {
         const bool self = r.playerid == p.playerid;
+        if (gate.ok) {
+            const std::string only = app.callnames.bank.spoken_by_teams_only(r.playerid);
+            if (!only.empty())
+                ImGui::TextColored(kYellow, "Recorded by the %s commentary team only: in matches the other team says no name for him.", only.c_str());
+        }
         if (self || !gate.ok) ImGui::BeginDisabled();
         if (ImGui::Button("Use his voice##all")) request_voice(app, t, p, r, own);
         if (self || !gate.ok) ImGui::EndDisabled();
@@ -1095,7 +1100,14 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
                     ImGui::SetTooltip("Only the high-intensity set has him: the kick-off name check asks the simple and link sets, so the\n"
                                       "game does not use him as 'his own recording' and he cannot be a voice source.");
             } else if (r.own()) {
-                ImGui::TextDisabled("%s", r.hidden ? "own recording, not in this save" : "own recording");
+                // every team of eng_us in use: a player only one commentary team recorded says no name while the other one commentates
+                const std::string only = from_bank ? bank.spoken_by_teams_only(r.playerid) : std::string();
+                const std::string what = std::string(r.hidden ? "own recording, not in this save" : "own recording") +
+                                         (only.empty() ? "" : " (" + only + " only)");
+                ImGui::TextDisabled("%s", what.c_str());
+                if (!only.empty() && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Only the %s commentary team recorded him: the game says his name while that team commentates,\n"
+                                      "and no name while the other one does.", only.c_str());
             } else {
                 ImGui::Text("%d name row%s, %d player%s", r.name_rows, r.name_rows == 1 ? "" : "s", r.users, r.users == 1 ? "" : "s");
             }

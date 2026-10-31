@@ -43,13 +43,16 @@ struct CallnameDbUse {
 };
 
 // Rows of "All callnames" from the bank: the generic ids (bank and master list) by text, then the own recordings (bank,
-// the other commentary team's and master list) by name. Names: database > catalog > master list > "Callname #id" (name_source says which: "db",
+// the other commentary team's and master list) by name. Names: database > catalog > master list > "Callname #id"; a
+// generic id: database > FC 27 master > catalog > other master, the FC 27 master's word appended when the database's
+// name row says another one (name_source says which: "db",
 // "master:<lang>" / "slug" / ... from the catalog, "master" for the master list, "" for the fallback).
 // Flags: recorded = the bank has the recording (false: only the master list names it, so it is not a voice source);
 // hidden = recorded and no row of the save uses the id; in_master = the master list has it.
 inline std::vector<AllCallnameRow> all_callnames_bank(const CatalogBank& b, const MasterList& m, const CallnameIndex& ix,
                                                       const CallnameDbUse& use) {
     using callnames_catalog_detail::by_text;
+    using callnames_catalog_detail::lower;
     std::vector<AllCallnameRow> gen, own;
     // ---- generic recordings
     std::unordered_set<int64_t> gids(b.generic.begin(), b.generic.end());
@@ -83,28 +86,48 @@ inline std::vector<AllCallnameRow> all_callnames_bank(const CatalogBank& b, cons
     }
     std::unordered_map<int64_t, const std::string*> db_name_text;  // nameid -> the database's text
     for (const auto& c : ix.names) db_name_text[c.nameid] = &c.name;
+    // what the recording says: an FC 27 master's label is the game's own commentarynames text (callname_coverage.py), the
+    // catalog's commentary names come from the older (FC 26-era) masters, which label 60 English ids with the player
+    // the owner used them for (a player name for an id whose recording says another surname)
+    auto spoken_label = [&](int64_t cid, std::string& src) -> std::string {
+        if (m.fc27()) {
+            auto t = m.generic_names.find(cid);
+            if (t != m.generic_names.end() && !t->second.empty()) {
+                src = "master";
+                return t->second;
+            }
+        }
+        auto c = b.commentary_names.find(cid);
+        if (c != b.commentary_names.end() && !c->second.text.empty()) {
+            src = c->second.source;
+            return c->second.text;
+        }
+        auto t = m.generic_names.find(cid);
+        if (t != m.generic_names.end() && !t->second.empty()) {
+            src = "master";
+            return t->second;
+        }
+        return std::string();
+    };
     for (auto& r : gen) {
         const int64_t cid = r.commentaryid;
+        std::string src;
+        const std::string spoken = spoken_label(cid, src);
         if (r.nameid) {
             auto d = db_name_text.find(r.nameid);
             if (d != db_name_text.end() && !d->second->empty()) {
                 r.text = *d->second;
                 r.name_source = "db";
+                // the name row's text is a player's name; when an FC 27 master says the recording is another word, show
+                // both (the search finds either): "<name row> | <spoken word>"
+                if (src == "master" && m.fc27() && lower(spoken).find(lower(r.text)) == std::string::npos &&
+                    lower(r.text).find(lower(spoken)) == std::string::npos)
+                    r.text += " | " + spoken;
             }
         }
-        if (r.text.empty()) {
-            auto c = b.commentary_names.find(cid);
-            if (c != b.commentary_names.end()) {
-                r.text = c->second.text;
-                r.name_source = c->second.source;
-            }
-        }
-        if (r.text.empty()) {
-            auto t = m.generic_names.find(cid);
-            if (t != m.generic_names.end() && !t->second.empty()) {
-                r.text = t->second;
-                r.name_source = "master";
-            }
+        if (r.text.empty() && !spoken.empty()) {
+            r.text = spoken;
+            r.name_source = src;
         }
         if (r.text.empty()) r.text = assets::fallback_name(assets::Family::Callnames, cid);
         r.hidden = r.recorded && r.name_rows == 0 && !use.commentary_ids.count(cid);
