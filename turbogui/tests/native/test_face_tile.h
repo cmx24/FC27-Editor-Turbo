@@ -105,6 +105,22 @@ static Asked asked(const FakeCapture& fk) {
     return a;
 }
 
+// The end of a case that leaves a request in flight: close the chooser (no more on-screen heads), empty the queues, let the game answer
+// what is in flight, so the next case starts with nothing in flight (re-review 10-31: T2 left its re-arm request in flight, and the next
+// case's fake never answered it, so nothing more was sent until the 20 s timeout)
+static void drain(Ui& ui, FakeCapture& fk) {
+    if (ui.find("Close##faces")) ui.click("Close##faces");
+    ui.frames(2);
+    faces3d_stop();
+    for (int i = 0; i < 4 && fk.pending; ++i) {
+        answer(fk, [](int32_t) { return false; });
+        ui.frames(6);
+        faces3d_stop();
+    }
+    fk.pending = false;
+    fk.answers.clear();
+}
+
 static bool open_hidden_scope(Ui& ui) {
     if (!ui.click("3001", "##plist") || !ui.click("Appearance", "##pedit") || !ui.click("Choose a real face...")) return false;
     ui.frames(3);
@@ -232,10 +248,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
 #ifdef TURBO_FACE_TILE_DEBUG_API
         face_tile_debug_enable(false);
 #endif
-        fake->pending = false;
-        fake->answers.clear();
-        if (ui.find("Close##faces")) ui.click("Close##faces");
-        ui.frames(2);
+        drain(ui, *fake);
         app.capture.reset();
         fs::remove_all(r3d, ec);
         forget_renders(app);
@@ -293,11 +306,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(trip_req < fake->requests.size(), fmt("12 hidden heads failed (%zu asked in %zu requests)", cum, fake->requests.size()));
         CHECK(fake->requests.size() == trip_req + 1,
               fmt("no request after the one that tripped the breaker (tripped in request %zu, %zu requests sent)", trip_req + 1, fake->requests.size()));
-        fake->pending = false;
-        fake->answers.clear();
-        faces3d_stop();
-        if (ui.find("Close##faces")) ui.click("Close##faces");
-        ui.frames(2);
+        drain(ui, *fake);
         app.capture.reset();
         fs::remove_all(r3d, ec);
         forget_renders(app);
