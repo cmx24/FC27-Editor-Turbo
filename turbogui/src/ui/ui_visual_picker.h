@@ -85,7 +85,7 @@ bool grid_apply(App& app, const Table& t, uint64_t rec, const char* field, std::
 
 // ---- tests
 // Where a tile's picture comes from (the merged grid)
-enum class TileSource { Rdbm, Swatch, Game, Placeholder, NamesOnly, Figure };  // Figure: a body type drawn in code (ui_body_figure.h)
+enum class TileSource { Rdbm, Swatch, Game, Placeholder, NamesOnly, Figure, FcEditor };  // Figure: a body type drawn in code (ui_body_figure.h); FcEditor: a picture of the FC Editor install (ui_fcedit_pictures.h)
 struct VisualPickerUi {
     bool open = false;
     std::string field;
@@ -95,6 +95,7 @@ struct VisualPickerUi {
     int uploads_last_frame = 0; // animations given to the window's textures in the last frame
     bool names_only = false;    // no pictures folder: the list of names
     int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0, source_figure = 0;  // the whole list, by where each tile's picture comes from
+    int source_fcedit = 0;      // Turbo X: tiles whose picture is FC Editor's asset picture (no game preview, RDBM26 picture or swatch for them; a body type's render)
     int source_drawn = 0;       // 5.0c E10 fix round: of the source_blank tiles, those drawn from their look class (hair / beard)
     // step 7: tiles without a picture are hidden by default behind "Show N without picture" (N = without_picture: those hidden by the
     // toggle after the search and the other filters; the current value is always shown). show_without_picture: the toggle's state.

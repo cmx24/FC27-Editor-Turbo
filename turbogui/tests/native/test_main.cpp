@@ -3407,6 +3407,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 #include "test_hairbeard_pickers.h"  // 5.0c E10-12: hair and beard grids (palette strand maps never beat the game preview, reasons of grey tiles, hair 0 Bald)
 #include "test_fcedit_previews.h"    // 5.0c E10-fcedit-previews: third picture source for hair/beard tiles (converted FC Editor previews in turbo_output cache)
+#include "test_fcedit_pictures.h"    // Turbo X: FC Editor's asset pictures read in place (ui_fcedit_pictures.h): the index order, body "<id> <name>.png", the tiles
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -10045,6 +10046,7 @@ static void test_ui() {
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
         hairbeard_test::ui_cases(app, ui, le);  // test_hairbeard_pickers.h (5.0c E10-12): palette strand maps, grey-tile reasons, hair 0 Bald
         fcedit_test::ui_cases(app, ui, le);     // test_fcedit_previews.h (5.0c E10-fcedit-previews): cache pictures for hair/beard tiles
+        fcedit_pictures_test::ui_cases(app, ui, le);  // test_fcedit_pictures.h (Turbo X): FC Editor asset pictures on hair and body tiles, has_picture
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
@@ -15845,6 +15847,7 @@ int main(int argc, char** argv) {
     body_picker_test::core_cases();  // test_body_picker.h (5.0c E8-body): unique plain names, shapes, silhouettes, contrast
     visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
     visual_picker_test::core_cases_222();  // 2.22 G-pickers: colour JSON, eyebrow styles, per-file fallback, accessory colours, generic heads
+    fcedit_pictures_test::core_cases();  // test_fcedit_pictures.h (Turbo X): the FC Editor picture index (order 27..17 then plain, png over jpg, body names)
     test_lang_detect();
     test_face3d_looks();
     test_miniface_show();

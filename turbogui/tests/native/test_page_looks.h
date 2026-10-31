@@ -481,7 +481,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         app.sel_player = 3001;
         show(ui);
         ui.frames(12);
-        CHECK(looks::studio_state().thumbs == 0, "generator pictures are not the grid (figures are): " + std::to_string(looks::studio_state().thumbs));
+        // Turbo X: a tile is FC Editor's body render when that install has one (fc_pictures), the figure otherwise; generator pictures stay in the tooltip
+        CHECK(looks::studio_state().thumbs == 0 && looks::studio_state().figures + looks::studio_state().fc_pictures == looks::studio_state().body_tiles,
+              "generator pictures are not the grid (a picture when one exists, the figure otherwise): thumbs " + std::to_string(looks::studio_state().thumbs) +
+                  ", figures " + std::to_string(looks::studio_state().figures) + ", FC Editor " + std::to_string(looks::studio_state().fc_pictures));
         // 5.0c RV3: the generator's real render is not lost - it is the tooltip of the tile that has one (code 4); a tile with none (5) shows none
         {
             const ItemRec* t5 = ui.find(tile_label(app, 5), "##looksstudio_test");
@@ -501,7 +504,9 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
             ImGui::GetIO().AddMousePosEvent(-1.0f, -1.0f);
             ui.frames(2);
         }
-        CHECK(looks::studio_state().figures == looks::studio_state().body_tiles && looks::studio_state().figures >= 10, "a figure on every tile: " + std::to_string(looks::studio_state().figures) + " of " + std::to_string(looks::studio_state().body_tiles));
+        CHECK(looks::studio_state().figures + looks::studio_state().fc_pictures == looks::studio_state().body_tiles && looks::studio_state().body_tiles >= 10,
+              "a picture when one exists, the figure otherwise, on every tile: " + std::to_string(looks::studio_state().figures) + " figures + " +
+                  std::to_string(looks::studio_state().fc_pictures) + " FC Editor pictures of " + std::to_string(looks::studio_state().body_tiles));
         CHECK(looks::studio_state().body_tiles >= 10, "every body has its tile: " + std::to_string(looks::studio_state().body_tiles));
         CHECK(ui.find(tile_label(app, 5), "##looksstudio_test") != nullptr, "every tile keeps its name: " + tile_label(app, 5));
         // a body-type edit and its Undo reach the host log (turbo_gui.log), in the live check's words

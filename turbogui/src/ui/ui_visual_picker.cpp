@@ -28,6 +28,7 @@
 #include "ui_bodytypes.h"
 #include "ui_body_figure.h"
 #include "ui_faces.h"
+#include "ui_fcedit_pictures.h"
 #include "ui_fcedit_previews.h"
 #include "ui_images.h"
 #include "ui_looks_studio.h"
@@ -50,7 +51,10 @@ constexpr double kHoverDelay = 0.15;                 // the preview follows the 
 // Where a tile's picture comes from, per code (TileSource in the header; kept as bytes in the lists)
 constexpr uint8_t kSrcRdbm = static_cast<uint8_t>(TileSource::Rdbm), kSrcSwatch = static_cast<uint8_t>(TileSource::Swatch),
                   kSrcGame = static_cast<uint8_t>(TileSource::Game), kSrcBlank = static_cast<uint8_t>(TileSource::Placeholder),
-                  kSrcNames = static_cast<uint8_t>(TileSource::NamesOnly), kSrcFigure = static_cast<uint8_t>(TileSource::Figure);
+                  kSrcNames = static_cast<uint8_t>(TileSource::NamesOnly), kSrcFigure = static_cast<uint8_t>(TileSource::Figure),
+                  kSrcFcEditor = static_cast<uint8_t>(TileSource::FcEditor);
+// Turbo X: the tooltip word of a tile whose picture is FC Editor's asset picture (ui_fcedit_pictures.h)
+constexpr const char* kFcEditorPictureTip = "FC Editor picture";
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -60,6 +64,7 @@ struct Source {  // what one picker shows
     bool catalog = false;   // ... and the game asset catalog is on for it
     bool manager = false;
     bool eyebrow = false;   // every eyebrow picture is its style's
+    bool fcedit_any = false;  // Turbo X: at least one tile shows FC Editor's asset picture (kSrcFcEditor): never a names-only list then
     std::vector<int64_t> codes;
     std::vector<std::string> names, search;
     std::vector<fs::path> files;        // the RDBM26 picture (or colour file) of a code; empty = none
@@ -132,6 +137,8 @@ struct State {
     std::unordered_map<std::string, bool> palette;       // 5.0c E11: RDBM26 PNG -> "is a palette (colour type 3) strand map"; probed once per file
     char folder_edit[300] = "";
     bool folder_edit_init = false;
+    char fe_edit[300] = "";  // Turbo X: the FC Editor folder box (Settings > Preferences)
+    bool fe_edit_init = false;
     // textures
     std::unordered_set<std::string> uploaded;
     int frame = -1, uploads_left = 0;
@@ -369,6 +376,15 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             out.files.back() = bodytype_thumbs::thumb(c, manager);
             out.shape.back() = bodyshape::body_shape(manager, c, &cat);
             out.tip.back() = bodyshape::body_detail(manager, c, &cat) + "\nBody type " + std::to_string(c);
+            // Turbo X: FC Editor's real body render (assets\bodytypecode\"<id> <name>.png") REPLACES the drawn figure in the tile and
+            // the preview; the figure stays the fallback (no picture, or while the file loads: draw_picture kSrcFcEditor)
+            const std::string fe = fcedit::picture(app, field, c);
+            if (!fe.empty()) {
+                out.src.back() = kSrcFcEditor;
+                out.files.back() = fs::u8path(fe);
+                out.tip.back() += std::string("\n") + kFcEditorPictureTip;
+                out.fcedit_any = true;
+            }
         }
     } else {
         const vis::SetDef* d = vis::set_for_field(field);
@@ -377,7 +393,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         // 5.0b-A: a column of the look registry (core/look_pickers.h) always opens a list. With no picture set and no gallery it is the
         // names / numbers list of its labelled codes (the codes the save uses, the range): never a dead Change button.
         const bool registry_only = !d && !gal && look::find(field.c_str()) != nullptr;
-        if (!d && !gal && !registry_only) return false;
+        // Turbo X: FC Editor's asset pictures (ui_fcedit_pictures.h): a picture source of every field the install has a folder for
+        // (boots, gloves, outfits, heads, eyebrows, colours...). A field with no other list at all still opens on them.
+        const bool fe_field = fcedit::has_field(app, field);
+        if (!d && !gal && !registry_only && !fe_field) return false;
         out.gallery = gal;
         out.catalog = gal && gallery_catalog_active(field, manager);
         out.kind = d ? d->kind : vis::data::kPng;
@@ -421,8 +440,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             // fix round 2 (reviewer D1): a field with labelled codes but no gallery (Sleeves 0..4, Sock length 0..3, jersey fit, hair / eye colour,
             // skin tone, accessory colours...) gets the same merge: the codes field_labels.h names (enum_defs or named codes) are offered, not only the picture
             // set's (Sleeves 4 and Sock length 3 "Low" were not offered at all). A field with no labelled code (eyebrows, tattoos) is unchanged. The offered set that changes per field is listed by the test of fix 2.
-            if (gal || registry_only || labels::enum_def(field) || labels::named_codes(field))
+            if (gal || registry_only || fe_field || labels::enum_def(field) || labels::named_codes(field))
                 for (int64_t c : code_value_list(app, t, *f, current)) all.push_back(c);
+            if (fe_field && !d && !gal && !registry_only)  // Turbo X: FC Editor's pictures are the only list of this field
+                for (const auto& kv : fcedit::index(app).fields.find(field)->second) all.push_back(kv.first);
             for (const GalleryEntry& e : ge) all.push_back(e.id);
             if (gal) all.push_back(0);
             all.push_back(current);  // his value is shown even when the lists do not have it
@@ -484,8 +505,17 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 file.clear();
                 palette_only = gp.empty();
             }
-            // 5.0c E10-fcedit-previews: no game preview, no RDBM26 picture, no swatch -> the lit FC Editor render from the local cache (if any)
-            bool from_fcedit = false;
+            // Turbo X: no game preview, no RDBM26 picture, no swatch -> FC Editor's own asset picture (read where it is, ui_fcedit_pictures.h),
+            // then (5.0c E10-fcedit-previews) the lit render converted into the local cache (if any)
+            bool from_fcedit = false, fc_picture = false;
+            if (file.empty() && gp.empty() && !out.swatch[k] && fe_field) {
+                const std::string fe = fcedit::picture(app, field, code);
+                if (!fe.empty()) {
+                    file = fs::u8path(fe);
+                    fc_picture = true;
+                    palette_only = false;
+                }
+            }
             if (file.empty() && gp.empty() && !out.swatch[k]) {
                 const fs::path fe = fcedit_picture(app, field, code, !light && !fe_listed);
                 fe_listed = true;
@@ -501,10 +531,14 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 out.fcedit[k] = 1;
                 out.tip[k] = kFcEditPreviewNote;
             }
-            if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
+            if (fc_picture) {
+                out.src[k] = kSrcFcEditor;
+                out.tip[k] = kFcEditorPictureTip;
+                out.fcedit_any = true;
+            } else if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
-            else out.src[k] = ((!have_res || !d) && !gal) ? kSrcNames : kSrcBlank;
+            else out.src[k] = ((!have_res || !d) && !gal && !fe_field) ? kSrcNames : kSrcBlank;
             // 5.0c E10 lit capture (brief D3): a hair / beard with no game picture takes Turbo's own lit capture
             // (<turbo_output>\cache\hairbeard_thumbs\hair_<id>.png / beard_<id>.png, core/hairbeard_thumbs.h) as its LAST source
             // before the drawn class icon below. The game's preview and a lit RDBM26 picture still win (they are set above).
@@ -531,6 +565,8 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                     out.reason[k] = "No picture of this one: it is not in the game's asset catalogue.";
                 } else if (gal) {
                     out.reason[k] = "No picture of this one: the game's picture list has no preview for it.";
+                } else if (fe_field) {
+                    out.reason[k] = have_res && d ? "No picture of this one in RDBM26 or your FC Editor folder." : "No picture of this one in your FC Editor folder.";
                 } else {
                     out.reason[k] = "No picture of this one in RDBM26.";
                 }
@@ -590,6 +626,7 @@ Source subset_source(const Source& in, const std::vector<int64_t>& keep, const c
     o.catalog = in.catalog;
     o.manager = in.manager;
     o.eyebrow = in.eyebrow;
+    o.fcedit_any = in.fcedit_any;
     o.groups = in.groups;
     std::unordered_set<int64_t> want(keep.begin(), keep.end());
     for (size_t i = 0; i < in.codes.size(); ++i) {
@@ -848,6 +885,13 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(a.x + (box.x - side) * 0.5f, a.y), ImVec2(side, side), src.shape[k], false, false);
             return true;
         }
+        case kSrcFcEditor: {  // Turbo X: FC Editor's asset picture; a body type keeps its figure while the file loads (or when it cannot be read)
+            if (!src.body) return draw_still(app, src.files[k], large ? 320 : 128, a, box);
+            const float side = std::min(box.x, box.y);
+            if (draw_still(app, src.files[k], large ? 320 : 128, a, box, true)) return true;
+            bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(a.x + (box.x - side) * 0.5f, a.y), ImVec2(side, side), src.shape[k], false, false);
+            return true;
+        }
         case kSrcBlank:
             draw_blank(src, k, a, box);
             return (src.icon[k] & kIconValid) != 0;  // a drawn class icon is the tile's picture (5.0c E10 fix round)
@@ -873,6 +917,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
 bool names_only(App& app, const Source& src) {
     if (src.body) return false;
     if (src.gallery) return false;  // the game's previews (or grey tiles) whatever RDBM26 has
+    if (src.fcedit_any) return false;  // Turbo X: FC Editor's pictures make it a picture grid
     if (src.kind == vis::data::kNone) return true;
     return resources(app).empty();
 }
@@ -934,6 +979,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
         else if (k == kSrcSwatch) ++s.ui.source_swatch;
         else if (k == kSrcGame) ++s.ui.source_game;
         else if (k == kSrcFigure) ++s.ui.source_figure;
+        else if (k == kSrcFcEditor) ++s.ui.source_fcedit;
         else ++s.ui.source_blank;
     }
     for (uint32_t ic : s.src.icon) s.ui.source_drawn += (ic & kIconValid) != 0;
@@ -942,7 +988,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.want_open = false;
     vlog(app, "visual picker opened: " + field + " of " + t.name + " " + std::to_string(who_id(app, t, rec)) + " is " + std::to_string(s.ui.current) +
                   " (" + std::to_string(s.ui.source_rdbm) + " RDBM26 pictures, " + std::to_string(s.ui.source_swatch) + " swatches, " +
-                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a game picture, " + std::to_string(s.ui.source_drawn) + " of those drawn from their class; " + std::to_string(g_fcedit_count) + " of the pictures are FC Editor previews)");
+                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a game picture, " + std::to_string(s.ui.source_drawn) + " of those drawn from their class; " + std::to_string(s.ui.source_fcedit) + " FC Editor pictures, " + std::to_string(g_fcedit_count) + " of the pictures are FC Editor previews)");
 }
 
 void close_picker() {
@@ -1118,6 +1164,23 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     ImGui::InputTextWithHint("##vpsearch", "find by name or number", s.search, sizeof(s.search));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu to choose from", s.src.codes.size());
+    {  // Turbo X: where the tiles' pictures come from (counted over the whole list, whatever the filters hide)
+        int game = 0, fce = 0, rdbm = 0, none = 0, figure = 0, swatch = 0;
+        for (uint8_t k : s.src.src) {
+            if (k == kSrcGame) ++game;
+            else if (k == kSrcFcEditor) ++fce;
+            else if (k == kSrcRdbm) ++rdbm;
+            else if (k == kSrcFigure) ++figure;
+            else if (k == kSrcSwatch) ++swatch;
+            else ++none;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("pictures: game %d, FC Editor %d, RDBM26 %d, none %d", game, fce, rdbm, none);
+        if (figure || swatch) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d drawn %s)", figure ? figure : swatch, figure ? "figures" : "swatches");
+        }
+    }
     if (!s.src.groups.empty()) {  // eyebrow styles, generic head models, body types, tattoo areas
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(190.0f));
@@ -1356,6 +1419,7 @@ struct RowCache {
     int64_t value = INT64_MIN;
     bool manager = false;
     fs::path res;
+    fs::path fe;  // Turbo X: the FC Editor folder the light list was built with
 };
 
 RowCache& row_cache(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager) {
@@ -1363,12 +1427,14 @@ RowCache& row_cache(App& app, const Table& t, uint64_t rec, const std::string& f
     const int64_t v = app.db.get_int(t, rec, field, 0);
     RowCache& rc = cache[field];
     const fs::path& res = resources(app);
-    if (rc.table != t.name || rc.rec != rec || rc.value != v || rc.res != res || rc.manager != manager) {
+    const fs::path fe = fcedit::folder(app);
+    if (rc.table != t.name || rc.rec != rec || rc.value != v || rc.res != res || rc.fe != fe || rc.manager != manager) {
         build_source(app, t, rec, field, manager, rc.src, v);
         rc.table = t.name;
         rc.rec = rec;
         rc.value = v;
         rc.res = res;
+        rc.fe = fe;
         rc.manager = manager;
     }
     return rc;
@@ -1622,6 +1688,7 @@ bool has_picture(App& app, const Table& t, const char* field, bool manager) {
     const std::string f = field;
     if (f == "bodytypecode") return false;
     if (gallery_has(f, manager)) return true;
+    if (fcedit::has_field(app, f)) return true;  // Turbo X: FC Editor's asset pictures (boots, gloves, accessories, outfits... of anyone)
     return vis::set_for_field(f) != nullptr && !resources(app).empty();
 }
 
@@ -1684,12 +1751,14 @@ void draw_code_picture(App& app, const Table& t, uint64_t rec, const char* field
     static std::unordered_map<std::string, RowCache> cache;
     RowCache& rc = cache[field];
     const fs::path& res = resources(app);
-    if (rc.table != t.name || rc.rec != rec || rc.value != code || rc.res != res || rc.manager != manager) {
+    const fs::path fe = fcedit::folder(app);
+    if (rc.table != t.name || rc.rec != rec || rc.value != code || rc.res != res || rc.fe != fe || rc.manager != manager) {
         build_source(app, t, rec, field, manager, rc.src, code);
         rc.table = t.name;
         rc.rec = rec;
         rc.value = code;
         rc.res = res;
+        rc.fe = fe;
         rc.manager = manager;
     }
     row_picture(app, rc.src, code, side);
@@ -1732,7 +1801,7 @@ bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* fiel
     const int idx = rc.src.index_of(app.db.get_int(t, rec, field, 0));
     if (idx < 0) return false;
     const uint8_t k = rc.src.src[static_cast<size_t>(idx)];
-    if (k != kSrcRdbm && k != kSrcSwatch) return false;
+    if (k != kSrcRdbm && k != kSrcSwatch && k != kSrcFcEditor) return false;
     row_picture(app, rc.src, app.db.get_int(t, rec, field, 0), side);
     return true;
 }
@@ -1946,6 +2015,38 @@ void visual_pictures_setting(App& app) {
         ImGui::TextDisabled("%s", visual_pictures_note(app).c_str());  // "Found <path>, but no picture sets inside (runstyle, hairstyle, fkanim)..."
     else
         ImGui::TextDisabled("Not found. Turbo shows the animations and pictures of your own RDBM26 install; without it the pickers list names.");
+
+    // Turbo X: the FC Editor install (ui_fcedit_pictures.h): its assets\ pictures are a picture source of every picker (read in place, never copied)
+    if (!s.fe_edit_init) {
+        s.fe_edit_init = true;
+        std::snprintf(s.fe_edit, sizeof(s.fe_edit), "%s", app.prefs.fc_editor_dir.empty() ? fcedit::kDefaultDir : app.prefs.fc_editor_dir.c_str());
+    }
+    ImGui::SetNextItemWidth(S(360.0f));
+    ImGui::InputText("FC Editor folder###fefolder", s.fe_edit, sizeof(s.fe_edit));
+    ImGui::SameLine();
+    if (ImGui::Button("Use this folder###fefolderset")) {
+        app.prefs.fc_editor_dir = std::strcmp(s.fe_edit, fcedit::kDefaultDir) == 0 ? std::string() : std::string(s.fe_edit);
+        fcedit::refresh();
+        if (!app.save_gui_settings()) app.notify("The setting could not be saved", true);
+        const fcedit::Index& ix = fcedit::index(app);
+        if (ix.pictures) app.notify("FC Editor pictures found: " + std::to_string(ix.pictures));
+        else app.notify(ix.found ? "No pictures in that folder's assets" : "No assets folder there: the pickers go without FC Editor pictures");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Default###fefolderdef")) {
+        std::snprintf(s.fe_edit, sizeof(s.fe_edit), "%s", fcedit::kDefaultDir);
+        app.prefs.fc_editor_dir.clear();
+        fcedit::refresh();
+        if (!app.save_gui_settings()) app.notify("The setting could not be saved", true);
+    }
+    const fcedit::Index& ix = fcedit::index(app);
+    if (ix.pictures)
+        ImGui::TextDisabled("Found: %zu pictures for %zu fields (hair, beards, boots, gloves, outfits, heads, body types...), read from your FC Editor install (never copied).",
+                            ix.pictures, ix.fields.size());
+    else if (ix.found)
+        ImGui::TextDisabled("Found the folder, but no pictures in its assets sub-folders.");
+    else
+        ImGui::TextDisabled("Not found. With an FC Editor install here, its asset pictures fill the pickers' tiles that have no game or RDBM26 picture.");
 }
 
 // 3.1 G2b: the state of the pictures folder, and the line that says why there are no pictures ("" when the sets are found)
