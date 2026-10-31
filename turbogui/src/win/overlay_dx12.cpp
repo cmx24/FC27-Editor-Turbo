@@ -656,13 +656,18 @@ static Init init_imgui(IDXGISwapChain3* sc) {
     if (wn > 0 && std::filesystem::exists(font, ec)) io.Fonts->AddFontFromFileTTF(font.string().c_str(), 17.0f);
     // Turbo X (2026-10-31): the semibold face for titles, the rail mark and the big numbers (ui_theme.h title_font). Loaded AFTER the body
     // font so the body stays io.FontDefault; missing on this PC = nullptr = the title helpers fall back to the body face.
-    std::filesystem::path semibold = std::filesystem::path(std::wstring(windir, wn)) / "Fonts" / "segoeuisb.ttf";
-    if (wn > 0 && std::filesystem::exists(semibold, ec)) {
+    // the file is seguisb.ttf (Segoe UI Semibold); seguibl.ttf (Black) / segoeuib.ttf (Bold) as fallbacks
+    std::filesystem::path semibold;
+    for (const char* name : {"seguisb.ttf", "segoeuib.ttf", "seguibl.ttf"}) {
+        const std::filesystem::path c = std::filesystem::path(std::wstring(windir, wn)) / "Fonts" / name;
+        if (wn > 0 && std::filesystem::exists(c, ec)) { semibold = c; break; }
+    }
+    if (!semibold.empty()) {
         ImFont* f = io.Fonts->AddFontFromFileTTF(semibold.string().c_str(), 17.0f);
         turbo::theme::title_font() = f;
-        log("fonts: body segoeui.ttf, titles segoeuisb.ttf%s", f ? "" : " (failed to load: titles use the body face)");
+        log("fonts: body segoeui.ttf, titles %s%s", semibold.filename().string().c_str(), f ? "" : " (failed to load: titles use the body face)");
     } else {
-        log("fonts: body segoeui.ttf, titles: segoeuisb.ttf not found, the body face is used");
+        log("fonts: body segoeui.ttf, titles: no Segoe UI Semibold / Bold found, the body face is used");
     }
 
     if (!ImGui_ImplWin32_Init(g_hwnd)) return Init::Fail;
