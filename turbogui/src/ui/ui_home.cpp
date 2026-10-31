@@ -114,6 +114,14 @@ void draw_home(App& app) {
     if (theme::primary_button("Player looks###home_player_looks")) open_looks(app, false);
     same_line_if_fits("Manager looks");
     if (theme::primary_button("Manager looks###home_manager_looks")) open_looks(app, true);
+    // 5.0c E16 (override 6, two clicks): the manager's 3D-model miniface used to be Home > Manager looks > Miniface > The 3D model (3 clicks).
+    // This tile opens the Miniface tab on its "The 3D model" source in one.
+    same_line_if_fits("Manager miniface (3D)");
+    if (theme::primary_button("Manager miniface (3D)###home_manager_miniface")) {
+        open_looks(app, true);
+        shell::manager_edit_tab() = 2;
+        shell::miniface_3d_request() = true;
+    }
 
     // (b) My squad
     section_title("My squad");
