@@ -1,6 +1,7 @@
 #include "app.h"
 #include "ui_theme.h"
 
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -957,9 +958,27 @@ bool App::refresh() {
     return true;
 }
 
+// Turbo X (2026-10-31): where a slow tick goes. Every driver run today showed App::tick at 100-300 ms per frame while the owner's own
+// sessions ran at 1 ms; this names the section. Costs nothing measurable; one log line at most every 2 s, only when a tick is over 50 ms.
+namespace {
+struct TickProbe {
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    std::array<std::pair<const char*, double>, 16> parts{};
+    int n = 0;
+    void mark(const char* name) {
+        const auto t1 = std::chrono::steady_clock::now();
+        if (n < 16) parts[static_cast<size_t>(n++)] = {name, std::chrono::duration<double, std::milli>(t1 - last).count()};
+        last = t1;
+    }
+};
+}  // namespace
+
 void App::tick(double t) {
     now = t;
+    TickProbe probe;
+    const auto tick_t0 = probe.last;
     update_style();
+    probe.mark("style");
     if (!legacy_repaired_) {
         // once, before the game shows a crest: custom files with a wrong mip count crash it (legacy.h)
         legacy_repaired_ = true;
@@ -970,6 +989,7 @@ void App::tick(double t) {
     }
     legacy.tick(t);
     legacy.next_frame();  // 2.16 gui/perf-3: folder looks and found game pictures are kept within a frame / a second
+    probe.mark("legacy");
     // 2.19 career faces: mods/legacy holds the face pictures of the identified career only while it is loaded
     if (!career_faces_ticked_) {
         career_faces_ticked_ = true;
@@ -997,12 +1017,14 @@ void App::tick(double t) {
         if (!preloader->started() && (visible || connected())) preload_start(visible ? "first show" : "career connected");
         preloader->tick(*this);
     }
+    probe.mark("preload");
 
     edit_unlock_tick(*this);  // Game editors: originals in, unlocked files out (ui_edit_unlock.cpp)
     live_tactic_tick(*this);  // Tactics channel E: job results, the read-back 5 s after a write, the kick-off check (ui_live_tactic.cpp)
     changes::poll(*this);  // 2.16 wiring: the Changes list follows the features' undo state (in memory, cheap)
     tactic_presets_tick(*this);  // Tactic presets: a load / undo finishes when its channel E job came back (ui_tactic_presets.cpp)
     tuning_tick(*this);  // Gameplay tuning: job results, the undo file, the re-apply of kept values at a career load (ui_tuning.cpp)
+    probe.mark("ticks-a");
     // Voice swaps: the store goes to the service the host gave (once per service, then after every edit); the kill
     // switches are re-read every 2 s (the detours only read cached atomics)
     if (voice_service) {
@@ -1025,6 +1047,7 @@ void App::tick(double t) {
     settings_lang_tick();
     spoken_watch_tick();
     asset_tick();  // game asset catalog: first load, reload when its folder changes (worker thread)
+    probe.mark("ticks-b");
     if (t >= next_poll) {
         next_poll = t + 0.5;
         bool changed = bridge.poll_files();
@@ -1052,6 +1075,7 @@ void App::tick(double t) {
             else refresh_pending = true;
         }
     }
+    probe.mark("poll");
     // A standings refresh queued after a live table edit finished on the game thread (core/standings_refresh.h)
     if (standings_refresh) {
         svm::Result r;
@@ -1071,6 +1095,7 @@ void App::tick(double t) {
             log("match setup: " + r.message);
         }
     }
+    probe.mark("jobs");
     // Player names decoded by Live Editor arrived or changed: rebuild the lists (now if shown, else when shown)
     if (db.ready() && bridge.names() != seen_names_) {
         seen_names_ = bridge.names();
@@ -1093,6 +1118,7 @@ void App::tick(double t) {
         model.rebuild(today());
         ++gen;
     }
+    probe.mark("model");
     if (mailbox && t >= next_publish) {
         next_publish = t + 2.0;
         bridge.publish_mailbox(mailbox_addr_, session, kGuiVersion);
@@ -1148,8 +1174,10 @@ void App::tick(double t) {
                 refresh_due = t + 1.5;
         }
     }
+    probe.mark("mailbox");
     flush_lua_queue();
     flush_plan_sync();  // the window's edits of your players into their development plans (after a quiet second)
+    probe.mark("flush");
     // player edits kept for every career load: one save per frame however many fields an action wrote
     if (reapply_save_due_) {
         reapply_save_due_ = false;
@@ -1158,6 +1186,20 @@ void App::tick(double t) {
     for (size_t i = 0; i < toasts.size();) {
         if (toasts[i].until < t) toasts.erase(toasts.begin() + static_cast<long>(i));
         else ++i;
+    }
+    probe.mark("tail");
+    {
+        const double total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_t0).count();
+        static double last_report = -10.0;
+        if (total > 50.0 && t - last_report > 2.0) {
+            last_report = t;
+            std::sort(probe.parts.begin(), probe.parts.begin() + probe.n, [](const auto& a, const auto& b) { return a.second > b.second; });
+            char buf[240];
+            int off = std::snprintf(buf, sizeof(buf), "slow tick %.0f ms:", total);
+            for (int i = 0; i < probe.n && i < 4 && off < static_cast<int>(sizeof(buf)) - 40; ++i)
+                off += std::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), " %s %.0f", probe.parts[static_cast<size_t>(i)].first, probe.parts[static_cast<size_t>(i)].second);
+            log(buf);
+        }
     }
 }
 
