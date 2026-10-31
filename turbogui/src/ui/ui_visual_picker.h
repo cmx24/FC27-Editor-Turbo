@@ -56,8 +56,21 @@ void window(App& app, const Table& t, uint64_t rec);
 int look_rows(App& app, const Table& t, uint64_t rec, bool manager, bool skip_band_rows = false);
 // The picture or swatch of the field's current value in side x side; false when RDBM26 has none for it (the caller shows its own)
 bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, float side);
-// An INLINE grid of the field (not a window): tiles in the page, animated where RDBM26 has a GIF, a grey "no animation yet" /
-// "no picture yet" tile where it has none, the current value marked, a click picks, "Apply" writes through visual_apply. `height`: the
+// Step 7 (2026-10-31, the ONE entry point): a table of rows (picture, in-game name, "Choose...") for exactly these fields of the record
+// (those the table lacks are skipped), and the picker window when one of them is open. The pages that drew tattoo_editor /
+// item_galleries (ui_images.cpp) draw this instead. Returns the rows drawn.
+int rows(App& app, const Table& t, uint64_t rec, const std::vector<std::string>& fields, bool manager = false);
+// Step 7: the chooser of the "Hair & beard (3D)" section (ui_faces3d_gate.cpp) is this same window. It lists only the generic ids a
+// real face can take through the Turbo band (`ids`, faces3d::band_hair_ids / band_beard_ids) plus 0 = "His own"; `current` is the generic
+// id his band code selects now. Apply does NOT write the field: it hands the pick back through take_choice (true once, with the code), and
+// the section's own "Apply hair & beard" writes the band codes through its proven path (raw write + preview backup, no undo step).
+void open_choice(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager, const std::vector<int>& ids, int64_t current);
+bool take_choice(const std::string& field, int64_t* code);
+// Step 7: the picture of one code of a field (not the record's value: the 3D section shows the generic id picked), side x side, from the
+// same sources as the tiles (game preview, RDBM26, FC Editor preview, lit capture, class icon). Draws a grey box when there is none.
+void draw_code_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, int64_t code, float side);
+// An INLINE grid of the field (not a window): tiles in the page, animated where RDBM26 has a GIF, a grey "no animation" /
+// "no picture" tile where it has none, the current value marked, a click picks, "Apply" writes through visual_apply. `height`: the
 // grid's height in pixels (it scrolls). true on the frame it wrote. The Set pieces card (ui_setpiece_card.cpp) is made of these.
 bool inline_grid(App& app, const Table& t, uint64_t rec, const char* field, const char* title, float height, bool manager = false);
 struct GridInfo {
@@ -83,6 +96,11 @@ struct VisualPickerUi {
     bool names_only = false;    // no pictures folder: the list of names
     int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0, source_figure = 0;  // the whole list, by where each tile's picture comes from
     int source_drawn = 0;       // 5.0c E10 fix round: of the source_blank tiles, those drawn from their look class (hair / beard)
+    // step 7: tiles without a picture are hidden by default behind "Show N without picture" (N = without_picture: those hidden by the
+    // toggle after the search and the other filters; the current value is always shown). show_without_picture: the toggle's state.
+    int without_picture = 0;
+    bool show_without_picture = false;
+    bool choice = false;        // step 7: opened by vp::open_choice (the 3D section's chooser): Apply hands the code back, writes nothing
     std::string last_result;    // "Run style set to Medalist", or the refusal
     std::string pictures_line;  // 3.1 G2b: the "where are the pictures / why none" line the open grid shows in its note ("" when it shows none)
 };

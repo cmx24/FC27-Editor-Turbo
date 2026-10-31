@@ -222,8 +222,12 @@ void looks_card(App& app, const Table& t, const PlayerRow& p) {
         ImGui::TreePop();
     }
     if (fold("Tattoos, hairstyle, boots and gloves###pp_gear")) {
-        tattoo_editor(app, t, p.rec);
-        item_galleries(app, t, p.rec);
+        // step 7 (2026-10-31): the one picker's rows (ui_visual_picker.cpp) in place of tattoo_editor + item_galleries (ui_images.cpp)
+        static const std::vector<std::string> kGearRows = {
+            "tattoohead",   "tattoofront",   "tattooback",     "tattooleftarm", "tattoorightarm", "tattooleftleg",  "tattoorightleg",
+            "hairtypecode", "facialhairtypecode", "shoetypecode", "smallsidedshoetypecode", "gkglovetypecode",
+            "accessorycode1", "accessorycode2", "accessorycode3", "accessorycode4"};
+        vp::rows(app, t, p.rec, kGearRows);
         vp::inline_appearance(app, t, p.rec);  // 2.22 G-pickers: eyebrows, colours, generic head with their pictures
         ImGui::TreePop();
     }

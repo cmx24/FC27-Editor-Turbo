@@ -1007,11 +1007,15 @@ void fields_card(App& app, Studio& s, const Subject& who, const Table& t, uint64
     card_end();
 }
 
-// 2.22 (G-ia): Tattoos (all seven body areas, preview and picker: ui_images.cpp tattoo_editor). Players only: managers have none.
+// 2.22 (G-ia): Tattoos (all seven body areas). Players only: managers have none. Step 7 (2026-10-31): the rows of the ONE picker
+// (ui_visual_picker.cpp vp::rows: picture, name, Choose...) in place of ui_images.cpp tattoo_editor; the picker opens on the tattoos
+// made for the area and writes through visual_apply (App::edit: one undo step, the tattoo catalog gate unchanged).
 void tattoo_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t rec) {
     if (who.manager) return;
     card_begin(s, "##lstattoo", "Tattoos");
-    tattoo_editor(app, t, rec);
+    static const std::vector<std::string> kTattooRows = {"tattoohead",     "tattoofront",   "tattooback",    "tattooleftarm",
+                                                         "tattoorightarm", "tattooleftleg", "tattoorightleg"};
+    vp::rows(app, t, rec, kTattooRows, false);
     s.st.tattoo_card = true;
     card_end();
 }

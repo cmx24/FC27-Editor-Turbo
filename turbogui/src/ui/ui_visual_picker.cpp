@@ -68,7 +68,7 @@ struct Source {  // what one picker shows
     std::vector<uint8_t> src;           // kSrc* per code
     std::vector<bodyshape::BodyShape> shape;  // a body type: the figure drawn for each code (kSrcFigure)
     std::vector<char> writable, hidden;
-    std::vector<std::string> why, tag, tip;
+    std::vector<std::string> why, tip;  // step 7: the catalog's data-state tag (GalleryEntry::tag) is no longer carried: a tile is a choice
     std::vector<uint32_t> icon;            // 5.0c E10 fix round: a drawn class icon of a hair / beard tile with no game picture (0 = none; see hair_icon / beard_icon)
     std::vector<uint8_t> fcedit;           // 5.0c E10-fcedit: 1 = the tile's picture is an FC Editor preview from the local cache (still kSrcRdbm)
     std::vector<std::string> cap, reason;  // 5.0c E10-12: a grey tile's short word in its box, and why it has no picture ("" on tiles that have one)
@@ -105,6 +105,17 @@ struct State {
     int group_sel = -1;
     int scope = -1;
     HairFacets hair;
+    bool show_blank = false;  // step 7: "Show N without picture" (off: tiles with no picture are left out of the grid)
+    int blank_count = 0;      // N: the tiles the toggle hides (after the search and the other filters)
+    // step 7: the 3D section's chooser (vp::open_choice): the band's generic ids only, Apply hands the code back instead of writing
+    struct Choice {
+        bool on = false;
+        std::string field;
+        std::vector<int64_t> ids;
+        int64_t current = 0;
+        bool ready = false;  // Apply was pressed: `code` waits for take_choice
+        int64_t code = 0;
+    } choice;
     std::string shown_key = "\x01";
     std::vector<int> shown;  // indices into src
     int64_t hover = -1;
@@ -190,9 +201,12 @@ const char* field_title(const std::string& f) {
         {"accessorycolourcode3", "Accessory 3 colour"}, {"accessorycolourcode4", "Accessory 4 colour"},
         {"tattoohead", "Tattoo: head"}, {"tattoofront", "Tattoo: chest"},
         {"tattooback", "Tattoo: back"}, {"tattooleftarm", "Tattoo: left arm"}, {"tattoorightarm", "Tattoo: right arm"},
-        {"tattooleftleg", "Tattoo: left leg"}, {"tattoorightleg", "Tattoo: right leg"}, {"bodytypecode", "Body type"}};
+        {"tattooleftleg", "Tattoo: left leg"}, {"tattoorightleg", "Tattoo: right leg"}, {"bodytypecode", "Body type"},
+        {"outfitid", "Outfit"}, {"seasonaloutfitid", "Seasonal outfit"}};
     auto it = m.find(f);
-    return it == m.end() ? "Look" : it->second;
+    if (it != m.end()) return it->second;
+    if (const look::LookPicker* p = look::find(f.c_str())) return p->label;  // step 7: a registry column keeps its card label, never "Look"
+    return "Look";
 }
 
 bool is_acc_field(const std::string& f) { return f.size() == 13 && f.compare(0, 12, "accessorycod") == 0 && f[12] >= '1' && f[12] <= '4'; }
@@ -215,10 +229,11 @@ uint32_t swatch_of(const vis::Rgb8& c) { return IM_COL32(c.r, c.g, c.b, 255); }
 
 
 // ---- 5.0c E10 (fix round, 2026-10-31): a hair or beard tile the game ships no picture for (139 model-only hair ids, 59 model-only
-// beards, hair 50, hair 0 / beard 0, a code the catalogue does not list) is DRAWN from its look class instead of a grey "no picture yet"
+// beards, hair 50, hair 0 / beard 0, a code the catalogue does not list) is DRAWN from its look class instead of a grey no-picture
 // box: the class the hair catalogue gives the id (length, type, accessory; hair_catalog.h) or the nearest listed style's look (face_looks.h,
 // the same table the filter and the names use), the facial hair class for a beard. It is a pictogram of the CLASS, not a render of the
-// model: the tile's tooltip says so and a small "drawn" mark sits in its corner. A lit render of these ids needs an in-game capture lease
+// model: the tile's tooltip says so (step 7: no mark on the tile itself, and such tiles are hidden by default behind "Show N without
+// picture"). A lit render of these ids needs an in-game capture lease
 // (brief D3), which no offline tool replaces. The icon packs into a uint32_t: bit 31 valid, bits 28..30 kind (0 hair, 1 beard),
 // bits 16..23 length (hair) or class (beard), 8..15 type, 0..7 accessory.
 constexpr uint32_t kIconValid = 1u << 31;
@@ -257,7 +272,6 @@ void push_tile(Source& o, int64_t code, std::string name) {
     o.writable.push_back(1);
     o.hidden.push_back(0);
     o.why.emplace_back();
-    o.tag.emplace_back();
     o.tip.emplace_back();
     o.cap.emplace_back();
     o.reason.emplace_back();
@@ -370,6 +384,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         out.eyebrow = d && std::strcmp(d->id, "eyebrow") == 0;
         const bool ghead = d && std::strcmp(d->id, "ghead") == 0;
         if (out.title == "Look" && gal) out.title = gallery_title(field, manager);
+        // step 7: a tattoo picker opens on the tattoos made for its body area (the save's tattoo table); the combo lists the others too
+        const int tattoo_area = tattoo_area_index(field);
+        const int g_this_area = tattoo_area >= 0 ? group_index(out, "Made for this area") : -1;
+        const int g_other_area = tattoo_area >= 0 ? group_index(out, "Made for other areas") : -1;
         if (d && (std::strcmp(d->id, "boots") == 0 || std::strcmp(d->id, "gloves") == 0))
             out.note = "These pictures are from FC 26 or older RDBM26 folders: a few may look different in FC 27.";
         else if (out.eyebrow)
@@ -499,47 +517,48 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                     out.tip[k] = "Turbo's lit capture of the 3D model. ";
                 }
             }
-            if (out.src[k] == kSrcBlank) {  // 5.0c E10-12 (D4): every grey tile says why it has no picture (hover) and the word in its box
+            if (out.src[k] == kSrcBlank) {  // 5.0c E10-12 (D4): every grey tile says why it has no picture (hover); step 7: plain words, no data-state tags
                 const auto gi = gpos.find(code);
                 const GalleryEntry* e = gi != gpos.end() ? &ge[gi->second] : nullptr;
                 if (code == 0 && gal) {
                     out.cap[k] = "none";
-                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald." : "No facial hair.";
+                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald." : tattoo_area >= 0 ? "No tattoo." : "No facial hair.";
                 } else if (palette_only) {
-                    out.cap[k] = "strand map only";
-                    out.reason[k] = "RDBM26 has only a strand map for this code (not a picture of it) and the game ships no preview picture for it.";
+                    out.reason[k] = "No picture of this one yet (RDBM26 has only a strand map for it, and the game ships no preview).";
                 } else if (e && e->model_only) {
-                    out.cap[k] = "3D model, no picture";
                     out.reason[k] = "The game ships a 3D model for this code but no picture of it.";
                 } else if (gal && out.catalog) {
-                    out.reason[k] = "This code is not in the game's asset catalogue.";
+                    out.reason[k] = "No picture of this one: it is not in the game's asset catalogue.";
                 } else if (gal) {
-                    out.reason[k] = "The game's picture list has no preview for this code.";
+                    out.reason[k] = "No picture of this one: the game's picture list has no preview for it.";
                 } else {
-                    out.reason[k] = "RDBM26 has no picture for this code.";
+                    out.reason[k] = "No picture of this one in RDBM26.";
                 }
-                if (gal && (field == "hairtypecode" || field == "facialhairtypecode")) {  // E10 fix round: every hair / beard tile has a picture
+                if (gal && (field == "hairtypecode" || field == "facialhairtypecode")) {  // E10 fix round: the look class stands in for the missing picture
                     out.icon[k] = field == "hairtypecode" ? hair_icon(code) : beard_icon(code);
                     out.cap[k].clear();
-                    out.reason[k] += " The tile is a drawn icon of its look class (" +
+                    out.reason[k] += " The tile shows its kind of look (" +
                                      (field == "hairtypecode" ? labels::hair_text(code) : labels::facial_hair_text(code)) +
-                                     "), not a picture of the model.";
+                                     "), not the model itself.";
                 }
             }
             if (out.eyebrow && !file.empty()) out.tip[k] = "style picture";
             if (!light) {
                 const auto gi = gpos.find(code);
-                if (gi != gpos.end()) {
-                    out.tag[k] = ge[gi->second].tag;
-                    out.tip[k] += ge[gi->second].tip;
-                    out.hidden[k] = ge[gi->second].hidden;
-                }
+                if (gi != gpos.end()) out.hidden[k] = ge[gi->second].hidden;  // the scope filter (All / In this save / Hidden) still reads it
                 if (gal && code != current) {
                     std::string why;
                     if (!gallery_write_ok(app, field, manager, code, &why)) out.writable[k] = 0, out.why[k] = why;
                 }
                 if (out.eyebrow) out.group[k] = group_index(out, "Style " + std::to_string(vis::eyebrow_style(code)));
                 else if (ghead) out.group[k] = group_index(out, head_model(own && own->name ? own->name : ""));
+                else if (tattoo_area >= 0) {
+                    // the save's tattoo table says which areas a tattoo is made for; one the table does not know (the game files only, or
+                    // none) is offered for every area, as the old picker did
+                    const bool known = gi != gpos.end() && ge[gi->second].areas != 0;
+                    const bool fits = !known || (ge[gi->second].areas & (1u << tattoo_area)) != 0;
+                    out.group[k] = code == 0 || fits ? g_this_area : g_other_area;
+                }
             }
         }
     }
@@ -556,6 +575,46 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         out.search.push_back(std::move(q));
     }
     return true;
+}
+
+// Step 7: the tiles of `in` whose code is in `keep` (in `in`'s order), with 0 named `zero_name` and every tile writable: the 3D section's
+// chooser lists the band's generic ids, and the band list itself is the gate (ui_faces3d_gate.cpp writes the band code of the pick).
+Source subset_source(const Source& in, const std::vector<int64_t>& keep, const char* zero_name) {
+    Source o;
+    o.field = in.field;
+    o.title = in.title;
+    o.note = in.note;
+    o.kind = in.kind;
+    o.body = in.body;
+    o.gallery = in.gallery;
+    o.catalog = in.catalog;
+    o.manager = in.manager;
+    o.eyebrow = in.eyebrow;
+    o.groups = in.groups;
+    std::unordered_set<int64_t> want(keep.begin(), keep.end());
+    for (size_t i = 0; i < in.codes.size(); ++i) {
+        const int64_t code = in.codes[i];
+        if (!want.count(code)) continue;
+        o.pos[code] = static_cast<int>(o.codes.size());
+        o.codes.push_back(code);
+        o.names.push_back(code == 0 && zero_name ? std::string(zero_name) : in.names[i]);
+        o.search.push_back(in.search[i]);
+        o.files.push_back(in.files[i]);
+        o.game.push_back(in.game[i]);
+        o.swatch.push_back(in.swatch[i]);
+        o.src.push_back(in.src[i]);
+        o.shape.push_back(in.shape[i]);
+        o.writable.push_back(1);
+        o.hidden.push_back(0);
+        o.why.emplace_back();
+        o.tip.push_back(in.tip[i]);
+        o.icon.push_back(in.icon[i]);
+        o.fcedit.push_back(in.fcedit[i]);
+        o.cap.push_back(in.cap[i]);
+        o.reason.push_back(in.reason[i]);
+        o.group.push_back(in.group[i]);
+    }
+    return o;
 }
 
 void new_frame(App& app) {
@@ -746,27 +805,18 @@ void draw_look_icon(ImDrawList* dl, ImVec2 p0, float s, uint32_t icon) {
     }
 }
 
-// The small "drawn" mark of a tile that is a class icon and not a picture of the model (light on a dark chip: contrast above 4.5:1)
-void drawn_mark(ImDrawList* dl, ImVec2 p0, float s) {
-    ImFont* font = ImGui::GetFont();
-    const float fs = ImGui::GetFontSize() * 0.75f;
-    const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, "drawn");
-    const ImVec2 q(p0.x + s - ts.x - 4.0f, p0.y + s - ts.y - 2.0f);
-    dl->AddRectFilled(ImVec2(q.x - 2.0f, q.y - 1.0f), ImVec2(q.x + ts.x + 2.0f, q.y + ts.y + 1.0f), IM_COL32(24, 24, 28, 220), 2.0f);
-    dl->AddText(font, fs, q, IM_COL32(236, 236, 240, 255), "drawn");
-}
-
+// Step 7: a tile with no picture (hidden by default behind "Show N without picture"): the look-class icon of a hair / beard (5.0c E10
+// fix round: the kind of look, not the model; its tooltip says so), else a grey box. No data-state words on the tile.
 void draw_blank(const Source& src, size_t k, ImVec2 a, ImVec2 box) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float side = std::min(box.x, box.y);
     const ImVec2 p0(a.x + (box.x - side) * 0.5f, a.y + (box.y - side) * 0.5f);
-    if (k < src.icon.size() && (src.icon[k] & kIconValid)) {  // 5.0c E10 fix round: a hair / beard with no game picture is drawn from its look class
+    if (k < src.icon.size() && (src.icon[k] & kIconValid)) {
         draw_look_icon(dl, p0, side, src.icon[k]);
-        drawn_mark(dl, p0, side);
         return;
     }
     dl->AddRectFilled(p0, ImVec2(p0.x + side, p0.y + side), IM_COL32(58, 58, 64, 255), 4.0f);
-    box_text(dl, p0, ImVec2(side, side), !src.cap[k].empty() ? src.cap[k].c_str() : src.kind == vis::data::kGif ? "no animation yet" : "no picture yet");
+    box_text(dl, p0, ImVec2(side, side), !src.cap[k].empty() ? src.cap[k].c_str() : src.kind == vis::data::kGif ? "no animation" : "no picture");
 }
 
 bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, ImVec2 box) {
@@ -837,7 +887,8 @@ int64_t who_id(App& app, const Table& t, uint64_t rec) {
     return t.has("playerid") ? app.db.get_int(t, rec, "playerid", -1) : app.db.get_int(t, rec, "managerid", -1);
 }
 
-void open_picker(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager) {
+// `choice` (step 7): the 3D section's chooser (vp::open_choice); nullptr = the field's own picker, Apply writes through visual_apply
+void open_picker(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager, const State::Choice* choice = nullptr) {
     State& s = st();
     store().cancel_queued();
     s.table = t.name;
@@ -849,14 +900,30 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.fav_only = false;
     s.group_sel = -1;
     s.hair = HairFacets();
+    s.show_blank = false;
+    s.blank_count = 0;
+    s.choice = choice ? *choice : State::Choice();
     // 5.0c RV4: the Body type window starts as the person left the "Show all body types" tick (default off = one tile per distinct figure)
     if (field == "bodytypecode") looks::body_show_all(app.prefs.body_show_all);
     build_source(app, t, rec, field, manager, s.src);
+    if (s.choice.on) {
+        // the band's generic ids only (plus 0 = his own); the 3D section writes the band code, so the list is the gate
+        std::vector<int64_t> keep = s.choice.ids;
+        keep.push_back(0);
+        s.src = subset_source(s.src, keep, "His own");
+        s.src.title = (field == "hairtypecode" ? std::string("Hair") : std::string("Beard")) + " (3D, real face)";
+        s.src.note = "The 3D models that fit real faces, with the game's own previews. \"His own\" = his scanned hair or beard.";
+    }
+    // step 7: a tattoo picker opens on the tattoos made for its body area (the combo lists the others too)
+    if (tattoo_area_index(field) >= 0)
+        for (size_t g = 0; g < s.src.groups.size(); ++g)
+            if (s.src.groups[g] == "Made for this area") s.group_sel = static_cast<int>(g);
     s.ui = VisualPickerUi();
     s.ui.open = true;
+    s.ui.choice = s.choice.on;
     if (field == "bodytypecode") bodytype_reset_risky();  // the "allow a player-specific body" box starts unticked for every record
     s.ui.field = field;
-    s.ui.current = app.db.get_int(t, rec, field, 0);
+    s.ui.current = s.choice.on ? s.choice.current : app.db.get_int(t, rec, field, 0);
     s.ui.selected = s.ui.current;
     s.ui.names_only = names_only(app, s.src);
     for (uint8_t k : s.src.src) {
@@ -904,12 +971,8 @@ void where_pictures_line(App& app, const Source& src) {
     if (!line.empty()) ImGui::TextDisabled("%s", line.c_str());
 }
 
-// A small label in the top-left corner of a tile
-void corner_tag(ImDrawList* dl, ImVec2 p, const char* text) {
-    const ImVec2 ts = ImGui::CalcTextSize(text);
-    dl->AddRectFilled(ImVec2(p.x + 2.0f, p.y + 2.0f), ImVec2(p.x + ts.x + 8.0f, p.y + ts.y + 4.0f), IM_COL32(52, 78, 120, 235), 3.0f);
-    dl->AddText(ImVec2(p.x + 5.0f, p.y + 3.0f), IM_COL32(225, 235, 255, 255), text);
-}
+// Step 7: the one-line tooltip of a greyed tile (the catalog gate refused it; the rule is unchanged, the words are plain)
+const char* cannot_apply_text(const Source& src) { return src.manager ? "Cannot be applied to this manager" : "Cannot be applied to this player"; }
 
 // What one tile drawn reports
 struct TileIo {
@@ -942,7 +1005,6 @@ TileIo tile(App& app, const Source& src, int idx, ImVec2 box, int64_t selected, 
     if (src.src[k] == kSrcGame) ++count.pictures;
     else if (draw_picture(app, src, idx, false, a, box)) ++count.pictures;
     if (!src.writable[k]) dl->AddRectFilled(a, ImVec2(a.x + box.x, a.y + box.y), IM_COL32(20, 20, 24, 150));
-    if (!src.tag[k].empty()) corner_tag(dl, a, src.tag[k].c_str());
     if (src.gallery && gallery_favourite(app, src.field, code)) dl->AddText(ImVec2(a.x + box.x - 14.0f, a.y + 1.0f), IM_COL32(255, 205, 50, 255), "*");
     const std::string& name = src.names[k];
     const ImVec2 np(a.x + 2.0f, a.y + box.y + 2.0f);
@@ -956,12 +1018,18 @@ TileIo tile(App& app, const Source& src, int idx, ImVec2 box, int64_t selected, 
     const float fs_small = ImGui::GetFontSize() * 0.85f;
     const float cw = font->CalcTextSizeA(fs_small, FLT_MAX, 0.0f, cbuf).x;
     dl->AddText(font, fs_small, ImVec2(a.x + std::max(0.0f, (cell.x - cw) * 0.5f), np.y + line), ImGui::GetColorU32(ImGuiCol_TextDisabled), cbuf);
-    if (io.hovered && (name.size() > 18 || !src.tip[k].empty() || !src.writable[k] || !src.tag[k].empty() || !src.reason[k].empty())) {
-        std::string tip = name;
-        if (src.src[k] == kSrcBlank && !src.reason[k].empty()) tip += "\n" + src.reason[k];
-        if (!src.tip[k].empty()) tip += (src.tip[k][0] == '\n' ? "" : "\n") + src.tip[k];
-        if (!src.writable[k] && src.tip[k].find("Cannot be applied") == std::string::npos) tip += "\nCannot be applied: " + src.why[k];
-        ImGui::SetTooltip("%s", tip.c_str());
+    if (io.hovered) {
+        // step 7: a greyed tile says only that it cannot be applied (one line; the footer names the rule's reason once it is picked);
+        // the others: the full name when the tile cuts it, why there is no picture, where the picture comes from. No data-state tags.
+        std::string tip;
+        if (!src.writable[k]) {
+            tip = cannot_apply_text(src);
+        } else {
+            if (name.size() > 18) tip = name;
+            if (src.src[k] == kSrcBlank && !src.reason[k].empty()) tip += (tip.empty() ? "" : "\n") + src.reason[k];
+            if (!src.tip[k].empty()) tip += (tip.empty() || src.tip[k][0] == '\n' ? "" : "\n") + src.tip[k];
+        }
+        if (!tip.empty()) ImGui::SetTooltip("%s", tip.c_str());
     }
     return io;
 }
@@ -978,8 +1046,15 @@ bool hair_matches(const HairFacets& hf, int64_t id) {
 // The filter key: everything that changes the list shown
 std::string filter_key(const State& s) {
     char b[160];
-    std::snprintf(b, sizeof(b), "|%d|%d|%d|%d|%d|%d|", s.fav_only ? 1 : 0, s.group_sel, s.scope, s.hair.length, s.hair.type, s.hair.accessory);
+    std::snprintf(b, sizeof(b), "|%d|%d|%d|%d|%d|%d|%d|", s.fav_only ? 1 : 0, s.group_sel, s.scope, s.hair.length, s.hair.type, s.hair.accessory,
+                  s.show_blank ? 1 : 0);
     return std::string(s.search) + b;
+}
+
+// Step 7: a tile the grid hides unless "Show N without picture" is ticked: no picture from any source (a names-only list has no toggle:
+// every tile is a name there). The current value is always shown, so the person sees what he has.
+bool blank_tile(const State& s, size_t i) {
+    return !s.ui.names_only && s.src.src[i] == kSrcBlank && s.src.codes[i] != s.ui.current;
 }
 
 void filter(App& app, State& s) {
@@ -987,6 +1062,7 @@ void filter(App& app, State& s) {
     if (s.shown_key == key) return;
     s.shown_key = key;
     s.shown.clear();
+    s.blank_count = 0;
     const std::string q = lower(s.search);
     const Source& src = s.src;
     const bool is_hair = src.field == "hairtypecode";
@@ -996,8 +1072,14 @@ void filter(App& app, State& s) {
         if (s.fav_only && !(src.gallery && gallery_favourite(app, src.field, src.codes[i]))) continue;
         if (src.gallery && !gallery_scope_shows(s.scope, src.hidden[i]) && src.codes[i] != s.ui.current) continue;
         if (is_hair && !hair_matches(s.hair, src.codes[i])) continue;
+        if (blank_tile(s, i)) {
+            ++s.blank_count;
+            if (!s.show_blank) continue;
+        }
         s.shown.push_back(static_cast<int>(i));
     }
+    s.ui.without_picture = s.blank_count;
+    s.ui.show_without_picture = s.show_blank;
 }
 
 // One hair facet combo (-1 = any), each option with its count among the list
@@ -1027,18 +1109,20 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     State& s = st();
     s.ui.tiles_drawn = s.ui.pictures_shown = 0;
     s.ui.pictures_line.clear();  // 3.1 G2b: set again below when the grid shows the "where are the pictures" line
-    s.ui.current = app.db.get_int(t, rec, s.src.field, 0);
+    if (!s.choice.on) s.ui.current = app.db.get_int(t, rec, s.src.field, 0);  // choice mode: the generic id his band code selects (open_choice)
     ImGui::SetNextItemWidth(S(260.0f));
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::InputTextWithHint("##vpsearch", "find by name or number", s.search, sizeof(s.search));
     ImGui::SameLine();
     ImGui::TextDisabled("%zu to choose from", s.src.codes.size());
-    if (!s.src.groups.empty()) {  // eyebrow styles, generic head models
+    if (!s.src.groups.empty()) {  // eyebrow styles, generic head models, body types, tattoo areas
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(190.0f));
-        const char* prev = s.group_sel < 0 ? (s.src.body ? "All body types" : s.src.eyebrow ? "All styles" : "All models") : s.src.groups[static_cast<size_t>(s.group_sel)].c_str();
+        const bool tattoo = tattoo_area_index(s.src.field) >= 0;
+        const char* all = s.src.body ? "All body types" : s.src.eyebrow ? "All styles" : tattoo ? "All tattoos" : "All models";
+        const char* prev = s.group_sel < 0 ? all : s.src.groups[static_cast<size_t>(s.group_sel)].c_str();
         if (ImGui::BeginCombo("##vpgroup", prev)) {
-            if (ImGui::Selectable(s.src.body ? "All body types" : s.src.eyebrow ? "All styles" : "All models", s.group_sel < 0)) s.group_sel = -1;
+            if (ImGui::Selectable(all, s.group_sel < 0)) s.group_sel = -1;
             for (size_t g = 0; g < s.src.groups.size(); ++g)
                 if (ImGui::Selectable(s.src.groups[g].c_str(), s.group_sel == static_cast<int>(g))) s.group_sel = static_cast<int>(g);
             ImGui::EndCombo();
@@ -1088,6 +1172,16 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
     filter(app, s);
     if (s.src.field == "hairtypecode") ImGui::TextDisabled("%zu of %zu styles match", s.shown.size(), s.src.codes.size());
+    // step 7: tiles with no picture are hidden by default; the count is on screen whenever any are hidden (and while they are shown)
+    if (s.blank_count > 0 || s.show_blank) {
+        if (s.src.field == "hairtypecode") ImGui::SameLine();
+        char lbl[64];
+        std::snprintf(lbl, sizeof(lbl), "Show %d without picture###vpblank", s.blank_count);
+        ImGui::Checkbox(lbl, &s.show_blank);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%d of the choices have no picture from any source (the game, RDBM26, your FC Editor previews). Tick to list them too.", s.blank_count);
+        filter(app, s);  // the grid below shows the toggle's state in this frame
+    }
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const float footer = ImGui::GetFrameHeightWithSpacing() * 1.5f + style.ItemSpacing.y;
@@ -1163,7 +1257,7 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
             ImGui::Dummy(ImVec2(pw, ph));
             ImGui::TextWrapped("%s", s.src.names[static_cast<size_t>(idx)].c_str());
             ImGui::TextDisabled("%s %lld%s", s.src.title.c_str(), static_cast<long long>(pv), pv == s.ui.current ? ", the current one" : "");
-            if (!s.src.tag[static_cast<size_t>(idx)].empty()) ImGui::TextDisabled("%s", s.src.tag[static_cast<size_t>(idx)].c_str());
+            if (!s.src.writable[static_cast<size_t>(idx)]) ImGui::TextDisabled("%s", cannot_apply_text(s.src));
         }
         ImGui::EndChild();
     }
@@ -1171,17 +1265,19 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     // Apply / Cancel
     const int pi = s.src.index_of(s.ui.selected);
     const bool can_write = pi < 0 || s.src.writable[static_cast<size_t>(pi)];
-    if (!can_write) ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f), "Cannot be applied: %s", s.src.why[static_cast<size_t>(pi)].c_str());
+    if (!can_write) ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f), "%s: %s", cannot_apply_text(s.src), s.src.why[static_cast<size_t>(pi)].c_str());
     const bool changed = s.ui.selected != s.ui.current;
     ImGui::BeginDisabled(!changed || !can_write);
-    if (ImGui::Button("Apply##vpapply")) {
+    if (ImGui::Button("Apply##vpapply")) {  // the one label in both modes (tests/native/gui_labels.golden.txt keys the id on it)
         if (visual_picker_apply(app)) {
-            app.notify(s.ui.last_result);
+            if (!s.choice.on) app.notify(s.ui.last_result);
             ImGui::CloseCurrentPopup();
             close_picker();
         }
     }
     ImGui::EndDisabled();
+    if (s.choice.on && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Apply hands the pick to the Hair & beard (3D) section. Nothing is written until its \"Apply hair & beard\".");
     ImGui::SameLine();
     if (ImGui::Button("Cancel##vpcancel")) {
         ImGui::CloseCurrentPopup();
@@ -1446,6 +1542,16 @@ bool visual_picker_apply(App& app) {
         s.ui.last_result = "Nothing to apply";
         return false;
     }
+    if (s.choice.on) {  // step 7: the 3D section's chooser hands the generic id back; its own "Apply hair & beard" writes the band code
+        s.choice.code = s.ui.selected;
+        s.choice.ready = true;
+        s.ui.current = s.ui.selected;
+        const int i = s.src.index_of(s.ui.selected);
+        s.ui.last_result = "Picked " + (i >= 0 ? s.src.names[static_cast<size_t>(i)] : std::to_string(s.ui.selected));
+        vlog(app, "visual picker (3D chooser): " + s.src.field + " of " + t->name + " " + std::to_string(who_id(app, *t, s.rec)) + " picked generic id " +
+                      std::to_string(s.ui.selected) + " (nothing written: the 3D section's Apply writes the band code)");
+        return true;
+    }
     std::string msg;
     const bool ok = visual_apply(app, *t, s.rec, s.src.field, s.ui.selected, &msg);
     s.ui.last_result = msg;
@@ -1525,6 +1631,64 @@ void window(App& app, const Table& t, uint64_t rec) {
     ImGui::PushID("vpwin");
     draw_picker_window(app, t, rec);
     ImGui::PopID();
+}
+
+int rows(App& app, const Table& t, uint64_t rec, const std::vector<std::string>& fields, bool manager) {
+    new_frame(app);
+    int drawn = 0;
+    ImGui::PushID("vprows");
+    bool any = false;
+    for (const std::string& f : fields) any = any || t.has(f);
+    if (any && ImGui::BeginTable("##vrows", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        begin_rows();
+        for (const std::string& f : fields) {
+            if (!t.has(f)) continue;
+            draw_row(app, t, rec, f, manager);
+            ++drawn;
+        }
+        ImGui::EndTable();
+    }
+    if (!any) ImGui::TextDisabled("This database has none of these fields.");
+    st().want_open = false;
+    draw_picker_window(app, t, rec);
+    ImGui::PopID();
+    return drawn;
+}
+
+void open_choice(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager, const std::vector<int>& ids, int64_t current) {
+    new_frame(app);
+    State::Choice c;
+    c.on = true;
+    c.field = field;
+    for (int id : ids)
+        if (id > 0) c.ids.push_back(id);
+    c.current = current;
+    open_picker(app, t, rec, field, manager, &c);
+}
+
+bool take_choice(const std::string& field, int64_t* code) {
+    State& s = st();
+    if (!s.choice.ready || s.choice.field != field) return false;
+    s.choice.ready = false;
+    if (code) *code = s.choice.code;
+    return true;
+}
+
+void draw_code_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, int64_t code, float side) {
+    new_frame(app);
+    // a light source of the one code, kept per field (the 3D section shows one hair and one beard thumbnail)
+    static std::unordered_map<std::string, RowCache> cache;
+    RowCache& rc = cache[field];
+    const fs::path& res = resources(app);
+    if (rc.table != t.name || rc.rec != rec || rc.value != code || rc.res != res || rc.manager != manager) {
+        build_source(app, t, rec, field, manager, rc.src, code);
+        rc.table = t.name;
+        rc.rec = rec;
+        rc.value = code;
+        rc.res = res;
+        rc.manager = manager;
+    }
+    row_picture(app, rc.src, code, side);
 }
 
 int look_rows(App& app, const Table& t, uint64_t rec, bool manager, bool skip_band_rows) {

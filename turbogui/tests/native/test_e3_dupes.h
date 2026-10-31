@@ -128,7 +128,7 @@
         CHECK(span.find("faces3d_manager_section(") != std::string::npos, "the Look card body draws the 3D section before the rows");
         CHECK(span.find("TreeNode") == std::string::npos && span.find("CollapsingHeader") == std::string::npos, "the 3D section is not behind a fold in the Look card body");
         CHECK(s1 != std::string::npos && studio.find(", band)", s1) == s1 + std::string("vp::look_rows(app, t, rec, who.manager").size(), "look_rows is told to skip the band-owned rows (', band)')");
-        CHECK(body.find("item_galleries(") != std::string::npos, "the Outfit galleries stay (their pictures are the only outfit picker of this pane)");
+        CHECK(body.find("vp::rows(") != std::string::npos && body.find("item_galleries(") == std::string::npos, "step 7: the Outfit rows are the one picker's (vp::rows), item_galleries is no longer drawn here");
         CHECK(body.find("Choose a real face...") != std::string::npos, "the real-face chooser button stays");
     });
 
