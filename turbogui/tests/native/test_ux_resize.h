@@ -616,7 +616,10 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(sel != nullptr, std::string("the select pane is drawn; connected=") + (app.connected() ? "yes" : "no") + " tab=" + std::to_string(shell::player_edit_tab()) + "; windows: " + window_names("/##"));
         if (!sel) return;
         const float w0 = sel->Size.x, sc = g_ui_scale;
-        CHECK(near(w0, 300.0f * sc), fmt("starts at the default %.0f px (got %.0f)", 300.0f * sc, w0));
+        // 5.0c base-32-red: was 300 px (page::frame's default). Edit a player's Profile tab draws the Classic player list since 2.22 G-ia
+        // (ui_player_profile.cpp list_and_editor), whose first-use width is min(560, 45 % of the page) = 560 px at 1920; the divider is
+        // split::pane_x now, so the saved-once / per-page / clamp checks below are unchanged.
+        CHECK(near(w0, 560.0f * sc), fmt("starts at the Classic list's default %.0f px (got %.0f)", 560.0f * sc, w0));
         CHECK((sel->ChildFlags & ImGuiChildFlags_ResizeX) != 0, "the select pane has ResizeX");
         const float y = sel->Pos.y + sel->Size.y * 0.5f;
         drag(ui, ImVec2(sel->Pos.x + w0 + 1.5f, y), ImVec2(sel->Pos.x + w0 + 1.5f + 200.0f, y));

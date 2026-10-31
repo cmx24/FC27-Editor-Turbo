@@ -24,6 +24,7 @@
 #include "ui_sections.h"
 #include "ui_setpiece_card.h"
 #include "ui_shell.h"
+#include "ui_split.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -45,7 +46,11 @@ size_t g_listed = 0;
 
 void list_and_editor(App& app, void (*editor_fn)(App&, void*), void* user = nullptr) {
     const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
-    ImGui::BeginChild("##select", ImVec2(list_w, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+    // 5.0c base-32-red: the divider goes through split::pane_x like every other list / editor divider, so its width is remembered per page in
+    // gui_settings.json gui.splits ("PlayerEdit/##select") and committed when the drag is released (E6); it was a raw ResizeX child that only
+    // the ImGui layout file kept, which left the Edit a player divider outside the "saved once, per page" contract (test_ux_resize.h).
+    // list_w is the first-use default only (unscaled for the store); the child id "##select" is unchanged.
+    split::pane_x("##select", g_ui_scale > 0.0f ? list_w / g_ui_scale : list_w);
     draw_classic_player_list(app);
     g_listed = classic_player_list_rows();
     ImGui::EndChild();
