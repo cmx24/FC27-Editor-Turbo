@@ -118,7 +118,8 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         catalogue_on();
         const fs::path root = test_tmp_dir("hb_hair_on");
         const fs::path pal1 = put_picture(root, "hairstyle", 1, png_header(3));   // palette, the game has a preview + model: the preview
-        put_picture(root, "hairstyle", 2, png_header(2));                         // lit RGB, preview too: the RDBM26 picture stays
+        put_picture(root, "hairstyle", 2, png_header(2));                         // lit RGB, preview too: the game preview wins (brief D1, review E10-12)
+        put_picture(root, "hairstyle", 0, png_header(2));                         // Bald, lit RGB, no game lookup for code 0: the RDBM26 picture stays
         put_picture(root, "hairstyle", 4, png_header(3));                         // palette, model only (no preview): grey, "strand map"
         CHECK(!pal1.empty(), "hairstyle codes 1 / 2 / 4 have RDBM26 file names");
         visual_pictures_override((root / "Resources").u8string());
@@ -130,7 +131,8 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode", "the hair grid is open");
         CHECK(visual_picker_tile_source(1) == TileSource::Game, "hair 1: palette strand map + the game's lit preview -> the game preview (E11)");
-        CHECK(visual_picker_tile_source(2) == TileSource::Rdbm, "hair 2: a lit (colour type 2) RDBM26 picture is kept");
+        CHECK(visual_picker_tile_source(2) == TileSource::Game, "hair 2: a lit RDBM26 picture AND a game preview -> the game preview (brief D1: game first for hair)");
+        CHECK(visual_picker_tile_source(0) == TileSource::Rdbm, "hair 0 (Bald): its lit RDBM26 picture is kept (no game preview is looked up for 0)");
         CHECK(visual_picker_tile_source(4) == TileSource::Placeholder, "hair 4: palette strand map and NO lit preview -> the grey tile, not the strand map");
         const std::string r4 = reason_of(4);
         CHECK(has_word(r4, "strand map"), "hair 4 says why it is grey: " + r4);
@@ -141,7 +143,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         std::string why;
         CHECK(visual_picker_tile_writable(4, &why), "a grey palette-fallback tile still writes its code (hair 4 has a model): " + why);
         const VisualPickerUi& vu = visual_picker_ui();
-        CHECK(vu.source_game >= 2 && vu.source_rdbm >= 1, fmt("one grid, game previews and RDBM26 pictures together (rdbm %d, game %d, grey %d)", vu.source_rdbm, vu.source_game, vu.source_blank));
+        CHECK(vu.source_game >= 3 && vu.source_rdbm >= 1, fmt("one grid, game previews and RDBM26 pictures together (rdbm %d, game %d, grey %d)", vu.source_rdbm, vu.source_game, vu.source_blank));
         every_grey_tile_has_a_reason("hair grid, catalogue on");
         // a code the catalogue does not list at all
         int64_t unlisted = 0;
@@ -228,9 +230,9 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         if (!p || !rec || !p->has("hairtypecode")) return;
         catalogue_on();
         const fs::path root = test_tmp_dir("hb_probe_refresh");
-        put_picture(root, "hairstyle", 1, png_header(3));
+        put_picture(root, "hairstyle", 4, png_header(3));  // hair 4: a model, no game preview (so it is probed)
         // a 0-byte file and a 4-byte stub are not palette pictures: unreadable files keep today's behaviour
-        put_picture(root, "hairstyle", 2, {});
+        put_picture(root, "hairstyle", 3, {});
         visual_pictures_override((root / "Resources").u8string());
         visual_pictures_refresh(app);
         ui.extra_draw = draw_section;
@@ -238,15 +240,15 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         ui.frames(2);
         visual_picker_request("hairtypecode");
         ui.frames(3);
-        CHECK(visual_picker_tile_source(1) == TileSource::Game, "palette: the game preview");
-        CHECK(visual_picker_tile_source(2) == TileSource::Rdbm, "a 0-byte file is not a palette picture: the RDBM26 file as before");
+        CHECK(visual_picker_tile_source(4) == TileSource::Placeholder, "palette, no preview: the grey tile");
+        CHECK(visual_picker_tile_source(3) == TileSource::Rdbm, "a 0-byte file is not a palette picture: the RDBM26 file as before");
         visual_picker_close();
         ui.frames(2);
-        put_picture(root, "hairstyle", 1, png_header(2));
+        put_picture(root, "hairstyle", 4, png_header(2));
         visual_pictures_refresh(app);
         visual_picker_request("hairtypecode");
         ui.frames(3);
-        CHECK(visual_picker_tile_source(1) == TileSource::Rdbm, "rewritten as a lit picture + folder looked at again: the RDBM26 picture");
+        CHECK(visual_picker_tile_source(4) == TileSource::Rdbm, "rewritten as a lit picture + folder looked at again: the RDBM26 picture");
         wind_down();
     });
 
@@ -335,6 +337,50 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         const double second = ms_of(t0);
         std::printf("  PERF hair grid with %d palette files: first open (2 frames) %.1f ms, second open %.1f ms\n", written, first, second);
         CHECK(first < 400.0, fmt("opening the hair grid with every file probed stays far below a second (%.1f ms)", first));
+        // review E10-12 (brief D1, the 16 ms rule of test_visual_picker.h): a hair code the game has a preview for is never probed.
+        // Every named hair code listed in the hash list: the first open reads at most code 0's header (788 reads on bd051b23, ~30 ms).
+        {
+            visual_picker_close();
+            ui.frames(2);
+            const fs::path hash = le / "legacy_filename_hash_list.csv";
+            const std::string hash_before = fs::exists(hash) ? read_file(hash) : std::string();
+            {
+                std::ofstream h(hash);
+                h << "hash;file_name\n";
+                for (int i = 0; i < hs->count; ++i)
+                    if (cb[i].code > 0) h << (i + 1) << ";data/ui/imgAssets/hairstyle/item_" << cb[i].code << "_0.dds\n";
+            }
+            // the game's lists are looked at once a second of ImGui time at most (ui_images.cpp gear_pictures): 65 frames at 1/60 s
+            // make the re-read certain (with 2 frames the index was stale in the full 5.0c run and the build saw no preview)
+            app.request_tab = 0;
+            ui.frames(65);
+            const fs::path root2 = test_tmp_dir("hb_perf_previewed");
+            for (int i = 0; i < hs->count; ++i)
+                if (cb[i].file) visual_picker_test::write_bytes(root2 / "Resources" / hs->dir / cb[i].file, png_header(3));
+            visual_pictures_override((root2 / "Resources").u8string());
+            visual_pictures_refresh(app);
+            ui.extra_draw = draw_section;
+            ui.frames(2);
+            const size_t probes0 = visual_picker_png_probes();
+            visual_picker_request("hairtypecode");
+            ui.frames(3);
+            const size_t probes = visual_picker_png_probes() - probes0;
+            int64_t listed = 0;
+            for (int i = 0; i < hs->count && !listed; ++i)
+                if (cb[i].code > 0 && cb[i].file) listed = cb[i].code;
+            CHECK(visual_picker_ui().open && visual_picker_tile_source(listed) == TileSource::Game, fmt("a listed hair code shows the game preview (%lld)", static_cast<long long>(listed)));
+            CHECK(probes <= 1, fmt("hair codes with a game preview are not probed: %zu PNG headers read on the first open (at most code 0's)", probes));
+            visual_picker_close();
+            ui.frames(2);
+            if (hash_before.empty()) {
+                std::error_code ec;
+                fs::remove(hash, ec);
+            } else {
+                std::ofstream(hash, std::ios::binary | std::ios::trunc) << hash_before;
+            }
+            app.request_tab = 0;
+            ui.frames(65);  // the restored list is re-read before the next case (once a second, see above)
+        }
         wind_down();
     });
 

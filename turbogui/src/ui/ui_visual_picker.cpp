@@ -227,12 +227,15 @@ void push_tile(Source& o, int64_t code, std::string name) {
 // files of its hairstyle folder. The type is byte 25 of the file (8-byte signature, then the IHDR chunk: length, "IHDR", width, height,
 // bit depth, colour type). A short, unreadable or non-PNG file is not a palette PNG (it stays what it was: the picture decoder says
 // "no picture" for it). Probed once per file, forgotten when the pictures folder is looked at again.
+size_t g_png_probes = 0;  // PNG headers read by is_palette_png (tests: visual_picker_png_probes)
+
 bool is_palette_png(const fs::path& file) {
     State& s = st();
     const std::string key = file.u8string();
     const auto hit = s.palette.find(key);
     if (hit != s.palette.end()) return hit->second;
     bool palette = false;
+    ++g_png_probes;
     std::ifstream in(file, std::ios::binary);
     unsigned char h[26];
     if (in.read(reinterpret_cast<char*>(h), sizeof h) && in.gcount() == static_cast<std::streamsize>(sizeof h)) {
@@ -371,8 +374,13 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             // 5.0c E11 (D1): for hair and beard an RDBM26 palette PNG is a strand map, never the tile's picture: the game's lit preview
             // wins, else the grey tile (it still writes: the code is the game's). Other sets' type-3 PNGs (boots, gloves...) are real pictures.
+            // Review E10-12 (brief D1): for hair the game's preview wins outright, so only the files with NO game preview are probed
+            // (about 78 of 788 with Cassio's catalogue): probing all 788 cost ~30 ms in one frame on the first open (16 ms rule,
+            // test_visual_picker.h "PERF: opening the merged hair grid"). Beards keep their order (78 files, probed).
             bool palette_only = false;
-            if ((field == "hairtypecode" || field == "facialhairtypecode") && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
+            if (field == "hairtypecode" && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
+                file.clear();
+            } else if ((field == "hairtypecode" || field == "facialhairtypecode") && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
                 file.clear();
                 palette_only = gp.empty();
             }
@@ -1071,6 +1079,7 @@ std::string visual_picker_tile_reason(int64_t code) {
     return i < 0 || src.src[static_cast<size_t>(i)] != kSrcBlank ? std::string() : src.reason[static_cast<size_t>(i)];
 }
 
+size_t visual_picker_png_probes() { return g_png_probes; }
 size_t visual_picker_list_size() { return st().src.codes.size(); }
 std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 
