@@ -3357,6 +3357,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_miniface_auto.h"  // 5.0c E9: the picture follows the look (auto re-render, debounce, busy queue, pause, deadline)
 #include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
+#include "test_hairbeard_thumbs.h"  // 5.0c E10 lit capture: the hair / beard picture generator (plan, deadline, resume)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 #include "test_hairbeard_pickers.h"  // 5.0c E10-12: hair and beard grids (palette strand maps never beat the game preview, reasons of grey tiles, hair 0 Bald)
 
@@ -15814,6 +15815,7 @@ int main(int argc, char** argv) {
     crest2d_test::run();  // test_crest2d.h (2.20 K2)
     career_faces_test::run();  // test_career_faces.h (2.19)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
+    test_hairbeard_thumbs();  // test_hairbeard_thumbs.h (5.0c E10 lit capture)
     std::printf("native kept edits store\n");
     test_reapply_store();
     test_reapply_players();

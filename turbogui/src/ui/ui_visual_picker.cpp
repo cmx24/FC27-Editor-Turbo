@@ -19,6 +19,7 @@
 #include "modal_size.h"
 #include "core/body_shape.h"
 #include "core/bodytype_thumbs.h"
+#include "core/hairbeard_thumbs.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
 #include "core/look_pickers.h"
@@ -434,6 +435,18 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
             else out.src[k] = ((!have_res || !d) && !gal) ? kSrcNames : kSrcBlank;
+            // 5.0c E10 lit capture (brief D3): a hair / beard with no game picture takes Turbo's own lit capture
+            // (<turbo_output>\cache\hairbeard_thumbs\hair_<id>.png / beard_<id>.png, core/hairbeard_thumbs.h) as its LAST source
+            // before the drawn class icon below. The game's preview and a lit RDBM26 picture still win (they are set above).
+            if (out.src[k] == kSrcBlank && code > 0 && (field == "hairtypecode" || field == "facialhairtypecode")) {
+                hairbeard_thumbs::configure(app.turbo_output());
+                const fs::path lit = hairbeard_thumbs::thumb(field == "hairtypecode" ? hairbeard_thumbs::Field::Hair : hairbeard_thumbs::Field::Beard, code);
+                if (!lit.empty()) {
+                    out.files[k] = lit;
+                    out.src[k] = kSrcRdbm;
+                    out.tip[k] = "Turbo's lit capture of the 3D model. ";
+                }
+            }
             if (out.src[k] == kSrcBlank) {  // 5.0c E10-12 (D4): every grey tile says why it has no picture (hover) and the word in its box
                 const auto gi = gpos.find(code);
                 const GalleryEntry* e = gi != gpos.end() ? &ge[gi->second] : nullptr;
