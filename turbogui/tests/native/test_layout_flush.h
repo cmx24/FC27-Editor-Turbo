@@ -11,6 +11,10 @@
 //   F  Settings > Layout tells what the window is now and what is remembered (source scan: the page registry is cleared by later cases)
 //   G  (guard, passes on both) a UI size change still re-applies the stored width
 //   H  (guard, passes on both) a page with no stored width starts at its own default, not at the previous page's width in the same pane
+//   L1 (fix round) the real panel's corner dragged and released, then only 0.03 s of frames: gui_settings.json already holds the new size
+//      (the base waited 0.6 s, so a game killed right after a resize lost it)
+//   M1 (fix round) a dialog resized by the person reopens at that size (modal_size.h; the base reopened every picker at its fixed default)
+//   N1 (fix round) the visual picker and the body type gallery use it, and App::draw commits on the release edge (source scan)
 // C and D call APIs the base does not have through a SFINAE shim, so this file compiles on both trees and the fail-old run FAILS on
 // the assertion, not on the compiler.
 // Included by test_main.cpp after test_layout_store.h (uses its World / MemSink / SplitGuard); ui_cases runs after gui50_window_rect_test::ui_cases.
@@ -21,6 +25,11 @@
 #include <utility>
 
 #include "test_layout_store.h"
+
+#if __has_include("ui/modal_size.h")
+#include "ui/modal_size.h"
+#define TURBO_HAVE_MODAL_SIZE 1
+#endif
 
 namespace layout_flush_test {
 
@@ -210,6 +219,58 @@ static void run() {
         p = find_pane("##lslist");
         CHECK(p != nullptr && near_f(p->Size.x, 420.0f), fmt("back on page A: its 420 again: %.1f", p ? p->Size.x : -1.0f));
     });
+    run_case("e6-layout M1: a dialog the person resized reopens at that size, not at its fixed default", [&] {
+#ifdef TURBO_HAVE_MODAL_SIZE
+        SplitGuard guard;
+        g_ui_scale = 1.0f;
+        SplitStore st;
+        split::bind(&st);
+        World w;
+        const ImVec2 dflt(500.0f, 400.0f);
+        bool open_it = true, close_it = false;
+        ImVec2 resize_to(0.0f, 0.0f), seen(0.0f, 0.0f);
+        auto frame = [&] {
+            ImGui_ImplNull_NewFrame();
+            ImGui::NewFrame();
+            ++g_frame;
+            if (open_it) { ImGui::OpenPopup("###mz"); open_it = false; }
+            modal_size::set_next("mz", dflt);
+            bool keep = true;
+            if (ImGui::BeginPopupModal("Test dialog###mz", &keep, ImGuiWindowFlags_NoSavedSettings)) {
+                if (resize_to.x > 0.0f) { ImGui::SetWindowSize(resize_to); resize_to = ImVec2(0.0f, 0.0f); }
+                modal_size::track("mz", dflt);
+                seen = ImGui::GetWindowSize();
+                if (close_it) { ImGui::CloseCurrentPopup(); close_it = false; }
+                ImGui::EndPopup();
+            }
+            ImGui::Render();
+            ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
+        };
+        for (int i = 0; i < 6; ++i) frame();
+        CHECK(near_f(seen.x, 500.0f) && near_f(seen.y, 400.0f), fmt("first open at the default 500x400: %.0fx%.0f", seen.x, seen.y));
+        CHECK(!st.has("modal/mz/w"), "opening at the default stores nothing");
+        resize_to = ImVec2(640.0f, 470.0f);  // the person drags the corner
+        for (int i = 0; i < 6; ++i) frame();
+        CHECK(near_f(seen.x, 640.0f) && near_f(seen.y, 470.0f), fmt("resized to 640x470: %.0fx%.0f", seen.x, seen.y));
+        CHECK(st.has("modal/mz/w") && near_f(st.get("modal/mz/w", 0.0f), 640.0f) && near_f(st.get("modal/mz/h", 0.0f), 470.0f),
+              "the size is stored (gui.splits modal/mz/w and /h)");
+        close_it = true;
+        for (int i = 0; i < 6; ++i) frame();
+        open_it = true;
+        seen = ImVec2(0.0f, 0.0f);
+        for (int i = 0; i < 6; ++i) frame();
+        CHECK(near_f(seen.x, 640.0f) && near_f(seen.y, 470.0f), fmt("reopened at 640x470 (the base reopened at the default): %.0fx%.0f", seen.x, seen.y));
+        g_ui_scale = 1.25f;  // a UI size change keeps the proportion
+        close_it = true;
+        for (int i = 0; i < 6; ++i) frame();
+        open_it = true;
+        for (int i = 0; i < 6; ++i) frame();
+        CHECK(near_f(seen.x, 800.0f, 2.0f) && near_f(seen.y, 587.5f, 2.0f), fmt("at UI size 1.25 the stored 640x470 opens at 800x588: %.0fx%.0f", seen.x, seen.y));
+#else
+        CHECK(false, "ui/modal_size.h does not exist (the base): dialogs reopen at their fixed default size");
+#endif
+    });
+
 #endif
 
     run_case("e6-layout F: Settings > Layout shows the window now and what is remembered (source scan)", [&] {
@@ -219,6 +280,18 @@ static void run() {
         const size_t hide = app.find("if (!visible) {");
         CHECK(hide != std::string::npos && app.find("take_pending()", hide) != std::string::npos && app.find("splits.take_dirty()", hide) != std::string::npos,
               "app.cpp: the hidden branch of App::draw writes a pending window change and pane width before it returns");
+    });
+
+    run_case("e6-layout N1: the pickers remember their size and the panel commits on the release edge (source scan)", [&] {
+        const fs::path root = layout_store_test::turbogui_root() / "src" / "ui";
+        const std::string vp = layout_store_test::slurp(root / "ui_visual_picker.cpp");
+        const std::string bt = layout_store_test::slurp(root / "ui_bodytypes.cpp");
+        CHECK(layout_store_test::has(vp, "modal_size::set_next(\"vispicker\"") && layout_store_test::has(vp, "modal_size::track(\"vispicker\""),
+              "ui_visual_picker.cpp sets and tracks the picker size");
+        CHECK(layout_store_test::has(bt, "modal_size::set_next(\"bodytypes\"") && layout_store_test::has(bt, "modal_size::track(\"bodytypes\""),
+              "ui_bodytypes.cpp sets and tracks the gallery size");
+        const std::string app = layout_store_test::slurp(root / "app.cpp");
+        CHECK(layout_store_test::has(app, "ImGui::IsMouseReleased(0) && wtrack.pending_save"), "app.cpp commits a waiting window change on the release edge");
     });
 }
 
@@ -297,6 +370,40 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(line.find("resize 900x650 at 150,90 -> 1100x750 at 150,90") != std::string::npos && line.find("mouse down after release: no") != std::string::npos &&
                   line.find("not maximized") != std::string::npos,
               "the line names the grab, both rectangles and the verdict: '" + line + "'");
+        ui.frames(70);
+        app.visible = true;
+    });
+
+    run_case("e6-layout L1: the panel corner dragged and released is in gui_settings.json 0.03 s later (a kill inside the debounce keeps it)", [&] {
+        std::error_code ec;
+        fs::create_directories(file.parent_path(), ec);
+        {
+            std::ofstream o(file.string(), std::ios::binary | std::ios::trunc);
+            o << "{\"gui\":{\"window\":{\"x\":150,\"y\":90,\"w\":900,\"h\":650,\"maximized\":false}}}";
+        }
+        app.visible = true;
+        app.load_gui_settings();
+        ui.frames(70);  // settled: the apply is done, nothing waits
+        ImGuiIO& io = ImGui::GetIO();
+        const ImVec2 from(150.0f + 900.0f - 3.0f, 90.0f + 650.0f - 3.0f), to(from.x + 200.0f, from.y + 100.0f);
+        io.AddMousePosEvent(from.x, from.y);
+        ui.frames(3);
+        io.AddMouseButtonEvent(0, true);
+        ui.frames(3);
+        for (int i = 1; i <= 10; ++i) {
+            io.AddMousePosEvent(from.x + (to.x - from.x) * float(i) / 10.0f, from.y + (to.y - from.y) * float(i) / 10.0f);
+            ui.frames(1);
+        }
+        ui.frames(2);
+        fs::remove(file, ec);  // whatever was written during the drag does not count
+        io.AddMouseButtonEvent(0, false);
+        ui.frames(2);  // 0.03 s after the release: far inside the 0.6 s debounce
+        json j = json::parse(read_file(file), nullptr, false);
+        const bool ok = j.is_object() && j.contains("gui") && j["gui"].contains("window");
+        const float sw = ok ? j["gui"]["window"].value("w", 0.0f) : -1.0f, sh = ok ? j["gui"]["window"].value("h", 0.0f) : -1.0f;
+        CHECK(ok && std::fabs(sw - 1100.0f) < 4.0f && std::fabs(sh - 750.0f) < 4.0f,
+              fmt("0.03 s after the release gui_settings.json holds 1100x750 (the base waited 0.6 s): %s w=%.0f h=%.0f", ok ? "window block" : "no window block", sw, sh));
+        io.AddMousePosEvent(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
         ui.frames(70);
         app.visible = true;
     });

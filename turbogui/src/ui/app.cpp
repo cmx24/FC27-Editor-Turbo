@@ -2246,7 +2246,17 @@ void App::draw() {
                 wtrack.pending_save = true;
                 wtrack.changed_at = now;
             }
-        } else if (wtrack.observe(cur, now, ImGui::IsMouseDown(0))) {
+        } else if ([&] {
+            // 5.0c E6 fix round: a change waiting out its debounce is also written on the frame the mouse button goes up (the drag has ended),
+            // so a game killed 0.2 s after a resize (the game is killed, not closed: no save at exit) keeps the new size. observe() is unchanged
+            // (its debounce is pinned by test_window_settings.h); this only adds the release edge.
+            bool commit = wtrack.observe(cur, now, ImGui::IsMouseDown(0));
+            if (!commit && ImGui::IsMouseReleased(0) && wtrack.pending_save && wtrack.have_seen) {
+                wtrack.pending_save = false;
+                commit = true;
+            }
+            return commit;
+        }()) {
             wprefs.rect = cur;  // the last place and size the person left it at (written once, not per frame)
             wprefs.has_rect = true;
             const bool saved = save_gui_settings();

@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "imgui.h"
+#include "imgui_internal.h"  // ImGuiContext::SettingsDirtyTimer (5.0c E6: the release save only runs when ImGui has an unsaved change)
 
 namespace ImGui {
 IMGUI_API void ClearIniSettings();  // imgui_internal.h
@@ -88,7 +89,10 @@ public:
         if (seen_visible_ && !visible && sink_.write && !paused_) save("hide", now, false);
         seen_visible_ = visible;
         pump(now);
-        if (visible && mouse_released && sink_.write && !paused_) save("release", now, true);
+        // 5.0c E6 fix round: only when ImGui itself marked something dirty (its 1 s timer is armed on the first change, so it is > 0 for the
+        // whole second after any window, column or pane change): a plain click that changed nothing no longer serialises the whole layout
+        if (visible && mouse_released && sink_.write && !paused_ && ImGui::GetCurrentContext() && ImGui::GetCurrentContext()->SettingsDirtyTimer > 0.0f)
+            save("release", now, true);
     }
 
     bool save_now(const char* why, double now) { return sink_.write && !paused_ && save(why, now, false); }

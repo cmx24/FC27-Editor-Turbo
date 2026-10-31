@@ -70,7 +70,8 @@ void draw_layout(App& app) {
     {   // 5.0c E6: what the window is now and what is remembered for the next start (tells "never saved" from "saved but not applied" in game)
         const WindowPrefs& wp = app.prefs.window;
         char mem[96];
-        if (wp.maximized || !wp.has_rect) std::snprintf(mem, sizeof mem, "full screen");
+        if (wp.maximized) std::snprintf(mem, sizeof mem, "full screen");
+        else if (!wp.has_rect) std::snprintf(mem, sizeof mem, "nothing yet (the first-use size)");
         else std::snprintf(mem, sizeof mem, "%.0f x %.0f at %.0f, %.0f", wp.rect.w, wp.rect.h, wp.rect.x, wp.rect.y);
         ImGui::TextDisabled("Window now: %.0f x %.0f. Remembered for the next start: %s. Pane widths remembered: %d.", app.main_window_size_.x,
                             app.main_window_size_.y, mem, static_cast<int>(app.prefs.splits.widths.size()));

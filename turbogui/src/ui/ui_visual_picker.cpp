@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "app.h"
+#include "modal_size.h"
 #include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
@@ -897,10 +898,11 @@ void draw_picker_window(App& app, const Table& t, uint64_t rec) {
         ImGui::OpenPopup("###vispicker");
         s.popup_pending = false;
     }
-    ImGui::SetNextWindowSize(ImVec2(S(1000.0f), S(680.0f)), ImGuiCond_Appearing);
+    modal_size::set_next("vispicker", ImVec2(1000.0f, 680.0f));  // 5.0c E6: reopens at the size the person left it at
     bool keep = true;
     const std::string title = s.src.title + "###vispicker";
     if (ImGui::BeginPopupModal(title.c_str(), &keep, ImGuiWindowFlags_NoSavedSettings)) {
+        modal_size::track("vispicker", ImVec2(1000.0f, 680.0f));
         draw_picker_body(app, t, rec);
         ImGui::EndPopup();
     } else {
