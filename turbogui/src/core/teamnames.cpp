@@ -1,5 +1,7 @@
 #include "teamnames.h"
 
+#include "teamname_override.h"  // tnames::kMaxLen: the one place that owns each form's cap (header only, std includes)
+
 #include <cctype>
 #include <ctime>
 #include <string>
@@ -213,9 +215,9 @@ void TeamNamesCsv::set_team_names(int64_t teamid, const std::string& full, const
                                   const std::string& a15) {
     TeamNameKeys k = team_name_keys(teamid);
     set(k.full, clean_team_name(full));
-    set(k.abbr3, clean_team_abbr(a3, 3));
-    set(k.abbr10, clean_team_abbr(a10, 10));
-    set(k.abbr15, clean_team_abbr(a15, 15));
+    set(k.abbr3, clean_team_abbr(a3, tnames::kMaxLen[tnames::Abbr3]));
+    set(k.abbr10, clean_team_abbr(a10, tnames::kMaxLen[tnames::Abbr10]));
+    set(k.abbr15, clean_team_abbr(a15, tnames::kMaxLen[tnames::Abbr15]));
 }
 
 // ---------------------------------------------------------------- readable club names
