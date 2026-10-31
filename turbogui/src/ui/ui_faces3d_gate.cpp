@@ -26,6 +26,7 @@
 #include "imgui.h"
 #include "textures.h"
 #include "ui_bodytype_thumbs.h"
+#include "ui_gear_thumbs.h"
 #include "ui_faces.h"
 #include "ui_images.h"
 #include "ui_visual_picker.h"
@@ -335,6 +336,7 @@ bool request_capture(App& app, const PlayerRow& p, std::string& err) {
         return false;
     }
     if (*bodytype_thumbs_busy_text()) return err = bodytype_thumbs_busy_text(), false;  // 2.17 looks T: the run owns the service
+    if (*gear_thumbs_busy_text()) return err = gear_thumbs_busy_text(), false;          // Turbo X: the gear picture run owns it too
     capture::Request r;
     r.id = static_cast<int32_t>(p.playerid);
     r.second_id = p.club > 0 ? static_cast<int32_t>(p.club) : -1;

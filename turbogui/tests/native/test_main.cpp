@@ -3429,6 +3429,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 #include "test_hairbeard_thumbs.h"  // 5.0c E10 lit capture: the hair / beard picture generator (plan, deadline, resume)
+#include "test_gear_thumbs.h"  // Turbo X: the gear picture generator (request, plan, head then body, restore)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
 #include "test_hairbeard_pickers.h"  // 5.0c E10-12: hair and beard grids (palette strand maps never beat the game preview, reasons of grey tiles, hair 0 Bald)
 #include "test_fcedit_previews.h"    // 5.0c E10-fcedit-previews: third picture source for hair/beard tiles (converted FC Editor previews in turbo_output cache)
@@ -15854,6 +15855,7 @@ int main(int argc, char** argv) {
     career_faces_test::run();  // test_career_faces.h (2.19)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     test_hairbeard_thumbs();  // test_hairbeard_thumbs.h (5.0c E10 lit capture)
+    test_gear_thumbs();  // test_gear_thumbs.h (Turbo X gear pictures)
     std::printf("native kept edits store\n");
     test_reapply_store();
     test_reapply_players();
