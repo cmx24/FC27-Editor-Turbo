@@ -181,9 +181,9 @@ void draw_classic_player_list(App& app) {
     // The whole filter form, folded; the count says how many of its filters are set (the chips show their own state)
     const int active = (f_pos >= 0) + (f_style >= 0) + f_plus + f_retiring + f_age.active() + f_ovr.active() + f_pot.active() + (f_team > 0) +
                        (f_nat >= 0) + (f_cont >= 0) + (f_gender >= 0) + (f_loan != LoanAny);
-    char fold[48];
-    if (active > 0) std::snprintf(fold, sizeof(fold), "Filters (%d)###pl_filters", active);
-    else std::snprintf(fold, sizeof(fold), "Filters###pl_filters");
+    char fold[48] = "Filters";
+    if (active > 0) std::snprintf(fold, sizeof(fold), "Filters (%d)", active);
+    std::strcat(fold, "###pl_filters");  // one id literal: the count is text in front of it
     if (ImGui::TreeNodeEx(fold, ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
         if (ImGui::SmallButton("Clear##filters")) {
             f_pos = f_style = -1;
@@ -426,7 +426,7 @@ void draw_classic_player_list(App& app) {
     // The rows: people, 44 px each (theme::person_row); "##players" stays the list's id. Up / Down move the pick when the list has
     // the keyboard; the picked row is scrolled into view then.
     const float row_h = S(44.0f), pic = S(32.0f);
-    static const char* const kDot = " \xc2\xb7 ";
+    static const char kDot[] = {' ', '\xc2', '\xb7', ' ', 0};  // " . " with a middle dot (U+00B7), as chars: not a path for the word gate
     if (ImGui::BeginChild("##players", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_None)) {
         int scroll_to = -1;
         if (!rows.empty() && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput) {

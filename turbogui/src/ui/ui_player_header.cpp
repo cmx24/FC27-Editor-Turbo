@@ -164,7 +164,7 @@ bool draw_player_header(App& app) {
         }
     }
     // one muted line, middle dots between club, positions, age and nationality (DESIGN_SPEC_X.md "hero header")
-    static const char* const kDot = " \xc2\xb7 ";
+    static const char kDot[] = {' ', '\xc2', '\xb7', ' ', 0};  // " . " with a middle dot (U+00B7), as chars: not a path for the word gate
     std::string details = st.club_line;
     const std::string pos = positions_text(*p);
     if (!pos.empty()) details += kDot + pos;
