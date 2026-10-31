@@ -18,9 +18,11 @@
 #include <unordered_set>
 
 #include "app.h"
+#include "core/capture_subject.h"
 #include "core/field_labels.h"
 #include "core/gear_ids.h"
 #include "core/hair_catalog.h"
+#include "core/look_pickers.h"
 #include "file_picker.h"
 #include "imgui.h"
 #include "ui_asset_browser.h"
@@ -303,6 +305,8 @@ struct MinifaceEditor {
     char player_search[64] = "";
     // "The 3D model" tab (app.capture)
     int capture_id = 0;            // id the game renders (playerid / manager head id), editable
+    bool capture_id_typed = false; // 5.0c E9 R6: the person typed the id; until then it follows the resolver (a changed head id is the new id)
+    uint64_t saved_epoch = ~0ull;  // 5.0c E9 R5: g_looks_epoch when the saved rendered look of this path was last looked up
     int capture_camera = 0;        // index into capture::cameras(), or capture::kCameraLearned
     bool capture_use_template = true;
     bool capture_advanced = false;
@@ -320,9 +324,122 @@ struct MinifaceEditor {
     int auto_writes = 0, rewrites = 0;
     std::string written_path;       // the last file written (full path)
     std::vector<App::UndoStep::Picture> steps;  // one per write by a click or by the button, newest last: Undo pops, Restore original pops all
+    // 5.0c E9: the picture follows the look. When a column that changes the 3D render (look::render_changes) differs from the look the last
+    // 3D render was made for, a new render is asked 0.6 s after the last change (queued while the service is busy, one undo step per session)
+    bool auto_update = true;        // the tick box "Update the picture when the look changes"
+    bool auto_paused = false;       // a failed / lost auto render: no more until Generate is pressed
+    bool auto_due = false;          // the look differs from the rendered one: a render is to be asked
+    double auto_at = 0.0;           // ImGui time before which it is not asked (0.6 s after the last change)
+    uint64_t auto_seen = 0;         // the look signature that armed auto_at (a further change re-arms it)
+    int auto_requests = 0;          // auto renders asked in this editor session
+    bool capture_auto = false;      // the pending request was asked by the look change, not by the button
+    uint64_t capture_sent_sig = 0;  // the look the pending request renders
+    double capture_sent_at = 0.0;   // ImGui time it was asked
+    std::string capture_label;      // its label (the result must carry it back: the Looks studio's results are not ours)
 };
 
 static MinifaceEditor g_player_ed, g_manager_ed;
+
+// 5.0c E9: the look each miniface path was last rendered for by the game (set when the render comes back; a picture chosen from anywhere
+// else forgets it: that picture is not the 3D render any more, so no look change may replace it). Per path, so a look changed while
+// another person was shown is still rendered when his editor comes back (verifier V7).
+static std::map<std::string, uint64_t> g_rendered_look;
+static const capture::CaptureService* g_rendered_svc = nullptr;  // the map belongs to one capture service
+static double g_capture_deadline = 0.0;                          // tests: seconds an auto render may take (0 = kAutoDeadline)
+static constexpr double kAutoDeadline = 45.0;                    // longer than the service's own 20 s answer wait (verifier V5)
+
+static uint64_t g_looks_epoch = 0;  // bumps when the in-memory map is dropped: every editor looks the saved record up again
+
+// 5.0c E9 R5 (verifier): the look each miniface was rendered for survives a restart. Per career, careers\<id>\miniface_looks.txt (beside
+// heads_own.json: the career_faces walk reads heads/ and heads_staff/ only), one line per path: <legacy path> TAB <look signature> TAB <hash of
+// the career's copy of the picture>. A record counts only while the career's copy still has that hash: a face the chooser or another tool wrote
+// afterwards is not ours to replace (the 2.20 rule of core/career_faces.h).
+struct SavedLook {
+    uint64_t sig = 0;
+    std::string hash;
+};
+static std::map<std::string, SavedLook> g_saved_looks;
+static std::string g_saved_career;
+static bool g_saved_loaded = false;
+
+static fs::path saved_looks_file(const App& app, const std::string& career) {
+    return career_faces::careers_dir(app.career_faces_paths()) / career / "miniface_looks.txt";
+}
+fs::path miniface_looks_file(const App& app) { return saved_looks_file(app, app.career_faces_wanted()); }
+
+static void saved_load(App& app) {
+    const std::string career = app.career_faces_wanted();
+    if (g_saved_loaded && career == g_saved_career) return;
+    g_saved_loaded = true;
+    g_saved_career = career;
+    g_saved_looks.clear();
+    if (!career_faces::is_career_id(career)) return;
+    std::ifstream in(saved_looks_file(app, career), std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        const size_t a = line.find('\t');
+        const size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+        if (b == std::string::npos) continue;
+        SavedLook v;
+        v.sig = std::strtoull(line.substr(a + 1, b - a - 1).c_str(), nullptr, 10);
+        v.hash = line.substr(b + 1);
+        while (!v.hash.empty() && (v.hash.back() == '\r' || v.hash.back() == '\n')) v.hash.pop_back();
+        if (v.sig != 0 && !v.hash.empty()) g_saved_looks[line.substr(0, a)] = v;
+    }
+}
+
+static void saved_store(App& app) {
+    const std::string career = app.career_faces_wanted();
+    if (!career_faces::is_career_id(career)) return;
+    const fs::path f = saved_looks_file(app, career);
+    std::error_code ec;
+    fs::create_directories(f.parent_path(), ec);
+    std::ofstream out(f, std::ios::binary | std::ios::trunc);
+    for (const auto& kv : g_saved_looks) out << kv.first << '\t' << kv.second.sig << '\t' << kv.second.hash << '\n';
+}
+
+// A picture of `path` was just written into the career: remember the look it was rendered for (the 3D render of the map), or forget the
+// record (any other picture)
+static void saved_note_written(App& app, const std::string& path) {
+    if (!career_faces::is_career_id(app.career_faces_wanted())) return;
+    saved_load(app);
+    const auto it = g_rendered_look.find(path);
+    if (it != g_rendered_look.end()) {
+        g_saved_looks[path] = SavedLook{it->second, career_faces::file_hash(career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), path))};
+    } else if (g_saved_looks.erase(path) == 0) {
+        return;
+    }
+    saved_store(app);
+}
+
+void miniface_forget_looks() {  // tests: "the program was restarted" (the saved records stay on disk)
+    g_rendered_look.clear();
+    g_saved_looks.clear();
+    g_saved_loaded = false;
+    ++g_looks_epoch;
+}
+void miniface_set_capture_timeout(double seconds) { g_capture_deadline = seconds > 0.0 ? seconds : 0.0; }
+
+// FNV-1a over the render-affecting columns of the person's row (look::render_changes is the one catalogue; the table's own fields are walked,
+// no second list). 0 = no row to read.
+static uint64_t look_signature(App& app, const MinifaceTarget& t) {
+    if (t.table == nullptr) return 0;
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&](uint64_t v) {
+        for (int i = 0; i < 8; ++i) {
+            h ^= (v >> (8 * i)) & 0xFFu;
+            h *= 1099511628211ull;
+        }
+    };
+    int n = 0;
+    for (const Field& f : t.table->fields) {
+        if (!look::render_changes(f.name.c_str())) continue;
+        for (char c : f.name) mix(static_cast<unsigned char>(c));
+        mix(static_cast<uint64_t>(app.db.get_int(*t.table, t.rec, f.name, 0)));
+        ++n;
+    }
+    return n > 0 ? (h | 1ull) : 0ull;
+}
 
 // 5.0b-C: where a miniface goes (ui_images.h); the editor and the tests ask the same function
 MinifaceWritePlan miniface_write_plan(const career_faces::Paths& paths, bool manager, int64_t id, int64_t headassetid, const std::string& career) {
@@ -353,6 +470,10 @@ MinifaceEditorProbe miniface_editor_probe(bool manager) {
     p.prev_path = ed.steps.empty() ? std::string() : ed.steps.back().backup.u8string();
     p.undo_steps = ed.steps.size();
     p.original_available = ed.steps.size() >= 2;
+    p.auto_requests = ed.auto_requests;
+    p.auto_paused = ed.auto_paused;
+    p.fr_zoom = ed.fr.zoom;
+    p.capture_id_typed = ed.capture_id_typed;
     return p;
 }
 
@@ -371,7 +492,10 @@ static void set_capture_param(MinifaceEditor& ed, MinifaceCaptureParam p, int va
         }
     };
     switch (p) {
-        case MinifaceCaptureParam::GameId: set_int(ed.capture_id); break;
+        case MinifaceCaptureParam::GameId:
+            set_int(ed.capture_id);
+            ed.capture_id_typed = value > 0;  // 5.0c E9 R6: a typed id is kept; 0 / empty hands the box back to the resolver
+            break;
         case MinifaceCaptureParam::Camera: set_int(ed.capture_camera); break;
         case MinifaceCaptureParam::UseTemplate: set_flag(ed.capture_use_template); break;
         case MinifaceCaptureParam::Advanced: set_flag(ed.capture_advanced); break;
@@ -391,10 +515,18 @@ static void framing_changed(MinifaceEditor& ed) {
 
 // assign: a click on a source (catalog, a player's miniface, the 3D result ...) writes the miniface once its preview is built; false for an
 // image file and for "start from the current one": the preview shows at once and "Save as miniface" writes
-static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, bool assign = true) {
+// keep_framing: a render that follows a look change keeps the person's zoom / position; from_render: this picture is the game's 3D render
+// of the look `capture_sent_sig` (any other picture makes the path forget its render, so no look change replaces a face he chose)
+static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, bool assign = true, bool keep_framing = false, bool from_render = false) {
     ed.source = fit_image(img, 1024);
     ed.source_label = label;
-    ed.fr = Framing();
+    if (!keep_framing) ed.fr = Framing();
+    if (from_render) {
+        g_rendered_look[ed.target] = ed.capture_sent_sig;
+    } else {
+        g_rendered_look.erase(ed.target);
+        ed.saved_epoch = g_looks_epoch;  // this editor holds another picture: the saved record of an earlier render is not looked up again
+    }
     ed.pending_legacy.clear();
     ed.pending_custom_first = true;
     ed.error.clear();
@@ -409,8 +541,31 @@ static void set_source(MinifaceEditor& ed, Rgba img, const std::string& label, b
 static bool g_capture_result_ready = false;
 static capture::Result g_capture_result;
 
+// The map of rendered looks belongs to one capture service (a new service = a new game session: nothing was rendered for it)
+static void sync_rendered_service(App& app) {
+    if (g_rendered_svc != app.capture.get()) {
+        g_rendered_look.clear();
+        ++g_looks_epoch;
+        g_rendered_svc = app.capture.get();
+    }
+}
+
 static void poll_capture(App& app, MinifaceEditor& ed) {
     if (!app.capture) return;
+    sync_rendered_service(app);
+    // 5.0c E9 (verifier V5): a render asked by the look change that the game never answers must end here, not wait for a Cancel nobody presses
+    if (ed.capture_pending && ed.capture_auto) {
+        const double limit = g_capture_deadline > 0.0 ? g_capture_deadline : kAutoDeadline;
+        if (ImGui::GetTime() - ed.capture_sent_at > limit) {
+            app.capture->cancel();
+            if (g_capture_result_ready && g_capture_result.id == ed.capture_pending_id) g_capture_result_ready = false;
+            ed.capture_pending = false;
+            ed.capture_auto = false;
+            ed.auto_paused = true;
+            ed.capture_note = "Auto update paused: the game did not answer in " + std::to_string(static_cast<int>(limit)) + " s. Press Generate";
+            return;
+        }
+    }
     // only while this editor waits: the face chooser's 3D heads (ui_faces.cpp) poll the same service for their own requests
     if (!g_capture_result_ready && ed.capture_pending) {
         capture::Result r;
@@ -420,19 +575,123 @@ static void poll_capture(App& app, MinifaceEditor& ed) {
         }
     }
     if (!g_capture_result_ready || !ed.capture_pending || g_capture_result.id != ed.capture_pending_id) return;
+    // the Looks studio asks the same id for the same manager on the same page: a result that carries another label is his, not ours
+    if (!g_capture_result.label.empty() && g_capture_result.label != ed.capture_label) {
+        g_capture_result_ready = false;
+        return;
+    }
     capture::Result r = std::move(g_capture_result);
     g_capture_result_ready = false;
     ed.capture_pending = false;
+    const bool by_look = ed.capture_auto;  // asked by the look change (quiet), not by the button
+    ed.capture_auto = false;
     if (r.ok) {
         // 5.0b-C (Cassio 10-29: "remove plain background always unchecked"): the capture used to tick it; only he ticks it now
-        set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")");
-        ed.capture_note = "rendered: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
-        app.notify("3D model rendered for " + r.label + " (" + r.format + ")");
+        if (by_look) {
+            // 5.0c E9: a re-write of the picture the person already has, not a new one: his framing stays, no new undo step (the write path
+            // re-writes the file when the last source was written by a click), no toast for every hair change
+            const bool was_active = ed.auto_active && !ed.steps.empty();
+            set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")", false, true, true);
+            if (was_active) {
+                ed.auto_active = true;
+                ed.rewrite_due = true;
+                ed.rewrite_at = ImGui::GetTime();
+                ed.capture_note = "updated for the new look: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
+            } else {
+                ed.capture_note = "updated for the new look (Save as miniface to write it)";
+            }
+        } else {
+            set_source(ed, std::move(r.image), "3D model capture (" + r.format + ")", true, false, true);
+            ed.capture_note = "rendered: " + r.format + ", " + std::to_string(r.bytes) + " bytes";
+            app.notify("3D model rendered for " + r.label + " (" + r.format + ")");
+        }
     } else {
         ed.error = "3D model: " + r.error;
         ed.capture_note = "failed: " + r.error;
+        if (by_look) ed.auto_paused = true;  // no loop: the next try is the person's (Generate)
         app.notify("3D model capture failed: " + r.error, true);
     }
+}
+
+// The id the game is asked for, from the ONE resolver (core/capture_subject.h), the same one the Looks studio asks:
+// the user's manager 9999, another manager his head, a player his id
+static capture::CaptureSubject capture_subject_of(App& app, const MinifaceTarget& t) {
+    return capture::make_capture_subject(app.bridge.state(), t.manager, t.id, t.headassetid, t.teamid);
+}
+static void seed_capture_id(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
+    // 5.0c E9 R6: until the person types an id it IS the resolver's (another manager's head id changes: the next request asks the new one)
+    if (!ed.capture_id_typed) ed.capture_id = static_cast<int>(capture::capture_subject_id(capture_subject_of(app, t)));
+}
+
+// The request of the Generate button, and of the render that follows a look change (quiet: no toast, no error line when it is not taken)
+static bool send_capture(App& app, MinifaceEditor& ed, const MinifaceTarget& t, bool quiet) {
+    capture::CaptureService* svc = app.capture.get();
+    if (!svc) return false;
+    seed_capture_id(app, ed, t);
+    if (ed.capture_id <= 0) return false;
+    capture::Request r;
+    r.id = ed.capture_id;
+    r.second_id = t.teamid > 0 ? static_cast<int32_t>(t.teamid) : -1;  // managers too: the game's builder passes the team id
+    r.manager = t.manager;
+    r.camera = ed.capture_camera;
+    r.use_template = ed.capture_use_template;
+    r.mode_override = ed.capture_advanced ? ed.capture_mode : -1;
+    r.extra_override = ed.capture_advanced ? ed.capture_extra : -1;
+    r.label = (t.manager ? "manager head " : "player ") + std::to_string(ed.capture_id);
+    std::string err;
+    if (!svc->request(r, &err)) {
+        if (!quiet) ed.error = "3D model: " + err;
+        return false;
+    }
+    ed.capture_pending = true;
+    ed.capture_pending_id = ed.capture_id;
+    ed.capture_label = r.label;
+    ed.capture_auto = quiet;
+    ed.capture_sent_sig = look_signature(app, t);
+    ed.capture_sent_at = ImGui::GetTime();
+    ed.capture_note = (quiet ? "the look changed: asked the game to render " : "asked the game to render ") + r.label;
+    ed.auto_due = false;
+    ed.error.clear();
+    return true;
+}
+
+// 5.0c E9: the picture follows the look. Runs every frame this editor is drawn (not only on the 3D tab).
+// Only for a path that was rendered by the game in this session; the look it was rendered for is g_rendered_look[path].
+static void auto_tick(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
+    if (!app.capture) return;
+    auto it = g_rendered_look.find(t.path);
+    if (it == g_rendered_look.end() && ed.saved_epoch != g_looks_epoch) {
+        // 5.0c E9 R5: not rendered in this session; rendered in an earlier one? Only while the career's copy is still that render
+        ed.saved_epoch = g_looks_epoch;
+        if (career_faces::is_career_id(app.career_faces_wanted())) {
+            saved_load(app);
+            const auto sv = g_saved_looks.find(t.path);
+            if (sv != g_saved_looks.end() &&
+                career_faces::file_hash(career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), t.path)) == sv->second.hash)
+                it = g_rendered_look.emplace(t.path, sv->second.sig).first;
+        }
+    }
+    if (it == g_rendered_look.end()) {
+        ed.auto_due = false;
+        return;
+    }
+    const uint64_t sig = look_signature(app, t);
+    if (sig == 0 || sig == it->second) {  // nothing changed, or changed back to what was rendered
+        ed.auto_due = false;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (!ed.auto_due || sig != ed.auto_seen) {  // every further change re-arms the 0.6 s (the debounce of framing_changed)
+        ed.auto_due = true;
+        ed.auto_seen = sig;
+        ed.auto_at = now + 0.6;
+    }
+    if (!ed.auto_update || ed.auto_paused || ed.capture_pending) return;
+    if (now < ed.auto_at || ImGui::IsMouseDown(0)) return;
+    // queued, never dropped and never forced: while the service has another request (the face chooser's heads, the Looks studio) it stays due
+    const capture::Status st = app.capture->status();
+    if (!st.installed || !st.available || st.busy) return;
+    if (send_capture(app, ed, t, true)) ++ed.auto_requests;
 }
 
 // The "The 3D model" tab body
@@ -450,15 +709,26 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
         return;
     }
     capture::Status st = svc->status();
-    if (ed.capture_id == 0) ed.capture_id = static_cast<int>(t.manager ? t.headassetid : t.id);
+    seed_capture_id(app, ed, t);
     ImGui::SetNextItemWidth(S(110.0f));
     {
         int gid = ed.capture_id;
         if (ImGui::InputInt("Game id", &gid, 0, 0)) set_capture_param(ed, MinifaceCaptureParam::GameId, gid);  // 5.0b-C: a field change redraws the preview
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", t.manager ? "the manager's head id (heads_staff); change it to try the managerid" : "the player id; change it to render someone else into this miniface");
-    ImGui::SameLine();
+        ImGui::SetTooltip("%s", t.manager ? "what the game is asked to draw: 9999 (the created avatar) for your own manager, the head id (heads_staff) for any other; change it to try another id"
+                                          : "the player id; change it to render someone else into this miniface");
+    {
+        // which id is asked, in words (5.0c E9): the number alone looked like a head id for the person's own manager
+        const capture::CaptureSubject subj = capture_subject_of(app, t);
+        const std::string n = std::to_string(ed.capture_id);
+        std::string who;
+        if (ed.capture_id_typed && ed.capture_id != static_cast<int>(capture::capture_subject_id(subj))) who = "id " + n + " (set by you)";
+        else if (capture::is_user_manager(subj)) who = "your manager (the created avatar, " + n + ")";
+        else if (t.manager) who = "this manager's head (" + n + ")";
+        else who = "this player (" + n + ")";
+        ImGui::TextDisabled("Asking the game for: %s", who.c_str());
+    }
     const auto& cams = capture::cameras();
     std::string cam_label = ed.capture_camera == capture::kCameraLearned ? "Learned from the game" : cams[static_cast<size_t>(std::clamp(ed.capture_camera, 0, int(cams.size()) - 1))].label;
     ImGui::SetNextItemWidth(S(330.0f));
@@ -493,33 +763,26 @@ static void capture_tab(App& app, MinifaceEditor& ed, const MinifaceTarget& t) {
     const bool can = st.installed && st.available && !st.busy && !ed.capture_pending && ed.capture_id > 0;
     if (!can) ImGui::BeginDisabled();
     if (ImGui::Button("Generate from 3D model")) {
-        capture::Request r;
-        r.id = ed.capture_id;
-        r.second_id = t.teamid > 0 ? static_cast<int32_t>(t.teamid) : -1;  // managers too: the game's builder passes the team id
-        r.manager = t.manager;
-        r.camera = ed.capture_camera;
-        r.use_template = ed.capture_use_template;
-        r.mode_override = ed.capture_advanced ? ed.capture_mode : -1;
-        r.extra_override = ed.capture_advanced ? ed.capture_extra : -1;
-        r.label = (t.manager ? "manager head " : "player ") + std::to_string(ed.capture_id);
-        std::string err;
-        if (svc->request(r, &err)) {
-            ed.capture_pending = true;
-            ed.capture_pending_id = ed.capture_id;
-            ed.capture_note = "asked the game to render " + r.label;
-            ed.error.clear();
-        } else {
-            ed.error = "3D model: " + err;
-        }
+        ed.auto_paused = false;  // the person asks: a paused auto update is lifted
+        send_capture(app, ed, t, false);
     }
     if (!can) ImGui::EndDisabled();
     ImGui::SameLine();
+    ImGui::Checkbox("Update the picture when the look changes", &ed.auto_update);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("After a render, a change of hair, beard, eyes, skin or body type asks the game for a new picture by itself (about a second "
+                          "after the last change) and keeps your framing. It works while this editor is on screen: a look changed on another page "
+                          "is rendered when you open it. Off: only the button renders.");
+    if (ed.auto_paused) ImGui::TextColored(kWarn, "Auto update paused after a failed render: press Generate");
+    if (st.busy || ed.capture_pending) ImGui::SameLine();
     if (st.busy || ed.capture_pending) {
         ImGui::TextColored(kWarn, "%s (%.0f s)", st.reason.empty() ? "rendering..." : st.reason.c_str(), st.busy_for);
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel##capture")) {
             svc->cancel();
+            if (ed.capture_auto) ed.auto_paused = true;  // he cancelled the render the look change asked: not asked again behind his back
             ed.capture_pending = false;
+            ed.capture_auto = false;
             ed.capture_note = "cancelled";
         }
     } else {
@@ -614,6 +877,7 @@ static void service_writes(App& app, MinifaceEditor& ed, const MinifaceTarget& t
         return;
     }
     app.textures.forget(app.legacy.custom_file(t.path));
+    saved_note_written(app, t.path);
     const MinifaceWritePlan pl = miniface_write_plan(app.career_faces_paths(), t.manager, t.id, t.headassetid, app.career_faces_wanted());
     ed.written_path = career_faces::overlay_file(app.career_faces_paths(), app.career_faces_wanted(), t.path).u8string();
     ed.wrote = true;
@@ -743,9 +1007,11 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
             if (g_capture_result_ready && g_capture_result.id == ed.capture_pending_id) g_capture_result_ready = false;
         }
         std::string keep_dir = ed.browse_dir.string();
+        const bool keep_auto = ed.auto_update;  // his tick box follows him from one person to the next
         ed = MinifaceEditor();
         ed.target = t.path;
         ed.browse_dir = keep_dir;
+        ed.auto_update = keep_auto;
         // the previous player's New preview: the version numbers start again with the editor, so the same number would
         // show his picture (a 3D render or file chosen for the next player looked like it never arrived)
         app.textures.forget_pixels(preview_key);
@@ -755,6 +1021,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
 
     // a 3D-model capture that finished
     poll_capture(app, ed);
+    auto_tick(app, ed, t);  // 5.0c E9: the look changed since the last render: ask for a new one
 
     // waiting for a game picture chosen as the source
     if (!ed.pending_legacy.empty()) {
@@ -861,6 +1128,7 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
         } else if (app.write_face_picture(t.path, dds, &err, &rec)) {  // 2.19: in a career, that career's own copy only
             fs::path written = app.legacy.custom_file(t.path);
             app.textures.forget(written);
+            saved_note_written(app, t.path);
             ed.steps.push_back(rec);  // 5.0b-C: the button's write can be undone like a click's
             ed.wrote = true;
             ed.rewrite_due = false;

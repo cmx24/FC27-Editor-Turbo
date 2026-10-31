@@ -55,11 +55,22 @@ struct MinifaceEditorProbe {
     std::string prev_path;            // the copy Undo brings back (kept in the career's _undo; empty: Undo removes the file)
     size_t undo_steps = 0;            // sources assigned in this session and not undone
     bool original_available = false;  // "Restore original" is offered
+    int auto_requests = 0;            // 5.0c E9: renders asked by a look change in this editor session
+    bool auto_paused = false;         // a failed / lost auto render paused the auto update (Generate lifts it)
+    float fr_zoom = 1.0f;             // the framing's Size
+    bool capture_id_typed = false;    // 5.0c E9 R6: the Game id was typed (it no longer follows the person's head id)
 };
 MinifaceEditorProbe miniface_editor_probe(bool manager);
 // The capture fields of the 3D model tab; each real change counts as a change of the editor (the preview and the file follow)
 enum class MinifaceCaptureParam { GameId, Camera, UseTemplate, Advanced, Mode, Extra };
 void miniface_set_capture_param(bool manager, MinifaceCaptureParam p, int value);
+// 5.0c E9: forget which look each miniface was rendered for (a test starts from "nothing rendered"); the deadline (seconds) an auto render may take
+// before the editor gives up on it and pauses the auto update (0 = the default)
+#define TURBO_MINIFACE_AUTO 1  // the 5.0c E9 test hooks below exist (a tree without them does not define it: the tests then fail at run time)
+void miniface_forget_looks();
+// the career's saved "rendered look" record (careers\<id>\miniface_looks.txt); tests wipe it between cases
+std::filesystem::path miniface_looks_file(const App& app);
+void miniface_set_capture_timeout(double seconds);
 
 // What the real-face chooser copies besides the head; the miniface always comes with the head (never a mixed result)
 struct RealFaceOptions {
