@@ -166,6 +166,10 @@ public:
     // teamid -> readable club name for teams whose teams.teamname is an unresolved localization key
     // ("*TeamName_Abbr15_112264", core/teamnames.h); without one such a club shows as "Team <id>". Next rebuild.
     void set_team_name_fallback(std::shared_ptr<const NameMap> names) { team_fallback_ = std::move(names); }
+    // The Live Editor custom_team_names.csv name of a club ("" = none); the donor list of the club commentary picker reads it for clubs with no teams row
+    std::string fallback_team_name(int64_t tid) const;
+    // How many names the fallback map holds (part of the donor list's cache key)
+    size_t fallback_team_names() const { return team_fallback_ ? team_fallback_->size() : 0; }
     // The name shown for a club whose stored name is `stored` (the stored name unless it is empty or a key)
     std::string readable_team_name(int64_t tid, const std::string& stored) const;
 

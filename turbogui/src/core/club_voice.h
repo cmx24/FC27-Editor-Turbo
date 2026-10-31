@@ -59,5 +59,19 @@ std::vector<voice::Table::Team> build_teams(const Store& s, const std::string& c
 bool load_recorded(const std::filesystem::path& file, std::vector<int32_t>& ids, std::string* err);
 std::filesystem::path recorded_path(const std::filesystem::path& le_root, const std::string& lang);
 
+// 5.0c E15 (Cassio 10-30, "the selection seems short ... dig for hidden and custom team names"): how a recorded club is named in the picker.
+// The teams-table name first (`row_name`, "" = the club has no row in this database), then the Live Editor custom_team_names.csv name
+// (`fallback_name`), else "Club <id> (not in this database)" (never "team <id>"). id 0 = "No club name".
+#define TURBO_E15_DONOR_LABEL 1
+std::string donor_label(int64_t id, const std::string& row_name, const std::string& fallback_name);
+// A club the label names (a row or a CSV name); false = "Club <id> (not in this database)"
+inline bool donor_is_named(const std::string& row_name, const std::string& fallback_name) { return !row_name.empty() || !fallback_name.empty(); }
+// The two ids the recordings hold that are not clubs of a database: 999997 (generic) and 9999990 (the no-club marker). They are listed only behind
+// "Show special ids". The 800001-800112 block (fictional clubs) is a real choice and stays listed.
+bool is_special_id(int64_t id);
+// Height of the donor list: `rows` rows of `line_h` (text height + item spacing) and the child's top and bottom padding. A fixed row count, never
+// GetContentRegionAvail: the card is AutoResizeY, so an available height grows with the list every frame.
+float donor_list_height(float line_h, float pad_y, int rows = 14);
+
 }  // namespace clubvoice
 }  // namespace turbo

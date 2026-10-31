@@ -263,5 +263,16 @@ bool load_recorded(const fs::path& file, std::vector<int32_t>& ids, std::string*
     return true;
 }
 
+std::string donor_label(int64_t id, const std::string& row_name, const std::string& fallback_name) {
+    if (id == 0) return "No club name";
+    if (!row_name.empty()) return row_name;
+    if (!fallback_name.empty()) return fallback_name;
+    return "Club " + std::to_string(id) + " (not in this database)";
+}
+
+bool is_special_id(int64_t id) { return id == 999997 || id == 9999990; }
+
+float donor_list_height(float line_h, float pad_y, int rows) { return static_cast<float>(rows) * line_h + 2.0f * pad_y; }
+
 }  // namespace clubvoice
 }  // namespace turbo
