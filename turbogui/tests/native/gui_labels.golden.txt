@@ -111,6 +111,7 @@ ui_asset_browser.cpp	BeginChild	##grid	1
 ui_asset_browser.cpp	InputTextWithHint	##search	1
 ui_asset_browser.cpp	InvisibleButton	##tile	1
 ui_bodytype_thumbs.cpp	-	###diagbodythumbs	1
+ui_bodytype_thumbs.cpp	BeginPopupModal	###btthumbcardconfirm	1
 ui_bodytype_thumbs.cpp	BeginPopupModal	###btthumbconfirm	1
 ui_bodytype_thumbs.cpp	Button	Cancel##btthumbno	1
 ui_bodytype_thumbs.cpp	Button	Make the pictures...##btthumbgo	1
@@ -119,9 +120,12 @@ ui_bodytype_thumbs.cpp	Button	Stop and give him his own body type back##btthumbs
 ui_bodytype_thumbs.cpp	Button	Yes, make them##btthumbyes	1
 ui_bodytype_thumbs.cpp	InputInt	Camera##btthumbcamidx	1
 ui_bodytype_thumbs.cpp	InputInt	Only the first (0 = all)##btthumbmax	1
+ui_bodytype_thumbs.cpp	OpenPopup	###btthumbcardconfirm	1
 ui_bodytype_thumbs.cpp	OpenPopup	###btthumbconfirm	1
 ui_bodytype_thumbs.cpp	RadioButton	Another camera##btthumbsrc1	1
 ui_bodytype_thumbs.cpp	RadioButton	Full body##btthumbsrc0	1
+ui_bodytype_thumbs.cpp	SmallButton	###btthumbcardgo	1
+ui_bodytype_thumbs.cpp	SmallButton	Stop##btthumbcardstop	1
 ui_bodytypes.cpp	-	Copy##btcp	1
 ui_bodytypes.cpp	BeginChild	##btcopylist	1
 ui_bodytypes.cpp	BeginPopupModal	Copy body type from player##btcopy	1

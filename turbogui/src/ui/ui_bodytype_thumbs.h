@@ -4,6 +4,7 @@
 // (bodytype_thumbs_section), after a confirmation that names the career and the player (2.17.0: no request file starts it).
 // The body type is written RAW (range-checked, read back): no undo step, no kept edit; his own body type is put back at the end.
 #pragma once
+#include <cstdint>
 
 namespace turbo {
 
@@ -13,6 +14,10 @@ class App;
 void tick_bodytype_thumbs(App& app);
 // The "Body-type pictures" section (collapsed by default); no page draws it since the Diagnostics & logs page went
 void bodytype_thumbs_section(App& app);
+// Turbo X: the Body type card's door to the same run (ui_looks_studio.cpp body_card): a small button that starts it for `player`
+// (the person the card shows) after the same confirmation, the busy text and a Stop while it runs, one line with the result. The
+// button is disabled while another picture is being drawn; `have_pictures` only changes its words ("... again").
+void bodytype_thumbs_card_button(App& app, int32_t player, bool have_pictures);
 // The text the faces card and the Looks studio show instead of their own picture request while a run is going ("" = no run)
 const char* bodytype_thumbs_busy_text();
 
