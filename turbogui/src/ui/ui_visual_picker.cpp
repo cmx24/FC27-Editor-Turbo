@@ -27,6 +27,7 @@
 #include "ui_bodytypes.h"
 #include "ui_body_figure.h"
 #include "ui_faces.h"
+#include "ui_fcedit_previews.h"
 #include "ui_images.h"
 #include "ui_looks_studio.h"
 
@@ -68,6 +69,7 @@ struct Source {  // what one picker shows
     std::vector<char> writable, hidden;
     std::vector<std::string> why, tag, tip;
     std::vector<uint32_t> icon;            // 5.0c E10 fix round: a drawn class icon of a hair / beard tile with no game picture (0 = none; see hair_icon / beard_icon)
+    std::vector<uint8_t> fcedit;           // 5.0c E10-fcedit: 1 = the tile's picture is an FC Editor preview from the local cache (still kSrcRdbm)
     std::vector<std::string> cap, reason;  // 5.0c E10-12: a grey tile's short word in its box, and why it has no picture ("" on tiles that have one)
     std::vector<int> group;             // index into groups, -1 = none
     std::vector<std::string> groups;    // eyebrow styles, generic head models
@@ -259,6 +261,7 @@ void push_tile(Source& o, int64_t code, std::string name) {
     o.cap.emplace_back();
     o.reason.emplace_back();
     o.icon.push_back(0);
+    o.fcedit.push_back(0);
     o.group.push_back(-1);
 }
 
@@ -283,6 +286,35 @@ bool is_palette_png(const fs::path& file) {
     }
     s.palette[key] = palette;
     return palette;
+}
+
+// 5.0c E10-fcedit-previews: the third picture source of the hair and facial-hair tiles, after the game's preview, RDBM26 and a swatch.
+// <turbo_output>/cache/previews/fcedit27/<field>/<code>.png, written offline by turbo_dev/tools/fcedit_previews.ps1 from Cassio's FC Editor
+// install (lit renders; local only, never shipped). The folder is listed once per picker open (about 650 files: one directory read, no
+// per-tile stat), a light one-code list reuses the last listing. A missing folder or file = nothing changes.
+std::map<std::string, std::unordered_map<int64_t, fs::path>> g_fcedit;  // folder -> code -> file
+size_t g_fcedit_count = 0;  // tiles of the open picker with such a picture (visual_picker_source_fcedit)
+
+fs::path fcedit_picture(App& app, const std::string& field, int64_t code, bool relist) {
+    if (field != "hairtypecode" && field != "facialhairtypecode") return {};
+    const fs::path dir = app.turbo_output() / "cache" / "previews" / "fcedit27" / field;
+    const std::string key = dir.u8string();
+    auto hit = g_fcedit.find(key);
+    if (hit == g_fcedit.end() || relist) {
+        std::unordered_map<int64_t, fs::path> files;
+        std::error_code ec;
+        fs::directory_iterator it(dir, ec), end;
+        while (!ec && it != end) {
+            const fs::path& f = it->path();
+            const std::string stem = f.stem().u8string();
+            if (f.extension() == ".png" && !stem.empty() && stem.size() < 10 && std::all_of(stem.begin(), stem.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+                files[std::stoll(stem)] = f;
+            it.increment(ec);
+        }
+        hit = g_fcedit.insert_or_assign(key, std::move(files)).first;
+    }
+    const auto f = hit->second.find(code);
+    return f == hit->second.end() ? fs::path() : f->second;
 }
 
 int group_index(Source& o, const std::string& g) {
@@ -385,6 +417,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 std::stable_sort(all.begin(), all.end(), [&](int64_t a, int64_t b) { return grp(a) < grp(b); });
             }
         }
+        bool fe_listed = false;  // 5.0c E10-fcedit-previews: the cache folder is read once per full build, at the first tile that asks
         for (int64_t code : all) {
             const vis::CodeDef* own = d ? vis::find_code(*d, code) : nullptr;
             const bool named = own && own->name && own->name[0];
@@ -432,8 +465,23 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 file.clear();
                 palette_only = gp.empty();
             }
+            // 5.0c E10-fcedit-previews: no game preview, no RDBM26 picture, no swatch -> the lit FC Editor render from the local cache (if any)
+            bool from_fcedit = false;
+            if (file.empty() && gp.empty() && !out.swatch[k]) {
+                const fs::path fe = fcedit_picture(app, field, code, !light && !fe_listed);
+                fe_listed = true;
+                if (!fe.empty()) {
+                    file = fe;
+                    from_fcedit = true;
+                    palette_only = false;  // a palette strand map was dropped above; the lit render replaces it
+                }
+            }
             out.files[k] = file;
             out.game[k] = gp;
+            if (from_fcedit) {
+                out.fcedit[k] = 1;
+                out.tip[k] = kFcEditPreviewNote;
+            }
             if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
@@ -481,6 +529,12 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 else if (ghead) out.group[k] = group_index(out, head_model(own && own->name ? own->name : ""));
             }
         }
+    }
+    {
+        size_t fe = 0;
+        for (uint8_t b : out.fcedit) fe += b;
+        if (!light) g_fcedit_count = fe;
+        if (fe && !light && out.note.empty()) out.note = std::to_string(fe) + " tiles show a lit preview converted from your FC Editor install (local only, not shipped).";
     }
     for (size_t i = 0; i < out.codes.size(); ++i) {
         std::string q = lower(out.names[i]) + " " + std::to_string(out.codes[i]);
@@ -805,7 +859,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.want_open = false;
     vlog(app, "visual picker opened: " + field + " of " + t.name + " " + std::to_string(who_id(app, t, rec)) + " is " + std::to_string(s.ui.current) +
                   " (" + std::to_string(s.ui.source_rdbm) + " RDBM26 pictures, " + std::to_string(s.ui.source_swatch) + " swatches, " +
-                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a game picture, " + std::to_string(s.ui.source_drawn) + " of those drawn from their class)");
+                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a game picture, " + std::to_string(s.ui.source_drawn) + " of those drawn from their class; " + std::to_string(g_fcedit_count) + " of the pictures are FC Editor previews)");
 }
 
 void close_picker() {
@@ -1287,6 +1341,12 @@ std::string visual_picker_tile_name(int64_t code) {
 }
 
 size_t visual_picker_png_probes() { return g_png_probes; }
+size_t visual_picker_source_fcedit() { return g_fcedit_count; }
+std::string visual_picker_tile_note(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 || !src.fcedit[static_cast<size_t>(i)] ? std::string() : std::string(kFcEditPreviewNote);
+}
 size_t visual_picker_list_size() { return st().src.codes.size(); }
 std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 std::vector<int64_t> visual_picker_shown_codes() {
