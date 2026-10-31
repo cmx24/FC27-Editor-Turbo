@@ -7,6 +7,7 @@
 //   generic id  -> <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav
 //   own (real)  -> <wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav, then real_link\pPLAYER_NAMES_LINK_<seg>_<seg>.wav
 //                  (the master lists LINK segments only when their wavs exist)
+//   a wav missing there is looked for straight in <wav_dir> (a flat folder, as an extraction tool writes them)
 // Every click plays the id's next segment (its variations, in turn); a click while it plays stops it. The sound is
 // played by Windows (PlaySoundW, src/win/callname_audio_win.cpp) behind WavPlayer, so native tests use a fake one.
 // Nothing here touches the game.

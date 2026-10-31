@@ -493,6 +493,14 @@ public:
     // generic names 980001..980034, ita_it 999931..999952). Else Unknown (the fallback set; an id above 965000 without
     // a list). "No callname" ids (<= 900000) are Silent. "FC 26 list" here and below: the master list, either kind.
     SpokenAnswer spoken_answer(int64_t cid) const;
+    // Has commentary id `cid` a recording Turbo knows of: in the spoken set (the fallback set while unverified), or, unless
+    // the asset catalog decides, in the master list's generic ids (eng_us 900467 Stewart and the 980001..980034 names are
+    // in the bank but not in spoken_eng_us.txt, whose range stops at 965000). The pickers and the "Current callname" line
+    // use it, so they agree with spoken_answer and the write routes (callname_coverage.py, 2026-10-31).
+    bool has_recording(int64_t cid) const {
+        if (spoken.spoken(cid)) return true;
+        return spoken.from != SpokenSet::From::Catalog && cid > kNoCallname && masters.generic_ids.count(cid) > 0;
+    }
     // For a Silent id: which source says it has no recording ("the game's audio service and your FC 26 list")
     std::string silent_source(int64_t cid) const;
     // The row to take over for `for_player` when playernamemap is full, so that no other player loses a callname he

@@ -1306,7 +1306,7 @@ void Callnames::build_index(Database& db, const Model& model, const std::unorder
     // the fallback spoken set follows the names in the database
     if (!spoken.verified) spoken.ids = index.used_ids;
     for (const auto& kv : index.name_commentary) {
-        if (!spoken.spoken(kv.second)) continue;
+        if (!has_recording(kv.second)) continue;
         NameChoice c;
         c.nameid = kv.first;
         c.commentaryid = kv.second;
@@ -1321,7 +1321,7 @@ void Callnames::build_index(Database& db, const Model& model, const std::unorder
         return la != lb ? la < lb : a.nameid < b.nameid;
     });
     for (const auto& kv : index.playernamemap) {
-        if (!spoken.spoken(kv.second)) continue;
+        if (!has_recording(kv.second)) continue;
         PlayerChoice c;
         c.playerid = kv.first;
         c.commentaryid = kv.second;

@@ -1001,6 +1001,14 @@ static void test_core() {
             const int checked = checks;
             pl.button(a, CallnameAudioKind::Generic, 900762, 0.0);
             CHECK(checks == checked, "file checks are cached");
+            {   // a flat wav folder (an extraction tool's output: every wav straight in wav_dir): found there too
+                CallnamePlayer flat;
+                flat.set_exists([&](const fs::path& p) { return p == fs::path("W") / "pSIMPLE_SURNAME_1420_1420.wav"; });
+                flat.set_seconds([](const fs::path&) { return 1.0; });
+                flat.set_player(std::make_shared<FakeWav>());
+                const auto fb = flat.button(a, CallnameAudioKind::Generic, 900762, 0.0);
+                CHECK(fb.enabled && fb.tip == "Play (1 of 1)", "flat folder: W\\pSIMPLE_SURNAME_1420_1420.wav found: " + fb.tip);
+            }
             // clicks cycle through the segments; a click while it plays stops it
             CHECK(pl.status(0.0).empty(), "no click yet: no status line");
             CHECK(pl.click(a, CallnameAudioKind::Generic, 900762, 0.0, "Abate").find("pSIMPLE_SURNAME_931_931.wav") != npos, "first click: segment 931");
@@ -1253,6 +1261,15 @@ static void test_core() {
               "above 965000, not in the FC 26 list: silent (" + cn.silent_source(980002) + ")");
         CHECK(cn.spoken_answer(900000) == SpokenAnswer::Silent && cn.spoken_answer(0) == SpokenAnswer::Silent && cn.spoken_answer(-1) == SpokenAnswer::Silent,
               "no callname: silent");
+        // the pickers' test (has_recording) agrees: the spoken set or the master's generic ids (eng_us 980xxx, 900467)
+        CHECK(cn.has_recording(900010) && cn.has_recording(980001) && cn.has_recording(912000) && !cn.has_recording(912345) &&
+                  !cn.has_recording(980002) && !cn.has_recording(900000),
+              "has_recording: spoken set | master generic ids");
+        {
+            Callnames cat = cn;  // the asset catalog decides alone (as spoken_answer)
+            cat.spoken.from = SpokenSet::From::Catalog;
+            CHECK(cat.has_recording(900010) && !cat.has_recording(980001), "has_recording with the catalog: its set only");
+        }
         // the rows, in table order; players 1003, 2001..2004 are in the database, 7777 is not
         const std::unordered_set<int64_t> db_players = {1003, 2001, 2002, 2003, 2004, 3002};
         auto in_db = [&](int64_t pid) { return db_players.count(pid) > 0; };
@@ -7663,8 +7680,9 @@ static void test_ui() {
                 app.toasts.clear();
                 CHECK(ui.click("Use this player's callname"), "use callname: 980001 unknown");
                 CHECK(!app.busy() && refused_with("cannot check") && app.db.get_int(*mt, r1003, "playerid") == 1003, "refused: the row stays 1003's");
-                // an FC 26 list where 980001 is a generic recording (as in eng_us): spoken, kept. After Refresh Saliba is no
-                // longer in the picker (980001 is not in the spoken-id list), so 2001's callname (950000) is the one copied
+                // an FC 26 list where 980001 is a generic recording (as in eng_us): spoken, kept. After Refresh Saliba is in
+                // the picker too (980001 is in the master's generic ids: Callnames::has_recording); 2001's callname (950000) is
+                // the one copied
                 fs::path mp = master_list_path(le, "ita_it");
                 fs::create_directories(mp.parent_path());
                 std::ofstream(mp.string()) << R"({"language": "ita_it", "real_players": [1004], "generic_ids": [980001]})";
