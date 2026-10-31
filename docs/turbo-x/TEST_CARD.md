@@ -34,7 +34,7 @@ Start the game the usual way (Desktop LaunchFC27, Live Editor running). Load **L
 
 ## 5. One picker (step 7) — 5 minutes
 
-- Open the hair picker, the beard picker, the Accessory 1 picker and one tattoo picker for the same player. All four must look the same (same tile layout, same header).
+- In the **Looks** area, for one player: open the hair picker and the beard picker (Hair and beard card, Choose...), the Accessory 1 picker (Accessories card) and one tattoo picker (Tattoos card). All four must look the same (same tile layout, same header). The old classic "Everything" tab that also had these is gone (step 6), so Looks is the route.
 - Each must show a line like **"N without picture hidden — show"**. No tile may say "3D only", "Preview only", "Hidden", "no table row", "drawn".
 - In each: pick a tile → the player changes → press Undo → the player is back. Do this once per picker.
 - Result: **"picker: same layout 4/4, hidden count shown 4/4, apply+undo hair Y/N beard Y/N accessory Y/N tattoo Y/N"** and one screenshot of any picker.
