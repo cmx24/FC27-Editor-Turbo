@@ -847,10 +847,14 @@ ui_player_creation.cpp	Button	###pc_delete	1
 ui_player_creation.cpp	Button	###pc_delgo	1
 ui_player_creation.cpp	Button	###pc_delno	1
 ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
+ui_player_header.cpp	-	##hdr_calc	1
+ui_player_header.cpp	-	##hdr_ovr	1
+ui_player_header.cpp	-	##hdr_pot	1
 ui_player_header.cpp	BeginChild	##pe_header	1
-ui_player_header.cpp	Button	###hdr_shown_clear	1
-ui_player_header.cpp	Button	###hdr_shown_set	1
+ui_player_header.cpp	Button	###hdr_undo	1
 ui_player_header.cpp	InputText	###hdr_shown_ovr	1
+ui_player_header.cpp	SmallButton	###hdr_shown_clear	1
+ui_player_header.cpp	SmallButton	###hdr_shown_set	1
 ui_player_profile.cpp	-	###ab_attrs	1
 ui_player_profile.cpp	-	###ab_bit%d	1
 ui_player_profile.cpp	-	###ab_bulkundo	1
