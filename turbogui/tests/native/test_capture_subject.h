@@ -120,14 +120,23 @@ static Asked ask_manager(App& app, Ui& ui, std::shared_ptr<FakeCapture>& fake, i
     ImGui::GetIO().DisplaySize = g_studio_display;  // the Looks studio is drawn at the size its own test uses; the miniface frame below needs room
     page_looks_test::show(ui);
     ui.frames(30);
-    CHECK(ui.click("Draw him###lsdraw", "##looksstudio_test"), "Draw him");
-    ui.frames(2);
+    // A picker of an earlier case (the faces heads) may hold the service when the page opens: let it finish (the game answers it), then click
     std::string seen;
-    for (const capture::Request& r : fake->requests) {
-        seen += "[" + r.label + " id " + std::to_string(r.id) + "] ";
-        if (r.label.rfind("Looks studio", 0) == 0) {
-            out.studio = r.id;
-            out.studio_manager = r.manager;
+    for (int attempt = 0; attempt < 6 && out.studio == -1; ++attempt) {
+        CHECK(ui.click("Draw him###lsdraw", "##looksstudio_test"), "Draw him");
+        ui.frames(2);
+        for (const capture::Request& r : fake->requests) {
+            seen += "[" + r.label + " id " + std::to_string(r.id) + "] ";
+            if (r.label.rfind("Looks studio", 0) == 0) {
+                out.studio = r.id;
+                out.studio_manager = r.manager;
+            }
+        }
+        if (out.studio == -1) {
+            fake->requests.clear();
+            deliver(ui, fake);
+            fake->pending = false;
+            ui.frames(10);
         }
     }
     CHECK(out.studio != -1, "the Looks studio asked the game (requests seen: " + (seen.empty() ? std::string("none") : seen) + ", studio says: " + "line: " + looks::studio_state().preview_line + ", studio requests " + std::to_string(looks::studio_state().requests) + ")");
