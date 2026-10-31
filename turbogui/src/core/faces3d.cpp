@@ -201,6 +201,9 @@ const char* template_v3_text() { return data::kTemplateV3; }
 const char* template_v3_md5() { return data::kTemplateV3Md5; }
 const char* template_v4_text() { return data::kTemplateV4; }
 const char* template_v4_md5() { return data::kTemplateV4Md5; }
+const char* template_v5_text() { return data::kTemplateV5; }
+const char* template_v5_md5() { return data::kTemplateV5Md5; }
+const char* const kHairReplaceOffRel = "faces3d\\hair_replace_off.txt";
 bool has_follow(const Table& t) {
     for (const auto& kv : t)
         if (kv.second.follow) return true;
@@ -953,25 +956,51 @@ ApplyResult apply(const std::string& turbo_output_utf8, const Table& t, const st
     return r;
 }
 
-std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why,
-                                                       const CrestList& crest0) {
+namespace {
+// the 2.16 .. 5.0b live build over one template (v4 or v5): crest list and saved list fall back as before
+Built live_body(const char* tmpl, const std::string& stock, const Table& saved, std::string& note, const CrestList& crest0) {
     // 2.20 K2: the shirt-crest list never costs the faces: a list the build refuses is dropped, and the faces build runs as before
     CrestList crest = crest0;
     std::string crest_note;
     if (!crest.empty()) {
-        const Built c = generate_body(template_v4_text(), stock, Table{}, crest);
+        const Built c = generate_body(tmpl, stock, Table{}, crest);
         if (c.ok) crest_note = "; " + std::to_string(crest.size()) + (crest.size() == 1 ? " club" : " clubs") + " on the shirt-crest list";
         else crest_note = "; shirt-crest list refused (" + c.error + ")", crest.clear();
     }
-    Built b = generate_body(template_v4_text(), stock, saved, crest);
+    Built b = generate_body(tmpl, stock, saved, crest);
     note = std::to_string(saved.size()) + " players on the saved list";
     if (!b.ok && !saved.empty()) {
         // a bad saved list never turns the live looks off: the bands alone (D6)
         const std::string first = b.error;
-        b = generate_body(template_v4_text(), stock, Table{}, crest);
+        b = generate_body(tmpl, stock, Table{}, crest);
         if (b.ok) note = "saved list refused (" + first + "): bands only";
     }
     note += crest_note;
+    return b;
+}
+}  // namespace
+
+bool hair_replace_on(const std::string& turbo_output_utf8) {
+    std::error_code ec;
+    return !fs::exists(rel_path(turbo_output_utf8, kHairReplaceOffRel), ec);
+}
+
+std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why,
+                                                       const CrestList& crest, bool hair_replace) {
+    if (hair_replace) {
+        // 5.0c E13: v5 = v4 + the clean-scan splices; a v5 refusal never costs the live looks: v4 as before
+        Built b5 = live_body(template_v5_text(), stock, saved, note, crest);
+        if (b5.ok) return std::make_shared<const std::string>(b5.bytes);
+        const std::string first = b5.error;
+        Built b4 = live_body(template_v4_text(), stock, saved, note, crest);
+        if (!b4.ok) {
+            why = "the v5 and v4 builds refused: " + b4.error;
+            return nullptr;
+        }
+        note += "; hair replace refused (" + first + "): v4";
+        return std::make_shared<const std::string>(b4.bytes);
+    }
+    const Built b = live_body(template_v4_text(), stock, saved, note, crest);
     if (!b.ok) {
         why = "the v4 build refused: " + b.error;
         return nullptr;

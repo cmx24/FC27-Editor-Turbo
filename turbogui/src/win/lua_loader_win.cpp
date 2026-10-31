@@ -49,6 +49,8 @@ uint64_t g_rv_addr = 0;
 bool g_rv_ok = false;
 
 ll::Engine* g_engine = nullptr;  // never freed: the detours read it for the lifetime of the process
+bool g_hair_replace = false;      // 5.0c E13: set once at install (hair_replace_off.txt absent): the in-memory build is template v5
+std::atomic<bool> g_built_v5{false};  // 5.0c E13: the bytes the build returned are v5 ("FACE GATE v5"; a v5 refusal serves v4)
 ll::LineQueue g_lines(50000);
 ll::LuaLoadFn o_lua_load = nullptr;
 ll::Reader o_blob = nullptr;
@@ -348,7 +350,7 @@ void run() {
     g_opted_in = true;
     const bool substitute = dec.substitute;
     log("lua_loader: on (2.16: whenever Turbo is installed): %s (kill switches turbo_output\\hook_lua_load_off.txt, faces3d_off.txt, game_hooks_off.txt)",
-        dec.in_memory ? "SUBSTITUTE mode, player_kit.lua v4 built in memory from the game's own file"
+        dec.in_memory ? "SUBSTITUTE mode, player_kit.lua v5 (v4 with faces3d\\hair_replace_off.txt) built in memory from the game's own file"
         : substitute  ? "SUBSTITUTE mode from the override file (lua_loader_research_file.txt)"
         : dec.capture_mode ? "LOG-ONLY mode (capture mode: the first stock capture is cached)"
                            : "LOG-ONLY mode");
@@ -379,6 +381,7 @@ void run() {
     // product mode: the saved list (players.json) is read here, never on a game thread; the build runs at the boot capture
     auto saved = std::make_shared<turbo::faces3d::Table>();
     auto crest = std::make_shared<turbo::faces3d::CrestList>();  // 2.20 K2: kits\crest2d.json, the shirt-crest list (same build)
+    bool hair_replace = false;  // 5.0c E13: template v5 (hair / beard replace) unless faces3d\hair_replace_off.txt (read here, once)
     if (dec.in_memory) {
         std::string perr;
         if (!turbo::faces3d::load_players(out.u8string(), *saved, &perr)) {
@@ -390,6 +393,9 @@ void run() {
             *crest = turbo::faces3d::load_crest2d_for_boot(out.u8string(), cline);
             if (!cline.empty()) log("%s", cline.c_str());
         }
+        hair_replace = turbo::faces3d::hair_replace_on(out.u8string());
+        g_hair_replace = hair_replace;
+        if (!hair_replace) log("lua_loader: faces3d\\hair_replace_off.txt present: player_kit is built from template v4 (no hair replace)");
         {
             std::lock_guard<std::mutex> lk(g_saved_m);
             g_saved_ids.clear();
@@ -498,13 +504,15 @@ void run() {
     env.reader_capturable = reader_capturable;
     env.save_capture = save_capture;
     if (dec.in_memory)
-        env.build_override = [saved, crest](const std::string& row, const std::string& stock, std::string& note,
+        env.build_override = [saved, crest, hair_replace](const std::string& row, const std::string& stock, std::string& note,
                                      std::string& why) -> std::shared_ptr<const std::string> {
             if (row != "player_kit") {
                 why = "no in-memory build for row " + row;
                 return nullptr;
             }
-            return turbo::faces3d::build_live_override(stock, *saved, note, why, *crest);
+            auto r = turbo::faces3d::build_live_override(stock, *saved, note, why, *crest, hair_replace);
+            g_built_v5 = r && r->find("FACE GATE v5") != std::string::npos;
+            return r;
         };
     if (at.top_layout_ok) {  // the fallback's pop is safe only on the layout checked in lua_load's own bytes
         env.stack_depth = lua_stack_depth;
@@ -600,7 +608,8 @@ std::vector<std::string> lua_loader_status() {
         l2 += f.captured_md5.empty() ? std::string("stock not captured yet") : "stock " + std::to_string(f.captured_size) + " B md5 " + f.captured_md5;
         l2 += f.legacy_refused ? " | substitution REFUSED (mods\\legacy player_kit.lua present)" : f.substitute ? " | substitute" : " | log-only";
         if (f.in_memory)
-            l2 += f.built ? " | v4 built in memory" : f.built_error.empty() ? " | v4 not built yet" : " | stock served: " + f.built_error;
+            l2 += f.built ? (g_built_v5 ? " | v5 (hair replace) built in memory" : " | v4 built in memory")
+                  : f.built_error.empty() ? (g_hair_replace ? " | v5 not built yet" : " | v4 not built yet") : " | stock served: " + f.built_error;
         else if (f.substitute)
             l2 += std::string(" | override header ") +
                   (!f.header_ok ? "missing/invalid" : !f.build_key_ok ? "other build" : (f.stock_matches_header || f.captured_md5.empty()) ? "ok" : "STALE");

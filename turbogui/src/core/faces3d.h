@@ -78,6 +78,11 @@ const char* template_v3_text();  // the embedded TEMPLATE v3 (LF): gate block wi
 const char* template_v3_md5();
 const char* template_v4_text();  // the embedded TEMPLATE v4 (LF): v3 + the live band rule (2.16), splices identical to v3
 const char* template_v4_md5();
+// 5.0c E13: TEMPLATE v5 (LF) = v4 + the clean-scan splices (a band / entry hair or beard on a real face, HeadClass 0, replaces
+// the old hair / beard painted into the scan: _loadStarHead composites the scan colour / normal / specmask with generic skin under
+// the stock region masks). Served live unless turbo_output/faces3d/hair_replace_off.txt exists (kHairReplaceOffRel).
+const char* template_v5_text();
+const char* template_v5_md5();
 bool has_follow(const Table& t);
 // What apply builds from: always v4 since 2.16 (v3 + the band rule, so looks change without a restart). v2 / v3 stay for tests
 const char* template_for(const Table& t);
@@ -104,9 +109,14 @@ bool is_turbo_beard_code(int64_t facialhairtypecode);
 // 2.20 K2 (crest2d): with a non-empty shirt-crest list the build also carries the crest splices (see CrestList); a list the build
 // refuses never costs the faces: the build is redone without it (note "... shirt-crest list refused (...)"). A non-empty list adds
 // "; <N> clubs on the shirt-crest list" to note.
+// 5.0c E13: hair_replace = true builds template v5 (the hook passes it unless kHairReplaceOffRel exists); false (the default) = v4,
+// byte for byte as before. A v5 build the generator refuses falls back to v4 (note "...; hair replace refused (...): v4").
 using CrestList = std::set<int64_t>;
 std::shared_ptr<const std::string> build_live_override(const std::string& stock, const Table& saved, std::string& note, std::string& why,
-                                                       const CrestList& crest = CrestList{});
+                                                       const CrestList& crest = CrestList{}, bool hair_replace = false);
+extern const char* const kHairReplaceOffRel;  // "faces3d\\hair_replace_off.txt" under turbo_output: present = serve v4 (no hair replace)
+// false when kHairReplaceOffRel exists under turbo_output (read once at the hook install, with players.json, never on a game thread)
+bool hair_replace_on(const std::string& turbo_output_utf8);
 const std::vector<int>& band_hair_ids();
 const std::vector<int>& band_beard_ids();
 int64_t hair_band_code(int64_t hair_id);    // 0 when the id is not on the list
