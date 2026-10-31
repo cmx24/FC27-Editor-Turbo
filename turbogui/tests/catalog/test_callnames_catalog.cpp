@@ -102,6 +102,8 @@ int main(int argc, char** argv) {
               "gm: own recordings of gm only; dr-only ones noted");
         CHECK(gm.generic.size() == 2, "generic recordings are shared by the teams (eng_us: only in dr)");
         CHECK(fx.bank("eng_us", "zz").team.empty(), "an unknown team = every team");
+        CHECK(all.spoken_by_teams_only(90003) == "dr" && gm.spoken_by_teams_only(90001).empty() && all.spoken_by_teams_only(424242).empty(),
+              "every team: a player one team recorded is named with that team; a single team in use names none");
         CHECK(!fx.bank("fre_fr", "").loaded(), "no bank for a language the catalog lacks");
     }
 
@@ -131,9 +133,9 @@ int main(int argc, char** argv) {
         CHECK(rows.size() == 6, "2 generic + 4 own rows (" + std::to_string(rows.size()) + ")");
         CHECK(!rows.empty() && !rows[0].own() && !rows[1].own() && rows[2].own(), "generic rows first");
         const AllCallnameRow* g1 = find_row(rows, false, 990001);
-        CHECK(g1 && g1->text == "Dbsurname" && g1->name_source == "db" && g1->recorded && !g1->hidden && g1->name_rows == 1 &&
+        CHECK(g1 && g1->text == "Dbsurname | Mastertext" && g1->name_source == "db" && g1->recorded && !g1->hidden && g1->name_rows == 1 &&
                   g1->users == 3 && g1->nameid == 7,
-              "generic in the bank and the save: DB name first");
+              "generic in the bank and the save: DB name first, the FC 27 master's word beside it when it differs");
         const AllCallnameRow* g3 = find_row(rows, false, 990003);
         CHECK(g3 && g3->text == "Mastergen" && g3->name_source == "master" && !g3->recorded && !g3->hidden && g3->in_master,
               "master-only generic: No recording");

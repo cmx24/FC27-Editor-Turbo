@@ -2,11 +2,15 @@
 // of the user's master workbook.
 //
 // The FC 27 master (turbo\callnames\masters\<lang>.json, turbo/tools/build_callname_master.py --wav-dir) gives the
-// folder of the segment wavs ("wav_dir", holding real\, real_link\ and generic\) and the segments of every id
-// ("segments"; its real_high / generic_high keys are not played here):
+// folder of the segment wavs ("wav_dir", holding real\, real_link\, real_high\ and generic\) and the segments of every id
+// ("segments"; its generic_high key is not played here):
 //   generic id  -> <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav
 //   own (real)  -> <wav_dir>\real\pPLAYER_NAMES_SIMPLE_<seg>_<seg>.wav, then real_link\pPLAYER_NAMES_LINK_<seg>_<seg>.wav
-//                  (the master lists LINK segments only when their wavs exist)
+//                  (the master lists LINK segments only when their wavs exist), then
+//                  real_high\pPLAYER_NAMES_HIGH_<seg>_<seg>.wav (the high-intensity variations: heard in the preview only; the
+//                  kick-off name check never asks them, so a HIGH-only player is still not a voice source)
+// Segments >= 100000 are set index * 100000 + segment of a later commentary set (callname_coverage.py: dr_full 0,
+// dr_licensed 1, dr_demo 2, gm_full 3, gm_licensed 4, gm_demo 5); the file name carries that number as it is.
 //   a wav missing there is looked for straight in <wav_dir> (a flat folder, as an extraction tool writes them)
 // Every click plays the id's next segment (its variations, in turn); a click while it plays stops it. The sound is
 // played by Windows (PlaySoundW, src/win/callname_audio_win.cpp) behind WavPlayer, so native tests use a fake one.
@@ -35,20 +39,22 @@ struct MasterAudio {
     std::unordered_map<int64_t, std::vector<int64_t>> generic;    // commentary id -> segments (pSIMPLE_SURNAME)
     std::unordered_map<int64_t, std::vector<int64_t>> real;       // player id -> segments (pPLAYER_NAMES_SIMPLE)
     std::unordered_map<int64_t, std::vector<int64_t>> real_link;  // player id -> segments (pPLAYER_NAMES_LINK)
+    std::unordered_map<int64_t, std::vector<int64_t>> real_high;  // player id -> segments (pPLAYER_NAMES_HIGH; preview only)
     // set by every parse_master_audio (a new number each time, 0 = never parsed): the play buttons check the wav files
     // again when it changes, so Refresh finds a wav added since (even a "missing" one) in the same wav folder
     uint64_t gen = 0;
     std::string lang;  // Club only: the loaded commentary language the folder belongs to (the tooltip names it)
-    bool any() const { return !generic.empty() || !real.empty() || !real_link.empty(); }
+    bool any() const { return !generic.empty() || !real.empty() || !real_link.empty() || !real_high.empty(); }
 };
 
 // Reads "wav_dir" and "segments" of a parsed master (anything of the wrong type is skipped; never throws); gives the
 // result a new `gen`
 void parse_master_audio(const nlohmann::json& j, MasterAudio& out);
 
-// <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav / <wav_dir>\real\pPLAYER_NAMES_SIMPLE|LINK_<seg>_<seg>.wav
-std::filesystem::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, int64_t segment, bool link = false);
-// Every wav of an id, in play order (SIMPLE before LINK for an own recording); empty without wav_dir or segments
+// <wav_dir>\generic\pSIMPLE_SURNAME_<seg>_<seg>.wav / <wav_dir>\real\pPLAYER_NAMES_SIMPLE|LINK_<seg>_<seg>.wav /
+// <wav_dir>\real_high\pPLAYER_NAMES_HIGH_<seg>_<seg>.wav (`high` wins over `link`)
+std::filesystem::path callname_wav_path(const std::string& wav_dir, CallnameAudioKind kind, int64_t segment, bool link = false, bool high = false);
+// Every wav of an id, in play order (SIMPLE, then LINK, then HIGH for an own recording); empty without wav_dir or segments
 std::vector<std::filesystem::path> callname_wavs(const MasterAudio& a, CallnameAudioKind kind, int64_t id);
 
 // Length in seconds of a PCM wav from its first bytes (RIFF, fmt, data chunks) and its file size; 0 when unknown

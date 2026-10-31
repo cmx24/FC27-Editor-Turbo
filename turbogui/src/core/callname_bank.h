@@ -47,6 +47,9 @@ struct CatalogBank {
     std::unordered_set<int64_t> generic;           // commentary ids with a generic recording (every team)
     std::unordered_map<int64_t, int> own;          // player id -> kBank* bits, in `team` (every team when "")
     std::unordered_set<int64_t> own_other_team;    // own recordings only in another team than `team`
+    // every team ("" with several teams): player id -> bit i set when teams[i] has his SIMPLE or LINK recording. The
+    // game speaks one team at a time, so a player recorded by one team only is silent while the other commentates.
+    std::unordered_map<int64_t, uint32_t> own_spoken_teams;
     std::unordered_map<int64_t, assets::Name> player_names;      // catalog names.player of own / own_other_team ids
     std::unordered_map<int64_t, assets::Name> commentary_names;  // catalog names.commentary of the generic ids
 
@@ -65,6 +68,19 @@ struct CatalogBank {
         return b != 0 && (b & kBankSpoken) == 0;
     }
     bool multi_team() const { return teams.size() > 1; }
+    // Every team of a multi-team pack in use, and only some teams recorded this player's SIMPLE / LINK: those teams
+    // ("gm", "dr+gm"); "" when every team did, for a single team / single-team pack, or when he has no such recording
+    std::string spoken_by_teams_only(int64_t playerid) const {
+        if (!multi_team() || !team.empty()) return "";
+        auto it = own_spoken_teams.find(playerid);
+        if (it == own_spoken_teams.end() || !it->second) return "";
+        const uint32_t all = teams.size() >= 32 ? 0xFFFFFFFFu : ((1u << teams.size()) - 1u);
+        if ((it->second & all) == all) return "";
+        std::string out;
+        for (size_t i = 0; i < teams.size() && i < 32; ++i)
+            if (it->second & (1u << i)) out += (out.empty() ? "" : "+") + teams[i];
+        return out;
+    }
     // "ita_it", "eng_us dr", "eng_us (every team)"
     std::string where() const {
         if (!multi_team()) return lang;
@@ -104,6 +120,14 @@ inline CatalogBank make_catalog_bank(const std::string& lang, const std::string&
     }
     for (int64_t id : other)
         if (!b.own.count(id)) b.own_other_team.insert(id);
+    if (b.team.empty() && b.teams.size() > 1) {  // every team: which teams speak each player (teams is sorted now)
+        for (const BankTeamLists& l : lists) {
+            const auto ti = std::find(b.teams.begin(), b.teams.end(), l.team) - b.teams.begin();
+            if (ti >= 32) continue;
+            for (size_t k = 1; k <= 2; ++k)  // SIMPLE, LINK (kBankSpoken)
+                for (int64_t id : l.kinds[k]) b.own_spoken_teams[id] |= 1u << ti;
+        }
+    }
     if (name) {
         auto name_player = [&](int64_t id) {
             assets::Name n = name(assets::NameKind::Player, id);

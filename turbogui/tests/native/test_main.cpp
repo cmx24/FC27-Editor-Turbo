@@ -923,6 +923,19 @@ static void test_core() {
             const auto own = callname_wavs(a, CallnameAudioKind::Own, 261865);
             CHECK(own.size() == 2 && own[0].filename() == "pPLAYER_NAMES_SIMPLE_5041_5041.wav" && own[1].filename() == "pPLAYER_NAMES_LINK_535_535.wav",
                   "own recording: SIMPLE then LINK");
+            {
+                // the high-intensity variations play after them (preview only); a later set's segment keeps its number
+                MasterAudio h = a;
+                h.real_high[261865] = {300012};
+                const auto o = callname_wavs(h, CallnameAudioKind::Own, 261865);
+                CHECK(o.size() == 3 && o[2] == fs::path("W") / "real_high" / "pPLAYER_NAMES_HIGH_300012_300012.wav" && h.any(),
+                      "own recording: SIMPLE, LINK, then HIGH");
+                MasterList hl;
+                CHECK(parse_master_list_json(R"({"language": "eng_us", "game": "fc27", "real_players": [7], "wav_dir": "W",
+                      "segments": {"real_high": {"7": [3, 3, 200001]}}})", "eng_us", hl, &err) &&
+                          hl.audio.real_high[7] == std::vector<int64_t>({3, 200001}),
+                      "segments.real_high read: " + err);
+            }
             CHECK(callname_wavs(a, CallnameAudioKind::Generic, 900762).size() == 3 && callname_wavs(a, CallnameAudioKind::Own, 900762).empty() &&
                       callname_wavs(a, CallnameAudioKind::Generic, 261865).empty(),
                   "generic and own ids are separate");

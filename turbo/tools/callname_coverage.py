@@ -26,6 +26,7 @@ usage:
   python turbo/tools/callname_coverage.py <wav_dir | wav list .txt> <selection xlsx dir> <master json>
          [--spoken spoken_<lang>.txt] [--db DIR] [--examples N]
          [--write-spoken OUT] [--write-master OUT [--wav-dir-json DIR] [--wavset-only] [--game-build B]]
+         [--sets-root DIR [--sets-wav-list FILE] [--copy-from-sets | --write-copy-plan OUT]] [--catalog JSON]
   <wav_dir>   the folder of extracted wavs (searched recursively: flat, or generic\\ real\\ real_link\\ real_high\\);
               or a text file with one wav name per line
   --db DIR    folder with the game DB exports commentarynames.txt, playernames.txt, playernamemap.txt (tab separated,
@@ -36,6 +37,19 @@ usage:
               Players the input master lists only from other commentary sets (all their segments >= 100000, not in
               this wav folder) are carried over unless --wavset-only. --wav-dir-json sets "wav_dir" (default: the input
               master's). The master holds real names: it stays on the user's PC (scripts/package.sh name guard).
+  --sets-root DIR   the owner's full export of the language (FIFA Editor Tool, every SoundWaves set):
+              <lang>_<team>_<KIND>\\p<BANK>\\Selection.xlsx (+ the set's wavs, where the tool wrote them). Every set's
+              selection rows join G, keyed set index * 100000 + VariationIndex (SET_INDEX: dr full 0, dr licensed 1,
+              dr demo 2, gm full 3, gm licensed 4, gm demo 5; 0-3 and 5 checked 2026-10-31 against the wavs Turbo decoded:
+              every segment's duration equal to the set's Segments.xlsx). A set wav that the wav folder lacks under its
+              encoded name counts as present (e.g. pPLAYER_NAMES_HIGH of dr demo) and is listed for copying:
+              --copy-from-sets copies it to <wav_dir>\\<real|real_link|real_high|generic>\\<encoded name> (never
+              overwrites), --write-copy-plan writes the list (source relative to --sets-root, TAB, target relative to
+              the wav folder). --sets-wav-list: the set wavs as a list (paths relative to --sets-root) instead of a walk.
+              The SPECULATIVE banks (PLAYER_SPECULATIVE_SIMPLE / LINK / RETURN, keyed by player id) are counted (players
+              only there) but never listed: the kick-off name check asks SIMPLE / LINK only.
+  --catalog JSON    the game asset catalog (turbo_output\\asset_catalog\\catalog_<key>.json): names.player fills the
+              master's players without a name.
 Exit code 0 when G \\ T is empty for every bank, 1 otherwise, 2 on bad input. Python 3 + openpyxl only.
 """
 import argparse
@@ -57,6 +71,12 @@ WAV_RX = re.compile(r"^p(" + "|".join(BANKS) + r")_(\d+)_(\d+)\.wav$", re.I)
 SPOKEN_LO, SPOKEN_HI = 900000, 965000   # parse_spoken_list's range
 NO_CALLNAME = 900000
 OTHER_SET = 100000                      # master segments >= this: index * 100000 + seg of a later commentary set
+SET_INDEX = {("dr", "full"): 0, ("dr", "licensed"): 1, ("dr", "demo"): 2,
+             ("gm", "full"): 3, ("gm", "licensed"): 4, ("gm", "demo"): 5}
+SEG_FOLDER = {"SIMPLE_SURNAME": "generic", "PLAYER_NAMES_SIMPLE": "real", "PLAYER_NAMES_LINK": "real_link",
+              "PLAYER_NAMES_HIGH": "real_high"}
+SPEC_BANKS = ("PLAYER_SPECULATIVE_SIMPLE", "PLAYER_SPECULATIVE_LINK", "PLAYER_SPECULATIVE_RETURN")
+SET_DIR_RX = re.compile(r"^([a-z]{3}_[a-z]{2})_([a-z0-9]+)_(full|demo|licensed)$", re.I)
 
 
 def die(msg):
@@ -99,16 +119,17 @@ def read_wavs(src):
     return out, odd
 
 
-def read_selection(folder, bank):
-    """VariationIndex -> set of ids (player ids, or commentary ids for SIMPLE_SURNAME)"""
+def read_selection(folder, bank, path=None):
+    """VariationIndex -> set of ids (player ids, or commentary ids for SIMPLE_SURNAME); `path` = an explicit xlsx"""
     try:
         import openpyxl
     except ImportError:
         die("openpyxl is missing: pip install openpyxl")
-    want = f"p{bank} selection.xlsx".lower()
-    path = next((os.path.join(folder, f) for f in os.listdir(folder) if f.lower() == want), None)
-    if not path:
-        return None, f"no '{want}' in {folder}"
+    if path is None:
+        want = f"p{bank} selection.xlsx".lower()
+        path = next((os.path.join(folder, f) for f in os.listdir(folder) if f.lower() == want), None)
+        if not path:
+            return None, f"no '{want}' in {folder}"
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
     rows = ws.iter_rows(values_only=True)
@@ -212,6 +233,108 @@ def text_cause(a, b):
     if fold(a) == fold(b) or fold(a).replace("ss", "ß") == fold(b).replace("ss", "ß"):
         return "accents"
     return "different text"
+
+
+def sets_of(root, lang):
+    """[(team, kind, set index, folder)] of the export's set folders for `lang` (index None = not in SET_INDEX)"""
+    out = []
+    for d in sorted(os.listdir(root)):
+        m = SET_DIR_RX.match(d)
+        if not m or m.group(1).lower() != lang or not os.path.isdir(os.path.join(root, d)):
+            continue
+        team, kind = m.group(2).lower(), m.group(3).lower()
+        out.append((team, kind, SET_INDEX.get((team, kind)), d))
+    return out
+
+
+def find_ci(folder, name):
+    try:
+        return next((os.path.join(folder, f) for f in os.listdir(folder) if f.lower() == name.lower()), None)
+    except OSError:
+        return None
+
+
+def read_sets(root, lang, wav_list=None):
+    """The export of every set: per bank {encoded segment: ids}, the speculative players, per set counts, and the set wavs
+    {bank: {encoded segment: source path relative to root}}"""
+    sel = {b: collections.defaultdict(set) for b in BANKS}
+    spec = set()
+    per_set = []
+    listed = None
+    if wav_list:
+        listed = collections.defaultdict(list)
+        with open(wav_list, encoding="utf-8-sig") as fh:
+            for line in fh:
+                line = line.strip().replace("\\", "/")
+                if line:
+                    listed[line.split("/")[0].lower()].append(line)
+    wavs = {b: {} for b in BANKS}
+    for team, kind, idx, d in sets_of(root, lang):
+        if idx is None:
+            print(f"warning: set folder {d}: no set index for ({team}, {kind}); skipped")
+            continue
+        row = {"set": d, "index": idx}
+        for b in BANKS + SPEC_BANKS:
+            x = find_ci(os.path.join(root, d), "p" + b)
+            xl = find_ci(x, "selection.xlsx") if x else None
+            if not xl:
+                continue
+            m, why = read_selection(None, b, xl)
+            if m is None:
+                die(why)
+            ids = set().union(*m.values()) if m else set()
+            row[b] = len(ids)
+            if b in SPEC_BANKS:
+                spec |= ids
+                continue
+            for v, i in m.items():
+                sel[b][idx * OTHER_SET + v] |= i
+        names = []
+        if listed is not None:
+            names = [(os.path.dirname(p), os.path.basename(p)) for p in listed.get(d.lower(), [])]
+        else:
+            for r, _ds, fs in os.walk(os.path.join(root, d)):
+                names += [(os.path.relpath(r, root), f) for f in fs if f.lower().endswith(".wav")]
+        for rel, f in names:
+            m = WAV_RX.match(f)
+            if not m or m.group(2) != m.group(3):
+                continue
+            bank = next(b for b in BANKS if b.lower() == m.group(1).lower())
+            wavs[bank][idx * OTHER_SET + int(m.group(2))] = os.path.join(rel, f)
+        row["wavs"] = sum(1 for b in BANKS for k in wavs[b] if k // OTHER_SET == idx)
+        per_set.append(row)
+    return sel, spec, per_set, wavs
+
+
+def merge_set_wavs(wavs, set_wavs):
+    """Set wavs the wav folder lacks under their encoded name count as present; returns the copy plan
+    [(source relative to --sets-root, target relative to the wav folder)]"""
+    plan = []
+    for b in BANKS:
+        for seg, src in sorted(set_wavs[b].items()):
+            if seg in wavs[b]:
+                continue
+            wavs[b][seg] = SEG_FOLDER[b]
+            plan.append((src, os.path.join(SEG_FOLDER[b], f"p{b}_{seg}_{seg}.wav")))
+    return plan
+
+
+def report_sets(per_set, sel, spec, g):
+    print("-- the export's sets (--sets-root): ids per bank and set")
+    for r in per_set:
+        print("  " + f"{r['set']:22s} index {r['index']}  " + "  ".join(
+            f"{b} {r[b]}" for b in BANKS + SPEC_BANKS if b in r) + f"  wavs {r['wavs']}")
+    own = set().union(*(sel["PLAYER_NAMES_SIMPLE"].values()), *(sel["PLAYER_NAMES_LINK"].values()))
+    high = set().union(*sel["PLAYER_NAMES_HIGH"].values()) if sel["PLAYER_NAMES_HIGH"] else set()
+    gen = set().union(*sel["SIMPLE_SURNAME"].values()) if sel["SIMPLE_SURNAME"] else set()
+    print(f"  every set: players with an own recording (SIMPLE | LINK) {len(own)}; HIGH {len(high)}, HIGH only {len(high - own)}"
+          f" {sorted(high - own)[:10]}; generic surname ids {len(gen)}; speculative players {len(spec)}, speculative only"
+          f" {len(spec - own - high)} {sorted(spec - own - high)[:10]}")
+    print(f"  spoken names (generic ids + SIMPLE | LINK players): {len(gen) + len(own)}")
+    g_own = set(g["PLAYER_NAMES_SIMPLE"]) | set(g["PLAYER_NAMES_LINK"])
+    print(f"  with a wav (G): own {len(g_own)} of {len(own)}, HIGH {len(g['PLAYER_NAMES_HIGH'])} of {len(high)},"
+          f" generic {len(g['SIMPLE_SURNAME'])} of {len(gen)}; HIGH without any wav: {sorted(high - set(g['PLAYER_NAMES_HIGH']))[:12]}"
+          f" ({len(high - set(g['PLAYER_NAMES_HIGH']))})")
 
 
 # ---------------------------------------------------------------- core
@@ -372,8 +495,9 @@ def write_spoken(path, lang, g):
     print(f"wrote {path}: {len(ids)} ids (G's surname ids in 900001..965000; ids above 965000 come from the master)")
 
 
-def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, sources):
+def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, sources, catalog_names=None, db_labels_only=False):
     names = {int(k): v for k, v in (master.get("names") or {}).items() if str(k).isdigit()}
+    from_catalog = {i: n for i, n in (catalog_names or {}).items() if n and i not in names}
     gnames_old = {int(k): v for k, v in (master.get("generic_names") or {}).items() if str(k).isdigit()}
     cn = {int(r["commentaryid"]): r["commentarystring"].strip() for r in db["commentarynames"]} if db else {}
     seg = {b: {i: list(v) for i, v in g[b].items()} for b in BANKS}
@@ -393,12 +517,26 @@ def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, so
     else:
         extra_noseg = []
     own = simple | link
+    filled = 0
+    for i in sorted(own | high):
+        if i not in names and i in from_catalog:
+            names[i] = from_catalog[i]
+            filled += 1
     gen = sorted(seg["SIMPLE_SURNAME"])
-    gnames = {}
+    gnames, gprev = {}, {}
     for c in gen:
         # the game's own label (commentarynames, trimmed); the previous label kept beside it when the text differs (not
         # only case / spaces), so a search finds both: "Matsui | Matheuzinho" (ear-check those segments)
         db_t, old_t = cn.get(c, ""), gnames_old.get(c, "").strip()
+        if " | " in old_t:   # a label this tool wrote before: "DB | previous"
+            old_t = old_t.split(" | ", 1)[1].strip()
+        if db_labels_only and db_t:
+            # the game's own word only (what the recording says); the previous label, often the player the owner used
+            # the id for (a player name, not the spoken word), kept apart for the search of a later tool
+            gnames[str(c)] = db_t
+            if old_t and old_t.casefold() != db_t.casefold():
+                gprev[str(c)] = old_t
+            continue
         if db_t and old_t and db_t.casefold() == old_t.casefold():
             t = old_t
         elif db_t and old_t:
@@ -436,6 +574,12 @@ def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, so
                                "--wavset-only drops them")
     if extra_noseg:
         out["dropped_players"] = extra_noseg
+    if gprev:
+        out["generic_previous_labels"] = gprev
+        out["generic_previous_note"] = ("generic_names = the game's commentarynames text; generic_previous_labels = the "
+                                        "previous master's label where it is another word (often the player it was used for)")
+    if filled:
+        out["names_note"] = f"{filled} player names filled from the asset catalog (names.player)"
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as o:
@@ -460,6 +604,11 @@ def main():
     ap.add_argument("--wav-dir-json", help="wav_dir written to the master (default: the input master's)")
     ap.add_argument("--wavset-only", action="store_true")
     ap.add_argument("--game-build")
+    ap.add_argument("--sets-root")
+    ap.add_argument("--sets-wav-list")
+    ap.add_argument("--copy-from-sets", action="store_true")
+    ap.add_argument("--write-copy-plan")
+    ap.add_argument("--catalog")
     a = ap.parse_args()
 
     with open(a.master, encoding="utf-8-sig") as fh:
@@ -487,15 +636,59 @@ def main():
             if not os.path.isfile(p):
                 die(f"no {p}")
             db[t] = read_tsv(p)
+    plan, sets_info = [], None
+    if a.sets_root:
+        ssel, spec, per_set, set_wavs = read_sets(a.sets_root, lang, a.sets_wav_list)
+        if not per_set:
+            die(f"no {lang}_<team>_<full|demo|licensed> folders in {a.sets_root}")
+        for b in BANKS:   # the sets replace the flat tables (dr full = index 0 = the flat tables' numbers)
+            if ssel[b]:
+                sel[b] = ssel[b]
+        plan = merge_set_wavs(wavs, set_wavs)
+        sets_info = (per_set, ssel, spec)
     g, sel_no_wav, wav_no_sel = build_g(wavs, sel)
     t = turbo_sets(master, spoken)
     ok = report(g, t, master, wavs, sel_no_wav, wav_no_sel, odd, db, a.examples, lang)
+    if sets_info:
+        report_sets(sets_info[0], sets_info[1], sets_info[2], g)
+        print(f"-- set wavs the wav folder lacks under their encoded name: {len(plan)}"
+              + (f" e.g. {plan[0][0]} -> {plan[0][1]}" if plan else ""))
+        if a.write_copy_plan:
+            os.makedirs(os.path.dirname(os.path.abspath(a.write_copy_plan)), exist_ok=True)
+            with open(a.write_copy_plan, "w", encoding="utf-8", newline="\r\n") as o:
+                for src, dst in plan:
+                    o.write(f"{src}\t{dst}\n")
+            print(f"wrote {a.write_copy_plan}: {len(plan)} copies")
+        if a.copy_from_sets:
+            if not os.path.isdir(a.wavs):
+                die("--copy-from-sets needs the wav folder itself, not a list")
+            import shutil
+            done = kept = 0
+            for src, dst in plan:
+                d = os.path.join(a.wavs, dst)
+                if os.path.exists(d):
+                    kept += 1
+                    continue
+                os.makedirs(os.path.dirname(d), exist_ok=True)
+                shutil.copy2(os.path.join(a.sets_root, src), d)
+                done += 1
+            print(f"copied {done} set wavs into {a.wavs} ({kept} already there)")
+    catalog_names = None
+    if a.catalog:
+        with open(a.catalog, encoding="utf-8-sig") as fh:
+            cat = json.load(fh)
+        catalog_names = {}
+        for k, v in ((cat.get("names") or {}).get("player") or {}).items():
+            if str(k).isdigit() and isinstance(v, list) and v and isinstance(v[0], str):
+                catalog_names[int(k)] = v[0]
     if a.write_spoken:
         write_spoken(a.write_spoken, lang, g)
     if a.write_master:
         src = [os.path.abspath(a.wavs), os.path.abspath(a.selection_dir), "labels: " + os.path.abspath(a.master)]
+        if a.sets_root:
+            src.append("sets: " + os.path.abspath(a.sets_root))
         write_master(a.write_master, lang, g, master, db, a.wav_dir_json if a.wav_dir_json is not None else master.get("wav_dir", ""),
-                     a.wavset_only, a.game_build, src)
+                     a.wavset_only or bool(a.sets_root), a.game_build, src, catalog_names, db_labels_only=bool(a.sets_root))
     return 0 if ok else 1
 
 
