@@ -428,6 +428,12 @@ std::string Model::readable_team_name(int64_t tid, const std::string& stored) co
     return "Team " + std::to_string(tid);
 }
 
+std::string Model::fallback_team_name(int64_t tid) const {
+    if (!team_fallback_) return std::string();
+    auto it = team_fallback_->find(tid);
+    return it != team_fallback_->end() && !is_unresolved_team_name(it->second) ? it->second : std::string();
+}
+
 std::string Model::player_name(int64_t pid) const {
     const PlayerRow* p = player(pid);
     return p ? p->name : "#" + std::to_string(pid);

@@ -36,6 +36,8 @@ struct Pick {
     std::vector<int32_t> shown;      // the recorded clubs that match the search, the club itself left out
     int64_t pick = -1;               // -1 = nothing chosen, 0 = no club name, > 0 = that club's recorded name
     bool all_careers = false;
+    bool special = false;  // 5.0c E15: also list the special ids (999997, 9999990)
+    size_t total = 0;      // recordings the language holds (the count line)
     std::string result;
     bool result_ok = true;
 };
@@ -58,20 +60,35 @@ std::string club_name(App& app, int64_t id) {
     return t && !t->name.empty() ? t->name : "team " + std::to_string(id);
 }
 
+// 5.0c E15: a recorded (donor) club by its readable name: the teams row, else the Live Editor custom_team_names.csv name, else "Club <id> (not in
+// this database)", never "team <id>" (core/club_voice.h donor_label)
+std::string donor_name(App& app, int64_t id) {
+    const TeamRow* t = id > 0 ? app.model.team(id) : nullptr;
+    return clubvoice::donor_label(id, t ? t->name : std::string(), id > 0 ? app.model.fallback_team_name(id) : std::string());
+}
+bool donor_named(App& app, int64_t id) {
+    const TeamRow* t = app.model.team(id);
+    return clubvoice::donor_is_named(t ? t->name : std::string(), app.model.fallback_team_name(id));
+}
+
 std::string lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
 }
 
 void refresh_shown(App& app, const std::vector<int32_t>& ids, int64_t teamid) {
-    const std::string key = std::string(g_pick.search) + "\x02" + g_rec.lang;
+    // the search, the language, the special-ids box, and what names the clubs (the teams table after a rebuild, the fallback map)
+    const std::string key = std::string(g_pick.search) + "\x02" + g_rec.lang + "\x02" + (g_pick.special ? "s" : "-") + "\x02" +
+                            std::to_string(app.model.version()) + "\x02" + std::to_string(app.model.fallback_team_names());
     if (key == g_pick.shown_for) return;
     g_pick.shown_for = key;
     g_pick.shown.clear();
+    g_pick.total = ids.size();
     const std::string q = lower(g_pick.search);
     for (int32_t id : ids) {
         if (id == teamid) continue;  // its own name is "Use its own name"
-        if (!q.empty() && lower(club_name(app, id)).find(q) == std::string::npos && std::to_string(id).find(q) == std::string::npos) continue;
+        if (!g_pick.special && clubvoice::is_special_id(id)) continue;
+        if (!q.empty() && lower(donor_name(app, id)).find(q) == std::string::npos && std::to_string(id).find(q) == std::string::npos) continue;
         g_pick.shown.push_back(id);
     }
 }
@@ -106,7 +123,7 @@ void club_voice_section(App& app) {
     const clubvoice::Entry* cur = app.club_voice.find_in_effect(teamid, app.reapply.career);
     std::string says;
     if (cur && cur->voice_of == 0) says = "no club name (what the game says then is not verified)";
-    else if (cur && cur->voice_of != teamid) says = "the name recorded for " + club_name(app, cur->voice_of);
+    else if (cur && cur->voice_of != teamid) says = "the name recorded for " + donor_name(app, cur->voice_of);
     else if (lang.empty()) says = "its own name, if the commentary has one (commentary language not known yet)";
     else if (own) says = "its own recorded name";
     else says = "no club name: the " + lang + " commentary has no recording for this club";
@@ -125,8 +142,19 @@ void club_voice_section(App& app) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only clubs the %s commentary has a recording for are listed", lang.empty() ? "loaded" : lang.c_str());
     if (lang.empty()) theme::muted_text("The commentary language is not known yet: the list fills once it is.");
     else if (ids.empty()) colored_wrapped(kWarn, "No list of recorded club names for " + lang + (g_rec.err.empty() ? std::string() : " (" + g_rec.err + ")"));
+    // The two special ids some recordings hold are listed only on request
+    bool has_special = false;
+    for (int32_t id : ids)
+        if (clubvoice::is_special_id(id)) has_special = true;
+    if (has_special) {
+        ImGui::Checkbox("Show special ids##cvspecial", &g_pick.special);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also list 999997 and 9999990: the recordings hold them, but they are not club ids of a database (what they say is not checked yet)");
+    }
     refresh_shown(app, ids, teamid);
-    ImGui::BeginChild("##cvlist", ImVec2(0.0f, S(180.0f)), ImGuiChildFlags_Borders);
+    // A fixed number of rows (about 13 visible). Never GetContentRegionAvail: this card is AutoResizeY, so the available height grows with the list
+    // every frame. The old S(180) showed about 7.
+    ImGui::BeginChild("##cvlist", ImVec2(0.0f, clubvoice::donor_list_height(ImGui::GetTextLineHeightWithSpacing(), ImGui::GetStyle().WindowPadding.y)),
+                      ImGuiChildFlags_Borders);
     {
         // the chosen row is marked "> " as well as highlighted (never colour alone)
         const bool sel0 = g_pick.pick == 0;
@@ -137,12 +165,15 @@ void club_voice_section(App& app) {
             for (int i = clip.DisplayStart; i < clip.DisplayEnd; ++i) {
                 const int32_t id = g_pick.shown[static_cast<size_t>(i)];
                 const bool sel = g_pick.pick == id;
-                const std::string label = (sel ? "> " : "") + club_name(app, id) + " (" + std::to_string(id) + ")##cv" + std::to_string(id);
+                const std::string label = (sel ? "> " : "") + donor_name(app, id) + (donor_named(app, id) ? " (" + std::to_string(id) + ")" : std::string()) +
+                                          "##cv" + std::to_string(id);
                 if (ImGui::Selectable(label.c_str(), sel)) g_pick.pick = id;
             }
     }
     ImGui::EndChild();
-    theme::muted_text("%zu clubs listed", g_pick.shown.size());
+    if (!lang.empty() && !ids.empty())
+        theme::muted_text("%zu clubs have a recording in the %s commentary (showing %zu)", g_pick.total, lang.c_str(), g_pick.shown.size());
+    else theme::muted_text("%zu clubs listed", g_pick.shown.size());
 
     // where it applies, Save, Use its own name
     ImGui::AlignTextToFramePadding();
@@ -161,7 +192,7 @@ void club_voice_section(App& app) {
         e.voice_of = g_pick.pick;
         e.scope = g_pick.all_careers ? std::string(kScopeGlobal) : app.reapply.edit_scope();
         e.club = club_name(app, teamid);
-        e.from = club_name(app, g_pick.pick);
+        e.from = donor_name(app, g_pick.pick);
         const bool saved = app.club_voice_keep(e);
         g_pick.result_ok = saved;
         g_pick.result = saved ? "Saved (" + app.reapply.scope_label(e.scope) + "): " + e.club + " is now said as " + e.from +
