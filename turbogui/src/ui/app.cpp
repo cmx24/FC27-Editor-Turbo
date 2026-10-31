@@ -1199,6 +1199,7 @@ void App::tick(double t) {
             for (int i = 0; i < probe.n && i < 4 && off < static_cast<int>(sizeof(buf)) - 40; ++i)
                 off += std::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), " %s %.0f", probe.parts[static_cast<size_t>(i)].first, probe.parts[static_cast<size_t>(i)].second);
             log(buf);
+            if (log_hook) log_hook(buf);  // the file log too (App::log is the in-window list only)
         }
     }
 }
