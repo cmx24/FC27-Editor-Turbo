@@ -586,7 +586,7 @@ void draw_look_icon(ImDrawList* dl, ImVec2 p0, float s, uint32_t icon) {
     auto cap = [&](float centre_y, float rad, bool fill, float thick) {  // the upper half disc: a filled cap or a thin arc
         dl->PathArcTo(ImVec2(cx, centre_y), rad, kPi, 2.0f * kPi, 28);
         if (fill) dl->PathFillConvex(hairc);
-        else dl->PathStroke(hairc, 0, thick);
+        else dl->PathStroke(hairc, thick);
     };
     const bool hair_kind = kind == 0;
     if (hair_kind) {  // behind the head
@@ -606,7 +606,7 @@ void draw_look_icon(ImDrawList* dl, ImVec2 p0, float s, uint32_t icon) {
         const float top = cy - 0.06f * s;
         if (a == hair::kBald) {
             dl->PathArcTo(ImVec2(cx - 0.02f * s, cy - 0.02f * s), r * 0.82f, kPi * 1.15f, kPi * 1.42f, 8);  // a shine on the scalp
-            dl->PathStroke(IM_COL32(255, 255, 255, 190), 0, 1.5f);
+            dl->PathStroke(IM_COL32(255, 255, 255, 190), 1.5f);
         } else if (ty == hair::kMohawk) {
             dl->AddRectFilled(ImVec2(cx - 0.05f * s, cy - 1.5f * r), ImVec2(cx + 0.05f * s, cy - 0.55f * r), hairc, 2.0f);
         } else if (ty == hair::kAfro) {
