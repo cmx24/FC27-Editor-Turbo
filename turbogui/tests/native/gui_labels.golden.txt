@@ -1474,6 +1474,8 @@ ui_visual_picker.cpp	BeginChild	##vppreview	1
 ui_visual_picker.cpp	BeginCombo	##vpgroup	1
 ui_visual_picker.cpp	BeginTable	##vrow	1
 ui_visual_picker.cpp	BeginTable	##vrows	3
+ui_visual_picker.cpp	Button	###fefolderdef	1
+ui_visual_picker.cpp	Button	###fefolderset	1
 ui_visual_picker.cpp	Button	###vpfolderdef	1
 ui_visual_picker.cpp	Button	###vpfolderset	1
 ui_visual_picker.cpp	Button	Apply##vpapply	1
@@ -1483,6 +1485,7 @@ ui_visual_picker.cpp	Button	Change##vpchange	1
 ui_visual_picker.cpp	Button	Choose...	1
 ui_visual_picker.cpp	Checkbox	Favourites only##vpfav	1
 ui_visual_picker.cpp	Checkbox	Show all body types##vpallbodies	1
+ui_visual_picker.cpp	InputText	###fefolder	1
 ui_visual_picker.cpp	InputText	###vpfolder	1
 ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
 ui_visual_picker.cpp	InvisibleButton	##tile	1
