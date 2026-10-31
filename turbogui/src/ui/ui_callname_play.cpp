@@ -54,7 +54,7 @@ void callname_play_button(App& app, CallnameAudioKind kind, int64_t id) {
     if (pressed && b.enabled) pl.click(audio, kind, id, app.now);
 }
 
-bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id) {
+bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id, const std::string& name) {
     CallnamePlayer& pl = app.callname_player;
     const MasterAudio& audio = app.callnames.masters.audio;
     const CallnamePlayer::Button b = pl.button(audio, kind, id, app.now);
@@ -63,8 +63,28 @@ bool callname_preview_button(App& app, CallnameAudioKind kind, int64_t id) {
     const bool pressed = ImGui::Button(label.c_str());
     if (!b.enabled) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", b.enabled ? "Hear this callname" : b.tip.c_str());
-    if (pressed && b.enabled) pl.click(audio, kind, id, app.now);
+    if (pressed && b.enabled) {
+        const std::string wav = pl.click(audio, kind, id, app.now, name);
+        const CallnamePlayer::Last& l = pl.last();
+        char secs[32];
+        std::snprintf(secs, sizeof(secs), "%.1f", l.seconds);
+        // the click itself, before the sound thread answers (its own line names the file, its size and PlaySoundW's result)
+        if (!wav.empty()) app.log("callname play: Preview " + name + " -> " + wav + " (" + secs + " s)");
+        else if (!l.error.empty()) app.log("callname play: Preview " + name + " -> not played: " + l.error + (l.file.empty() ? "" : " (" + l.file + ")"));
+        else app.log("callname play: Preview " + name + " -> stopped");
+    }
     return b.enabled;
+}
+
+void callname_preview_status(App& app, std::string* shown) {
+    bool error = false;
+    const std::string text = app.callname_player.status(app.now, &error);
+    if (shown) *shown = text;
+    if (text.empty()) return;
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    if (error) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", text.c_str());
+    else ImGui::TextUnformatted(text.c_str());
 }
 
 }  // namespace turbo

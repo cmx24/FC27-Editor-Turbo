@@ -48,6 +48,7 @@ struct CallnamePageState {
     int rows_unsayable = 0;    // names left out of the list because the game's files hold no recording of them
     bool apply_enabled = false;
     bool preview_enabled = false;
+    std::string preview_line;  // the proof of the last Preview: "Playing Abate (0.8 s)" / "Played Abate, 0.8 s" / "Could not play: ..." ("" = none yet)
     bool undo_shown = false;
     std::string notice;        // the last result of Apply / Undo (also a toast)
 };

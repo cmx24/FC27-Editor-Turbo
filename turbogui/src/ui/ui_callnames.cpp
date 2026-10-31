@@ -1680,7 +1680,7 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     }
     if (sel) {
         g_page.preview_enabled =
-            callname_preview_button(app, sel->own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, sel->own() ? sel->playerid : sel->commentaryid);
+            callname_preview_button(app, sel->own() ? CallnameAudioKind::Own : CallnameAudioKind::Generic, sel->own() ? sel->playerid : sel->commentaryid, g_page.selected);
     } else {
         ImGui::BeginDisabled();
         ImGui::Button("Preview###cnpreview");
@@ -1696,6 +1696,7 @@ void callname_editor(App& app, const Table& t, const PlayerRow& p) {
     if (!v.ok) ImGui::BeginDisabled();
     const bool apply = ImGui::Button("Apply###cnapply");
     if (!v.ok) ImGui::EndDisabled();
+    callname_preview_status(app, &g_page.preview_line);  // the proof of the last Preview, after the buttons
     if (!g_page.why_line.empty()) ImGui::TextColored(kOrange, "%s", g_page.why_line.c_str());
     if (apply && sel && v.ok) pick_apply(app, p, *sel);
 }

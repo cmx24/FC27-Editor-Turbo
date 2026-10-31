@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -164,12 +165,23 @@ size_t CallnamePlayer::next_index(CallnameAudioKind kind, int64_t id) const {
     return it == next_.end() ? 0 : it->second;
 }
 
+void CallnamePlayer::poll_failure() {
+    std::string why;
+    if (!player_ || last_.file.empty() || !last_.error.empty() || !player_->failed(&why)) return;
+    last_.error = why.empty() ? "the sound did not start" : why;
+    if (key_ == last_.key) {  // not playing after all: the button offers Play again
+        key_ = 0;
+        until_ = 0.0;
+    }
+}
+
 CallnamePlayer::Button CallnamePlayer::button(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now) {
     Button b;
     if (!player_) {
         b.tip = "Sound playback is not available";
         return b;
     }
+    poll_failure();
     if (kind == CallnameAudioKind::Club) {  // a club name: one wav in the loaded language's folder, or the reason in words
         const auto one = playable(a, kind, id);
         if (a.wav_dir.empty() || one.empty()) {
@@ -208,21 +220,40 @@ CallnamePlayer::Button CallnamePlayer::button(const MasterAudio& a, CallnameAudi
     return b;
 }
 
-std::string CallnamePlayer::click(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now) {
+std::string CallnamePlayer::click(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now, const std::string& name) {
     if (!player_) return "";
     if (playing(kind, id, now)) {
         stop();
+        if (last_.key == key(kind, id)) last_.stopped = true;
         return "";
     }
-    const auto ok = playable(a, kind, id);
-    if (ok.empty()) return "";
     const int64_t k = key(kind, id);
+    const auto all = callname_wavs(a, kind, id);
+    const auto ok = playable(a, kind, id);
+    Last l;
+    l.key = k;
+    l.name = name;
+    l.started = now;
+    if (ok.empty()) {  // greyed out, or the wav went missing since its check
+        l.file = all.empty() ? std::string() : all.front().u8string();
+        l.name = name.empty() && !all.empty() ? all.front().filename().u8string() : name;
+        l.error = all.empty() ? "no recording of this name" : "wav not found";
+        last_ = l;
+        return "";
+    }
     const size_t i = next_[k] % ok.size();
-    if (!player_->play(ok[i])) return "";
-    double secs = seconds_ ? seconds_(ok[i]) : 0.0;
-    if (!(secs > 0.0)) secs = 2.0;  // length unknown: a click within two seconds still stops it
+    l.file = ok[i].u8string();
+    if (l.name.empty()) l.name = ok[i].filename().u8string();
+    l.seconds = seconds_ ? seconds_(ok[i]) : 0.0;
+    if (!(l.seconds > 0.0)) l.seconds = 0.0;
+    if (!player_->play(ok[i])) {
+        l.error = "the sound player refused the file";
+        last_ = l;
+        return "";
+    }
+    last_ = l;
     key_ = k;
-    until_ = now + secs;
+    until_ = now + (l.seconds > 0.0 ? l.seconds : 2.0);  // length unknown: a click within two seconds still stops it
     next_[k] = i + 1;
     return ok[i].u8string();
 }
@@ -231,6 +262,21 @@ void CallnamePlayer::stop() {
     if (player_) player_->stop();
     key_ = 0;
     until_ = 0.0;
+}
+
+std::string CallnamePlayer::status(double now, bool* error) {
+    poll_failure();
+    if (error) *error = false;
+    if (last_.file.empty() && last_.error.empty()) return "";
+    if (!last_.error.empty()) {
+        if (error) *error = true;
+        return "Could not play: " + last_.error;
+    }
+    char secs[32];
+    std::snprintf(secs, sizeof(secs), "%.1f s", last_.seconds);
+    if (last_.stopped) return "Stopped " + last_.name;
+    if (key_ == last_.key && now < until_) return "Playing " + last_.name + " (" + secs + ")";
+    return "Played " + last_.name + ", " + secs;
 }
 
 }  // namespace turbo

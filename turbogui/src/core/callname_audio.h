@@ -59,6 +59,9 @@ public:
     virtual ~WavPlayer() = default;
     virtual bool play(const std::filesystem::path& wav) = 0;  // replaces what is playing; false = not started
     virtual void stop() = 0;
+    // The last play(): has the host since found it did not play (PlaySoundW returned FALSE)? Its worker reports a frame or
+    // two after play() returned true; `why` names the error. The default (fakes, no host report) is "never"
+    virtual bool failed(std::string* why) const { (void)why; return false; }
 };
 
 // The play buttons' state: which id plays, until when, and the next segment of every id
@@ -80,12 +83,29 @@ public:
     };
     // The button of an id (file checks are cached: cheap every frame)
     Button button(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now);
-    // A click: stops this id when it plays, else plays its next wav. Returns the wav started ("" = none)
-    std::string click(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now);
+    // A click: stops this id when it plays, else plays its next wav. Returns the wav started ("" = none). `name` is what
+    // the status line calls it ("" = the wav's file name)
+    std::string click(const MasterAudio& a, CallnameAudioKind kind, int64_t id, double now, const std::string& name = std::string());
     void stop();
     bool playing(CallnameAudioKind kind, int64_t id, double now) const { return now < until_ && key_ == key(kind, id); }
     // the next wav index of an id (tests)
     size_t next_index(CallnameAudioKind kind, int64_t id) const;
+
+    // The last click that tried to play (kept until the next one): the proof on the screen that something played
+    struct Last {
+        int64_t key = 0;
+        std::string name;     // what was played, in words
+        std::string file;     // the wav, UTF-8
+        double seconds = 0.0; // its length from the RIFF header (0 = unknown)
+        double started = 0.0; // `now` of the click
+        bool stopped = false; // a click stopped it before its end
+        std::string error;    // "" = it started; else why it did not play
+    };
+    const Last& last() const { return last_; }
+    // The status line of the last play, in words: "Playing Abate (0.8 s)" while it plays, "Played Abate, 0.8 s" after,
+    // "Stopped Abate" when a click ended it, "Could not play: <why>" (error = true) when it did not play; "" before the
+    // first click. Also picks up a failure the host reported since (WavPlayer::failed): the button is "Play" again
+    std::string status(double now, bool* error = nullptr);
 
 private:
     static int64_t key(CallnameAudioKind kind, int64_t id) {
@@ -93,6 +113,7 @@ private:
     }
     bool file_ok(const std::filesystem::path& p);
     std::vector<std::filesystem::path> playable(const MasterAudio& a, CallnameAudioKind kind, int64_t id);
+    void poll_failure();  // a failure the host reported for the last play: into last_.error, and it plays no more
     std::shared_ptr<WavPlayer> player_;
     Exists exists_;
     Seconds seconds_;
@@ -102,6 +123,7 @@ private:
     std::unordered_map<int64_t, size_t> next_;       // key -> next wav index
     int64_t key_ = 0;
     double until_ = 0.0;
+    Last last_;
 };
 
 }  // namespace turbo
