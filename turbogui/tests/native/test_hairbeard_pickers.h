@@ -413,6 +413,118 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         CHECK(visual_picker_ui().open && visual_picker_tile_source(bc->code) == TileSource::Rdbm, "a palette boots picture stays the RDBM26 picture");
         wind_down();
     });
+    // ---------------------------------------------------------------- fix round (2026-10-31): every hair and beard tile has a picture
+    // The grey tiles stay TileSource::Placeholder (no game picture) but are DRAWN from their look class (visual_picker_tile_drawn), so no hair
+    // or beard tile is left as a bare "no picture yet" box; a lit render of the model-only ids needs an in-game capture lease (brief D3).
+    auto every_tile_has_a_picture = [&](const char* what, int need_drawn) {
+        int bare = 0, drawn = 0, total = 0;
+        std::string first;
+        for (int64_t c : visual_picker_codes()) {
+            ++total;
+            const TileSource s = visual_picker_tile_source(c);
+            const bool d = visual_picker_tile_drawn(c);
+            drawn += d;
+            if (s == TileSource::Placeholder && !d) {
+                ++bare;
+                if (first.empty()) first = std::to_string(c);
+            }
+        }
+        CHECK(total > 0, std::string(what) + ": the grid has tiles");
+        CHECK(drawn >= need_drawn, std::string(what) + ": the tiles with no game picture are drawn (" + std::to_string(drawn) + ", need " + std::to_string(need_drawn) + ")");
+        CHECK(bare == 0, std::string(what) + ": no tile is left as a bare no-picture box (" + std::to_string(bare) + " bare, first code " + first + ")");
+    };
+
+    run_case("UI: 5.0c E10 fix round: hair grid (catalogue on, no pictures folder): every tile has a picture; a model-only id is a drawn class icon", [&] {
+        if (!p || !rec || !p->has("hairtypecode")) return;
+        catalogue_on();
+        visual_pictures_override((test_tmp_dir("hb_fix_hair_on") / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        ui.extra_draw = draw_section;
+        app.request_tab = 0;
+        ui.frames(2);
+        visual_picker_request("hairtypecode");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode", "the hair grid is open");
+        // the fixture lists hair models 1 2 3 4 and previews 1 2 5: 3 and 4 are model-only
+        CHECK(visual_picker_tile_source(3) == TileSource::Placeholder && visual_picker_tile_drawn(3), "hair 3 (3D model, no picture): drawn from its class");
+        CHECK(visual_picker_tile_source(4) == TileSource::Placeholder && visual_picker_tile_drawn(4), "hair 4 (3D model, no picture): drawn from its class");
+        CHECK(visual_picker_tile_source(1) == TileSource::Game && !visual_picker_tile_drawn(1), "hair 1 (a game preview): its preview, never replaced by an icon");
+        CHECK(visual_picker_tile_drawn(0), "hair 0 (bald): a drawn bald head");
+        CHECK(visual_picker_tile_icon(0) != visual_picker_tile_icon(4), "bald and hair 4 are different icons");
+        every_tile_has_a_picture("hair grid, catalogue on", 3);
+        every_grey_tile_has_a_reason("hair grid, catalogue on, drawn");
+        CHECK(has_word(reason_of(3), "drawn icon"), "the tooltip says the tile is a drawn icon, not a picture of the model: " + reason_of(3));
+        CHECK(visual_picker_ui().source_drawn >= 3, "the opening log counts the drawn tiles: " + std::to_string(visual_picker_ui().source_drawn));
+        wind_down();
+    });
+
+    run_case("UI: 5.0c E10 fix round: beard grid (catalogue on): the 3D-only beards and code 0 are drawn; classes differ; previews stay", [&] {
+        if (!p || !rec || !p->has("facialhairtypecode")) {
+            CHECK(true, "the test world has no facialhairtypecode: skipped");
+            return;
+        }
+        std::string cat_text = read_file("tests/fixtures/asset_catalog_v1_small.json");
+        const std::string old_line = "\"facialhair\": { \"model\": [1, 7], \"preview\": { \"7\": \"data/ui/imgAssets/facialhair/facialhair_7_0.dds\" } },";
+        const size_t at = cat_text.find(old_line);
+        CHECK(at != std::string::npos, "the fixture's beard line is where the test expects it");
+        if (at == std::string::npos) return;
+        cat_text.replace(at, old_line.size(),
+                         "\"facialhair\": { \"model\": [1, 7, 27, 28, 29, 30, 31], \"preview\": { \"27\": \"data/ui/imgAssets/facialhair/facialhair_27_0.dds\" } },");
+        const fs::path root = test_tmp_dir("hb_fix_beard_on");
+        const fs::path catfile = root / "asset_catalog_beard.json";
+        visual_picker_test::write_bytes(catfile, std::vector<uint8_t>(cat_text.begin(), cat_text.end()));
+        auto cat = std::make_shared<assets::Catalog>();
+        std::string cerr;
+        CHECK(cat->load_file(catfile.u8string(), "0000AAAA-0000BBBB", &cerr) && cat->current(), "beard catalog loaded: " + cerr);
+        set_gear_catalog(cat);
+        visual_pictures_override((root / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        ui.extra_draw = draw_section;
+        app.request_tab = 0;
+        ui.frames(2);
+        visual_picker_request("facialhairtypecode");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && visual_picker_ui().field == "facialhairtypecode", "the beard grid is open");
+        CHECK(visual_picker_tile_source(27) == TileSource::Game && !visual_picker_tile_drawn(27), "beard 27 (a game preview): its preview");
+        for (int64_t c : {28, 29, 30, 31})
+            CHECK(visual_picker_tile_drawn(c), "beard " + std::to_string(c) + " (3D model, no picture): drawn from its class");
+        CHECK(visual_picker_tile_drawn(0), "beard 0 (clean-shaven): a drawn clean face");
+        CHECK(visual_picker_tile_icon(30) != visual_picker_tile_icon(31), "a short beard (30) and a full beard (31) are different icons");
+        CHECK(visual_picker_tile_icon(0) != visual_picker_tile_icon(31), "clean-shaven and a full beard are different icons");
+        every_tile_has_a_picture("beard grid, catalogue on", 4);
+        CHECK(has_word(reason_of(30), "drawn icon") && has_word(reason_of(30), "3D model"), "beard 30's tooltip: a 3D model, drawn icon, not a picture of it: " + reason_of(30));
+        wind_down();
+    });
+
+    run_case("UI: 5.0c E12 fix round: hair 0 reads Bald with and without the RDBM26 folder; beard 0 does not", [&] {
+        if (!p || !rec || !p->has("hairtypecode")) return;
+        catalogue_on();
+        visual_pictures_override((test_tmp_dir("hb_fix_bald") / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        ui.extra_draw = draw_section;
+        app.request_tab = 0;
+        ui.frames(2);
+        visual_picker_request("hairtypecode");
+        ui.frames(3);
+        CHECK(visual_picker_tile_name(0) == "Bald", "no pictures folder: hair 0 is named Bald (not None): " + visual_picker_tile_name(0));
+        visual_picker_close();
+        ui.frames(2);
+        const fs::path root = test_tmp_dir("hb_fix_bald_rdbm");
+        put_picture(root, "hairstyle", 0, png_header(2));
+        visual_pictures_override((root / "Resources").u8string());
+        visual_pictures_refresh(app);
+        visual_picker_request("hairtypecode");
+        ui.frames(3);
+        CHECK(visual_picker_tile_name(0) == "Bald", "with the RDBM26 folder: hair 0 is named Bald: " + visual_picker_tile_name(0));
+        if (p->has("facialhairtypecode")) {
+            visual_picker_close();
+            ui.frames(2);
+            visual_picker_request("facialhairtypecode");
+            ui.frames(3);
+            CHECK(visual_picker_tile_name(0) != "Bald" && !visual_picker_tile_name(0).empty(), "beard 0 keeps its own name: " + visual_picker_tile_name(0));
+        }
+        wind_down();
+    });
 }
 
 }  // namespace hairbeard_test

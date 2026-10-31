@@ -80,7 +80,8 @@ struct VisualPickerUi {
     int pictures_shown = 0;     // of those, tiles with their picture (animated or still) on screen
     int uploads_last_frame = 0; // animations given to the window's textures in the last frame
     bool names_only = false;    // no pictures folder: the list of names
-    int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0;  // the whole list, by where each tile's picture comes from
+    int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0;
+    int source_drawn = 0;       // 5.0c E10 fix round: of the source_blank tiles, those drawn from their look class (hair / beard)  // the whole list, by where each tile's picture comes from
     std::string last_result;    // "Run style set to Medalist", or the refusal
     std::string pictures_line;  // 3.1 G2b: the "where are the pictures / why none" line the open grid shows in its note ("" when it shows none)
 };
@@ -92,6 +93,10 @@ TileSource visual_picker_tile_source(int64_t code);  // of the open picker (Name
 bool visual_picker_tile_writable(int64_t code, std::string* why = nullptr);  // the catalog gate, greyed tiles
 // 5.0c E10-12: why a grey tile (TileSource::Placeholder) of the open picker has no picture ("" for a tile that has one, or a code not in the list)
 std::string visual_picker_tile_reason(int64_t code);
+// 5.0c E10 fix round: is the tile (still TileSource::Placeholder: the game ships no picture) drawn as a look-class icon? Every hair and beard tile must be
+bool visual_picker_tile_drawn(int64_t code);
+uint32_t visual_picker_tile_icon(int64_t code);     // the packed class icon (0 = none): two tiles of different classes differ
+std::string visual_picker_tile_name(int64_t code);  // the name under the tile ("Bald" for hair 0), "" for a code not in the list
 size_t visual_picker_png_probes();         // tests: PNG headers read so far by the hair / beard palette probe (review E10-12: only files with no game preview)
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters
 std::vector<int64_t> visual_picker_codes();  // those codes themselves (tests: 3.2 one picker, one catalogue per field)
