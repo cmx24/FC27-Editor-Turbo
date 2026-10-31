@@ -148,7 +148,7 @@ void club_voice_section(App& app) {
         if (clubvoice::is_special_id(id)) has_special = true;
     if (has_special) {
         ImGui::Checkbox("Show special ids##cvspecial", &g_pick.special);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("999997 and 9999990 are not clubs of a database: the generic and the no-club recordings");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also list 999997 and 9999990: the recordings hold them, but they are not club ids of a database (what they say is not checked yet)");
     }
     refresh_shown(app, ids, teamid);
     // A fixed number of rows (about 13 visible). Never GetContentRegionAvail: this card is AutoResizeY, so the available height grows with the list

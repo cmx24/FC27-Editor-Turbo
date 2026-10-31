@@ -66,8 +66,9 @@ std::filesystem::path recorded_path(const std::filesystem::path& le_root, const 
 std::string donor_label(int64_t id, const std::string& row_name, const std::string& fallback_name);
 // A club the label names (a row or a CSV name); false = "Club <id> (not in this database)"
 inline bool donor_is_named(const std::string& row_name, const std::string& fallback_name) { return !row_name.empty() || !fallback_name.empty(); }
-// The two ids the recordings hold that are not clubs of a database: 999997 (generic) and 9999990 (the no-club marker). They are listed only behind
-// "Show special ids". The 800001-800112 block (fictional clubs) is a real choice and stays listed.
+// Two ids some recordings hold (fre_fr, spa_es) that are outside every club id range: 999997 and 9999990. What they say is NOT checked yet
+// (brief E15 3e/V5: a hypothesis, check e decodes one segment); they are listed only behind "Show special ids". The 800001-800112 block
+// (what it is in game is not checked either) stays listed: it is the likeliest "hidden clubs" Cassio asked for.
 bool is_special_id(int64_t id);
 // Height of the donor list: `rows` rows of `line_h` (text height + item spacing) and the child's top and bottom padding. A fixed row count, never
 // GetContentRegionAvail: the card is AutoResizeY, so an available height grows with the list every frame.
