@@ -28,6 +28,7 @@
 #include "ui_body_figure.h"
 #include "ui_faces.h"
 #include "ui_faces3d_gate.h"
+#include "ui_fcedit_pictures.h"
 #include "ui_images.h"
 #include "ui_shell.h"
 #include "ui_split.h"
@@ -964,8 +965,26 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
                 if (ImGui::InvisibleButton("##btpic", ImVec2(tw, fig))) picked = tile.code;
                 const bool hovered = ImGui::IsItemHovered();
                 if (hovered) body_tip(app, s, tile, who.manager);
-                bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(p0.x + (tw - fig) * 0.5f, p0.y), ImVec2(fig, fig), tile.shape, selected, hovered);
-                ++s.st.figures;
+                // Turbo X: FC Editor's real render of the body (assets\bodytypecode, ui_fcedit_pictures.h) in place of the figure when
+                // there is one and it is decoded; the figure otherwise (no FC Editor install, no picture of this code, still loading)
+                bool pictured = false;
+                const std::string fe = fcedit::picture(app, "bodytypecode", tile.code);
+                if (!fe.empty()) {
+                    TextureCache::Pic p = app.textures.file(fs::u8path(fe), 256);
+                    if (p.tex) {
+                        ImDrawList* dl = ImGui::GetWindowDrawList();
+                        const ImVec2 f0(p0.x + (tw - fig) * 0.5f, p0.y), f1(f0.x + fig, f0.y + fig);
+                        dl->AddRectFilled(f0, f1, bodyfig::tile_ground(selected, hovered), 4.0f);
+                        draw_fitted(p.tex, p.w, p.h, f0, fig, fig);
+                        if (selected) dl->AddRect(f0, f1, bodyfig::selected_ring(), 4.0f, 2.0f);
+                        ++s.st.fc_pictures;
+                        pictured = true;
+                    }
+                }
+                if (!pictured) {
+                    bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(p0.x + (tw - fig) * 0.5f, p0.y), ImVec2(fig, fig), tile.shape, selected, hovered);
+                    ++s.st.figures;
+                }
                 const std::string label = tile.caption + "##bt" + std::to_string(tile.code);
                 if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(tw, 0.0f))) picked = tile.code;
                 if (ImGui::IsItemHovered()) body_tip(app, s, tile, who.manager);

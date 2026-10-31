@@ -108,7 +108,8 @@ struct StudioState {
     int listed = 0;            // people in the list after the search
     int body_tiles = 0;        // tiles of the body-type grid drawn
     int thumbs = 0;            // generator pictures shown in a tile tooltip (hover; the grid itself is figures)
-    int figures = 0;           // of them drawn as a figure (ui_body_figure.h): equals body_tiles, players and managers
+    int figures = 0;           // of them drawn as a figure (ui_body_figure.h): body_tiles minus fc_pictures
+    int fc_pictures = 0;       // Turbo X: of them drawn as FC Editor's body render (ui_fcedit_pictures.h) in place of the figure
     int fields = 0;            // field editors in Accessories and Kit fit
     int look_cards = 0;        // 5.0b-A: Look cards drawn this frame (the registry's card: ONE)
     int look_rows = 0;         // 5.0b-A: picker rows the Look card lists (one per registry column of the person, minus the dedicated cards'); counted when the card is out of view too
