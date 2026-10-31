@@ -9996,7 +9996,7 @@ static void test_ui() {
         capture_subject_test::ui_cases(app, ui, le);  // test_capture_subject.h: the two capture frames ask the same id (5.0c E9)
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         devpage_test::ui_cases(app, ui);  // test_dev_open_page.h: dev service open_page {area, page} (4.0 S0a)
-        tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
+        // (tuning_test::ui_cases is gone: 2026-10-31, no page draws ui_tuning.cpp's view since the Lab was deleted; test_tuning.h keeps the non-UI cases)
         gsettings_test::ui_cases(app, ui, le);  // test_game_settings.h: the Game settings tab (2.8)
         sliders_rw_test::ui_case(app, ui, le);  // test_sliders_rw.h (4.0 sliders-rw)
         tactic_presets_test::ui_cases(app, ui, le);  // test_tactic_presets.h: Teams > Tactic presets (2.12)
