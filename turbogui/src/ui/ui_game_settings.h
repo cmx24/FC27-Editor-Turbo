@@ -32,7 +32,7 @@ struct GameSettingsViewState {
     std::vector<std::string> presets;  // names
     std::string preset_line;           // the last Save / Load / Rename / Delete / Duplicate / Import / Export outcome
     std::string live_line;             // 5.0 sliders: the last slider write's outcome ("<label> = N written ..." / "Not applied: <why>"; "" = none)
-    std::string pending_line;          // a file the tactics page staged ("" = none)
+    std::string pending_line;          // always "" since Turbo X (2026-10-31): this page shows no staging; kept for the tests that read it
     std::vector<std::string> preset_errors;
     int file_reads = 0;                // how often the settings file was read (first look, Refresh, after Save)
 };
