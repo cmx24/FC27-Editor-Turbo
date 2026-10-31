@@ -429,7 +429,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 const GalleryEntry* e = gi != gpos.end() ? &ge[gi->second] : nullptr;
                 if (code == 0 && gal) {
                     out.cap[k] = "none";
-                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald: there is no hair to draw." : "No facial hair: there is nothing to draw.";
+                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald." : "No facial hair.";
                 } else if (palette_only) {
                     out.cap[k] = "strand map only";
                     out.reason[k] = "RDBM26 has only a strand map for this code (not a picture of it) and the game ships no preview picture for it.";
