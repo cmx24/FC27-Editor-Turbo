@@ -2,7 +2,7 @@
 
 **Status: compiled, not proven.** This build came out of the project's own `build_win.sh` with exit 0 and 0 warnings, cross-compiled on Linux with MinGW-w64 GCC 13.2. It has **not run in EA FC 27**. Nobody has seen the overlay draw. Install it only on the throwaway LEICESTER career, after `Protect-TurboFiles.ps1`, and follow `docs/turbo-x/TEST_CARD.md`.
 
-Identity: commit `__COMMIT__`, `Turbo.dll` md5 `__MD5__`, package `__ZIP__`. The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
+Identity: commit `21c851a (source identical to 230d49a; 21c851a adds only docs)`, `Turbo.dll` md5 `e679e40aea0da72d20f2c6fe9ea8c106`, package `TurboX_21c851a_e679e40a.zip`. The owner's PC builds the same script under MSYS2 UCRT64 and will produce a different md5 for the same commit; `BUILD.txt` in the zip carries this one.
 
 ## What changed against 5.0c/integration @ 00b28622 (the reviewed head)
 

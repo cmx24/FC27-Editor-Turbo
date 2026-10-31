@@ -17,7 +17,7 @@ Written by the integrator (Claude Fable 5.1, cloud session) for the owner's reco
 | 2 | tx-settings | 8–9 sliders, live write only, copy | 506a188 → 87a3e36 | exit 0, 0 warnings | `SliderInt` in ui_game_settings.cpp = 1; `turbo_settings_apply` in ui_game_settings.* = 0 (7 hits remain in the two tactics pages, step 5 territory); banned state sentences: 0 in settings files (2 unrelated "read-only here" in core profile/rules loaders, 1 in ui_tactic_presets.cpp) |
 | 3 | tx-scripts | 1–2 Protect/Restore/Record-BuildIdentity | 6987c37 → d746bb5 | n/a (PowerShell; static check PASS ×3, not executed) | — |
 | 4 | tx-picker | 7 one picker route; old routes unreachable, not yet deleted | 6458db3 → 2c8910b | see below | jargon strings in ui_visual_picker.cpp = 0; `TURBO-X: unreachable` markers = 5; no caller of item_galleries/tattoo_editor/gallery_picker/##f3pick/##gallerypick/##tattoopick outside the two old files |
-| 5 | tx-menus | 6 cut menus by deletion | pending | pending | pending |
+| 5 | tx-menus | 6 cut menus by deletion | 6fe3e5d → 230d49a | exit 0, 0 warnings, 8m59s; `Turbo.dll` md5 e679e40a; package `TurboX_21c851a_e679e40a.zip` | ui_database/ui_diagnostics_page/ui_nav_pages .cpp gone from build_win.sh (0 refs); `advanced_mode|tree40|Area::Advanced|Adv[A-Z]` in src = 0 outside archetypes.cpp text and the live `draw_classic_player_list` name; conflicts in ui_player_page.cpp / ui_players.cpp resolved to the menus side (the picker's two edits there sat in deleted code; its routes survive in Looks studio, Faces, Faces3D gate) |
 
 ## What step 6 removed that had no other door (owner to confirm he did not use them)
 
