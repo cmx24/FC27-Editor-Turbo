@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -66,6 +67,8 @@ struct Source {  // what one picker shows
     std::vector<bodyshape::BodyShape> shape;  // a body type: the figure drawn for each code (kSrcFigure)
     std::vector<char> writable, hidden;
     std::vector<std::string> why, tag, tip;
+    std::vector<uint32_t> icon;            // 5.0c E10 fix round: a drawn class icon of a hair / beard tile with no game picture (0 = none; see hair_icon / beard_icon)
+    std::vector<std::string> cap, reason;  // 5.0c E10-12: a grey tile's short word in its box, and why it has no picture ("" on tiles that have one)
     std::vector<int> group;             // index into groups, -1 = none
     std::vector<std::string> groups;    // eyebrow styles, generic head models
     std::unordered_map<int64_t, int> pos;
@@ -112,6 +115,7 @@ struct State {
     std::unordered_map<std::string, fs::path> set_dirs;  // set id -> its folder in res (empty: none)
     vis::FolderIndex index;                              // directory listings of the sets (per-file lookups)
     std::unordered_map<std::string, uint32_t> colours;   // colour file -> IM_COL32 (decoded once)
+    std::unordered_map<std::string, bool> palette;       // 5.0c E11: RDBM26 PNG -> "is a palette (colour type 3) strand map"; probed once per file
     char folder_edit[300] = "";
     bool folder_edit_init = false;
     // textures
@@ -155,6 +159,7 @@ const fs::path& resources(App& app) {
         s.set_dirs.clear();
         s.index.reset();
         s.colours.clear();
+        s.palette.clear();
         for (size_t i = 0; i < vis::set_count(); ++i) {
             const vis::SetDef& d = vis::set_at(i);
             fs::path dir;
@@ -205,6 +210,38 @@ std::string head_model(const std::string& name) {
 
 uint32_t swatch_of(const vis::Rgb8& c) { return IM_COL32(c.r, c.g, c.b, 255); }
 
+
+// ---- 5.0c E10 (fix round, 2026-10-31): a hair or beard tile the game ships no picture for (139 model-only hair ids, 59 model-only
+// beards, hair 50, hair 0 / beard 0, a code the catalogue does not list) is DRAWN from its look class instead of a grey "no picture yet"
+// box: the class the hair catalogue gives the id (length, type, accessory; hair_catalog.h) or the nearest listed style's look (face_looks.h,
+// the same table the filter and the names use), the facial hair class for a beard. It is a pictogram of the CLASS, not a render of the
+// model: the tile's tooltip says so and a small "drawn" mark sits in its corner. A lit render of these ids needs an in-game capture lease
+// (brief D3), which no offline tool replaces. The icon packs into a uint32_t: bit 31 valid, bits 28..30 kind (0 hair, 1 beard),
+// bits 16..23 length (hair) or class (beard), 8..15 type, 0..7 accessory.
+constexpr uint32_t kIconValid = 1u << 31;
+uint32_t pack_icon(uint32_t kind, uint32_t a, uint32_t b, uint32_t c) { return kIconValid | (kind << 28) | (a << 16) | (b << 8) | c; }
+uint32_t hair_icon(int64_t code) {
+    uint8_t len = hair::kBald, type = hair::kOther, acc = hair::kNoAccessory;
+    if (code != 0) {
+        const hair::Style hs = hair::lookup(code);
+        if (hs.classified) {
+            len = hs.length >= hair::kUnknownLength ? static_cast<uint8_t>(hair::kShort) : hs.length;
+            type = hs.type;
+            acc = hs.accessory;
+        } else {
+            switch (labels::style_look(faces::looks::kHair, code)) {  // the nearest listed style's look: 1 bald / buzz, 2 short, 3 medium, 4 long, 5 tied
+                case 1: len = hair::kBuzz; break;
+                case 3: len = hair::kMedium; break;
+                case 4: len = hair::kLong; break;
+                case 5: len = hair::kMedium; type = hair::kTied; break;
+                default: len = hair::kShort; break;
+            }
+        }
+    }
+    return pack_icon(0, len, type, acc);
+}
+uint32_t beard_icon(int64_t code) { return pack_icon(1, code == 0 ? 0u : labels::style_look(faces::looks::kFacialHair, code), 0, 0); }
+
 void push_tile(Source& o, int64_t code, std::string name) {
     o.pos[code] = static_cast<int>(o.codes.size());
     o.codes.push_back(code);
@@ -219,7 +256,33 @@ void push_tile(Source& o, int64_t code, std::string name) {
     o.why.emplace_back();
     o.tag.emplace_back();
     o.tip.emplace_back();
+    o.cap.emplace_back();
+    o.reason.emplace_back();
+    o.icon.push_back(0);
     o.group.push_back(-1);
+}
+
+// 5.0c E11: RDBM26's hair PNGs of PNG colour type 3 (palette) are strand flow maps (green / blue), not pictures of a haircut: 326 of the 788
+// files of its hairstyle folder. The type is byte 25 of the file (8-byte signature, then the IHDR chunk: length, "IHDR", width, height,
+// bit depth, colour type). A short, unreadable or non-PNG file is not a palette PNG (it stays what it was: the picture decoder says
+// "no picture" for it). Probed once per file, forgotten when the pictures folder is looked at again.
+size_t g_png_probes = 0;  // PNG headers read by is_palette_png (tests: visual_picker_png_probes)
+
+bool is_palette_png(const fs::path& file) {
+    State& s = st();
+    const std::string key = file.u8string();
+    const auto hit = s.palette.find(key);
+    if (hit != s.palette.end()) return hit->second;
+    bool palette = false;
+    ++g_png_probes;
+    std::ifstream in(file, std::ios::binary);
+    unsigned char h[26];
+    if (in.read(reinterpret_cast<char*>(h), sizeof h) && in.gcount() == static_cast<std::streamsize>(sizeof h)) {
+        static const unsigned char kSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        palette = std::memcmp(h, kSig, sizeof kSig) == 0 && std::memcmp(h + 12, "IHDR", 4) == 0 && h[25] == 3;
+    }
+    s.palette[key] = palette;
+    return palette;
 }
 
 int group_index(Source& o, const std::string& g) {
@@ -328,7 +391,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 const auto gi = gpos.find(code);
                 if (gi != gpos.end() && !ge[gi->second].name.empty()) name = ge[gi->second].name;
                 else name = editor_name(app, t, *f, code);
-                if (name.empty() || (code == 0 && gal && name == "0")) name = code == 0 ? "None" : out.title + " " + std::to_string(code);
+                if (name.empty() || (code == 0 && gal && name == "0")) name = code == 0 ? (field == "hairtypecode" ? "Bald" : "None") : out.title + " " + std::to_string(code);
             }
             push_tile(out, code, name);
             const size_t k = out.codes.size() - 1;
@@ -353,12 +416,51 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                 const auto gi = gpos.find(code);
                 gp = gi != gpos.end() ? ge[gi->second].preview : (light ? gallery_picture_path(app, field, code) : std::string());
             }
+            // 5.0c E11 (D1): for hair and beard an RDBM26 palette PNG is a strand map, never the tile's picture: the game's lit preview
+            // wins, else the grey tile (it still writes: the code is the game's). Other sets' type-3 PNGs (boots, gloves...) are real pictures.
+            // Review E10-12 (brief D1): for hair the game's preview wins outright, so only the files with NO game preview are probed
+            // (about 78 of 788 with Cassio's catalogue): probing all 788 cost ~30 ms in one frame on the first open (16 ms rule,
+            // test_visual_picker.h "PERF: opening the merged hair grid"). Beards keep their order (78 files, probed).
+            bool palette_only = false;
+            if (field == "hairtypecode" && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
+                file.clear();
+            } else if ((field == "hairtypecode" || field == "facialhairtypecode") && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
+                file.clear();
+                palette_only = gp.empty();
+            }
             out.files[k] = file;
             out.game[k] = gp;
             if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
             else if (!gp.empty()) out.src[k] = kSrcGame;
             else out.src[k] = ((!have_res || !d) && !gal) ? kSrcNames : kSrcBlank;
+            if (out.src[k] == kSrcBlank) {  // 5.0c E10-12 (D4): every grey tile says why it has no picture (hover) and the word in its box
+                const auto gi = gpos.find(code);
+                const GalleryEntry* e = gi != gpos.end() ? &ge[gi->second] : nullptr;
+                if (code == 0 && gal) {
+                    out.cap[k] = "none";
+                    out.reason[k] = field == "hairtypecode" ? "Hair 0 is bald." : "No facial hair.";
+                } else if (palette_only) {
+                    out.cap[k] = "strand map only";
+                    out.reason[k] = "RDBM26 has only a strand map for this code (not a picture of it) and the game ships no preview picture for it.";
+                } else if (e && e->model_only) {
+                    out.cap[k] = "3D model, no picture";
+                    out.reason[k] = "The game ships a 3D model for this code but no picture of it.";
+                } else if (gal && out.catalog) {
+                    out.reason[k] = "This code is not in the game's asset catalogue.";
+                } else if (gal) {
+                    out.reason[k] = "The game's picture list has no preview for this code.";
+                } else {
+                    out.reason[k] = "RDBM26 has no picture for this code.";
+                }
+                if (gal && (field == "hairtypecode" || field == "facialhairtypecode")) {  // E10 fix round: every hair / beard tile has a picture
+                    out.icon[k] = field == "hairtypecode" ? hair_icon(code) : beard_icon(code);
+                    out.cap[k].clear();
+                    out.reason[k] += " The tile is a drawn icon of its look class (" +
+                                     (field == "hairtypecode" ? labels::hair_text(code) : labels::facial_hair_text(code)) +
+                                     "), not a picture of the model.";
+                }
+            }
             if (out.eyebrow && !file.empty()) out.tip[k] = "style picture";
             if (!light) {
                 const auto gi = gpos.find(code);
@@ -483,12 +585,117 @@ void draw_swatch_colour(uint32_t col, ImVec2 a, ImVec2 box) {
     dl->AddRect(p0, p1, IM_COL32(0, 0, 0, 110), side * 0.12f, 1.5f);
 }
 
-void draw_blank(const Source& src, ImVec2 a, ImVec2 box) {
+// 5.0c E10 (fix round): the drawn class icon of a hair / beard tile (see hair_icon). A head, the hair (length, type, accessory) or the
+// facial hair class drawn on it, in s x s at p0. Pictogram only: no texture, no file, the same for the same class.
+void draw_look_icon(ImDrawList* dl, ImVec2 p0, float s, uint32_t icon) {
+    const uint32_t kind = (icon >> 28) & 7u, a = (icon >> 16) & 255u, ty = (icon >> 8) & 255u, acc = icon & 255u;
+    const ImU32 bg = IM_COL32(66, 72, 84, 255), skin = IM_COL32(226, 188, 154, 255), hairc = IM_COL32(52, 38, 32, 255),
+                edge = IM_COL32(205, 205, 214, 255), band = IM_COL32(214, 92, 84, 255), eye = IM_COL32(40, 40, 46, 255);
+    dl->AddRectFilled(p0, ImVec2(p0.x + s, p0.y + s), bg, 4.0f);
+    const float cx = p0.x + 0.5f * s, cy = p0.y + 0.52f * s, r = 0.22f * s, kPi = 3.14159265f;
+    auto cap = [&](float centre_y, float rad, bool fill, float thick) {  // the upper half disc: a filled cap or a thin arc
+        dl->PathArcTo(ImVec2(cx, centre_y), rad, kPi, 2.0f * kPi, 28);
+        if (fill) dl->PathFillConvex(hairc);
+        else dl->PathStroke(hairc, thick);
+    };
+    const bool hair_kind = kind == 0;
+    if (hair_kind) {  // behind the head
+        if (ty == hair::kAfro) {
+            dl->AddCircleFilled(ImVec2(cx, cy - 0.09f * s), 0.31f * s, hairc, 32);
+        } else if (a == hair::kMedium) {
+            dl->AddRectFilled(ImVec2(cx - 1.12f * r, cy - 0.9f * r), ImVec2(cx + 1.12f * r, cy + 0.55f * r), hairc, 0.5f * r);
+        } else if (a == hair::kLong) {
+            dl->AddRectFilled(ImVec2(cx - 1.12f * r, cy - 0.9f * r), ImVec2(cx + 1.12f * r, cy + 1.75f * r), hairc, 0.5f * r);
+        }
+    }
+    dl->AddCircleFilled(ImVec2(cx, cy), r, skin, 32);
+    dl->AddCircle(ImVec2(cx, cy), r, edge, 32, 1.0f);
+    dl->AddCircleFilled(ImVec2(cx - 0.4f * r, cy - 0.12f * r), 0.075f * r, eye, 10);
+    dl->AddCircleFilled(ImVec2(cx + 0.4f * r, cy - 0.12f * r), 0.075f * r, eye, 10);
+    if (hair_kind) {
+        const float top = cy - 0.06f * s;
+        if (a == hair::kBald) {
+            dl->PathArcTo(ImVec2(cx - 0.02f * s, cy - 0.02f * s), r * 0.82f, kPi * 1.15f, kPi * 1.42f, 8);  // a shine on the scalp
+            dl->PathStroke(IM_COL32(255, 255, 255, 190), 1.5f);
+        } else if (ty == hair::kMohawk) {
+            dl->AddRectFilled(ImVec2(cx - 0.05f * s, cy - 1.5f * r), ImVec2(cx + 0.05f * s, cy - 0.55f * r), hairc, 2.0f);
+        } else if (ty == hair::kAfro) {
+            cap(top, r * 1.12f, true, 0);
+        } else if (a == hair::kBuzz) {
+            cap(top, r * 1.02f, false, 0.05f * s);
+        } else {
+            cap(top, r * 1.1f, true, 0);
+            if (ty == hair::kCurly || ty == hair::kWavy)
+                for (int i = 0; i < 6; ++i) {
+                    const float ang = kPi * (1.1f + 0.16f * i);
+                    dl->AddCircleFilled(ImVec2(cx + std::cos(ang) * r * 1.1f, top + std::sin(ang) * r * 1.1f), 0.05f * s, hairc, 10);
+                }
+            if (ty == hair::kSpiky)
+                for (int i = 0; i < 5; ++i) {
+                    const float x = cx + (i - 2) * 0.075f * s, y = top - r * 0.95f;
+                    dl->AddTriangleFilled(ImVec2(x - 0.04f * s, y + 0.03f * s), ImVec2(x + 0.04f * s, y + 0.03f * s), ImVec2(x, y - 0.08f * s), hairc);
+                }
+            if (ty == hair::kBraids || ty == hair::kDreads || ty == hair::kTwists)
+                for (int i = 0; i < 4; ++i) {
+                    const float x = cx + (i < 2 ? -1.0f : 1.0f) * (1.0f - 0.14f * (i % 2)) * r;
+                    dl->AddLine(ImVec2(x, top), ImVec2(x, cy + (a == hair::kLong ? 1.5f : 0.8f) * r), hairc, 0.045f * s);
+                }
+            if (ty == hair::kTied) dl->AddCircleFilled(ImVec2(cx, top - r * 1.16f), 0.075f * s, hairc, 14);
+            if (ty == hair::kSlicked) dl->AddLine(ImVec2(cx - 0.9f * r, top + 0.15f * r), ImVec2(cx + 0.7f * r, top - 0.45f * r), edge, 1.0f);
+        }
+        if (acc == hair::kHeadband || acc == hair::kHairband)
+            dl->AddLine(ImVec2(cx - 1.02f * r, cy - 0.5f * r), ImVec2(cx + 1.02f * r, cy - 0.5f * r), band, acc == hair::kHeadband ? 0.07f * s : 0.04f * s);
+        if (acc == hair::kHairTie) dl->AddCircleFilled(ImVec2(cx + 0.95f * r, cy - 0.45f * r), 0.04f * s, band, 10);
+        if (acc == hair::kHat) {
+            dl->PathArcTo(ImVec2(cx, cy - 0.35f * r), r * 1.12f, kPi, 2.0f * kPi, 28);
+            dl->PathFillConvex(band);
+            dl->AddLine(ImVec2(cx - 1.5f * r, cy - 0.35f * r), ImVec2(cx + 1.5f * r, cy - 0.35f * r), band, 0.04f * s);
+        }
+    } else {
+        cap(cy - 0.06f * s, r * 1.06f, true, 0);  // a short haircut so the head reads as a head; the beard is the subject
+        const float mouth = cy + 0.5f * r;
+        if (a == 1) {  // stubble: dots over the lower face
+            for (int i = 0; i < 34; ++i) {
+                const float u = std::fmod(i * 0.618034f, 1.0f), v = std::fmod(i * 0.381966f + 0.07f * (i % 5), 1.0f);
+                const float x = cx + (u * 2.0f - 1.0f) * 0.82f * r, y = cy + 0.25f * r + v * 0.75f * r;
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r * 0.9f) dl->AddCircleFilled(ImVec2(x, y), 0.012f * s, hairc, 6);
+            }
+        } else if (a == 2) {  // moustache (and a goatee)
+            dl->AddRectFilled(ImVec2(cx - 0.55f * r, mouth - 0.28f * r), ImVec2(cx + 0.55f * r, mouth - 0.06f * r), hairc, 0.12f * r);
+            dl->AddCircleFilled(ImVec2(cx, cy + 0.88f * r), 0.14f * r, hairc, 12);
+        } else if (a >= 3) {  // short / full beard: the lower face, a mouth left open
+            const float rr = a == 3 ? r * 0.98f : r * 1.08f, c0 = a == 3 ? cy + 0.12f * r : cy - 0.02f * r;
+            dl->PathArcTo(ImVec2(cx, c0), rr, 0.0f, kPi, 28);
+            dl->PathFillConvex(hairc);
+            dl->AddRectFilled(ImVec2(cx - 0.3f * r, mouth - 0.02f * r), ImVec2(cx + 0.3f * r, mouth + 0.22f * r), skin, 0.1f * r);
+            dl->AddRectFilled(ImVec2(cx - 0.55f * r, mouth - 0.3f * r), ImVec2(cx + 0.55f * r, mouth - 0.06f * r), hairc, 0.1f * r);
+        } else {  // clean-shaven: a mouth line
+            dl->AddLine(ImVec2(cx - 0.3f * r, mouth), ImVec2(cx + 0.3f * r, mouth), eye, 1.2f);
+        }
+    }
+}
+
+// The small "drawn" mark of a tile that is a class icon and not a picture of the model (light on a dark chip: contrast above 4.5:1)
+void drawn_mark(ImDrawList* dl, ImVec2 p0, float s) {
+    ImFont* font = ImGui::GetFont();
+    const float fs = ImGui::GetFontSize() * 0.75f;
+    const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, "drawn");
+    const ImVec2 q(p0.x + s - ts.x - 4.0f, p0.y + s - ts.y - 2.0f);
+    dl->AddRectFilled(ImVec2(q.x - 2.0f, q.y - 1.0f), ImVec2(q.x + ts.x + 2.0f, q.y + ts.y + 1.0f), IM_COL32(24, 24, 28, 220), 2.0f);
+    dl->AddText(font, fs, q, IM_COL32(236, 236, 240, 255), "drawn");
+}
+
+void draw_blank(const Source& src, size_t k, ImVec2 a, ImVec2 box) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float side = std::min(box.x, box.y);
     const ImVec2 p0(a.x + (box.x - side) * 0.5f, a.y + (box.y - side) * 0.5f);
+    if (k < src.icon.size() && (src.icon[k] & kIconValid)) {  // 5.0c E10 fix round: a hair / beard with no game picture is drawn from its look class
+        draw_look_icon(dl, p0, side, src.icon[k]);
+        drawn_mark(dl, p0, side);
+        return;
+    }
     dl->AddRectFilled(p0, ImVec2(p0.x + side, p0.y + side), IM_COL32(58, 58, 64, 255), 4.0f);
-    box_text(dl, p0, ImVec2(side, side), src.kind == vis::data::kGif ? "no animation yet" : "no picture yet");
+    box_text(dl, p0, ImVec2(side, side), !src.cap[k].empty() ? src.cap[k].c_str() : src.kind == vis::data::kGif ? "no animation yet" : "no picture yet");
 }
 
 bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, ImVec2 box) {
@@ -521,8 +728,8 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             return true;
         }
         case kSrcBlank:
-            draw_blank(src, a, box);
-            return false;
+            draw_blank(src, k, a, box);
+            return (src.icon[k] & kIconValid) != 0;  // a drawn class icon is the tile's picture (5.0c E10 fix round)
         case kSrcNames:
             box_text(ImGui::GetWindowDrawList(), a, box, "no picture");
             return false;
@@ -531,7 +738,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
     }
     const fs::path& f = src.files[k];
     if (f.empty()) {
-        draw_blank(src, a, box);
+        draw_blank(src, k, a, box);
         return false;
     }
     if (src.kind == vis::data::kGif) {
@@ -586,12 +793,13 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
         else if (k == kSrcFigure) ++s.ui.source_figure;
         else ++s.ui.source_blank;
     }
+    for (uint32_t ic : s.src.icon) s.ui.source_drawn += (ic & kIconValid) != 0;
     s.popup_pending = true;
     s.owner_set = false;
     s.want_open = false;
     vlog(app, "visual picker opened: " + field + " of " + t.name + " " + std::to_string(who_id(app, t, rec)) + " is " + std::to_string(s.ui.current) +
                   " (" + std::to_string(s.ui.source_rdbm) + " RDBM26 pictures, " + std::to_string(s.ui.source_swatch) + " swatches, " +
-                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a picture)");
+                  std::to_string(s.ui.source_game) + " game previews, " + std::to_string(s.ui.source_blank) + " without a game picture, " + std::to_string(s.ui.source_drawn) + " of those drawn from their class)");
 }
 
 void close_picker() {
@@ -675,8 +883,9 @@ TileIo tile(App& app, const Source& src, int idx, ImVec2 box, int64_t selected, 
     const float fs_small = ImGui::GetFontSize() * 0.85f;
     const float cw = font->CalcTextSizeA(fs_small, FLT_MAX, 0.0f, cbuf).x;
     dl->AddText(font, fs_small, ImVec2(a.x + std::max(0.0f, (cell.x - cw) * 0.5f), np.y + line), ImGui::GetColorU32(ImGuiCol_TextDisabled), cbuf);
-    if (io.hovered && (name.size() > 18 || !src.tip[k].empty() || !src.writable[k] || !src.tag[k].empty())) {
+    if (io.hovered && (name.size() > 18 || !src.tip[k].empty() || !src.writable[k] || !src.tag[k].empty() || !src.reason[k].empty())) {
         std::string tip = name;
+        if (src.src[k] == kSrcBlank && !src.reason[k].empty()) tip += "\n" + src.reason[k];
         if (!src.tip[k].empty()) tip += (src.tip[k][0] == '\n' ? "" : "\n") + src.tip[k];
         if (!src.writable[k] && src.tip[k].find("Cannot be applied") == std::string::npos) tip += "\nCannot be applied: " + src.why[k];
         ImGui::SetTooltip("%s", tip.c_str());
@@ -1031,6 +1240,31 @@ bool visual_picker_tile_writable(int64_t code, std::string* why) {
     return i < 0 || src.writable[static_cast<size_t>(i)];
 }
 
+std::string visual_picker_tile_reason(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 || src.src[static_cast<size_t>(i)] != kSrcBlank ? std::string() : src.reason[static_cast<size_t>(i)];
+}
+
+bool visual_picker_tile_drawn(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i >= 0 && (src.icon[static_cast<size_t>(i)] & kIconValid) != 0;
+}
+
+uint32_t visual_picker_tile_icon(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 ? 0u : src.icon[static_cast<size_t>(i)];
+}
+
+std::string visual_picker_tile_name(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 ? std::string() : src.names[static_cast<size_t>(i)];
+}
+
+size_t visual_picker_png_probes() { return g_png_probes; }
 size_t visual_picker_list_size() { return st().src.codes.size(); }
 std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
 
@@ -1054,6 +1288,7 @@ void visual_pickers_shutdown() {
     p = nullptr;
     st().uploaded.clear();
     st().colours.clear();
+    st().palette.clear();
 }
 
 // 5.0b-A, the single write path: a pick that changes the 3D head (look::render_changes: head, hair, beard, eyes, skin, body) drops the cached

@@ -3357,6 +3357,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
+#include "test_hairbeard_pickers.h"  // 5.0c E10-12: hair and beard grids (palette strand maps never beat the game preview, reasons of grey tiles, hair 0 Bald)
 
 // ---------------------------------------------------------------- live standings (FCE DataManager) on synthetic memory
 namespace {
@@ -10027,6 +10028,7 @@ static void test_ui() {
         gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
         layout_flush_test::ui_cases(app, ui, le);  // test_layout_flush.h (5.0c E6-layout): hide inside the debounce writes gui.window
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
+        hairbeard_test::ui_cases(app, ui, le);  // test_hairbeard_pickers.h (5.0c E10-12): palette strand maps, grey-tile reasons, hair 0 Bald
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
