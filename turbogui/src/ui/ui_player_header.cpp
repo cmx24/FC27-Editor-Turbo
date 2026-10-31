@@ -204,7 +204,7 @@ bool draw_player_header(App& app) {
     big_number("Calc", st.calc_overall, true);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The overall the attributes give for his first position (the game shows OVR until it works it out again)");
     ImGui::EndChild();
-    if (kShowOvrMaskField) draw_shown_ovr(app, st);  // off: Pit wall decision 10-25 15:35, see kShowOvrMaskField in the header
+    if (kShowOvrMaskField) draw_shown_ovr(app, st);  // on since 10-31 (tx-ovr), see kShowOvrMaskField in the header
     return true;
 }
 
