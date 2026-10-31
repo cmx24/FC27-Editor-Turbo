@@ -3354,6 +3354,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
 #include "test_career_faces.h"  // 2.19: career faces (a face picture chosen in a career lives only in that career)
 #include "test_miniface_oneclick.h"  // 5.0b-C: one-click minifaces (background removal never ticked by code, preview follows every change, Undo)
+#include "test_miniface_auto.h"  // 5.0c E9: the picture follows the look (auto re-render, debounce, busy queue, pause, deadline)
 #include "test_face_chooser_layout.h"  // 5.0b-C: the real-face chooser layout (search + Filters + scope, What to copy under the tile)
 #include "test_bodytype_thumbs.h"  // 2.17 looks T: body-type thumbnails (store, step list, PNG, request file, generator resume / restore)
 #include "test_visual_picker.h"  // 2.20 V: visual pickers (run-style animations, pictures, in-game names)
@@ -3833,6 +3834,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_bulkdev_40.h"  // 4.0 S7b: Development block (XP multiplier, Bonus XP, No decline) on Bulk edit (bulkdev40_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
 #include "test_body_picker.h"   // 5.0c E8-body: one visual body-type picker (body_picker_test::core_cases / ui_cases)
+#include "test_capture_subject.h"  // 5.0c E9 (ported from 3.1.1 M3): ONE resolver for the capture subject (capture_subject_test::ui_cases; after FakeCapture)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
 #include "test_dev_open_page.h"  // 4.0 S0a: the dev-service op open_page {area, page} (devpage_test)
 // ================================================================ live team names (core/teamname_override.h)
@@ -6246,7 +6248,7 @@ static void test_ui() {
             fs::remove(out);
         });
 
-        run_case("UI: Managers > Miniface > The 3D model asks for the manager's head id", [&] {
+        run_case("e9-UI: Managers > Miniface > The 3D model asks for 9999 for the user's manager (5.0c E9; his head id 7501 before)", [&] {
             auto fake = std::make_shared<FakeCapture>();
             fake->st.installed = true;
             fake->st.available = true;
@@ -6263,8 +6265,9 @@ static void test_ui() {
             CHECK(fake->requests.size() == 1, "one request");
             if (!fake->requests.empty()) {
                 const capture::Request& r = fake->requests.back();
-                // like the game's manager-head builder 0x147D94218: the head id, and the manager's club as the second id
-                CHECK(r.manager && r.id == 7501 && r.second_id == 1, fmt("manager request id %d second %d manager %d", r.id, r.second_id, int(r.manager)));
+                // 5.0c E9 (3.1.1 M3 resolver): Arteta runs the user's club (bridge user_team 1), so the game is asked for the created avatar 9999,
+                // not his heads_staff id 7501; his club is the second id (the game's manager-head builder 0x147D94218)
+                CHECK(r.manager && r.id == 9999 && r.second_id == 1, fmt("manager request id %d second %d manager %d", r.id, r.second_id, int(r.manager)));
             }
             fake->next = capture::Result();
             fake->next.ok = true;
@@ -6272,7 +6275,7 @@ static void test_ui() {
             fake->next.image = solid(540, 540, 90, 90, 200);
             fake->deliver = true;
             ui.frames(3);
-            CHECK(ui.toast_contains("3D model rendered for manager head 7501"), "toast names the manager head");
+            CHECK(ui.toast_contains("3D model rendered for manager head 9999"), "toast names the id asked (9999, the user's manager)");
             fs::path out = le / "mods" / "legacy" / "data" / "ui" / "imgAssets" / "heads_staff" / "heads_staff_501.dds";
             CHECK(fs::exists(out), "5.0b-C: heads_staff_501.dds written the moment the capture arrived (no Save click)");
             fs::remove(out);
@@ -6285,6 +6288,7 @@ static void test_ui() {
         ui_cases_miniface_show(app, ui, le);  // test_miniface_show.h
         fcl_ui_cases(app, ui);  // test_face_chooser_layout.h (5.0b-C)
         mo_ui_cases(app, ui, le);  // test_miniface_oneclick.h (5.0b-C)
+        miniface_auto_test::ui_cases(app, ui, le);  // test_miniface_auto.h (5.0c E9)
 
         run_case("UI: game pictures through Turbo's Lua side, real-face picker, tattoo picker", [&] {
             // the simulated game has minifaces for the real faces and two tattoo previews
@@ -10007,6 +10011,7 @@ static void test_ui() {
         bulkdev40_test::ui_cases(app, ui, le);  // test_bulkdev_40.h: Development block on Bulk edit (4.0 S7b)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
         body_picker_test::ui_cases(app, ui, le);  // test_body_picker.h (5.0c E8-body): manager set 81-89 on a generic head, figure tiles, one picker
+        capture_subject_test::ui_cases(app, ui, le);  // test_capture_subject.h: the two capture frames ask the same id (5.0c E9)
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         devpage_test::ui_cases(app, ui);  // test_dev_open_page.h: dev service open_page {area, page} (4.0 S0a)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning

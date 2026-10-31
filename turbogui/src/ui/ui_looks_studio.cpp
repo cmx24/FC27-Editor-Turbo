@@ -16,6 +16,7 @@
 #include "core/bodytype_catalog.h"
 #include "core/body_shape.h"
 #include "core/bodytype_thumbs.h"
+#include "core/capture_subject.h"
 #include "core/field_labels.h"
 #include "core/legacy.h"
 #include "core/look_pickers.h"
@@ -164,7 +165,8 @@ public:
     // One request: mode_override -1 = the camera's own mode, 0 = the R1 retry of the full body at W2228's mode 0
     bool send(App& app, const Subject& s, int mode_override, std::string* why) {
         if (!s.valid()) return false;
-        const int64_t req = s.manager ? s.head : s.id;
+        // ONE resolver (core/capture_subject.h): the user's manager is 9999, another manager his head, a player his id
+        const int64_t req = capture::capture_subject_id(capture::make_capture_subject(app.bridge.state(), s.manager, s.id, s.head, s.club));
         if (req <= 0) {
             if (why) *why = "He has no head the game can draw.";
             return false;

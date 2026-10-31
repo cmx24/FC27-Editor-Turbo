@@ -359,7 +359,7 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         if (t && t->has("headclasscode")) app.db.set_int(*t, p->rec, "headclasscode", hc0);
     });
 
-    run_case("Looks studio: a manager's picture (his head id, full body tried), the page's own Undo, and his real face in one click", [&] {
+    run_case("e9-Looks studio: a manager's picture (9999 for the user's manager, full body tried), the page's own Undo, and his real face in one click", [&] {
         const Table* t = app.db.table("manager");
         const auto& mgrs = app.model.managers();
         if (!t || mgrs.empty() || !t->has("bodytypecode")) {
@@ -392,7 +392,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(studio_requests() == 1, "one picture asked: " + std::to_string(studio_requests()));
         if (!fake->requests.empty()) {
             const capture::Request& r = fake->requests.back();
-            CHECK(r.manager && r.id == head && r.camera == capture::kCameraBodyFull && !r.use_template, "by his head id, full-body camera, learned descriptor off");
+            // 5.0c E9 (3.1.1 M3): the first manager of the test world runs the user's club, so the ONE resolver (core/capture_subject.h) sends 9999, not his head id
+            const BridgeState& bs = app.bridge.state();
+            CHECK(bs.in_cm && bs.user_team > 0 && mgrs[0].teamid == bs.user_team, "the test world's first manager is the user's manager");
+            CHECK(r.manager && r.id == capture::kUserAvatarHeadId && r.camera == capture::kCameraBodyFull && !r.use_template,
+                  "by 9999 (the user's manager, not his head " + std::to_string(head) + "), full-body camera, learned descriptor off (asked " + std::to_string(r.id) + ")");
             CHECK(r.second_id == (mgrs[0].teamid > 0 ? mgrs[0].teamid : -1), "his club as the second id");
         }
         fake->next = capture::Result();
