@@ -3827,6 +3827,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_profile_40.h"  // 4.0 S7: Profile Callname row, Player creation and Bulk edit inside page::Frame (profile40_test::ui_cases)
 #include "test_bulkdev_40.h"  // 4.0 S7b: Development block (XP multiplier, Bonus XP, No decline) on Bulk edit (bulkdev40_test::ui_cases)
 #include "test_page_looks.h"   // 2.17 looks/studio-ui: Faces & looks > Looks studio (page_looks_test::ui_cases; after FakeCapture)
+#include "test_body_picker.h"   // 5.0c E8-body: one visual body-type picker (body_picker_test::core_cases / ui_cases)
 #include "test_nav_220.h"      // 2.20 IA wiring: placeholders gone, Appearance Editor, every page registered once (nav220_test)
 #include "test_dev_open_page.h"  // 4.0 S0a: the dev-service op open_page {area, page} (devpage_test)
 // ================================================================ live team names (core/teamname_override.h)
@@ -9950,6 +9951,7 @@ static void test_ui() {
         profile40_test::ui_cases(app, ui, le);  // test_profile_40.h: Profile Callname row, Player creation, Bulk edit in page::Frame (4.0 S7)
         bulkdev40_test::ui_cases(app, ui, le);  // test_bulkdev_40.h: Development block on Bulk edit (4.0 S7b)
         page_looks_test::ui_cases(app, ui, le);  // test_page_looks.h: Faces & looks > Looks studio (2.17)
+        body_picker_test::ui_cases(app, ui, le);  // test_body_picker.h (5.0c E8-body): manager set 81-89 on a generic head, figure tiles, one picker
         nav220_test::ui_cases(app, ui);  // test_nav_220.h: the Appearance Editor tab (2.20)
         devpage_test::ui_cases(app, ui);  // test_dev_open_page.h: dev service open_page {area, page} (4.0 S0a)
         tuning_test::ui_cases(app, ui, le);  // test_tuning.h: Competitions > Gameplay tuning
@@ -15761,6 +15763,7 @@ int main(int argc, char** argv) {
     test_gear_pictures();
     test_hair_catalog();
     test_bodytype_catalog();
+    body_picker_test::core_cases();  // test_body_picker.h (5.0c E8-body): unique plain names, shapes, silhouettes, contrast
     visual_picker_test::core_cases();  // test_visual_picker.h (2.20 V): names, GIF reader, animation store, RDBM26 folder
     visual_picker_test::core_cases_222();  // 2.22 G-pickers: colour JSON, eyebrow styles, per-file fallback, accessory colours, generic heads
     test_lang_detect();

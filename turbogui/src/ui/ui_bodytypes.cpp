@@ -7,6 +7,7 @@
 #include <filesystem>
 
 #include "app.h"
+#include "core/body_shape.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -103,13 +104,15 @@ bool apply_bodytype(App& app, const Table& t, uint64_t rec, int64_t code, bool a
         return false;
     }
     const Catalog& c = bodytype_catalog(app);
-    const std::string nm = c.name(code);
+    const bool is_manager = t.name == "manager";
+    const std::string plain = is_manager ? bodyshape::body_name(true, code, &c) : std::string();
+    const std::string nm = plain.empty() ? c.name(code) : plain;  // 5.0c E8-body: a manager reads "Manager, tall, slim", never "Manager body 82"
     if (code < f->min || code > f->max()) {
         say(nm + " is outside the range this game accepts for the body type.");
         return false;
     }
     const int hc = head_class_of(app, t, rec);
-    if (!allow_risky && bodytype::risky_pairing(c, code, hc)) {
+    if (!allow_risky && bodyshape::risky_for(is_manager, c, code, hc)) {
         say(nm + " was not written: a player-specific body on a " + std::string(hc == 1 ? "generic" : "head of unknown kind") +
             " head may not fit its skeleton and kit (untested in game). Tick the box in the gallery to write it anyway.");
         return false;

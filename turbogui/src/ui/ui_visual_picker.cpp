@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "app.h"
+#include "core/body_shape.h"
 #include "core/bodytype_thumbs.h"
 #include "core/field_labels.h"
 #include "core/hair_catalog.h"
@@ -22,6 +23,7 @@
 #include "core/rdbm_resources.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
+#include "ui_body_figure.h"
 #include "ui_faces.h"
 #include "ui_images.h"
 #include "ui_looks_studio.h"
@@ -44,7 +46,7 @@ constexpr double kHoverDelay = 0.15;                 // the preview follows the 
 // Where a tile's picture comes from, per code (TileSource in the header; kept as bytes in the lists)
 constexpr uint8_t kSrcRdbm = static_cast<uint8_t>(TileSource::Rdbm), kSrcSwatch = static_cast<uint8_t>(TileSource::Swatch),
                   kSrcGame = static_cast<uint8_t>(TileSource::Game), kSrcBlank = static_cast<uint8_t>(TileSource::Placeholder),
-                  kSrcNames = static_cast<uint8_t>(TileSource::NamesOnly);
+                  kSrcNames = static_cast<uint8_t>(TileSource::NamesOnly), kSrcFigure = static_cast<uint8_t>(TileSource::Figure);
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -60,6 +62,7 @@ struct Source {  // what one picker shows
     std::vector<std::string> game;      // the game's preview path; "" = none
     std::vector<uint32_t> swatch;       // a colour known from a table (accessory colours); 0 = none
     std::vector<uint8_t> src;           // kSrc* per code
+    std::vector<bodyshape::BodyShape> shape;  // a body type: the figure drawn for each code (kSrcFigure)
     std::vector<char> writable, hidden;
     std::vector<std::string> why, tag, tip;
     std::vector<int> group;             // index into groups, -1 = none
@@ -209,6 +212,7 @@ void push_tile(Source& o, int64_t code, std::string name) {
     o.game.emplace_back();
     o.swatch.push_back(0);
     o.src.push_back(kSrcBlank);
+    o.shape.emplace_back();
     o.writable.push_back(1);
     o.hidden.push_back(0);
     o.why.emplace_back();
@@ -243,8 +247,10 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         const int gender = t.has("gender") ? static_cast<int>(app.db.get_int(t, rec, "gender", -1)) : -1;
         for (int64_t c : looks::body_grid_codes(&cat, current, gender, manager)) {
             push_tile(out, c, looks::body_caption(c, &cat, manager));
-            out.files.back() = bodytype_thumbs::thumb(c, manager);
-            out.src.back() = out.files.back().empty() ? kSrcBlank : kSrcRdbm;
+            // 5.0c E8-body: every body type is a figure drawn in code on one height scale (no picture file, players and managers alike)
+            out.src.back() = kSrcFigure;
+            out.shape.back() = bodyshape::body_shape(manager, c, &cat);
+            out.tip.back() = bodyshape::body_detail(manager, c, &cat) + "\nBody type " + std::to_string(c);
         }
     } else {
         const vis::SetDef* d = vis::set_for_field(field);
@@ -504,6 +510,11 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             ImGui::SetCursorScreenPos(saved);
             return true;
         }
+        case kSrcFigure: {
+            const float side = std::min(box.x, box.y);
+            bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), ImVec2(a.x + (box.x - side) * 0.5f, a.y), ImVec2(side, side), src.shape[k], false, false);
+            return true;
+        }
         case kSrcBlank:
             draw_blank(src, a, box);
             return false;
@@ -566,6 +577,7 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
         if (k == kSrcRdbm) ++s.ui.source_rdbm;
         else if (k == kSrcSwatch) ++s.ui.source_swatch;
         else if (k == kSrcGame) ++s.ui.source_game;
+        else if (k == kSrcFigure) ++s.ui.source_figure;
         else ++s.ui.source_blank;
     }
     s.popup_pending = true;

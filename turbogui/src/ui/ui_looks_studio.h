@@ -2,9 +2,9 @@
 // point 6). One page for players AND managers: [person list | large preview | cards]. The cards call what already exists:
 //   Face          the real-face chooser (ui_images.h real_face_picker, ui_faces.h manager_real_face_picker)
 //   Hair & beard  the faces card of ui_faces3d_gate.h (read-only use of its API)
-//   Body type     a grid, one tile per bodytypecode: the picture of track T2's generator (core/bodytype_thumbs.h thumb()) over its name
-//                 ("Tall, lean", "Like Lionel Messi", "Manager body 82"); the name only where no picture exists. Refreshed when the
-//                 generator's manifest.json changes. Body-type edits and the page's Undo are also written to turbo_gui.log.
+//   Body type     a grid, one tile per bodytypecode: a figure drawn in code (ui_body_figure.h, 5.0c E8-body) over its plain name
+//                 ("Tall, lean", "Like Lionel Messi", "Manager, tall, slim"; "His own body" where nothing names the code). Body-type edits
+//                 and the page's Undo are also written to turbo_gui.log.
 //   Accessories   accessory slots, boots, goalkeeper gloves   } the fields, titles and value words of track F's core/looks_fields_data.h
 //   Kit fit       sleeves, shirt, shorts, socks (players)     }   (managers: their outfit)
 // Every change goes through the existing edit path (App::edit via the page's combos / apply_bodytype): a player's change is one step of
@@ -98,6 +98,7 @@ struct StudioState {
     int listed = 0;            // people in the list after the search
     int body_tiles = 0;        // tiles of the body-type grid drawn
     int thumbs = 0;            // of them with their picture drawn
+    int figures = 0;           // of them drawn as a figure (ui_body_figure.h): equals body_tiles, players and managers
     int fields = 0;            // field editors in Accessories and Kit fit
     int look_cards = 0;        // 5.0b-A: Look cards drawn this frame (the registry's card: ONE)
     int look_rows = 0;         // 5.0b-A: picker rows the Look card lists (one per registry column of the person, minus the dedicated cards'); counted when the card is out of view too

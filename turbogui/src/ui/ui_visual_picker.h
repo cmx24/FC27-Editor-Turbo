@@ -71,7 +71,7 @@ bool grid_apply(App& app, const Table& t, uint64_t rec, const char* field, std::
 
 // ---- tests
 // Where a tile's picture comes from (the merged grid)
-enum class TileSource { Rdbm, Swatch, Game, Placeholder, NamesOnly };
+enum class TileSource { Rdbm, Swatch, Game, Placeholder, NamesOnly, Figure };  // Figure: a body type drawn in code (ui_body_figure.h)
 struct VisualPickerUi {
     bool open = false;
     std::string field;
@@ -80,7 +80,7 @@ struct VisualPickerUi {
     int pictures_shown = 0;     // of those, tiles with their picture (animated or still) on screen
     int uploads_last_frame = 0; // animations given to the window's textures in the last frame
     bool names_only = false;    // no pictures folder: the list of names
-    int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0;  // the whole list, by where each tile's picture comes from
+    int source_rdbm = 0, source_swatch = 0, source_game = 0, source_blank = 0, source_figure = 0;  // the whole list, by where each tile's picture comes from
     std::string last_result;    // "Run style set to Medalist", or the refusal
     std::string pictures_line;  // 3.1 G2b: the "where are the pictures / why none" line the open grid shows in its note ("" when it shows none)
 };
