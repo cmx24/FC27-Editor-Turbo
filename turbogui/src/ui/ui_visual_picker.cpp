@@ -903,6 +903,9 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.show_blank = false;
     s.blank_count = 0;
     s.choice = choice ? *choice : State::Choice();
+    // Turbo X (2026-10-31 review): the band chooser lists a short gate of 3D models; one with no preview is still a choice, so the
+    // chooser starts with them shown (the tick can hide them). The big pickers keep starting with the blank tiles hidden.
+    s.show_blank = s.choice.on;
     // 5.0c RV4: the Body type window starts as the person left the "Show all body types" tick (default off = one tile per distinct figure)
     if (field == "bodytypecode") looks::body_show_all(app.prefs.body_show_all);
     build_source(app, t, rec, field, manager, s.src);

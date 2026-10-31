@@ -698,7 +698,6 @@ void card_elsewhere(App& app) {
         {"Season update pack", "Undo this pack", shell::Page::CMTracker},
         {"Hair and beard", "Revert", shell::Page::PlayerEdit},
         {"Crest from another club", "Remove custom crest", shell::Page::Identity},
-        {"Game slider presets", "Discard staged", shell::Page::GameplayPresets},
     };
     if (ImGui::BeginTable("##chgelsewhere", 3, tbl::kData | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("What", ImGuiTableColumnFlags_WidthStretch);

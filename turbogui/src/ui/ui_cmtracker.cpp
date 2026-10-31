@@ -283,7 +283,9 @@ void cmt_body(App& app) {
                                        static_cast<long long>(in_db));
                     if (ImGui::Button("Create from his career data...##pcmtdb")) {
                         request_create_from(app, in_db);
-                        app.request_tab = 0;
+                        // Turbo X (2026-10-31 review): the pending create is consumed by player_preset_buttons, which only the Create & clone
+                        // page draws now (the classic tab and the card page went with step 6); request_tab = 0 opened PlayerEdit and left it armed
+                        app.go(shell::Page::CreatePlayer);
                         ImGui::CloseCurrentPopup();
                     }
                     if (ImGui::IsItemHovered())

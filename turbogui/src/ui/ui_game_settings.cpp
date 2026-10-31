@@ -184,8 +184,9 @@ void save_current(App& app) {
 // slider) go into the game's Custom block (gsettings::live, route 1 of evidence\2026-10-28\SLIDERS_WRITE\PLAN.md): the block is the one
 // Turbo wrote last while it still holds those bytes, else the one block of the process that holds exactly the Custom bytes of the newest
 // Settings file (zero or several hits = refused). write_block writes the Custom entries only, reads every byte back and puts everything
-// back on a mismatch. On success g.live_bytes is the block as it is now and settings_live_journal.json holds the old bytes (the journal
-// the Undo path reads). false = nothing changed in the game; `msg` is one short line either way. NOT proven in game.
+// back on a mismatch. On success g.live_bytes is the block as it is now and settings_live_journal.json holds the old bytes of THIS write
+// only (each write replaces the file; nothing reads it back: there is no Undo for a live slider write, the game's own screen is the way
+// back). false = nothing changed in the game; `msg` is one short line either way. NOT proven in game.
 bool live_write(App& app, const std::map<std::string, int>& values, const std::string& label, std::string& msg) {
     if (!app.regions_hook) {
         msg = "Game must be running (Turbo inside FC 27)";
@@ -210,20 +211,30 @@ bool live_write(App& app, const std::map<std::string, int>& values, const std::s
         if (app.mem.read_block(g.live_addr, n, now) && now == g.live_bytes) addr = g.live_addr;
     }
     if (!addr) {
-        read_file_now(app);  // the newest file the game wrote
-        if (!g.snap.ok || g.snap.custom_slots.size() != n) {
-            msg = "Settings file has no readable Custom block";
+        // Turbo X (2026-10-31 review): a failed search is a full file read plus a scan of every region, on the overlay thread, mid-frame.
+        // With sliders every release reaches here, so a search that just failed is not repeated for a few seconds; the line says so.
+        static double failed_at = 0.0;
+        static std::string failed_why;
+        const double now = ImGui::GetTime();
+        if (failed_at > 0.0 && now - failed_at < 3.0) {
+            msg = failed_why + " (not searched again for 3 s)";
             return false;
         }
+        auto fail = [&](const std::string& why) {
+            failed_at = now;
+            failed_why = why;
+            msg = why;
+            return false;
+        };
+        read_file_now(app);  // the newest file the game wrote
+        if (!g.snap.ok || g.snap.custom_slots.size() != n) return fail("Settings file has no readable Custom block");
         std::vector<uint8_t> expect(n);
         for (size_t k = 0; k < n; ++k) expect[k] = uint8_t(g.snap.custom_slots[k].second);
         std::vector<live::Span> spans;
         for (const ::turbo::Region& r : app.regions_hook()) spans.push_back({r.start, r.end});
         const live::Found f = live::find_block(app.mem, spans, expect.data(), n);
-        if (!f.ok) {
-            msg = f.why;
-            return false;
-        }
+        if (!f.ok) return fail(f.why);
+        failed_at = 0.0;
         addr = f.addr;
     }
     const live::Result r = live::write_block(app.mem, addr, g.map, values, app.writable_hook);
@@ -733,6 +744,7 @@ void draw_game_settings(App& app) {
             read_file_now(app);
             load_presets_now(app);
             read_pending(app);
+            g.live_line.clear();  // Turbo X: the last write's line is about the values before this read; a stale "written" line is a false claim
         }
         g_state.map_line = g.map_ok ? std::string(map_file()) + ": " + std::to_string(g.map.entries.size()) + " sliders, " + std::to_string(verified_count()) +
                                           " verified in game"
