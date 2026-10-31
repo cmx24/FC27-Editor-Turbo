@@ -18,6 +18,7 @@
 #include "ui/ui_body_figure.h"
 #include "core/body_shape.h"
 #include "ui/ui_looks_studio.h"
+#include "ui/ui_visual_picker.h"
 
 namespace body_picker_test {
 
