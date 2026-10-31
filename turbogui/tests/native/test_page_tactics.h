@@ -1,10 +1,8 @@
-// Native tests (2.16 GUI revamp, brief 2.16-gui-pages, track "tactics", plan step 8): the three Tactics pages of ui_tactics_page.cpp -
-// Tactic presets (the frame around the existing panel), Team sheet & bench, Game sliders. Included by test_main.cpp after
+// Native tests (2.16 GUI revamp, brief 2.16-gui-pages, track "tactics", plan step 8): the Tactics pages of ui_tactics_page.cpp -
+// Tactic presets (the frame around the existing panel), Team sheet & bench (Game sliders' offline staging was deleted on 2026-10-31). Included by test_main.cpp after
 // test_gameplay_page.h; page_tactics_test::ui_cases runs in the UI block right after gameplay_page_test::ui_cases (a real App, the
 // synthetic settings file of test_game_settings.h, the simulated game of test_team_sheet.h). The pages are not registered with the shell
 // (that is the wiring step), so each case draws the page function in its own window.
-//   Game sliders:     list = presets with a sliders block only; Prepare stages (sliders only, no tactic job, no last-load file, settings
-//                     folder untouched); the status never says installed/applied; Discard takes the staged file back
 //   Team sheet:       the bench toggle writes/removes the same switch file the live tactic card uses; states in plain words; the saved
 //                     order and the captain / takers read-out in names; honest tag
 //   Tactic presets:   proof tag + one line; "tactic now" in plain words; the existing panel (its Apply button) is the body
@@ -50,91 +48,8 @@ static bool clean(std::string s) {
 }
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
-    run_case("T8 pages: Game sliders - Prepare stages the sliders only, honest status, Discard takes it back, settings folder untouched", [&] {
-        tactic_presets_reset();
-        live_tactic_reset();
-        tactics_pages_reset();
-        const fs::path out = le / "turbo_output";
-        std::error_code ec;
-        for (const char* f : {tp::last_load_file(), gsettings::pending_file()}) fs::remove(out / f, ec);
-        fs::remove_all(tp::presets_dir(out), ec);
-        const fs::path root = g_out / "t8sliders";
-        fs::remove_all(root, ec);
-        const fs::path settings = root / "settings";
-        gsettings_test::write_file(settings / gsettings_test::kName, gsettings_test::fixture());
-        const fs::path map = root / "slider_map.json";
-        std::ofstream(map, std::ios::binary) << gsettings_test::test_map();
-        game_settings_set_paths(settings, map);
-        game_settings_reset();
-        const auto folder_before = gsettings_test::md5s(settings);
-        std::map<std::string, int> values;
-        std::string layout, mb, why;
-        CHECK(game_settings_current(app, values, layout, mb, why) && !values.empty(), "the synthetic settings file reads: " + why);
-        std::string err;
-        tp::Preset sl = tp::make_preset("SLIDERS", "", "2026-10-17 20:00:00", nullptr, &values, layout, mb, nullptr, true);
-        CHECK(sl.settings.present && tp::write_preset(tp::presets_dir(out), sl, &err), "SLIDERS written: " + err);
-        tsheet::LiveTactic lt;
-        lt.at.user = 1;
-        lt.name = "433";
-        lt.formation = 27;
-        lt.source_formation = 10;
-        lt.line_height = 40;
-        const tp::Preset tc = tp::make_preset("ONLYTAC", "", "2026-10-17 20:01:00", &lt, nullptr, layout, mb, nullptr, true);
-        tp::Preset tc2 = tc;
-        CHECK(!tc2.settings.present && tp::write_preset(tp::presets_dir(out), tc2, &err), "ONLYTAC written: " + err);
-
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
-        ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));
-        show(ui, draw_offline_slider_section);  // 3.0.1 GUI30K: the list and Prepare live in the Lab section now
-        ui.frames(4);
-        const GameSlidersPageState& s = game_sliders_page_state();
-        CHECK(s.drawn && s.names == std::vector<std::string>({"SLIDERS"}), "the list holds the presets with sliders only (the tactic-only one stays out)");
-        CHECK(s.tag == "Effect in matches: not tested yet", "the honest tag: " + s.tag);
-        const ItemRec* prep = ui.find("Prepare###gsprepare", kWin);
-        CHECK(prep != nullptr && !s.can_prepare, "one primary action, off until a preset is picked");
-        CHECK(ui.click("SLIDERS  -  " + std::to_string(values.size()) + " sliders###gsel0", kWin), "picked SLIDERS");
-        ui.frames(3);
-        CHECK(s.selected == 0 && s.can_prepare && !s.can_discard, "selected: Prepare on, Discard off (" + s.counts_line + ")");
-        CHECK(has(s.counts_line, "confirmed on the Custom screen") && has(s.counts_line, "left out"), "the counts are stated plainly: " + s.counts_line);
-        CHECK(s.status == "Not prepared yet." && !s.prepared, "status before: " + s.status);
-        CHECK(has(s.steps, "1. Press Prepare.") && has(s.steps, "Gameplay Type: Custom") && has(s.steps, "Close the game"), "the three steps are stated");
-        CHECK(has(s.steps, kApplyCmd) && has(s.steps, "Close the game"), "step 2 gives the exact command, game closed first: " + s.steps);
-        // Prepare
-        CHECK(ui.click("Prepare###gsprepare", kWin), "Prepare");
-        ui.frames(3);
-        CHECK(fs::exists(out / gsettings::pending_file(), ec), "the sliders are staged");
-        CHECK(!fs::exists(out / tp::last_load_file(), ec), "no tactic job and no last-load record: the page stages sliders only");
-        CHECK(s.prepared && has(s.status, "Prepared.") && s.can_discard, "status after: " + s.status);
-        CHECK(has(s.status, kApplyCmd), "the Prepared status line gives the exact command: " + s.status);
-        CHECK(has(s.message, "Gameplay Type: Custom") && has(s.message, "Prepared"), "message: " + s.message);
-        CHECK(has(s.message, kApplyCmd), "the Prepare message gives the exact command: " + s.message);
-        for (const std::string* str : {&s.status, &s.message, &s.counts_line, &s.steps}) {
-            CHECK(!has(*str, "Installed") && !has(*str, "installed"), "never claims an install that did not happen: " + *str);
-            CHECK(!has(*str, "applied") && !has(*str, "Applied"), "never says applied for a staged preset: " + *str);
-            CHECK(clean(*str), "no developer words in: " + *str);
-        }
-        CHECK(gsettings_test::md5s(settings) == folder_before, "the settings folder is unchanged (nothing is written to the game's own files)");
-        // Discard
-        CHECK(ui.click("Discard###gsdiscard", kWin), "Discard");
-        ui.frames(3);
-        CHECK(!fs::exists(out / gsettings::pending_file(), ec) && !s.prepared && s.status == "Not prepared yet.", "Discard takes the staged file back: " + s.status);
-        CHECK(has(s.message, "Discarded"), "message: " + s.message);
-        // Advanced: the old Game settings view hangs under the page (so its one call site survives the wiring)
-        app.prefs.advanced_mode = true;
-        ui.frames(3);
-        // 10-28 findability: no second copy; one link line to Game settings > Game settings & CPU sliders
-        CHECK(ui.find("###gslink_tac", kWin) != nullptr, "one link line to the Game settings page");
-        app.prefs.advanced_mode = was_advanced;
-        ui.extra_draw = nullptr;
-        ui.frames(2);
-        tactics_pages_reset();
-        tactic_presets_reset();
-        game_settings_set_paths(fs::path(), fs::path());
-        game_settings_reset();
-        fs::remove_all(tp::presets_dir(out), ec);
-        fs::remove(out / gsettings::pending_file(), ec);
-    });
+    // (2026-10-31, 5.0c menus step 6: the "Game sliders - Prepare stages the sliders only ..." case went with the offline slider staging,
+    // draw_offline_slider_section / GameSlidersPageState's staging fields; Game settings & CPU sliders writes live, test_sliders_rw.h)
 
     run_case("T8 pages: Tactic presets frame + Team sheet & bench - plain words, the bench toggle, the saved order, captain and takers (simulated game)", [&] {
         live_tactic_reset();
@@ -174,8 +89,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         st["managers"] = hex_addr(SheetWorld::kManagers);
         st["seq"] = st.value("seq", 0LL) + 1;
         write_state();
-        const bool was_advanced = app.prefs.advanced_mode;
-        app.prefs.advanced_mode = false;
         ImGui::SetWindowSize("FC 27 LE Turbo", ImVec2(1900, 1000));
 
         // ---- Tactic presets frame: the opt-in is off -> "not read" with what to do
@@ -251,7 +164,6 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         for (const char* f : {tsheet::opt_in_file(), bench::keep_on_file()}) fs::remove(out / f, ec);
         app.team_sheet = nullptr;
         app.log_hook = nullptr;
-        app.prefs.advanced_mode = was_advanced;
         ui.extra_draw = nullptr;
         st = saved;
         st["seq"] = saved.value("seq", 0LL) + 60;
