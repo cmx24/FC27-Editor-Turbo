@@ -299,6 +299,7 @@ public:
     }
     static bool same(const Subject& a, const Subject& b) { return a.valid() && a.manager == b.manager && a.id == b.id; }
     bool waiting_for(const Subject& s) const { return (pending_req_ != 0 && same(pending_, s)) || same(retry_, s); }
+    bool has_picture(const Subject& s) const { return same(shown_, s) && !image_.empty(); }  // a picture of him is held (drawn by draw)
     bool pending() const { return pending_req_ != 0 || retry_.valid(); }
     bool drew() const { return drew_; }
     int requests() const { return requests_; }
@@ -337,7 +338,8 @@ private:
 };
 
 // ---------------------------------------------------------------- GameScreenHint
-// No picture of our own yet: what "Draw him" does
+// No picture of our own yet: what "Draw him" does. The portrait card (preview_pane) takes only its title: it draws his miniface or figure
+// in its place (Turbo X, DESIGN_SPEC_X.md principle 6: help is a tooltip, not a paragraph on the page).
 class GameScreenHint : public PreviewSource {
 public:
     const char* title() const override { return "On the game's screen"; }
@@ -566,6 +568,48 @@ void hint_line(const char* text) {
     ImGui::PopTextWrapPos();
 }
 
+// ---------------------------------------------------------------- people rows (Turbo X, DESIGN_SPEC_X.md principle 2)
+constexpr const char* kDot = " \xC2\xB7 ";  // the middle dot between "club - position - age" (a middle dot)
+
+// The muted line under a name: "club - position - age" (a middle dot) for a player, "club - Manager" for a manager
+std::string player_line(const PlayerRow& p) {
+    std::string line = p.club_name.empty() ? "No club" : p.club_name;
+    if (p.position >= 0) line += kDot + std::string(position_name(p.position));
+    if (p.age >= 0) line += kDot + std::to_string(p.age);
+    return line;
+}
+std::string manager_line(App& app, const ManagerRow& m) { return (m.teamid > 0 ? app.model.team_name(m.teamid) : std::string("Free agent")) + kDot + "Manager"; }
+
+// One row of the person list: his miniface (32 px), his name in the semibold face, one muted line under it; the selected row carries an
+// accent bar and an accent wash. `label` is the row's id as before ("<name>##lsp<id>": the tests click it); the Selectable's own text
+// is drawn invisible and the two lines by hand. Local to this file: the Players page grows a shared row on another track.
+bool person_row(App& app, const std::string& label, const std::string& name, const std::string& line, const std::string& picture, bool selected,
+                const std::string& tip) {
+    const float pic = S(32.0f), pad = S(6.0f), bar = S(3.0f), row_h = pic + pad * 2.0f;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Header, theme::accent_alpha(0.16f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, theme::kRailHover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, theme::accent_alpha(0.24f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    const bool hit = ImGui::Selectable(label.c_str(), selected, 0, ImVec2(0.0f, row_h));
+    ImGui::PopStyleColor(4);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip.c_str());
+    const ImVec2 after = ImGui::GetCursorPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (selected) dl->AddRectFilled(p0, ImVec2(p0.x + bar, p0.y + row_h), ImGui::ColorConvertFloat4ToU32(theme::kAccent), bar * 0.5f);
+    ImGui::SetCursorScreenPos(ImVec2(p0.x + bar + pad, p0.y + pad));
+    draw_legacy_picture(app, picture, pic, true);  // ui_images.cpp: the game's file or a custom one, a small box while it loads
+    const float fs = ImGui::GetFontSize();
+    const float tx = p0.x + bar + pad + pic + S(10.0f);
+    const float ty = p0.y + (row_h - fs * 2.15f) * 0.5f;
+    theme::push_title_font(1.0f);
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(tx, ty), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+    theme::pop_title_font();
+    dl->AddText(ImVec2(tx, ty + fs * 1.15f), ImGui::ColorConvertFloat4ToU32(theme::kMuted), line.c_str());
+    ImGui::SetCursorPos(after);
+    return hit;
+}
+
 // ---------------------------------------------------------------- the person list
 void rebuild_rows(App& app, Studio& s) {
     s.rows.clear();
@@ -621,6 +665,7 @@ void person_list(App& app, Studio& s) {
     }
     s.st.listed = static_cast<int>(s.rows.size());
     ImGui::BeginChild("##lsrows", ImVec2(0, 0));
+    const Table* mt = s.managers ? app.db.table("manager") : nullptr;  // a manager's miniface is named by his head
     ImGuiListClipper clip;
     clip.Begin(static_cast<int>(s.rows.size()));
     while (clip.Step()) {
@@ -630,18 +675,18 @@ void person_list(App& app, Studio& s) {
                 const PlayerRow* p = app.model.player(key_id);
                 if (!p) continue;
                 const std::string label = p->name + "##lsp" + std::to_string(p->playerid);
-                if (ImGui::Selectable(label.c_str(), app.sel_player == p->playerid)) app.sel_player = p->playerid;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s, player ID %lld", p->club_name.empty() ? "no club" : p->club_name.c_str(),
-                                                              static_cast<long long>(p->playerid));
+                if (person_row(app, label, p->name, player_line(*p), legacy_path::player_miniface(p->playerid), app.sel_player == p->playerid,
+                               "Player ID " + std::to_string(p->playerid)))
+                    app.sel_player = p->playerid;
             } else {
                 const auto& mgrs = app.model.managers();
                 if (key_id < 0 || key_id >= static_cast<int64_t>(mgrs.size())) continue;
                 const ManagerRow& m = mgrs[static_cast<size_t>(key_id)];
                 const std::string label = m.name + "##lsm" + std::to_string(key_id);
-                if (ImGui::Selectable(label.c_str(), app.sel_manager == static_cast<int>(key_id))) app.sel_manager = static_cast<int>(key_id);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s, manager ID %lld", m.teamid > 0 ? app.model.team_name(m.teamid).c_str() : "free agent",
-                                      static_cast<long long>(m.managerid));
+                const int64_t head = mt ? app.db.get_int(*mt, m.rec, "headassetid", 0) : 0;
+                if (person_row(app, label, m.name, manager_line(app, m), legacy_path::staff_miniface_for(m.managerid, head),
+                               app.sel_manager == static_cast<int>(key_id), "Manager ID " + std::to_string(m.managerid)))
+                    app.sel_manager = static_cast<int>(key_id);
             }
         }
     }
@@ -649,28 +694,59 @@ void person_list(App& app, Studio& s) {
     ImGui::EndChild();
 }
 
-// ---------------------------------------------------------------- the preview pane
-void preview_pane(App& app, Studio& s, const Subject& who) {
+// ---------------------------------------------------------------- the portrait card (Turbo X, DESIGN_SPEC_X.md "Looks > Appearance Editor")
+// The middle column is his picture: the game's render of the chosen view when the capture gave one, else his miniface scaled up in a
+// rounded frame, else the figure of his body type. Under it his name in the semibold face and "club - position - age" (a middle dot), the two views as
+// pills, ONE primary "Draw him" (the capture words are its tooltip) and the result or failure as one line.
+bool pill(const char* label, bool on) {
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, S(10.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(10.0f), S(3.0f)));
+    ImGui::PushStyleColor(ImGuiCol_Button, on ? theme::accent_fill() : theme::kRailHover);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, on ? theme::accent_fill_hover() : theme::kRailActive);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, theme::accent_fill_active());
+    ImGui::PushStyleColor(ImGuiCol_Text, on ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : theme::muted());
+    const bool hit = ImGui::Button(label);
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(2);
+    return hit;
+}
+
+// The first sentence of a status text, for the one line under the buttons (the whole text is its tooltip)
+std::string one_line(const std::string& text) {
+    size_t cut = text.find('\n');
+    const size_t dot = text.find(". ");
+    if (dot != std::string::npos && (cut == std::string::npos || dot < cut)) cut = dot + 1;
+    return cut == std::string::npos ? text : text.substr(0, cut);
+}
+bool failure_line(const std::string& l) {
+    for (const char* start : {"The game did not", "No picture after", "He has no head", "The game's picture is not available"})
+        if (l.rfind(start, 0) == 0) return true;
+    return false;
+}
+
+// No picture from the game: his miniface scaled up (the game's own file or a custom one), else the figure of his body type
+void portrait_fallback(App& app, const Subject& who, const Table* t, uint64_t rec, ImVec2 p0, float w, float h) {
+    const float side = std::min(w, h) - S(24.0f);
+    const ImVec2 at(p0.x + (w - side) * 0.5f, p0.y + (h - side) * 0.5f);
+    const ImVec2 keep = ImGui::GetCursorPos();
+    ImGui::SetCursorScreenPos(at);
+    PictureInfo info;
+    draw_legacy_picture(app, who.manager ? legacy_path::staff_miniface_for(who.id, who.head) : legacy_path::player_miniface(who.id), side, true, &info);
+    if (info.failed || info.state == LegacyImages::State::Missing || info.state == LegacyImages::State::Invalid) {
+        // nothing of him in the game's files: the figure of his body type (ui_body_figure.h) covers the "no picture" box
+        const int64_t code = t && t->has("bodytypecode") ? app.db.get_int(*t, rec, "bodytypecode", 0) : 0;
+        bodyfig::draw_body_figure(ImGui::GetWindowDrawList(), at, ImVec2(side, side), bodyshape::body_shape(who.manager, code, &bodytype_catalog(app)), false, false);
+    }
+    ImGui::SetCursorPos(keep);
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+void preview_pane(App& app, Studio& s, const Subject& who, const Table* t, uint64_t rec) {
     if (!who.valid()) {
         hint_line(s.managers ? "Pick a manager on the left." : "Pick a player on the left.");
         return;
     }
-    ImGui::TextUnformatted(who.name.c_str());
-    ImGui::SameLine();
-    theme::muted_text("%s", who.club > 0 ? app.model.team_name(who.club).c_str() : (who.manager ? "free agent" : "no club"));
-
-    // the switch, then the source: the game's picture of him in that view when there is one (or one being drawn), else the hint
-    if (ImGui::RadioButton("Full body###lsviewbody", s.view_full) && !s.view_full) {
-        s.view_full = true;
-        s.want_picture = !s.body.ready(app, who, nullptr) || s.sig_full != s.signature;  // none of him yet, or one older than his look
-        s.next_try = 0.0;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Head and shoulders###lsviewhead", !s.view_full) && s.view_full) {
-        s.view_full = false;
-        s.want_picture = !s.big.ready(app, who, nullptr) || s.sig_big != s.signature;
-        s.next_try = 0.0;
-    }
+    // the view, then the source: the game's picture of him in that view when there is one (or one being drawn), else the hint's title
     s.st.full_view = s.view_full;
     CapturePreview& cur = s.view();
     std::string why;
@@ -678,33 +754,52 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
     if (cur.ready(app, who, &why)) src = &cur;
     s.st.source = src->title();
 
+    // the picture box: the column's width; a standing man is taller than wide, a head or a miniface is square
+    const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float full_w = std::max(S(120.0f), avail.x);
-    const float h = std::max(S(160.0f), std::min(avail.y - S(130.0f), full_w));
-    // R2: the full body is a standing man (his picture is cropped to him): a narrow pane, centred; head and shoulders stay square
-    const float w = s.view_full ? std::min(full_w, h * 0.6f) : full_w;
-    if (w < full_w) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (full_w - w) * 0.5f);
+    const float fs = ImGui::GetFontSize();
+    const float below = fs * 1.6f + fs * 2.0f + ImGui::GetFrameHeight() * 2.0f + style.ItemSpacing.y * 6.0f + S(8.0f);  // name, line, pills, button, status
+    const float w = std::max(S(120.0f), avail.x);
+    const bool game_picture = src == &cur && cur.has_picture(who);
+    const float h = std::max(S(160.0f), std::min(avail.y - below, game_picture && s.view_full ? w * 1.4f : w));
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ImGui::GetColorU32(ImGuiCol_FrameBg), S(4.0f));
-    src->draw(app, who, w, h);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), ImGui::GetColorU32(ImGuiCol_FrameBg), S(10.0f));
+    dl->AddRect(p0, ImVec2(p0.x + w, p0.y + h), ImGui::ColorConvertFloat4ToU32(theme::kRule), S(10.0f));
+    if (!game_picture) portrait_fallback(app, who, t, rec, p0, w, h);
+    if (src == &cur) {
+        if (!game_picture) ImGui::SetCursorScreenPos(p0);  // "Drawing... n s" over the miniface while the first picture comes
+        cur.draw(app, who, w, h);
+    }
     s.st.picture = src == &cur && cur.drew();
     s.st.waiting = cur.waiting_for(who);
 
-    s.st.preview_line = cur.line(who);
-    if (!s.preview_why.empty()) s.st.preview_line += (s.st.preview_line.empty() ? "" : " ") + s.preview_why;
-    if (!s.st.preview_line.empty()) hint_line(s.st.preview_line.c_str());
-    if (s.st.risky_body) {
-        ImGui::PushTextWrapPos(0.0f);
-        theme::warn_text("%s", "His body was made for another player's head. A picture of it is untested and may stop the game's drawing: "
-                               "the Draw button asks anyway.");
-        ImGui::PopTextWrapPos();
+    theme::push_title_font(1.6f);
+    ImGui::TextUnformatted(who.name.c_str());
+    theme::pop_title_font();
+    const PlayerRow* p = who.manager ? nullptr : app.model.player(who.id);
+    const std::string club = who.club > 0 ? app.model.team_name(who.club) : std::string(who.manager ? "Free agent" : "No club");
+    const std::string line = p ? player_line(*p) : who.manager ? club + kDot + "Manager" : club;
+    theme::muted_text("%s", line.c_str());
+
+    if (pill("Full body###lsviewbody", s.view_full) && !s.view_full) {
+        s.view_full = true;
+        s.want_picture = !s.body.ready(app, who, nullptr) || s.sig_full != s.signature;  // none of him yet, or one older than his look
+        s.next_try = 0.0;
     }
+    ImGui::SameLine();
+    if (pill("Head and shoulders###lsviewhead", !s.view_full) && s.view_full) {
+        s.view_full = false;
+        s.want_picture = !s.big.ready(app, who, nullptr) || s.sig_big != s.signature;
+        s.next_try = 0.0;
+    }
+
     std::string cant;
     const bool can = cur.can_request(app, &cant);
     if (!can) ImGui::BeginDisabled();
     const bool have_picture = s.st.picture || s.st.waiting;
     const std::string draw_label = std::string(have_picture ? "Draw again" : "Draw him") + "###lsdraw";
-    if (ImGui::Button(draw_label.c_str())) {
+    if (theme::primary_button(draw_label.c_str())) {
         std::string err;
         if (cur.refresh(app, who, &err)) {
             s.want_picture = false;
@@ -716,14 +811,25 @@ void preview_pane(App& app, Studio& s, const Subject& who) {
     }
     if (!can) ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("%s", can ? "Asks the game for a new picture of him (about a second, in the game's menus only)" : cant.c_str());
+        ImGui::SetTooltip("%s", can ? "Asks the game for a new picture of him in this view, as it draws him now (menus only)." : cant.c_str());
     ImGui::SameLine();
-    theme::warn_text("%s", kNotTested);
+    theme::chip(kNotTested, theme::warn());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", who.manager ? "A manager's picture, full body above all, has not been seen through this page in a real game yet."
                                             : "The game draws this picture, but nobody has used this page in a real game yet.");
-    hint_line("Drawn by the game with his current look.");
-    if (who.manager && s.view_full) hint_line("A manager's full body is not tested yet: the game may answer with no picture.");
+
+    // one line: the result or the failure (its first sentence; the whole text on hover), else the warning about his body
+    s.st.preview_line = cur.line(who);
+    if (!s.preview_why.empty()) s.st.preview_line += (s.st.preview_line.empty() ? "" : " ") + s.preview_why;
+    const std::string full = s.st.preview_line.empty() && s.st.risky_body
+                                 ? std::string("His body was made for another player's head: its picture is untested, Draw him asks anyway.")
+                                 : s.st.preview_line;
+    if (full.empty()) return;
+    const std::string shown = one_line(full);
+    if (s.st.preview_line.empty()) theme::warn_text("%s", shown.c_str());
+    else if (failure_line(shown)) theme::err_text("%s", shown.c_str());
+    else theme::muted_text("%s", shown.c_str());
+    if (ImGui::IsItemHovered() && shown != full) ImGui::SetTooltip("%s", full.c_str());
 }
 
 // His look changed while the page is shown (a card here, Undo, the face chooser, another page): ask the game for his picture once it
@@ -1313,7 +1419,7 @@ void draw_looks_studio(App& app) {
     ImGui::EndChild();
     ImGui::SameLine();
     split::pane_x("##lspreview", preview_w * un, 220.0f);
-    preview_pane(app, s, who);
+    preview_pane(app, s, who, t, rec);
     ImGui::EndChild();
     ImGui::SameLine();
     // 2.22: the cards' pane is as tall as the page; its right edge is the page's, so the divider to the preview is the one that drags (the preview's

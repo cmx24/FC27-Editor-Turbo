@@ -755,6 +755,8 @@ ui_looks_studio.cpp	-	##	1
 ui_looks_studio.cpp	-	###look3dnode	1
 ui_looks_studio.cpp	-	###lsdraw	1
 ui_looks_studio.cpp	-	###lsundo	1
+ui_looks_studio.cpp	-	###lsviewbody	1
+ui_looks_studio.cpp	-	###lsviewhead	1
 ui_looks_studio.cpp	-	##bt	1
 ui_looks_studio.cpp	-	##lsbody	1
 ui_looks_studio.cpp	-	##lscards	1
@@ -780,8 +782,6 @@ ui_looks_studio.cpp	InvisibleButton	##btpic	1
 ui_looks_studio.cpp	OpenPopup	Choose a real face	1
 ui_looks_studio.cpp	RadioButton	###lsmanagers	1
 ui_looks_studio.cpp	RadioButton	###lsplayers	1
-ui_looks_studio.cpp	RadioButton	###lsviewbody	1
-ui_looks_studio.cpp	RadioButton	###lsviewhead	1
 ui_looks_studio.cpp	TreeNode	###lshairnode	1
 ui_looks_studio.cpp	TreeNode	###lslookall	1
 ui_match.cpp	-	##mf%u	1
