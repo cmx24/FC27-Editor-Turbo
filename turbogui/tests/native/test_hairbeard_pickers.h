@@ -241,6 +241,10 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         };
         put("hair_3.png");  // hair 3: a 3D model, no picture anywhere (the drawn icon until now)
         put("hair_1.png");  // hair 1: the game has a lit preview: it stays the tile
+        // The picker reads the folder through hairbeard_thumbs::thumb(), whose file list is kept up to 5 s. An earlier case (the beard grid just
+        // before this one) scanned the folder while it was still empty, so without this the new PNGs stay unseen and hair 3 is grey (the
+        // merged-tree failure of 5.0c integration p2r1, test_hairbeard_pickers.h:251). The production writers call it the same way (hairbeard_thumbs.cpp:289/321).
+        hairbeard_thumbs::invalidate();
         visual_pictures_refresh(app);
         ui.extra_draw = draw_section;
         app.request_tab = 0;
@@ -254,6 +258,7 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         wind_down();
         fs::remove(cache / "hair_3.png", ec);
         fs::remove(cache / "hair_1.png", ec);
+        hairbeard_thumbs::invalidate();  // later cases must not see the two files that are gone
     });
 
     // ---------------------------------------------------------------- the probe is remembered per folder, and forgotten when the folder is looked at again
