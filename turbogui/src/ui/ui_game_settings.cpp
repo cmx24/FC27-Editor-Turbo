@@ -2,9 +2,13 @@
 //
 // Frame-loop rules as in the other views: never throws; the settings file (772 KB) is read and checked only at the first look, on
 // Refresh and after Save current; the presets folder on the first look and after a change; nothing is created or written by drawing.
+// 5.0 sliders: a verified Custom slider is a real ImGui slider; releasing it writes that ONE value into the running game through the
+// same live path as Load (live_write below). This tab no longer stages anything for the offline apply tool (the tactics pages still do
+// through game_settings_stage / _unstage). NOT proven in game.
 #include "ui_game_settings.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -48,6 +52,9 @@ struct Gv {
     // until the game saves)
     uint64_t live_addr = 0;
     std::vector<uint8_t> live_bytes;
+    // 5.0 sliders: the value a slider shows while it is being dragged (id -> value); erased when the slider is released
+    std::map<std::string, int> edit;
+    std::string live_line;  // the last slider write's outcome ("" = none), one line under the table
 };
 Gv g;
 GameSettingsViewState g_state;
@@ -118,7 +125,7 @@ void load_map_now(App& app) {
     if (mp.empty()) {
         g.map_ok = false;
         g.map = SliderMap();
-        g.map_err = "no slider map for game build " + game_build(app) + " (Turbo knows 6AC07E31 and 6AD922D1): nothing is read or written";
+        g.map_err = "no slider map for game build " + game_build(app);
     } else {
         g.map_ok = load_map(mp, g.map, &g.map_err);
         if (g.map_ok) g.map.apply_build(game_build(app));  // 4.0 sliders-rw: the running build's screen-proven sliders (verified_by_build)
@@ -156,7 +163,7 @@ void save_current(App& app) {
     }
     Preset p = preset_from_snapshot(name, g.snap, g.map, stamp("%Y-%m-%dT%H:%M"));
     if (p.values.empty()) {
-        g.preset_line = "Nothing to save: no slider of the map is verified in game yet (they are read-only until the marker launch proves them)";
+        g.preset_line = "Nothing to save: no slider verified yet";
         app.notify(g.preset_line, true);
         return;
     }
@@ -165,28 +172,35 @@ void save_current(App& app) {
         app.notify("The preset could not be written: " + err, true);
         return;
     }
-    g.preset_line = "Saved \"" + p.name + "\" (" + std::to_string(p.values.size()) + " slider(s) from " + g.snap.name +
-                    ") to turbo_output\\" + presets_dir() + "\\" + p.file.filename().u8string() +
-                    ". The file is what the game saved last: a change made in the game's menus counts once the game has saved it.";
+    g.preset_line = "Saved \"" + p.name + "\" (" + std::to_string(p.values.size()) + " slider(s)) to turbo_output\\" + presets_dir() + "\\" +
+                    p.file.filename().u8string();
     log_line(app, "game settings: " + g.preset_line);
     load_presets_now(app);
     select_named(p.name);
 }
 
-// 4.0 sliders-rw (c): writes the preset into the running game's Custom sliders (gsettings::live, route 1 of
-// evidence\2026-10-28\SLIDERS_WRITE\PLAN.md). Needs the host's region lister (Turbo inside FC 27); the old staging is left alone.
-bool load_preset_live(App& app, const Preset& p, std::string& msg) {
+// ------------------------------------------------------------------------------------------------ the live write
+// 4.0 sliders-rw (c) / 5.0 sliders: the ONE path that changes the running game. `values` (entry id -> 0..100, a whole preset or a single
+// slider) go into the game's Custom block (gsettings::live, route 1 of evidence\2026-10-28\SLIDERS_WRITE\PLAN.md): the block is the one
+// Turbo wrote last while it still holds those bytes, else the one block of the process that holds exactly the Custom bytes of the newest
+// Settings file (zero or several hits = refused). write_block writes the Custom entries only, reads every byte back and puts everything
+// back on a mismatch. On success g.live_bytes is the block as it is now and settings_live_journal.json holds the old bytes (the journal
+// the Undo path reads). false = nothing changed in the game; `msg` is one short line either way. NOT proven in game.
+bool live_write(App& app, const std::map<std::string, int>& values, const std::string& label, std::string& msg) {
     if (!app.regions_hook) {
-        msg = "not inside FC 27 (no memory access)";
+        msg = "Game must be running (Turbo inside FC 27)";
         return false;
     }
-    if (!g.map_ok || g.map.custom_count <= 0) {
-        msg = "no slider map with a Custom block (" + g.map_err + ")";
+    if (!g.map_ok) {
+        msg = "no slider map";
         return false;
     }
-    const Plan plan = plan_preset(p, g.map);
-    if (plan.values.empty()) {
-        msg = "no slider of \"" + p.name + "\" can be written (" + std::to_string(plan.skipped.size()) + " read-only or not mapped)";
+    if (g.map.custom_count <= 0) {
+        msg = "slider map has no Custom block";
+        return false;
+    }
+    if (values.empty()) {
+        msg = "nothing writable";
         return false;
     }
     uint64_t addr = 0;
@@ -198,7 +212,7 @@ bool load_preset_live(App& app, const Preset& p, std::string& msg) {
     if (!addr) {
         read_file_now(app);  // the newest file the game wrote
         if (!g.snap.ok || g.snap.custom_slots.size() != n) {
-            msg = "the Settings file has no readable Custom block (" + g.snap.why + ")";
+            msg = "Settings file has no readable Custom block";
             return false;
         }
         std::vector<uint8_t> expect(n);
@@ -212,7 +226,7 @@ bool load_preset_live(App& app, const Preset& p, std::string& msg) {
         }
         addr = f.addr;
     }
-    const live::Result r = live::write_block(app.mem, addr, g.map, plan.values, app.writable_hook);
+    const live::Result r = live::write_block(app.mem, addr, g.map, values, app.writable_hook);
     if (!r.ok) {
         msg = r.message;
         return false;
@@ -221,48 +235,51 @@ bool load_preset_live(App& app, const Preset& p, std::string& msg) {
     if (!app.mem.read_block(addr, n, g.live_bytes)) g.live_bytes.clear();
     std::string err;
     const std::string st = stamp("%Y-%m-%dT%H:%M:%S");
-    write_text(out_dir(app) / "settings_live_journal.json", live::journal_json(r, p.name, st), &err);
-    msg = "Applied in game now: \"" + p.name + "\", " + r.message + ". The game writes them to its Settings file at its next save (open "
-          "Customise > Game Settings > Game Type Settings, check, Back). NOT proven in game yet.";
+    write_text(out_dir(app) / "settings_live_journal.json", live::journal_json(r, label, st), &err);
+    msg = "Applied in game now: \"" + label + "\", " + r.message + " (not proven in game)";
     for (const std::string& l : r.lines) log_line(app, "game settings live: " + l);
     return true;
 }
 
+// 5.0 sliders: one slider released -> that one value into the running game. The outcome is one line under the table (g.live_line).
+void apply_one(App& app, const Entry& e, int value) {
+    std::map<std::string, int> one;
+    one[e.id] = std::min(std::max(value, e.min), e.max);
+    std::string msg;
+    if (live_write(app, one, e.id, msg)) {
+        g.live_line = e.label + " = " + std::to_string(one[e.id]) + " written (not proven in game)";
+        log_line(app, "game settings: " + g.live_line);
+    } else {
+        g.live_line = "Not applied: " + msg;
+        log_line(app, "game settings: " + e.id + " " + g.live_line);
+    }
+}
+
+// Load = the preset's verified sliders into the running game, nothing else (no staging, no apply tool)
 void load_preset(App& app) {
     if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
     const Preset& p = g.presets[size_t(g.preset_sel)];
+    const Plan plan = plan_preset(p, g.map);
     std::string why;
-    if (load_preset_live(app, p, why)) {
+    if (!g.map_ok) {
+        why = "no slider map";
+    } else if (plan.values.empty()) {
+        why = "no writable slider in \"" + p.name + "\" (" + std::to_string(plan.skipped.size()) + " skipped)";
+    } else if (live_write(app, plan.values, p.name, why)) {
         g.preset_line = why;
         log_line(app, "game settings: " + why);
         app.notify(why);
         return;
     }
-    // not applied in the game: say so. Stage for the apply tool only where --apply would take the file: the game's own files hold 00
-    // before the Custom block (10-24 8F10EEB9, 10-28 marker_2041) and --apply refuses those (GUI30J), so nothing is staged for them
-    if (!g.snap.ok) read_file_now(app);
-    const bool apply_refuses = g.snap.ok && g.snap.custom_prefix.size() == sizeof(kCustomPrefix) &&
-                               std::memcmp(g.snap.custom_prefix.data(), kCustomPrefix, sizeof(kCustomPrefix)) != 0;
-    if (apply_refuses) {
-        g.preset_line = "NOT applied in the game: " + why + ". Nothing staged: turbo_settings_apply.exe --apply refuses your Settings file "
-                        "(the byte before the Custom block is 00), so today a preset is applied only inside the game.";
-        log_line(app, "game settings: " + g.preset_line);
-        app.notify(g.preset_line, true);
-        return;
-    }
-    std::string msg;
-    const bool ok = stage_pending(out_dir(app), p, g.map, stamp("%Y-%m-%dT%H:%M:%S"), &msg);
-    g.preset_line = "NOT applied in the game: " + why + ". " + msg +
-                    (ok ? ". It applies only when you close FC 27 and run turbo\\turbo_settings_apply.exe --apply." : "");
+    g.preset_line = "Not applied: " + why;
     log_line(app, "game settings: " + g.preset_line);
     app.notify(g.preset_line, true);
-    read_pending(app);
 }
 
 void discard_pending(App& app) {
     std::error_code ec;
     fs::remove(out_dir(app) / pending_file(), ec);
-    g.preset_line = ec ? "The staged file could not be removed: " + ec.message() : std::string("The staged preset was discarded (nothing will be applied)");
+    g.preset_line = ec ? "The staged file could not be removed: " + ec.message() : std::string("Staged preset discarded");
     log_line(app, "game settings: " + g.preset_line);
     read_pending(app);
 }
@@ -363,7 +380,18 @@ void delete_preset(App& app) {
 }
 
 // ------------------------------------------------------------------------------------------------ drawing
-void draw_values() {
+bool mapped(const Entry& e) { return e.index >= 0 || e.custom_index >= 0; }
+// 5.0 sliders: only a Custom byte can be written live (write_block skips the u32 service view); verified + Custom index = a slider
+bool slider_row(const Entry& e) { return e.verified && e.custom_index >= 0; }
+// The value shown: the block Turbo wrote last while it is known (the file lags until the game saves), else the newest Settings file; -1 = none
+int current_value(const Entry& e) {
+    if (e.custom_index >= 0 && size_t(e.custom_index) < g.live_bytes.size() && g.live_bytes.size() == size_t(g.map.custom_count))
+        return int(g.live_bytes[size_t(e.custom_index)]);
+    auto it = g.snap.values.find(e.id);
+    return it != g.snap.values.end() && g.snap.ok ? it->second : -1;
+}
+
+void draw_values(App& app) {
     for (const std::string& grp : groups()) {
         std::vector<const Entry*> es;
         for (const Entry& e : g.map.entries)
@@ -373,9 +401,9 @@ void draw_values() {
             r.id = e->id;
             r.label = e->label;
             r.group = grp;
-            auto it = g.snap.values.find(e->id);
-            r.value = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : (it != g.snap.values.end() && g.snap.ok ? std::to_string(it->second) : "-");
-            r.state = (e->index < 0 && e->custom_index < 0) ? "not mapped yet" : e->verified ? "verified" : e->inferred() ? "mapped (game table), not seen on the EA screen: read-only here" : "not verified: read-only";
+            const int cur = current_value(*e);
+            r.value = !mapped(*e) ? "-" : cur >= 0 ? std::to_string(cur) : "-";
+            r.state = !mapped(*e) ? "not mapped" : e->verified ? "verified" : "read-only";
             g_state.rows.push_back(r);
         }
         const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) + ")##gs_" + grp;
@@ -387,8 +415,8 @@ void draw_values() {
         ImGui::PushID(grp.c_str());  // one registered table ID (table_registry.h "##gsvals"), one table per group
         if (ImGui::BeginTable("##gsvals", 3, tbl::kData | ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("Setting", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-            ImGui::TableSetupColumn("In the file now", ImGuiTableColumnFlags_WidthStretch, 1.4f);
-            ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch, 1.0f);
             ImGui::TableHeadersRow();
             for (const Entry* e : es) {
                 const GameSettingsViewState::Row* r = nullptr;
@@ -400,24 +428,46 @@ void draw_values() {
                 ImGui::TextUnformatted(e->label.c_str());
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s%s%s", e->id.c_str(), e->note.empty() ? "" : "\n", e->note.c_str());
                 ImGui::TableNextColumn();
-                if ((e->index < 0 && e->custom_index < 0)) ImGui::TextDisabled("%s", r->value.c_str());
-                else ImGui::TextUnformatted(r->value.c_str());
+                if (!mapped(*e)) {
+                    ImGui::TextDisabled("%s", r->value.c_str());
+                } else if (slider_row(*e)) {
+                    // the slider shows the value being dragged, else the value now; releasing it (also Ctrl+click typing) writes that
+                    // one value to the running game. A row without a readable value now shows the range's minimum and writes only on release
+                    const int cur = current_value(*e);
+                    auto ed = g.edit.find(e->id);
+                    int v = ed != g.edit.end() ? ed->second : cur >= 0 ? cur : e->min;
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt(("##gsv_" + e->id).c_str(), &v, e->min, e->max, "%d", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemActive()) {
+                        g.edit[e->id] = v;
+                    } else if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        g.edit.erase(e->id);
+                        if (v != cur) apply_one(app, *e, v);
+                    } else {
+                        g.edit.erase(e->id);
+                    }
+                } else {
+                    ImGui::TextUnformatted(r->value.c_str());
+                    if (e->verified && ImGui::IsItemHovered()) ImGui::SetTooltip("No Custom index: not writable live");
+                }
                 ImGui::TableNextColumn();
                 if (e->verified) ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", r->state.c_str());
                 else ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", r->state.c_str());  // 2.10: an unverified row is visible, not greyed out
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", e->verified ? ("Proof: " + e->proof).c_str()
-                                                         : "Not proven in game: shown read-only. Preset Apply writes verified rows only (a row is "
-                                                           "verified when slider_map has verified:true, an index and a proof).");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", e->verified ? ("Proof: " + e->proof).c_str() : "Not proven in game: read-only");
             }
             ImGui::EndTable();
         }
         ImGui::PopID();
     }
+    g_state.live_line = g.live_line;
+    if (!g.live_line.empty()) {
+        const bool bad = g.live_line.rfind("Not applied", 0) == 0;
+        ImGui::TextColored(bad ? ImVec4(1.0f, 0.5f, 0.4f, 1.0f) : ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", g.live_line.c_str());
+    }
     g_state.slots = int(g.snap.slots.size());
     if (!g.map.regions.empty() &&
         ImGui::CollapsingHeader("Candidate slots (unidentified, read-only)##gs_slots")) {
-        ImGui::TextWrapped("The raw values of the blocks the assessment found (which slider each one is will be read from the marker launch). Read-only.");
+        ImGui::TextDisabled("Raw values of the candidate blocks (read-only).");
         for (const gsettings::Region& rg : g.map.regions) {
             std::string line = rg.label + (rg.candidate.empty() ? "" : " - " + rg.candidate) + ":";
             for (const auto& s : g.snap.slots)
@@ -429,7 +479,7 @@ void draw_values() {
 
 void draw_presets(App& app) {
     ImGui::SeparatorText("Presets");
-    ImGui::TextDisabled("A preset is a named set of these values (turbo_output\\%s). Only sliders verified in game are saved and staged.", presets_dir());
+    ImGui::TextDisabled("A preset is a named set of verified slider values (turbo_output\\%s).", presets_dir());
     for (const Preset& p : g.presets) g_state.presets.push_back(p.name);
     const std::string cur = g.preset_sel >= 0 && g.preset_sel < int(g.presets.size()) ? g.presets[size_t(g.preset_sel)].name : std::string("(pick a preset)");
     ImGui::SetNextItemWidth(S(260.0f));
@@ -448,12 +498,10 @@ void draw_presets(App& app) {
     if (ImGui::Button("Load into the game###gsload")) load_preset(app);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Writes the preset's sliders into the running game now (use it at the Main Menu or later, not at Press Any Key). The game "
-                          "saves them in its Settings file at its next save. If the game's sliders are not found, it says so and changes nothing "
-                          "in the game. NOT proven in game yet.");
+        ImGui::SetTooltip("Writes the preset's verified sliders into the running game now (not proven in game).");
     if (have) {
         const Plan pl = plan_preset(g.presets[size_t(g.preset_sel)], g.map);
-        ImGui::TextDisabled("%s: %zu value(s), %zu would be staged, %zu read-only or not mapped", g.presets[size_t(g.preset_sel)].name.c_str(),
+        ImGui::TextDisabled("%s: %zu value(s), %zu writable, %zu skipped", g.presets[size_t(g.preset_sel)].name.c_str(),
                             g.presets[size_t(g.preset_sel)].values.size(), pl.values.size(), pl.skipped.size());
     }
     ImGui::BeginDisabled(!have);
@@ -519,17 +567,16 @@ void draw_presets(App& app) {
         if (ImGui::Button("Keep it##gsdeleteno")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
-    form_label("Save current as", "A preset of your own from the settings file as the game saved it last (the verified sliders only). The same name replaces "
-                                  "your earlier preset of that name.");
+    form_label("Save current as", "Saves the verified sliders as the game last saved them (same name replaces).");
     ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputText("##gsname", g.preset_name, sizeof(g.preset_name));
     ImGui::SameLine();
     if (ImGui::Button("Save current##gssave")) save_current(app);
     for (const std::string& e : g.preset_errors) ImGui::TextDisabled("A preset file was skipped: %s", e.c_str());
     if (!g.preset_line.empty()) ImGui::TextWrapped("%s", g.preset_line.c_str());
-    // the staged file
+    // a file another page staged (the tactics pages, game_settings_stage): shown so it can be discarded here; this tab stages nothing
     if (g.have_pending) {
-        g_state.pending_line = "Staged for the next launch: \"" + g.pending.preset + "\", " + std::to_string(g.pending.values.size()) + " slider(s) (" +
+        g_state.pending_line = "Staged by the tactics page: \"" + g.pending.preset + "\", " + std::to_string(g.pending.values.size()) + " slider(s) (" +
                                g.pending.staged + ")";
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", g_state.pending_line.c_str());
         ImGui::SameLine();
@@ -629,9 +676,8 @@ bool game_settings_unstage(App& app, const std::string& name, std::string& msg, 
     std::string perr;
     const bool have_prev = !previous.empty() && Pending::parse(previous, prev, &perr);
     if (!g.have_pending) {
-        msg = "Nothing staged any more (the apply tool already ran, or the staged file was discarded): the settings file is changed back only by "
-              "turbo_settings_apply.exe --undo";
-        if (have_prev) msg += " (the staging that was there before the load, \"" + prev.preset + "\", is not put back)";
+        msg = "Nothing staged any more (already applied or discarded)";
+        if (have_prev) msg += "; the earlier staging \"" + prev.preset + "\" is not put back";
         return false;
     }
     if (g.pending.preset != name) {
@@ -666,16 +712,8 @@ void draw_game_settings(App& app) {
     g_state.drawn = true;
     try {
         first_look(app);
-        ImGui::TextWrapped("FC 27's own game settings (Settings > Game Settings: match, player, and the User / CPU sliders), as the game saved them "
-                           "in its settings file. Load writes a preset into the running game (not proven in game yet).");
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
-        ImGui::TextWrapped("Load = applies the VERIFIED rows to the running game now (the game saves them at its next save); when that is not "
-                           "possible it says why. A Settings file saved by the game (the byte before the Custom block is 00) is refused by "
-                           "turbo_settings_apply.exe --apply, so nothing is staged for it; any other file is staged for --apply with the game closed "
-                           "(it backs the file up, checks it, and --undo puts it back). Turbo never touches "
-                           "your careers (CmMgrC*), squads (Squads*) or ProfileOptions*. NOT proven in game yet: on 10-24 the game showed 50 after an apply; --apply refuses a Settings file "
-                           "it does not recognise and then says the sliders were NOT applied (turbo_settings_apply.exe --status shows why).");
-        ImGui::PopStyleColor();
+        ImGui::TextWrapped("FC 27's own game settings (Settings > Game Settings), as the game saved them last.");
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Verified sliders write into the running game at once (not proven in game).");
         g_state.closed_note = true;
         // the file
         if (g.snap.ok) {
@@ -699,18 +737,16 @@ void draw_game_settings(App& app) {
         g_state.map_line = g.map_ok ? std::string(map_file()) + ": " + std::to_string(g.map.entries.size()) + " sliders, " + std::to_string(verified_count()) +
                                           " verified in game"
                                     : "No slider map: " + g.map_err;
-        if (g.map_ok) g_state.map_line += ", " + std::to_string(int(g.map.entries.size()) - verified_count()) + " unverified (read-only)";
+        if (g.map_ok) g_state.map_line += ", " + std::to_string(int(g.map.entries.size()) - verified_count()) + " read-only";
         ImGui::TextDisabled("%s", g_state.map_line.c_str());
-        if (g.map_ok && verified_count() == 0)
-            ImGui::TextWrapped("No slider is verified in game yet: every value is read-only and a preset stages nothing until the marker launch "
-                               "(turbo_settings_apply.exe --write-markers) proves which number is which slider.");
+        if (g.map_ok && verified_count() == 0) ImGui::TextDisabled("No slider verified yet: every value is read-only.");
         // the presets first (short), then the long list of values
         draw_presets(app);
         g_state.preset_line = g.preset_line;
         g_state.preset_errors = g.preset_errors;
         if (g.map_ok) {
-            ImGui::SeparatorText("In the settings file now");
-            draw_values();
+            ImGui::SeparatorText("Sliders");
+            draw_values(app);
         }
     } catch (const std::exception& e) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Game settings: %s", e.what());
