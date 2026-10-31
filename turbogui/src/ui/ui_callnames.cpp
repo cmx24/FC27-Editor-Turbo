@@ -1426,11 +1426,14 @@ void callname_editor_legacy(App& app, const Table& t, const PlayerRow& p) {
                                          ": an own recording of his would not be known here)";
         ImGui::Text("%s", g_state.current_line.c_str());
     } else {
-        bool spoken = cn.spoken.spoken(info.commentaryid);
+        // the spoken set or the master list's generic ids (Callnames::has_recording): a recording only the master knows is spoken
+        const bool spoken = cn.has_recording(info.commentaryid);
+        const bool from_set = cn.spoken.spoken(info.commentaryid);
         g_state.current_line = "Current callname: " + rule + " - ";
         ImGui::Text("%s", g_state.current_line.c_str());
         ImGui::SameLine();
-        const std::string tail = std::string(!spoken ? "NOT spoken in " : cn.spoken.verified ? "spoken in " : "used by playernames (unverified) in ") + cn.lang;
+        const std::string tail =
+            std::string(!spoken ? "NOT spoken in " : (cn.spoken.verified || !from_set) ? "spoken in " : "used by playernames (unverified) in ") + cn.lang;
         g_state.current_line += tail;
         ImGui::TextColored(spoken ? kGreen : kOrange, "%s", tail.c_str());
         if (info.source == CallnameSource::CommonName && !spoken)

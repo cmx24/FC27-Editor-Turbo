@@ -155,8 +155,16 @@ std::vector<fs::path> CallnamePlayer::playable(const MasterAudio& a, CallnameAud
         files_gen_ = a.gen;
     }
     std::vector<fs::path> out;
-    for (auto& p : callname_wavs(a, kind, id))
-        if (file_ok(p)) out.push_back(std::move(p));
+    for (auto& p : callname_wavs(a, kind, id)) {
+        if (file_ok(p)) {
+            out.push_back(std::move(p));
+            continue;
+        }
+        // a flat folder (every wav straight in wav_dir, as an extraction tool writes them): <wav_dir>\<name>.wav
+        if (kind == CallnameAudioKind::Club) continue;
+        fs::path flat = p.parent_path().parent_path() / p.filename();
+        if (file_ok(flat)) out.push_back(std::move(flat));
+    }
     return out;
 }
 
