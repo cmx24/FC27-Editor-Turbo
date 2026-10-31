@@ -256,85 +256,176 @@ void positions_block(App& app, const Table& t, uint64_t rec) {
     theme::muted_text("Plays as: %s", in_words.c_str());
 }
 
-// The attributes: one heading per category with its average; two columns when the pane is wide
-void attribute_sliders(App& app, const Table& t, uint64_t rec) {
-    const bool wide = ImGui::GetContentRegionAvail().x >= S(760.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(10.0f), S(10.0f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(6.0f), S(4.0f)));
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(S(14.0f), S(3.0f)));
-    for (const auto& g : attribute_groups()) {
-        long long sum = 0;
-        std::vector<const Field*> present;
-        for (const char* fn : g.second)
-            if (const Field* f = t.field(fn)) {
-                present.push_back(f);
-                sum += app.db.get_int(t, rec, fn, 0);
-            }
-        if (present.empty()) continue;
-        ImGui::Dummy(ImVec2(0, S(6.0f)));
-        char hdr[96];
-        std::snprintf(hdr, sizeof(hdr), "%s  (average %.1f)", g.first, double(sum) / static_cast<double>(present.size()));
-        ImGui::SeparatorText(hdr);
-        ImGui::PushID(g.first);
-        if (ImGui::BeginTable("##sl", wide ? 2 : 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
-            // 2.22: a header row (G-ia, the three header-less tables): the heading of the group above names the rows
-            ImGui::TableSetupColumn(g.first, ImGuiTableColumnFlags_WidthStretch);
-            if (wide) ImGui::TableSetupColumn("(continued)", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-            for (const Field* f : present) {
-                ImGui::TableNextColumn();
-                slider_editor_ex(app, t, rec, *f, field_label(f->name).c_str(), S(wide ? 132.0f : 150.0f), -FLT_MIN, S(58.0f));
-                ++g_astate.attribute_sliders;
-            }
-            ImGui::EndTable();
-        }
-        ImGui::PopID();
-    }
-    ImGui::PopStyleVar(3);
+// ---- cards (Turbo X, docs/turbo-x/DESIGN_SPEC_X.md "Attributes & roles")
+// A card is a cell of a layout table (##sl, ##bits), not a child window: a child scrolled out of view skips its items (imgui.cpp Begin,
+// HiddenFramesCanSkipItems), and a slider below the fold is reached by scrolling to it (tests/native Ui::reach). The cell padding is the
+// card's inner padding plus half the gap to its neighbours; the background goes under the content when the card is closed (two draw-list
+// channels), so a card is as tall as what it holds.
+constexpr float kCardPad = 12.0f;  // unscaled
+constexpr float kCardGap = 8.0f;
+constexpr float kChipPadX = 10.0f;
+constexpr ImVec4 kPillBg{0.20f, 0.25f, 0.32f, 1.0f};  // slate: the accent is for selection and the one key number (principle 8)
+
+struct Card {
+    ImVec2 p0;
+    float w;
+};
+
+void cards_push_style() {
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(S(kCardPad + kCardGap * 0.5f), S(kCardPad + kCardGap * 0.5f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8.0f), S(8.0f)));
+    ImGui::PushStyleColor(ImGuiCol_TableBorderLight, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // kGrid's inner border would run through the gap
+}
+void cards_pop_style() {
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
-// The check boxes of one bit field (PlayStyles, PlayStyles+, Traits, Traits+) with All / None
-void playstyle_bits(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names, const char* title,
-                    const char* unnamed) {
-    const Field* f = t.field(field);
-    if (!f) {
-        theme::muted_text("Not available in this game version.");
-        return;
+Card card_begin() {
+    ImGui::TableNextColumn();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->ChannelsSplit(2);
+    dl->ChannelsSetCurrent(1);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    return {ImVec2(p.x - S(kCardPad), p.y - S(kCardPad)), ImGui::GetContentRegionAvail().x + 2.0f * S(kCardPad)};
+}
+void card_end(const Card& c) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p1(c.p0.x + c.w, ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y + S(kCardPad));
+    dl->ChannelsSetCurrent(0);
+    dl->AddRectFilled(c.p0, p1, ImGui::ColorConvertFloat4ToU32(theme::kCardBg), S(10.0f));
+    dl->AddRect(c.p0, p1, ImGui::ColorConvertFloat4ToU32(theme::kRule), S(10.0f));
+    dl->ChannelsMerge();
+}
+
+// The title line of a card: the accent bar and the semibold title as theme::card_title draws them, a pill after the title (the group's
+// average, the ticked count), the thin rule under both. `help` shows with the mouse on the title (principle 6: help is a tooltip).
+void card_head(const char* title, const char* pill, const char* help) {
+    theme::push_title_font(1.12f);
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(ImVec2(p.x, p.y + fs * 0.14f), ImVec2(p.x + fs * 0.18f, p.y + fs * 0.96f), ImGui::ColorConvertFloat4ToU32(theme::accent()), fs * 0.09f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fs * 0.55f);
+    ImGui::TextUnformatted(title);
+    theme::pop_title_font();
+    if (help && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", help);
+    if (pill) {
+        const float title_h = ImGui::GetItemRectSize().y;
+        ImGui::SameLine(0.0f, fs * 0.5f);
+        const float pill_h = ImGui::GetTextLineHeight() + ImGui::GetStyle().FramePadding.y * 0.8f;
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (title_h - pill_h) * 0.5f);
+        theme::chip(pill, kPillBg);
     }
-    Value v;
-    if (!app.db.get(t, rec, *f, v)) return;
+    const ImVec2 q = ImGui::GetCursorScreenPos();
+    dl->AddLine(ImVec2(q.x, q.y + 1.0f), ImVec2(q.x + ImGui::GetContentRegionAvail().x, q.y + 1.0f), ImGui::ColorConvertFloat4ToU32(theme::kRule), 1.0f);
+    ImGui::Dummy(ImVec2(0.0f, 3.0f));
+}
+
+// A chip that toggles: accent fill when on, slate when off. The label keeps its ### id. True when clicked.
+bool chip_toggle(const char* label, bool on) {
+    ImGui::PushStyleColor(ImGuiCol_Button, on ? theme::accent_fill() : ImVec4(0.13f, 0.16f, 0.21f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, on ? theme::accent_fill_hover() : ImVec4(0.17f, 0.21f, 0.27f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, on ? theme::accent_fill_active() : theme::accent_alpha(0.25f));
+    ImGui::PushStyleColor(ImGuiCol_Text, on ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : theme::muted());
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFrameHeight() * 0.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(kChipPadX), ImGui::GetStyle().FramePadding.y));
+    const bool hit = ImGui::Button(label);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+    return hit;
+}
+
+// The attributes: six group cards in two columns (Goalkeeping in place of Shooting for a keeper), the group average as a pill, one
+// slider per attribute: label 150 px, slider, value 40 px (slider_editor_ex: the same writes, range check and undo as before)
+void attribute_cards(App& app, const Table& t, const PlayerRow& p) {
+    const bool keeper = p.positions[0] == 0;
+    cards_push_style();
+    if (ImGui::BeginTable("##sl", 2, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+        for (const auto& g : attribute_groups()) {
+            if (std::strcmp(g.first, keeper ? "Shooting" : "Goalkeeping") == 0) continue;
+            long long sum = 0;
+            std::vector<const Field*> present;
+            for (const char* fn : g.second)
+                if (const Field* f = t.field(fn)) {
+                    present.push_back(f);
+                    sum += app.db.get_int(t, p.rec, fn, 0);
+                }
+            if (present.empty()) continue;
+            const Card card = card_begin();
+            const long long n = static_cast<long long>(present.size());
+            char pill[16];
+            std::snprintf(pill, sizeof(pill), "%lld", (sum + n / 2) / n);
+            ImGui::PushID(g.first);
+            card_head(g.first, pill, nullptr);
+            for (const Field* f : present) {
+                slider_editor_ex(app, t, p.rec, *f, field_label(f->name).c_str(), S(150.0f), -FLT_MIN, S(40.0f));
+                ++g_astate.attribute_sliders;
+            }
+            ImGui::PopID();
+            card_end(card);
+        }
+        ImGui::EndTable();
+    }
+    cards_pop_style();
+}
+
+// One bit field (PlayStyles, PlayStyles+, Traits, Traits+) as a card: the ticked boxes in words (4.0 S6), a chip per box that wraps to
+// the width, All / None. The same bit write as the old check boxes; the ids stay (###ab_bit<n>, All###ab_all, None###ab_none under the field).
+void playstyle_card(App& app, const Table& t, uint64_t rec, const char* field, const std::vector<const char*>& names, const char* title,
+                    const char* unnamed) {
+    const Card card = card_begin();
     ImGui::PushID(field);
-    const int bits = std::min(f->depth, 62);
-    // 4.0 S6: the ticked boxes in words, above the grid (the grid is long; this is what the player has at a glance)
-    const std::string ticked = ticked_names(*f, v, names, unnamed);
-    theme::muted_text("Ticked: %s", ticked.c_str());
-    if (ImGui::BeginTable("##bits", 3, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
-        // 2.22: a header row (the tick boxes below are the ones this field has)
-        ImGui::TableSetupColumn(title, ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("(continued)###bits2", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("(continued)###bits3", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableHeadersRow();
+    const Field* f = t.field(field);
+    Value v;
+    if (!f || !app.db.get(t, rec, *f, v)) {
+        card_head(title, nullptr, set_help(title));
+        theme::muted_text("Not available in this game version.");
+    } else {
+        const int bits = std::min(f->depth, 62);
+        const uint64_t raw = static_cast<uint64_t>(v.i - f->min);
+        int on_count = 0;
+        for (int b = 0; b < bits; ++b) on_count += static_cast<int>((raw >> b) & 1);
+        char pill[24];
+        std::snprintf(pill, sizeof(pill), "%d on", on_count);
+        card_head(title, pill, set_help(title));
+        const std::string ticked = ticked_names(*f, v, names, unnamed);
+        theme::muted_text("Ticked: %s", ticked.c_str());
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
         for (int b = 0; b < bits; ++b) {
-            ImGui::TableNextColumn();
-            bool on = (static_cast<uint64_t>(v.i - f->min) >> b) & 1;
             char name[48];
             if (b < static_cast<int>(names.size()) && names[static_cast<size_t>(b)]) std::snprintf(name, sizeof(name), "%s", names[static_cast<size_t>(b)]);
             else std::snprintf(name, sizeof(name), unnamed, b);
             char lbl[96];
             std::snprintf(lbl, sizeof(lbl), "%s###ab_bit%d", name, b);
-            if (ImGui::Checkbox(lbl, &on)) {
-                uint64_t raw = static_cast<uint64_t>(v.i - f->min);
-                raw = on ? (raw | (uint64_t(1) << b)) : (raw & ~(uint64_t(1) << b));
-                app.edit(t, rec, *f, Value::of_int(static_cast<int64_t>(raw) + f->min));
+            const float w = ImGui::CalcTextSize(name).x + 2.0f * S(kChipPadX);
+            if (b > 0 && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w <= right) ImGui::SameLine();
+            const bool on = (raw >> b) & 1;
+            if (chip_toggle(lbl, on)) {
+                const uint64_t next = on ? (raw & ~(uint64_t(1) << b)) : (raw | (uint64_t(1) << b));
+                app.edit(t, rec, *f, Value::of_int(static_cast<int64_t>(next) + f->min));
             }
             ++g_astate.playstyle_boxes;
         }
+        if (ImGui::SmallButton("All###ab_all")) app.edit(t, rec, *f, Value::of_int(f->max()));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("None###ab_none")) app.edit(t, rec, *f, Value::of_int(f->min));
+    }
+    ImGui::PopID();
+    card_end(card);
+}
+
+// The four sets, one card under the other (a set's heading sits between the None button of the set above and its own first chip)
+void playstyle_cards(App& app, const Table& t, uint64_t rec) {
+    struct Set { const char* title; const char* field; bool second; };
+    const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
+    cards_push_style();
+    if (ImGui::BeginTable("##bits", 1, tbl::kGrid | ImGuiTableFlags_SizingStretchSame)) {
+        for (const Set& s : sets)
+            playstyle_card(app, t, rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title, s.second ? "Unnamed trait %d" : "Unnamed PlayStyle %d");
         ImGui::EndTable();
     }
-    if (ImGui::SmallButton("All###ab_all")) app.edit(t, rec, *f, Value::of_int(f->max()));
-    ImGui::SameLine();
-    if (ImGui::SmallButton("None###ab_none")) app.edit(t, rec, *f, Value::of_int(f->min));
-    ImGui::PopID();
+    cards_pop_style();
 }
 
 // While the full player-type editor (ui_players.cpp archetype_bar) is not hooked up: Overall +1 / -1 and Undo last big change, which use the
@@ -445,17 +536,9 @@ void ability_editor(App& app, void*) {
     }
     // 2.22: G-pickers' Set-pieces card (penalty and free-kick takers), ui_setpiece_card.cpp
     setpiece_card::draw(app, p->playerid);
-    if (section("Attributes###ab_attrs")) attribute_sliders(app, *t, p->rec);
-    if (section("PlayStyles and traits###ab_styles")) {
-        struct Set { const char* title; const char* field; bool second; };
-        const Set sets[] = {{"PlayStyles", "trait1", false}, {"PlayStyles+", "icontrait1", false}, {"Traits", "trait2", true}, {"Traits+", "icontrait2", true}};
-        for (const Set& s : sets) {
-            ImGui::SeparatorText(s.title);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", set_help(s.title));
-            playstyle_bits(app, *t, p->rec, s.field, s.second ? playstyle2_names() : playstyle1_names(), s.title,
-                           s.second ? "Unnamed trait %d" : "Unnamed PlayStyle %d");
-        }
-    }
+    // Turbo X: six group cards in two columns, then the four PlayStyle / Trait sets as chip cards (DESIGN_SPEC_X.md "Attributes & roles")
+    if (section("Attributes###ab_attrs")) attribute_cards(app, *t, *p);
+    if (section("PlayStyles and traits###ab_styles")) playstyle_cards(app, *t, p->rec);
 }
 
 // The editor alone, framed so that it scrolls like a page

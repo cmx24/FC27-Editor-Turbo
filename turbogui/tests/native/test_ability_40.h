@@ -162,7 +162,7 @@
             GImGui->NavHighlightItemUnderNav = false;
             ImGui::GetIO().AddMousePosEvent(4.0f, 4.0f);
             ui.frames(2);
-            // The heading (a separator text) has no item id, so the registry does not list it; the first tick box below it (###ab_bit0) is the one
+            // The heading (a card title: text, no item id) is not in the registry; the first chip below it (###ab_bit0) is the one
             // item of that set with a stable id. The tab is at its top, where the box and the heading above it are in view, and the mouse rests at
             // every height of the editor window down to that box, as a user moving down the page would, until the help shows. (The registry's clip
             // of a table item is the table's own, so the window's inner rectangle is used for the top.)
@@ -220,9 +220,9 @@
 
         // Each of the four sets read where a user sees it (review 10-26 P2: the fd3ec1e9 test checked all four helps and the exact words of each set):
         // the set's heading in view, its "Ticked: ..." line matched EXACTLY (the line right under the heading line, so "none ticked" is tied to
-        // Traits+), and its help with the mouse on the heading itself: the set's own words, no "Stored as", no field name. The heading (a separator
-        // text, no item id) lies between the item above it (the section header for the first set, the None button of the set above for the others,
-        // ui_player_profile.cpp playstyle_bits) and the set's first tick box.
+        // Traits+), and its help with the mouse on the heading itself: the set's own words, no "Stored as", no field name. The heading (a card
+        // title, no item id) lies between the item above it (the section header for the first set, the None button of the set above for the others:
+        // the cards are one under the other, ui_player_profile.cpp playstyle_cards) and the set's first chip.
         const auto lines_of = [](const std::string& text) {
             std::vector<std::string> out;
             for (size_t at = 0; at <= text.size();) {
@@ -235,12 +235,14 @@
             }
             return out;
         };
-        // the words of the "Ticked: " line right under the heading line of `title` (ImGui logs a separator text as "--- <title>",
-        // S6_FIX2\try2_pass\f2_pass.log)
+        // the heading line of a set: Turbo X draws it as a card title (logged as the title alone; its pill is drawn by hand, not logged);
+        // before, a separator text (ImGui logs those as "--- <title>", S6_FIX2\try2_pass\f2_pass.log)
+        const auto is_heading = [](const std::string& line, const std::string& title) { return line == title || line == "--- " + title; };
+        // the words of the "Ticked: " line right under the heading line of `title`
         const auto ticked_under = [&](const std::string& text, const std::string& title) -> std::string {
             const std::vector<std::string> ls = lines_of(text);
             for (size_t i = 0; i < ls.size(); ++i)
-                if (ls[i] == "--- " + title) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
+                if (is_heading(ls[i], title)) return i + 1 < ls.size() && ls[i + 1].compare(0, 8, "Ticked: ") == 0 ? ls[i + 1].substr(8) : "<no Ticked line right under the heading>";
             return "<no heading line '" + title + "'>";
         };
         // the text logged after the heading line of `title` up to the set's "Ticked: " text: with the mouse on the heading, the tooltip's own text
@@ -249,7 +251,7 @@
         const auto help_under = [&](const std::string& text, const std::string& title) -> std::string {
             const std::vector<std::string> ls = lines_of(text);
             for (size_t i = 0; i < ls.size(); ++i) {
-                if (ls[i] != "--- " + title) continue;
+                if (!is_heading(ls[i], title)) continue;
                 std::string out;
                 for (size_t j = i + 1; j < ls.size(); ++j) {
                     const size_t k = ls[j].find("Ticked: ");
