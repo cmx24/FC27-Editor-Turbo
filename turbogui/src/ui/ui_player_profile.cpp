@@ -37,25 +37,45 @@ PlayerAbilityState g_astate;
 shell::Page g_team_page = shell::Page::TeamPlayers;
 
 // ---------------------------------------------------------------- the player list (shared by both pages)
-// 2.22: the list is the Classic editor's own (draw_classic_player_list, ui_players.cpp): eight sortable columns and the full filter grid (club,
-// nationality, continent, position, PlayStyle, age / overall / potential ranges, gender, loans, retiring, free agents). Its filters and
-// the pick (App::sel_player) are shared with the Classic editor and with both pages. A fixed 300 px pane is too narrow for it: the split is as wide
-// as the Classic editor's and its divider can be dragged.
+// 2.22: the list is the Classic editor's own (draw_classic_player_list, ui_players.cpp): the full filter grid (club, nationality, continent,
+// position, PlayStyle, age / overall / potential ranges, gender, loans, retiring, free agents) and, since Turbo X, search + chips above
+// rows that are people. Its filters and the pick (App::sel_player) are shared by both pages. The divider can be dragged.
 size_t g_listed = 0;
+bool g_in_pane = false;  // the editor is drawn in list_and_editor's pane (the pane draws the empty state, picked() stays quiet)
+
+// Turbo X (DESIGN_SPEC_X.md): nobody picked: the editor pane says what to do in one line and offers the two likeliest actions. The search
+// box (in the list pane) is focused once, the first time the state shows (classic_player_list_request, ui_players.cpp).
+void empty_editor(App& app) {
+    static bool s_shown = false;
+    if (!s_shown) {
+        s_shown = true;
+        classic_player_list_request(true, false);
+    }
+    theme::empty_state("Pick a player", "Search on the left, or start from one of these");
+    const float bw = S(140.0f);
+    theme::center_x(bw * 2.0f + ImGui::GetStyle().ItemSpacing.x);
+    if (ImGui::Button("My club###pe_empty_club", ImVec2(bw, 0.0f))) classic_player_list_request(false, true);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lists the players of your club (needs a career)");
+    ImGui::SameLine();
+    if (theme::primary_button("Create & clone###pe_empty_create", ImVec2(bw, 0.0f))) app.go(shell::Page::CreatePlayer);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Players > Create & clone: a new player, or a copy of one");
+}
 
 void list_and_editor(App& app, void (*editor_fn)(App&, void*), void* user = nullptr) {
-    const float list_w = std::min(S(560.0f), std::max(S(430.0f), ImGui::GetContentRegionAvail().x * 0.45f));
     // 5.0c base-32-red: the divider goes through split::pane_x like every other list / editor divider, so its width is remembered per page in
     // gui_settings.json gui.splits ("PlayerEdit/##select") and committed when the drag is released (E6); it was a raw ResizeX child that only
     // the ImGui layout file kept, which left the Edit a player divider outside the "saved once, per page" contract (test_ux_resize.h).
-    // list_w is the first-use default only (unscaled for the store); the child id "##select" is unchanged.
-    split::pane_x("##select", g_ui_scale > 0.0f ? list_w / g_ui_scale : list_w);
+    // The first-use width is the spec's 320 px (unscaled for the store; Turbo X: people rows, not an 11-column table); the child id "##select" is unchanged.
+    split::pane_x("##select", 320.0f);
     draw_classic_player_list(app);
     g_listed = classic_player_list_rows();
     ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##editor", ImVec2(0, 0), ImGuiChildFlags_Borders);
-    if (editor_fn) editor_fn(app, user);
+    g_in_pane = true;
+    if (editor_fn) editor_fn(app, user);  // nobody picked: it resets its state and draws nothing (picked), the empty state below speaks
+    g_in_pane = false;
+    if (!app.model.player(app.sel_player)) empty_editor(app);
     ImGui::EndChild();
 }
 
@@ -65,7 +85,7 @@ bool picked(App& app, const Table*& t, const PlayerRow*& p) {
     t = app.db.table("players");
     p = app.model.player(app.sel_player);
     if (!t || !p) {
-        theme::muted_text("Pick a player on the left.");
+        if (!g_in_pane) theme::muted_text("Pick a player on the left.");
         return false;
     }
     if (!app.db.table_alive(*t, p->rec)) {

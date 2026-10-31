@@ -867,6 +867,7 @@ ui_player_profile.cpp	-	###ab_typetier	1
 ui_player_profile.cpp	-	###ab_undo	1
 ui_player_profile.cpp	-	###bits2	1
 ui_player_profile.cpp	-	###bits3	1
+ui_player_profile.cpp	-	###pe_empty_create	1
 ui_player_profile.cpp	-	###pf_callname	1
 ui_player_profile.cpp	-	###pf_club	1
 ui_player_profile.cpp	-	###pf_details	1
@@ -882,6 +883,7 @@ ui_player_profile.cpp	-	##select	1
 ui_player_profile.cpp	BeginChild	##editor	1
 ui_player_profile.cpp	BeginTable	##bits	1
 ui_player_profile.cpp	BeginTable	##sl	1
+ui_player_profile.cpp	Button	###pe_empty_club	1
 ui_player_profile.cpp	Button	###pf_team	1
 ui_player_profile.cpp	SmallButton	###ab_all	1
 ui_player_profile.cpp	SmallButton	###ab_none	1

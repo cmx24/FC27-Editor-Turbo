@@ -113,11 +113,14 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         const PlayerProfileState& st = player_profile_state();
         CHECK(st.listed > 3, "the list holds players: " + std::to_string(st.listed));
         CHECK(ui.find("1001", W) != nullptr && ui.find("1005", W) != nullptr, "players listed (the rows' ids are the player IDs)");
-        // nobody picked: no editor
+        // nobody picked: no editor; the pane's empty state offers My club and Create & clone (Turbo X)
         app.sel_player = 0;
         ui.frames(2);
         CHECK(player_profile_state().playerid == 0, "nobody picked: no editor");
+        CHECK(ui.find("###pe_empty_club", W) != nullptr && ui.find("###pe_empty_create", W) != nullptr, "the empty state's two actions");
         CHECK(ui.click("1005", W), "click a row");
+        ui.frames(2);
+        CHECK(ui.find("###pe_empty_club", W) == nullptr, "picked: the empty state is gone");
         ui.frames(2);
         const PlayerRow* pr = app.model.player(1005);
         CHECK(app.sel_player == 1005 && st.playerid == 1005 && pr != nullptr, "the click picked him");
