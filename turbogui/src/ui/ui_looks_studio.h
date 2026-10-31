@@ -19,7 +19,8 @@
 //                   1024 x 1024). A switch picks the view. Asked by "Draw him", when the view is switched to one with no picture of him
 //                   yet, and whenever his look changes while the page is shown; never while another picture is in flight, never by
 //                   itself for a player's body made for another head. Managers by their head id: their full body is not tested yet.
-//   GameScreenHint  before the first picture: what "Draw him" does.
+//   GameScreenHint  before the first picture: what "Draw him" does. Turbo X (docs/turbo-x/DESIGN_SPEC_X.md): the page itself draws his
+//                   miniface scaled up (else the figure of his body type) in its place; the capture words are the tooltip of "Draw him".
 #pragma once
 #include <cstdint>
 #include <memory>

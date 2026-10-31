@@ -397,9 +397,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // Known and bounded, not fixed in 2.16 gui/perf (named in its report): Kits and Identity still look at each picture's and
         // kit import record's files every frame (LegacyImages::locate + TextureCache::file: about 6 calls per picture drawn;
         // measured 8 and 13 per frame here; Squad when the players shown have pictures) and Bulk edit one file a frame. They keep a per-frame ceiling instead of the
-        // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page).
+        // polls-only rule; the folder listing per picture (custom_file) is gone (no directory read on any page). Turbo X (DESIGN_SPEC_X.md
+        // principle 2): the Appearance Editor's person list draws a miniface on every row it shows, like My squad.
         auto per_item_page = [](const std::string& what) {
-            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics"})
+            for (const char* p : {"Players > My squad", "Lab > My squad (old page)", "Club > Kits", "Club > Name, colours & crest", "Lab > Bulk edit", "Lab > Kit diagnostics",
+                                  "Looks > Appearance Editor"})
                 if (what == p) return true;
             return false;
         };
