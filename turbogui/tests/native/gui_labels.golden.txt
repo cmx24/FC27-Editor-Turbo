@@ -574,6 +574,7 @@ ui_game_settings.cpp	SmallButton	Refresh##gsrefresh	1
 ui_game_settings.cpp	SmallButton	Rename...##gsren	1
 ui_home.cpp	-	###home_game_settings	1
 ui_home.cpp	-	###home_manager_looks	1
+ui_home.cpp	-	###home_manager_miniface	1
 ui_home.cpp	-	###home_player_looks	1
 ui_home.cpp	-	###home_preset_season	1
 ui_home.cpp	-	###home_preset_tactics	1
@@ -989,7 +990,7 @@ ui_player_profile.cpp	-	##ab_stylegrid	1
 ui_player_profile.cpp	-	##pf_detailgrid	1
 ui_player_profile.cpp	-	##pf_flaggrid	1
 ui_player_profile.cpp	BeginChild	##editor	1
-ui_player_profile.cpp	BeginChild	##select	1
+ui_player_profile.cpp	-	##select	1
 ui_player_profile.cpp	BeginTable	##bits	1
 ui_player_profile.cpp	BeginTable	##sl	1
 ui_player_profile.cpp	Button	###pf_team	1
@@ -1698,7 +1699,7 @@ ui_visual_picker.cpp	Button	Cancel##vpcancel	1
 ui_visual_picker.cpp	Button	Change##vpchange	1
 ui_visual_picker.cpp	Button	Choose...	1
 ui_visual_picker.cpp	Checkbox	Favourites only##vpfav	1
-ui_visual_picker.cpp	Checkbox	Show all bodies##vpallbodies	1
+ui_visual_picker.cpp	Checkbox	Show all body types##vpallbodies	1
 ui_visual_picker.cpp	InputText	###vpfolder	1
 ui_visual_picker.cpp	InputTextWithHint	##vpsearch	1
 ui_visual_picker.cpp	InvisibleButton	##tile	1
