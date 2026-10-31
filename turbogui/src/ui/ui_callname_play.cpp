@@ -10,6 +10,21 @@
 
 namespace turbo {
 
+// The club names' audio: the wavs club_clips.py decoded for the loaded language, in turbo_output, cache, teamaudio, <lang>, <club id>.wav.
+// Never mixes languages: a new language is a new folder. The file checks are repeated every 5 s so a wav decoded since is found.
+static const MasterAudio& club_audio(App& app) {
+    static MasterAudio a;
+    static double checked = -1e9;
+    const std::string dir = app.callnames.lang.empty() ? std::string() : (app.turbo_output() / "cache" / "teamaudio" / app.callnames.lang).u8string();
+    if (dir != a.wav_dir || app.callnames.lang != a.lang || app.now - checked >= 5.0) {
+        a.wav_dir = dir;
+        a.lang = app.callnames.lang;
+        ++a.gen;
+        checked = app.now;
+    }
+    return a;
+}
+
 void callname_play_button(App& app, CallnameAudioKind kind, int64_t id) {
     const float h = ImGui::GetTextLineHeight();
     if (!ImGui::IsRectVisible(ImVec2(h, h))) {  // a row scrolled out of the list: keep the space, skip the file checks
@@ -17,10 +32,10 @@ void callname_play_button(App& app, CallnameAudioKind kind, int64_t id) {
         return;
     }
     CallnamePlayer& pl = app.callname_player;
-    const MasterAudio& audio = app.callnames.masters.audio;
+    const MasterAudio& audio = kind == CallnameAudioKind::Club ? club_audio(app) : app.callnames.masters.audio;
     const CallnamePlayer::Button b = pl.button(audio, kind, id, app.now);
     char label[48];
-    std::snprintf(label, sizeof(label), "##play_%c%lld", kind == CallnameAudioKind::Own ? 'o' : 'g', static_cast<long long>(id));
+    std::snprintf(label, sizeof(label), "##play_%c%lld", kind == CallnameAudioKind::Own ? 'o' : kind == CallnameAudioKind::Club ? 'c' : 'g', static_cast<long long>(id));
     if (!b.enabled) ImGui::BeginDisabled();
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
     const bool pressed = ImGui::Button(label, ImVec2(h, h));

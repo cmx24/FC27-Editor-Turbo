@@ -24,7 +24,9 @@
 namespace turbo {
 
 // What a play button plays: a generic surname (by commentary id) or a player's own recording (by player id)
-enum class CallnameAudioKind { Generic, Own };
+// Club (5.0c E15): the Preview of a club name in Team > Commentary name; its wavs are <wav_dir>\<club id>.wav (never renumber the others)
+#define TURBO_E15_CLUB_AUDIO 1  // the native test builds on the old tree without it
+enum class CallnameAudioKind { Generic, Own, Club };
 
 // The audio part of a master list (MasterList::audio)
 struct MasterAudio {
@@ -35,6 +37,7 @@ struct MasterAudio {
     // set by every parse_master_audio (a new number each time, 0 = never parsed): the play buttons check the wav files
     // again when it changes, so Refresh finds a wav added since (even a "missing" one) in the same wav folder
     uint64_t gen = 0;
+    std::string lang;  // Club only: the loaded commentary language the folder belongs to (the tooltip names it)
     bool any() const { return !generic.empty() || !real.empty() || !real_link.empty(); }
 };
 
@@ -85,7 +88,9 @@ public:
     size_t next_index(CallnameAudioKind kind, int64_t id) const;
 
 private:
-    static int64_t key(CallnameAudioKind kind, int64_t id) { return kind == CallnameAudioKind::Own ? -id : id; }
+    static int64_t key(CallnameAudioKind kind, int64_t id) {
+        return kind == CallnameAudioKind::Own ? -id : kind == CallnameAudioKind::Club ? id + (1LL << 40) : id;  // Club N never shares the state of Generic N
+    }
     bool file_ok(const std::filesystem::path& p);
     std::vector<std::filesystem::path> playable(const MasterAudio& a, CallnameAudioKind kind, int64_t id);
     std::shared_ptr<WavPlayer> player_;
