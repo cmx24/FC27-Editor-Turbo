@@ -338,7 +338,15 @@ void on_slot_invoker(int id, void* data, size_t size, const void* storage) {
     HOOK_BODY("pc_callback", {
         Job* job = static_cast<Job*>(delegate_context(storage));
         if (!job) return;
-        if (job->cancelled || job->finished) return;
+        if (job->cancelled || job->finished) {
+            // a picture after the 20 s timeout (or a cancel) is dropped, but said: the log then tells a slow render from none at all
+            // (t_ran was written on this thread, in run_request)
+            char t[32];
+            std::snprintf(t, sizeof(t), "%.2f", std::chrono::duration<double>(std::chrono::steady_clock::now() - job->t_ran).count());
+            capture_log("picture for id " + std::to_string(id) + ": " + std::to_string(size) + " bytes, " + t +
+                        " s after the request ran, after the request was given up (dropped)");
+            return;
+        }
         if (!data || size == 0 || size > kMaxSliceBytes) {
             std::lock_guard<std::mutex> lock(g_mutex);
             job->book.add_error(id, "the game handed over " + std::to_string(size) + " bytes");
@@ -373,7 +381,7 @@ void on_done_invoker(const void* storage) {
         char t[96];
         std::snprintf(t, sizeof(t), " in %.2f s since the request ran (%.2f s per head)", secs, got ? secs / double(got) : secs);
         capture_log("capture done for " + job->label + ": " + std::to_string(got) + " of " + std::to_string(n) + " picture(s)" + t +
-                    (got ? "" : " (no picture was handed over)"));
+                    (got ? "" : " (no picture was handed over)") + (job->cancelled ? " (after the request was given up)" : ""));
     });
 }
 

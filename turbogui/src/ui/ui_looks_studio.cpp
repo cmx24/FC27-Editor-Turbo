@@ -23,6 +23,7 @@
 #include "core/looks_fields_data.h"
 #include "core/player_capture.h"
 #include "imgui.h"
+#include "ui_bodytype_thumbs.h"
 #include "ui_bodytypes.h"
 #include "ui_body_figure.h"
 #include "ui_faces.h"
@@ -975,6 +976,17 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         }
     }
     if (shown.empty()) hint_line("No body matches.");
+    if (!who.manager) {
+        // Turbo X: the door to the Body-type pictures run (the game's real render of each body, shown in the tiles' tooltips); it
+        // sat on the deleted Diagnostics page. thumb() is a map lookup (a folder listing at most every 5 s).
+        bool have_pictures = false;
+        for (const BodyTile& tile : s.tiles)
+            if (!bodytype_thumbs::thumb(tile.code, false).empty()) {
+                have_pictures = true;
+                break;
+            }
+        bodytype_thumbs_card_button(app, static_cast<int32_t>(who.id), have_pictures);
+    }
     if (picked >= 0 && picked != current) {
         Value before;
         const Field* f = t.field("bodytypecode");

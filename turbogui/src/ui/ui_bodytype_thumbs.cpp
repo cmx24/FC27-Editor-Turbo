@@ -10,6 +10,8 @@
 #include "core/bodytype_thumbs.h"
 #include "imgui.h"
 #include "ui_bodytypes.h"
+#include "ui_faces.h"
+#include "ui_faces3d_gate.h"
 #include "ui_sections.h"
 #include "ui_theme.h"
 
@@ -28,6 +30,7 @@ struct Maker {
     int max_steps = 0;
     std::string proven;  // source.json in words, read at most every 3 s while the section is open
     double proven_at = -1e9;
+    capture::CaptureService* svc = nullptr;  // the service `gen` was built with
 };
 Maker g;
 
@@ -102,7 +105,12 @@ bt::GeneratorEnv make_env(App& app) {
 }
 
 bt::Generator& generator(App& app) {
-    if (!g.gen) g.gen = std::make_unique<bt::Generator>(make_env(app));
+    // the Body type card draws every frame: the service may be installed after the first draw (or swapped in a test); rebuilt while idle
+    if (g.gen && !g.gen->running() && g.svc != app.capture.get()) g.gen.reset();
+    if (!g.gen) {
+        g.svc = app.capture.get();
+        g.gen = std::make_unique<bt::Generator>(make_env(app));
+    }
     return *g.gen;
 }
 
@@ -141,6 +149,39 @@ void start_run(App& app, const bt::StartRequest& rq, const char* from) {
     bt::append_log(app.turbo_output(), stamp_now(), "request refused: " + err);
     app.log("body-type pictures: request refused: " + err);
     if (app.log_hook) app.log_hook("body-type pictures: request refused: " + err);
+}
+
+// The confirmation's body (the career, the player, the warning, Yes / Cancel), inside an open BeginPopupModal: the section's and
+// the Body type card's popups share it, so the run starts the same way from both. `p` is the reference player the run draws.
+void confirm_body(App& app, const PlayerRow* p, const char* from) {
+    const std::string career = !app.career_label.empty() ? app.career_label
+                               : (!app.reapply.career.empty() ? app.reapply.career : std::string("no career identified"));
+    ImGui::Text("Career: %s", career.c_str());
+    ImGui::Text("Player: %s", p ? p->name.c_str() : "none picked");
+    ImGui::TextWrapped("His body type is changed once per body type while the game draws him, and put back at the end. Do this "
+                       "only in a throwaway career that you will not save.");
+    ImGui::BeginDisabled(!p || app.reapply.career.empty());
+    if (ImGui::Button("Yes, make them##btthumbyes")) {
+        bt::StartRequest rq;
+        rq.player = p ? static_cast<int32_t>(p->playerid) : 0;
+        if (g.source == 1) {
+            rq.source_given = true;
+            rq.source.kind = bt::SourceKind::Camera;
+            rq.source.camera = g.camera;
+        }
+        rq.max_steps = static_cast<size_t>(g.max_steps);
+        start_run(app, rq, from);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel##btthumbno")) ImGui::CloseCurrentPopup();
+}
+
+// Another picture is being drawn (the studio's "Draw him", the faces card, the chooser's 3D heads): a run must not start over it
+bool capture_in_flight(App& app) {
+    if (faces3d_preview_pending() || faces3d_running()) return true;
+    return app.capture && app.capture->status().busy;
 }
 
 }  // namespace
@@ -190,28 +231,7 @@ void bodytype_thumbs_section(App& app) {
         if (ImGui::Button("Make the pictures...##btthumbgo")) ImGui::OpenPopup("Make body-type pictures?###btthumbconfirm");
         ImGui::EndDisabled();
         if (ImGui::BeginPopupModal("Make body-type pictures?###btthumbconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            const std::string career = !app.career_label.empty() ? app.career_label
-                                       : (!app.reapply.career.empty() ? app.reapply.career : std::string("no career identified"));
-            ImGui::Text("Career: %s", career.c_str());
-            ImGui::Text("Player: %s", p ? p->name.c_str() : "none picked");
-            ImGui::TextWrapped("His body type is changed once per body type while the game draws him, and put back at the end. Do this "
-                               "only in a throwaway career that you will not save.");
-            ImGui::BeginDisabled(!p || app.reapply.career.empty());
-            if (ImGui::Button("Yes, make them##btthumbyes")) {
-                bt::StartRequest rq;
-                rq.player = p ? static_cast<int32_t>(p->playerid) : 0;
-                if (g.source == 1) {
-                    rq.source_given = true;
-                    rq.source.kind = bt::SourceKind::Camera;
-                    rq.source.camera = g.camera;
-                }
-                rq.max_steps = static_cast<size_t>(g.max_steps);
-                start_run(app, rq, "button");
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel##btthumbno")) ImGui::CloseCurrentPopup();
+            confirm_body(app, p, "button");
             ImGui::EndPopup();
         }
         ImGui::SameLine();
@@ -230,6 +250,39 @@ void bodytype_thumbs_section(App& app) {
     if (!g.message.empty()) {
         if (g.message_error) theme::warn_text("%s", g.message.c_str());
         else theme::muted_text("%s", g.message.c_str());
+    }
+}
+
+// Turbo X: the Diagnostics page that held the section went, so the Body type card is the run's door. One small button, the same
+// confirmation and the same run (the proven full-body source, every code), the busy text while it runs, one line with the result.
+void bodytype_thumbs_card_button(App& app, int32_t player, bool have_pictures) {
+    bt::Generator& gen = generator(app);
+    if (gen.running()) {
+        theme::muted_text("%s %s", bodytype_thumbs_busy_text(), gen.status().c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop##btthumbcardstop")) gen.cancel();
+        return;
+    }
+    const PlayerRow* p = player > 0 ? app.model.player(player) : nullptr;
+    const bool busy = capture_in_flight(app);
+    ImGui::BeginDisabled(!p || busy);
+    if (ImGui::SmallButton("Make the body pictures...###btthumbcardgo")) ImGui::OpenPopup("Make body-type pictures?###btthumbcardconfirm");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (busy) ImGui::SetTooltip("Still drawing the last picture...");
+        else if (!p) ImGui::SetTooltip("Pick a player first: the game draws him once per body type.");
+        else ImGui::SetTooltip("The game draws %s once per body type%s; the real pictures go to this grid's tooltips. Use a throwaway career.",
+                               p->name.c_str(), have_pictures ? " again (the missing ones; a different player starts a new set)" : "");
+    }
+    if (ImGui::BeginPopupModal("Make body-type pictures?###btthumbcardconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        confirm_body(app, p, "Body type card");
+        ImGui::EndPopup();
+    }
+    if (!g.message.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        if (g.message_error) theme::warn_text("%s", g.message.c_str());
+        else theme::muted_text("%s", g.message.c_str());
+        ImGui::PopTextWrapPos();
     }
 }
 
