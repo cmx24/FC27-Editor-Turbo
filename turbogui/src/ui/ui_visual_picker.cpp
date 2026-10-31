@@ -309,8 +309,12 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         bodytype::Catalog& cat = bodytype_catalog(app);
         bodytype_thumbs::configure(app.turbo_output());
         const int gender = t.has("gender") ? static_cast<int>(app.db.get_int(t, rec, "gender", -1)) : -1;
+        // 5.0c E8 (the old modal's Generic / Specific filter, carried over): the two groups, always both so the combo never changes shape
+        const int g_generic = group_index(out, "Generic only"), g_specific = group_index(out, "Player-specific only");
+        const std::set<int64_t> generic_codes = looks::body_generic_codes(&cat);
         for (int64_t c : looks::body_grid_codes(&cat, current, gender, manager)) {
             push_tile(out, c, looks::body_caption(c, &cat, manager));
+            out.group.back() = looks::body_is_specific(c, &cat, manager, generic_codes) ? g_specific : g_generic;
             // 5.0c E8-body: every body type is a figure drawn in code on one height scale (no picture file, players and managers alike)
             out.src.back() = kSrcFigure;
             // the generator's real in-game render (Advanced > Diagnostics > Body-type pictures, players only): the large preview shows it
@@ -778,7 +782,8 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     s.fav_only = false;
     s.group_sel = -1;
     s.hair = HairFacets();
-    if (field == "bodytypecode") looks::body_show_all(false);  // 5.0c RV4: every Body type window starts with one tile per distinct figure
+    // 5.0c RV4: the Body type window starts as the person left the "Show all body types" tick (default off = one tile per distinct figure)
+    if (field == "bodytypecode") looks::body_show_all(app.prefs.body_show_all);
     build_source(app, t, rec, field, manager, s.src);
     s.ui = VisualPickerUi();
     s.ui.open = true;
@@ -964,9 +969,9 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     if (!s.src.groups.empty()) {  // eyebrow styles, generic head models
         ImGui::SameLine();
         ImGui::SetNextItemWidth(S(190.0f));
-        const char* prev = s.group_sel < 0 ? (s.src.eyebrow ? "All styles" : "All models") : s.src.groups[static_cast<size_t>(s.group_sel)].c_str();
+        const char* prev = s.group_sel < 0 ? (s.src.body ? "All body types" : s.src.eyebrow ? "All styles" : "All models") : s.src.groups[static_cast<size_t>(s.group_sel)].c_str();
         if (ImGui::BeginCombo("##vpgroup", prev)) {
-            if (ImGui::Selectable(s.src.eyebrow ? "All styles" : "All models", s.group_sel < 0)) s.group_sel = -1;
+            if (ImGui::Selectable(s.src.body ? "All body types" : s.src.eyebrow ? "All styles" : "All models", s.group_sel < 0)) s.group_sel = -1;
             for (size_t g = 0; g < s.src.groups.size(); ++g)
                 if (ImGui::Selectable(s.src.groups[g].c_str(), s.group_sel == static_cast<int>(g))) s.group_sel = static_cast<int>(g);
             ImGui::EndCombo();
@@ -999,16 +1004,18 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
     if (s.src.body && s.src.manager) {
         // 5.0c RV4 (Cassio): look-alike manager bodies (82/83/86, 81/89) are one tile; ticked, every code is listed again (recoverable)
         bool all = looks::body_show_all();
-        if (ImGui::Checkbox("Show all bodies##vpallbodies", &all)) {
+        if (ImGui::Checkbox("Show all body types##vpallbodies", &all)) {
             looks::body_show_all(all);
+            app.prefs.body_show_all = all;  // saved with the layout (gui_settings.json gui.body_show_all)
+            if (!app.save_gui_settings()) vlog(app, "visual picker: Show all body types could not be saved");
             const std::string rv4_field = s.src.field;  // a copy: build_source resets s.src first
             const bool rv4_mgr = s.src.manager;
             build_source(app, t, rec, rv4_field, rv4_mgr, s.src);
             s.shown_key = "\x01";
             s.ui.source_figure = static_cast<int>(s.src.codes.size());
-            vlog(app, std::string("visual picker: Show all bodies ") + (all ? "on" : "off") + ", " + std::to_string(s.src.codes.size()) + " tiles");
+            vlog(app, std::string("visual picker: Show all body types ") + (all ? "on" : "off") + ", " + std::to_string(s.src.codes.size()) + " tiles");
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Some manager bodies draw the same figure and are shown once. Tick to list every body code.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Some manager body types draw the same figure and are shown once. Tick to list every body type. Saved with your layout.");
     }
     if ((s.ui.names_only || (!s.src.body && resources(app).empty())) && s.src.kind != vis::data::kNone) where_pictures_line(app, s.src);
     if (!s.src.note.empty()) ImGui::TextDisabled("%s", s.src.note.c_str());
@@ -1282,6 +1289,12 @@ std::string visual_picker_tile_name(int64_t code) {
 size_t visual_picker_png_probes() { return g_png_probes; }
 size_t visual_picker_list_size() { return st().src.codes.size(); }
 std::vector<int64_t> visual_picker_codes() { return st().src.codes; }
+std::vector<int64_t> visual_picker_shown_codes() {
+    const State& s = st();
+    std::vector<int64_t> out;
+    for (int i : s.shown) out.push_back(s.src.codes[static_cast<size_t>(i)]);
+    return out;
+}
 
 void visual_picker_close() { close_picker(); }
 

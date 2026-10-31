@@ -9,7 +9,7 @@
 //       name once its "Manager, " prefix and "(n of m)" suffix are taken off; codes 12 / 131 / 381 are offered only as the current
 //       value, and then as exactly one "His own body".  FAILS on 5.0b/integration d197d851 (Manager body 81..89 x9, Unique body x3).
 //   T6  RV4 (Cassio 5.0c): the manager grid shows ONE tile per distinct figure (no two manager-set tiles with the same height word and
-//       build word, no "(n of m)" name); "Show all bodies" (looks::body_show_all) lists all of 81-89 again; a manager holding a hidden
+//       build word, no "(n of m)" name); "Show all body types" (looks::body_show_all) lists all of 81-89 again; a manager holding a hidden
 //       look-alike (83) sees his own code in place of the group's lead. Fail-old: the same checker is run on the show-all list, which
 //       IS the old list (E8 9cb9000d: 9 codes, "(n of 3)" / "(n of 2)" names), and must report the look-alikes.
 //   V1  apply_bodytype writes the manager set 81-89 on a manager with a generic head (the game itself pairs them: the census
@@ -112,7 +112,7 @@ inline void core_cases() {
         CHECK(bad.empty(), "the grid reads plain and unique:" + bad);
     });
 
-    run_case("Body picker: T6 RV4 one manager tile per distinct figure, Show all bodies lists every code, his own look-alike stays his", [&] {
+    run_case("Body picker: T6 RV4 one manager tile per distinct figure, Show all body types lists every code, his own look-alike stays his", [&] {
         bodytype::Catalog cat;
         std::string err;
         CHECK(cat.load_probe(bt_fixture(), &err), "probe fixture loads: " + err);
@@ -137,7 +137,7 @@ inline void core_cases() {
         const std::vector<int64_t> all = looks::body_grid_codes(nullptr, 0, -1, true);
         int set_codes = 0;
         for (int64_t c = 81; c <= 89; ++c) set_codes += has(all, c);
-        CHECK(set_codes == 9 && all.size() > n_default, fmt("Show all bodies lists 81-89 (%d of 9), %zu tiles vs %zu", set_codes, all.size(), n_default));
+        CHECK(set_codes == 9 && all.size() > n_default, fmt("Show all body types lists 81-89 (%d of 9), %zu tiles vs %zu", set_codes, all.size(), n_default));
         // fail-old: the show-all list is the old list, and the checker must find the look-alikes there (82/83/86, 81/89)
         const std::string old_list = look_alike_problems(nullptr, 0);
         CHECK(!old_list.empty() && old_list.find("draws the same figure") != std::string::npos,
@@ -303,6 +303,101 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
             CHECK(!visual_picker_ui().open, who + ": picker closed");
             app.db.set_int(*t, rec, "bodytypecode", before);
         }
+        ui.extra_draw = nullptr;
+        ui.frames(2);
+    });
+
+    // 5.0c E8 (Cassio): the old modal's Generic / Specific filter lives in the visual picker (same groups, default All); and the
+    // "Show all body types" tick is kept with the layout (gui_settings.json gui.body_show_all), not reset at every open.
+    run_case("Body picker: E8 the Generic / Specific group filter (default All) and the saved Show all body types tick", [&] {
+        auto open_picker = [&](const Table* t, uint64_t rec, bool manager) {
+            ui.extra_draw = [&app, t, rec, manager]() {
+                ImGui::SetNextWindowPos(ImVec2(40.0f, 40.0f), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(620.0f, 120.0f), ImGuiCond_Always);
+                ImGui::Begin("##bpe8", nullptr, ImGuiWindowFlags_NoSavedSettings);
+                bodytype_gallery_button(app, *t, rec, manager);
+                ImGui::End();
+            };
+            ui.frames(3);
+            ui.click("Body type...##btopen", "##bpe8");
+            ui.frames(4);
+        };
+        auto close_picker = [&] {
+            ui.click("Cancel##vpcancel", "###vispicker");
+            ui.frames(3);
+        };
+        auto has = [](const std::vector<int64_t>& v, int64_t c) { return std::find(v.begin(), v.end(), c) != v.end(); };
+        auto choose = [&](const char* name) {  // open the group combo, click the entry
+            const bool ok = ui.click("##vpgroup", "###vispicker");
+            ui.frames(3);
+            const bool ok2 = ui.click(name);
+            ui.frames(4);
+            return ok && ok2;
+        };
+        for (bool manager : {false, true}) {
+            const Table* t = app.db.table(manager ? "manager" : "players");
+            if (!t || !t->has("bodytypecode")) { CHECK(false, "table with bodytypecode"); return; }
+            const uint64_t rec = manager ? app.db.find(*t, "managerid", 503) : app.db.find(*t, "playerid", 2002);
+            CHECK(rec != 0, "the record exists");
+            if (rec == 0) return;
+            const std::string who = manager ? "manager 503" : "player 2002";
+            open_picker(t, rec, manager);
+            CHECK(visual_picker_ui().open && visual_picker_ui().field == "bodytypecode", who + ": the visual picker opened for bodytypecode");
+            CHECK(ui.find("##vpgroup", "###vispicker") != nullptr, who + ": the Generic / Specific filter is drawn in the picker");
+            const std::vector<int64_t> all = visual_picker_shown_codes();
+            CHECK(all.size() == visual_picker_list_size() && all.size() >= 10, fmt("%s: the default is All (%zu of %zu shown)", who.c_str(), all.size(), visual_picker_list_size()));
+            CHECK(choose("Generic only"), who + ": choose 'Generic only'");
+            const std::vector<int64_t> gen = visual_picker_shown_codes();
+            CHECK(choose("Player-specific only"), who + ": choose 'Player-specific only'");
+            const std::vector<int64_t> spec = visual_picker_shown_codes();
+            std::set<int64_t> both(gen.begin(), gen.end());
+            both.insert(spec.begin(), spec.end());
+            CHECK(!gen.empty() && gen.size() < all.size(), fmt("%s: 'Generic only' narrows the list (%zu of %zu)", who.c_str(), gen.size(), all.size()));
+            CHECK(gen.size() + spec.size() == all.size() && both.size() == all.size(),
+                  fmt("%s: generic %zu + specific %zu = all %zu, no tile in both", who.c_str(), gen.size(), spec.size(), all.size()));
+            if (!manager) {
+                CHECK((has(spec, 20) && !has(gen, 20)) || !has(all, 20), who + ": code 20 (player-specific) is in the Specific group only");
+                // code 10 is "Style 10" (nothing names it; field_labels lists it among the player-specific ones), code 5 is a named size
+                CHECK((has(spec, 10) && !has(gen, 10)) || !has(all, 10), who + ": code 10 (unnamed style) is in the Specific group only");
+                CHECK((has(gen, 5) && !has(spec, 5)) || !has(all, 5), who + ": code 5 (named) is in the Generic group only");
+            } else {
+                CHECK(has(gen, 82) || !has(all, 82), who + ": the manager set (82) is in the Generic group");
+            }
+            CHECK(choose("All body types"), who + ": choose 'All body types'");
+            CHECK(visual_picker_shown_codes().size() == all.size(), who + ": 'All body types' lists everything again");
+            close_picker();
+            open_picker(t, rec, manager);
+            CHECK(visual_picker_shown_codes().size() == all.size(), who + ": a fresh open starts at All");
+            close_picker();
+        }
+
+        // the saved tick: set in the picker, kept over a close / reopen and over a settings reload, then put back
+        const Table* mt = app.db.table("manager");
+        const uint64_t mrec = mt ? app.db.find(*mt, "managerid", 503) : 0;
+        CHECK(mrec != 0, "manager 503 exists");
+        if (mrec == 0) return;
+        looks::body_show_all(false);
+        app.prefs.body_show_all = false;
+        open_picker(mt, mrec, true);
+        const size_t n_default = visual_picker_list_size();
+        CHECK(ui.click("Show all body types##vpallbodies", "###vispicker"), "tick Show all body types");
+        ui.frames(4);
+        const size_t n_all = visual_picker_list_size();
+        CHECK(n_all > n_default && looks::body_show_all() && app.prefs.body_show_all, fmt("ticked: %zu tiles (was %zu), kept in the prefs", n_all, n_default));
+        close_picker();
+        open_picker(mt, mrec, true);
+        CHECK(visual_picker_list_size() == n_all && looks::body_show_all(), fmt("reopened: the tick is still on (%zu tiles)", visual_picker_list_size()));
+        close_picker();
+        looks::body_show_all(false);  // a fresh process starts from the saved layout, not from the in-memory switch
+        app.load_gui_settings();
+        CHECK(looks::body_show_all() && app.prefs.body_show_all, "after reloading the layout file the tick is back on");
+        open_picker(mt, mrec, true);
+        CHECK(ui.click("Show all body types##vpallbodies", "###vispicker"), "untick Show all body types");
+        ui.frames(4);
+        CHECK(visual_picker_list_size() == n_default && !looks::body_show_all() && !app.prefs.body_show_all, fmt("unticked: back to %zu tiles", visual_picker_list_size()));
+        close_picker();
+        app.load_gui_settings();
+        CHECK(!looks::body_show_all(), "the unticked state is saved too");
         ui.extra_draw = nullptr;
         ui.frames(2);
     });
