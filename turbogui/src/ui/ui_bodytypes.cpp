@@ -119,8 +119,11 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
                        t.name == "players" ? "player" : "manager");
     if (ImGui::IsWindowAppearing()) {
         g_gal.copy_text[0] = 0;
+        g_gal.allow_risky = false;  // 5.0c E8 re-review: a tick left by a Body type window (maybe of another record) never carries over
         ImGui::SetKeyboardFocusHere();
     }
+    // the same warning and box as the Body type window, here where the copy happens (the old gallery showed both beside its copy button)
+    bodytype_risky_box(app, t, rec);
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##btcopyflt", "player name (at least 2 letters)", g_gal.copy_text, sizeof(g_gal.copy_text));
     std::string q = g_gal.copy_text;

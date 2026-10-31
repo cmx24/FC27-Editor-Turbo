@@ -187,14 +187,29 @@ static void test_bodytypes_ui(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(!visual_picker_ui().open, "picker closed");
         // 5.0c review: the box never carries over - a new Body type window (same or another record) starts unticked
-        CHECK(bodytype_allow_risky(), "the tick is still there after the window closed (the copy popup uses it)");
+        CHECK(bodytype_allow_risky(), "the tick is still there after the window closed (state only: the next window or copy popup resets it)");
         reveal("Body type...##btopen", "##pedit");
         CHECK(ui.click("Body type...##btopen", "##pedit"), "open the Body type window again");
         ui.frames(3);
         CHECK(visual_picker_ui().open && !bodytype_allow_risky(), "a new Body type window starts with the allow box unticked");
+        // 5.0c E8 re-review: a tick left by the window never reaches the copy popup unseen (the popup is outside the window now)
+        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "###vispicker"), "tick the box again");
+        ui.frames(2);
+        CHECK(bodytype_allow_risky(), "ticked again");
         CHECK(ui.click("Cancel##vpcancel", "###vispicker"), "close it again");
         ui.frames(3);
         CHECK(!visual_picker_ui().open, "picker closed again");
+        reveal("Copy body type from player...##btcopybtn", "##pedit");
+        CHECK(ui.click("Copy body type from player...##btcopybtn", "##pedit"), "open the copy picker after a tick in the Body type window");
+        ui.frames(3);
+        CHECK(!bodytype_allow_risky(), "the copy picker starts with the allow box unticked (no tick carried over from the Body type window)");
+        CHECK(ui.find("Allow a player-specific body on this head (untested)##btallow", "Copy body type") != nullptr,
+              "the copy picker shows the warning box itself on a generic head");
+        CHECK(ui.click("Allow a player-specific body on this head (untested)##btallow", "Copy body type"), "tick the box in the copy picker");
+        ui.frames(2);
+        CHECK(bodytype_allow_risky(), "the risky copy stays reachable: the box in the copy picker ticks it");
+        CHECK(ui.click("Close##btcopyclose", "Copy body type"), "close the copy picker");
+        ui.frames(3);
 
         // copy a body type from another player (1001 carries code 2)
         const PlayerRow* src = app.model.player(1001);
