@@ -1,14 +1,14 @@
 // Native tests (2.22 G-squad, brief 2.22-G-squad): the sortable squad table of 2.14 is back on both default pages. Included by test_main.cpp
 // after test_page_team.h; squad_table_test::ui_cases runs inside the UI block (a real App on the simulated game).
 //
-// What is proven here, through the real shell (App::draw_pages, Settings "Use the old pages" OFF), the way a user reaches the pages:
-//   (a) Players > My squad and Team > Players both open on a tab that draws squad_table (the default, non-legacy route);
+// What is proven here, through the real shell (App::draw_pages; 2026-10-31: the one view, "Use the old pages" and Players > My squad are gone), the way a user reaches the pages:
+//   (a) Team > Players (Club > Squad, any club or my club) opens on a tab that draws squad_table;
 //   (b) the table has the six columns Jersey, Player, Pos, OVR, Age, Line-up slot and is Sortable;
 //   (c) a click on Age orders the rows by age (then reverses, then returns to the database order), a click on OVR orders them high to low;
 //   (d) a click on a player's name goes to Players > Edit a player (Page::PlayerEdit) with that player, not through the legacy request_tab;
 //   (e) a Jersey edit writes teamplayerlinks.jerseynumber of that player's row through App::edit (logged, no other row changes);
-//   (f) outside a career My squad shows the club picker and the table of the picked club, never a bare "waiting" line;
-//   (g) the second tab of My squad, Career tools, still holds the five cards (test_page_career.h walks them);
+//   (f) outside a career Team > Players shows the club picker and the table of the picked club, never a bare "waiting" line;
+//   (g) (was: the Career tools tab of My squad; that page went with the Lab on 2026-10-31, test_page_career.h walks the cards);
 //   (h) four more v2.14 capabilities are on the default route: Team > Players > All clubs, Transfers & money > More tools, Managers & staff >
 //       All managers (table), Changes & undo > kept player edits.
 // Cases are named "Squad table: ..." so TURBO_TEST_ONLY="squad table" runs them alone.

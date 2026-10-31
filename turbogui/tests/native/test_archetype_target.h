@@ -295,22 +295,25 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.db.set_int(*pt, rec, "preferredposition1", st_pos, &err) && app.db.set_int(*pt, rec, "overallrating", formula + 1, &err),
               "2002 as a striker, stored overall = formula + 1: " + err);
         app.model.refresh_player(pid, app.today());
+        // 2026-10-31 (5.0c menus step 6): the classic tab (##plist / ##pedit / ##attr) is gone; the bar is the Player type & tier card of
+        // Players > Player > Attributes & roles (ui_player_profile.cpp: g_ability_archetype_bar), the list is the ##select pane, the editor ##editor
         CHECK(ui.click("Players"), "Players tab");
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), "2002"), "search 2002");
-        CHECK(ui.click("2002", "##plist") && app.sel_player == pid, "row 2002");
-        CHECK(ui.click("Attributes", "##pedit"), "Attributes tab");
+        CHECK(ui.click("###pe_ability"), "Attributes & roles tab");
+        ui.frames(2);
+        CHECK(ui.type_into(ui.find("##psearch", "##select"), "2002"), "search 2002");
+        CHECK(ui.click("2002", "##select") && app.sel_player == pid, "row 2002");
         ui.frames(2);
         const turbo::ArchetypeUiState& st = turbo::archetype_ui_state();
         CHECK(st.playerid == pid && st.position == st_pos && st.target == formula + 1 && !st.target_typed,
               fmt("defaults: his position, his stored overall (%d, position %d)", st.target, st.position));
-        CHECK(ui.find("##archtarget", "##attr") && ui.find("##archpos", "##attr") && ui.find("###archpreview", "##attr"),
+        CHECK(ui.find("##archtarget", "##editor") && ui.find("##archpos", "##editor") && ui.find("###archpreview", "##editor"),
               "role, position, target box and the preview button");
 
         // Poacher at 80
-        CHECK(ui.click("##arch", "##attr") && ui.click("Poacher", "##Combo"), "pick Poacher");
+        CHECK(ui.click("##arch", "##editor") && ui.click("Poacher", "##Combo"), "pick Poacher");
         CHECK(st.arch == index_of("Poacher"), "Poacher chosen");
-        CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "80") && st.target == 80 && st.target_typed, "target 80 typed");
-        CHECK(ui.click("###archpreview", "##attr"), "preview");
+        CHECK(ui.type_into(ui.find("##archtarget", "##editor"), "80") && st.target == 80 && st.target_typed, "target 80 typed");
+        CHECK(ui.click("###archpreview", "##editor"), "preview");
         ui.frames(2);
         CHECK(st.pend_playerid == pid && st.pend.ok && st.pend.target == 80 && ov::compute_overall(st_pos, st.pend.attrs) == 80 &&
                   ar::keeps_shape(ar::all()[ix(st.pend_arch)], st.pend.attrs) && st.pend_stored == formula + 1 && st.pend.overall_before == formula,
@@ -333,17 +336,17 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(ui.toast_contains("Player type Poacher at overall 80") && ui.toast_contains("read back"), "toast: applied and read back");
         CHECK(app.bulk_undo.size() == bulk0 + 1 && app.bulk_undo.back().playerid == pid && app.bulk_undo.back().label == st.applied_label,
               "one bulk undo entry: " + st.applied_label);
-        CHECK(ui.find("###archundo", "##attr") != nullptr, "Undo shown after Apply");
-        CHECK(ui.click("###archundo", "##attr"), "Undo");
+        CHECK(ui.find("###archundo", "##editor") != nullptr, "Undo shown after Apply");
+        CHECK(ui.click("###archundo", "##editor"), "Undo");
         ui.frames(2);
         CHECK(db_attrs(app, *pt, rec) == orig && app.db.get_int(*pt, rec, "overallrating") == formula + 1, "Undo: attributes and overall back");
-        CHECK(ui.find("###archundo", "##attr") == nullptr, "Undo gone once used");
+        CHECK(ui.find("###archundo", "##editor") == nullptr, "Undo gone once used");
 
         // unreachable: a full-back's overall cannot be 1 (his formula's bonus): refused, the closest offered
-        CHECK(ui.click("##archpos", "##attr") && ui.click("RB", "##Combo") && st.position == 3 && st.position_picked, "position RB");
-        CHECK(ui.click("##arch", "##attr") && ui.click("Defensive Full-back", "##Combo"), "pick Defensive Full-back");
-        CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "1") && st.target == 1, "target 1");
-        CHECK(ui.click("###archpreview", "##attr"), "preview");
+        CHECK(ui.click("##archpos", "##editor") && ui.click("RB", "##Combo") && st.position == 3 && st.position_picked, "position RB");
+        CHECK(ui.click("##arch", "##editor") && ui.click("Defensive Full-back", "##Combo"), "pick Defensive Full-back");
+        CHECK(ui.type_into(ui.find("##archtarget", "##editor"), "1") && st.target == 1, "target 1");
+        CHECK(ui.click("###archpreview", "##editor"), "preview");
         ui.frames(2);
         CHECK(!st.pend.ok && st.pend.closest == 3 && !st.pend.why.empty(), fmt("refused, closest %d: %s", st.pend.closest, st.pend.why.c_str()));
         CHECK(ui.click("Apply##arch", "Apply archetype"), "click the disabled Apply");
@@ -355,10 +358,10 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(db_attrs(app, *pt, rec) == orig, "Cancel: nothing written");
 
         // another position, made his: Stopper as a CB at 70 writes preferredposition1 too
-        CHECK(ui.click("##archpos", "##attr") && ui.click("CB", "##Combo") && st.position == 5, "position CB");
-        CHECK(ui.click("##arch", "##attr") && ui.click("Stopper", "##Combo"), "pick Stopper");
-        CHECK(ui.type_into(ui.find("##archtarget", "##attr"), "70"), "target 70");
-        CHECK(ui.click("###archpreview", "##attr"), "preview");
+        CHECK(ui.click("##archpos", "##editor") && ui.click("CB", "##Combo") && st.position == 5, "position CB");
+        CHECK(ui.click("##arch", "##editor") && ui.click("Stopper", "##Combo"), "pick Stopper");
+        CHECK(ui.type_into(ui.find("##archtarget", "##editor"), "70"), "target 70");
+        CHECK(ui.click("###archpreview", "##editor"), "preview");
         ui.frames(2);
         CHECK(st.pend.ok && st.pend_position == 5 && st.pend_his_position == st_pos && st.adopt_position, "preview for CB, adopt on by default");
         CHECK(ui.find("Make CB his main position (now ST)##archadopt", "Apply archetype") != nullptr, "the adopt checkbox");
@@ -367,13 +370,13 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.db.get_int(*pt, rec, "preferredposition1") == 5 && app.db.get_int(*pt, rec, "overallrating") == 70 &&
                   ov::compute_overall(5, db_attrs(app, *pt, rec)) == 70,
               "now a CB with overall 70 by the CB formula");
-        CHECK(ui.click("###archundo", "##attr"), "Undo");
+        CHECK(ui.click("###archundo", "##editor"), "Undo");
         CHECK(db_attrs(app, *pt, rec) == orig && app.db.get_int(*pt, rec, "preferredposition1") == st_pos &&
                   app.db.get_int(*pt, rec, "overallrating") == formula + 1,
               "Undo: attributes, position and overall back");
 
         // the same, his position kept: his stored overall follows what the ST formula moved (the 2.1 follow rule)
-        CHECK(ui.click("###archpreview", "##attr"), "preview again");
+        CHECK(ui.click("###archpreview", "##editor"), "preview again");
         ui.frames(2);
         CHECK(ui.click("Make CB his main position (now ST)##archadopt", "Apply archetype") && !st.adopt_position, "adopt off");
         const int follow_want = ov::follow(st_pos, orig, st_pos, st.pend.attrs, formula + 1);
@@ -382,21 +385,21 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(app.db.get_int(*pt, rec, "preferredposition1") == st_pos && app.db.get_int(*pt, rec, "overallrating") == follow_want &&
                   ov::compute_overall(5, db_attrs(app, *pt, rec)) == 70,
               fmt("still a ST, stored overall %lld (follow %d), the CB formula 70", static_cast<long long>(app.db.get_int(*pt, rec, "overallrating")), follow_want));
-        CHECK(ui.click("###archundo", "##attr") && db_attrs(app, *pt, rec) == orig &&
+        CHECK(ui.click("###archundo", "##editor") && db_attrs(app, *pt, rec) == orig &&
                   app.db.get_int(*pt, rec, "overallrating") == formula + 1, "Undo");
         // a broken stored overall (OVR-1): the default target is the formula's value
-        CHECK(ui.click("##archpos", "##attr") && ui.click("ST", "##Combo") && st.position == st_pos && !st.position_picked, "his position again");
+        CHECK(ui.click("##archpos", "##editor") && ui.click("ST", "##Combo") && st.position == st_pos && !st.position_picked, "his position again");
         CHECK(app.db.set_int(*pt, rec, "overallrating", 1, &err), "stored overall 1");
         app.model.refresh_player(pid, app.today());
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), "1002") && ui.click("1002", "##plist") && app.sel_player == 1002, "another player");
+        CHECK(ui.type_into(ui.find("##psearch", "##select"), "1002") && ui.click("1002", "##select") && app.sel_player == 1002, "another player");
         ui.frames(2);
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), "2002") && ui.click("2002", "##plist") && app.sel_player == pid, "back to 2002");
+        CHECK(ui.type_into(ui.find("##psearch", "##select"), "2002") && ui.click("2002", "##select") && app.sel_player == pid, "back to 2002");
         ui.frames(2);
         CHECK(!st.target_typed && st.target == formula, fmt("broken stored overall: the default target is the formula's %d (%d)", formula, st.target));
         CHECK(app.db.set_int(*pt, rec, "preferredposition1", pos_orig, &err) && app.db.set_int(*pt, rec, "overallrating", ovr_orig, &err),
               "2002 as he was: " + err);
         app.model.refresh_player(pid, app.today());
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
+        CHECK(ui.type_into(ui.find("##psearch", "##select"), ""), "search cleared");
         (void)mem;
         (void)kMb;
     });
@@ -410,12 +413,14 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         ui.frames(3);
         const Table* pt = app.db.table("players");
         if (!pt) return;
-        CHECK(ui.click("Players"), "Players tab");
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), "1002"), "search 1002");
-        CHECK(ui.click("1002", "##plist") && app.sel_player == 1002, "template 1002");
+        // 2026-10-31 (5.0c menus step 6): the classic tab (##plist / ##pedit) is gone; the template is picked on Players > Create player's own
+        // list (rows "<name>###pc<id>", ui_player_creation.cpp) and the Create player... button is in that page's editor panel
+        app.go(turbo::shell::Page::CreatePlayer);
+        ui.frames(4);
+        CHECK(ui.click("###pc1002") && app.sel_player == 1002, "template 1002");
         const uint64_t rec = app.db.find(*pt, "playerid", 1002);
         const Attrs tmpl = db_attrs(app, *pt, rec);
-        CHECK(ui.click("Create player...", "##pedit"), "create dialog");
+        CHECK(ui.click("Create player..."), "create dialog");
         ui.frames(2);
         CHECK(ui.find("##carch", "##pcreate") == nullptr, "the old Archetype box is gone: one Player type picker");
         CHECK(ui.type_into(ui.find("##first", "##pcreate"), "Arch"), "first name");
@@ -446,7 +451,7 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         CHECK(ui.click("Cancel"), "cancel the command");
 
         // unreachable in the dialog: a full-back at 1 - the review says so, Create stays on the form, "Use N" sets the closest
-        CHECK(ui.click("Create player...", "##pedit"), "create dialog again");
+        CHECK(ui.click("Create player..."), "create dialog again");
         ui.frames(2);
         CHECK(ui.click("##cparch", "##pcreate") && ui.click("Defensive Full-back", "##Combo"), "player type Defensive Full-back");
         CHECK(ui.type_into(ui.find("##cptarget", "##pcreate"), "1"), "wanted overall 1");
@@ -463,7 +468,6 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         }
         if (ui.find("Cancel##cpop", "Fill the whole player")) CHECK(ui.click("Cancel##cpop", "Fill the whole player"), "close the review");
         CHECK(ui.click("Cancel##pcreate", "##pcreate"), "close the dialog");
-        CHECK(ui.type_into(ui.find("##psearch", "##plist"), ""), "search cleared");
     });
 }
 

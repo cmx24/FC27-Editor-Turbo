@@ -103,15 +103,14 @@ static void run_ui(App& app, Ui& ui, SimMemory& mem, uint64_t kMb) {
         auto open = [&]() {
             if (ui.find("Cancel##pcreate", "##pcreate")) ui.click("Cancel##pcreate", "##pcreate");
             ui.frames(2);
-            app.request_tab = 0;
-            ui.frames(2);
-            if (!ui.click(std::to_string(tpl), "##plist")) app.sel_player = tpl;
-            ui.frames(2);
-            for (ImGuiWindow* w : GImGui->Windows)
-                if (std::string(w->Name).find("##pedit") != std::string::npos) ImGui::SetScrollY(w, 0.0f);
+            // 2026-10-31 (5.0c menus step 6): the classic tab (##plist / ##pedit) is gone; the template is picked on Players > Create player's
+            // own list (rows "<name>###pc<id>") and the Create player... button is in that page's editor panel
+            app.go(turbo::shell::Page::CreatePlayer);
+            ui.frames(4);
+            CHECK(ui.click("###pc" + std::to_string(tpl)), "template row on the Create player page");
             ui.frames(2);
             CHECK(app.sel_player == tpl, "template selected");
-            CHECK(ui.click("Create player...", "##pedit"), "create dialog");
+            CHECK(ui.click("Create player..."), "create dialog");
             ui.frames(2);
         };
         open();

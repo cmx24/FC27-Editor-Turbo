@@ -271,11 +271,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
         game_settings_reset();
         app.request_tab = 7;
         ui.frames(3);
-        if (!game_settings_view_state().drawn) {
-            parity_test::scroll_into_view(ui, "Game settings file and slider values (Advanced)##gpadv");
-            CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv"), "open the Game settings section of Gameplay presets");
-            ui.frames(3);
-        }
+        CHECK(game_settings_view_state().drawn, "Gameplay presets draws the Game settings view itself (2026-10-31: the ##gpadv section is gone)");
         const GameSettingsViewState& s = game_settings_view_state();
         const ItemRec* box = ui.find("##gsname");
         CHECK(box && ui.type_into(box, "Live"), "name typed");
@@ -374,11 +370,7 @@ static void ui_case(App& app, Ui& ui, const fs::path& le) {
             game_settings_reset();
             app.request_tab = 7;
             ui.frames(3);
-            if (!game_settings_view_state().drawn) {
-                parity_test::scroll_into_view(ui, "Game settings file and slider values (Advanced)##gpadv");
-                CHECK(ui.click("Game settings file and slider values (Advanced)##gpadv"), "open the Game settings section");
-                ui.frames(3);
-            }
+            CHECK(game_settings_view_state().drawn, "Gameplay presets draws the Game settings view itself (2026-10-31: the ##gpadv section is gone)");
         };
         auto save_as = [&](const char* name) -> Preset {
             const ItemRec* box = ui.find("##gsname");
