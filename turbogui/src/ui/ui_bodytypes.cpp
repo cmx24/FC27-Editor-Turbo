@@ -7,6 +7,7 @@
 #include <filesystem>
 
 #include "app.h"
+#include "modal_size.h"
 #include "imgui.h"
 
 namespace turbo {
@@ -228,11 +229,12 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
 }
 
 static void draw_gallery(App& app, const Table& t, uint64_t rec, bool manager) {
-    ImGui::SetNextWindowSize(ImVec2(S(860.0f), S(560.0f)), ImGuiCond_FirstUseEver);
+    modal_size::set_next("bodytypes", ImVec2(860.0f, 560.0f));  // 5.0c E6: reopens at the size the person left it at
     if (!ImGui::BeginPopupModal("Body types##bt", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
         g_ui.open = false;
         return;
     }
+    modal_size::track("bodytypes", ImVec2(860.0f, 560.0f));
     g_ui.open = true;
     g_ui.shown_generic = g_ui.shown_specific = 0;
     const Catalog& c = bodytype_catalog(app);

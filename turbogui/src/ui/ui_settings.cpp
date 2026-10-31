@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - Settings area, the one page (3.0 track C): Look and feel, Pictures, Show / hide key, Layout (5.0b-B), the connection and
 // health summary (technical details collapsed), the log (collapsed), and at the bottom the switch that shows the Lab and the
 // one for the old pages. The health pieces are the old Status tab's, drawn by ui_tools.cpp.
+#include <cstdio>
+
 #include "app.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
@@ -65,6 +67,15 @@ void draw_layout(App& app) {
     ImGui::PushTextWrapPos(0.0f);  // the sentences wrap in a narrow panel instead of running off its edge
     note("Turbo remembers the size and place of this window, the width of every table column and the panes you drag, and brings them back when the game starts again.");
     if (app.layout.configured()) ImGui::TextDisabled("Layout saved %d time%s since the game started.", app.layout.saves_written(), app.layout.saves_written() == 1 ? "" : "s");
+    {   // 5.0c E6: what the window is now and what is remembered for the next start (tells "never saved" from "saved but not applied" in game)
+        const WindowPrefs& wp = app.prefs.window;
+        char mem[96];
+        if (wp.maximized) std::snprintf(mem, sizeof mem, "full screen");
+        else if (!wp.has_rect) std::snprintf(mem, sizeof mem, "nothing yet (the first-use size)");
+        else std::snprintf(mem, sizeof mem, "%.0f x %.0f at %.0f, %.0f", wp.rect.w, wp.rect.h, wp.rect.x, wp.rect.y);
+        ImGui::TextDisabled("Window now: %.0f x %.0f. Remembered for the next start: %s. Pane widths remembered: %d.", app.main_window_size_.x,
+                            app.main_window_size_.y, mem, static_cast<int>(app.prefs.splits.widths.size()));
+    }
     ImGui::Spacing();
     if (ImGui::Button("Restore window to default###layout_window", ImVec2(0, bh))) app.restore_window_default();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The Turbo window goes back to its first-use size and place, not maximized");

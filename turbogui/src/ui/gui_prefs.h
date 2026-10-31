@@ -238,6 +238,12 @@ struct WindowTracker {
     // this holds, and a later viewport change tries the rectangle again. Cleared by Restore and by a move or resize out of maximized.
     bool fell_back = false;
     int last_frame = -1;  // the Dear ImGui frame the panel was last drawn in: a gap = it was hidden and is shown again (the "window shown" log line)
+    // 5.0c E6 observability: a grab on the panel edge / corner / title bar (kind 1 resize, 2 move) and the rectangle the previous frame had, so the
+    // log can say once when a grab ends what it did ("window gesture: ...")
+    int gesture = 0;
+    WindowRect gesture_from;
+    WindowRect last_rect;
+    bool have_last = false;
 
     // Does the window need to be placed this frame?
     bool need_apply(bool maximized, float dw, float dh) const {
@@ -249,6 +255,13 @@ struct WindowTracker {
         disp_w = dw;
         disp_h = dh;
         have_seen = false;  // the next observation is the baseline, not a change
+    }
+    // 5.0c E6: the panel is being hidden while a change still waits out its debounce: true = write the rectangle in `seen` now (once), so the
+    // toggle key right after a resize does not lose it. Nothing waiting = false.
+    bool take_pending() {
+        if (!pending_save || !have_seen) return false;
+        pending_save = false;
+        return true;
     }
     // Called every frame the non-maximized window is drawn; true = write gui_settings.json now. Never per frame: the rectangle must
     // change, then rest for kDebounce seconds with the mouse up (a drag or a resize in progress changes it every frame).
@@ -265,6 +278,15 @@ struct WindowTracker {
 // hidden. Never per frame. `on_screen` is the panel's rectangle, `stored` + `fell_back` what the file holds (GuiPrefs::save), and the
 // verdict is window_rect_usable at start for that stored rectangle on the dw x dh game screen (the overlay's work area), with its reason.
 //   window placed: 2560x1600 at 0,0, maximized; game screen 2560x1600; stored 2560x1600 at 17,5, maximized yes; stored rectangle usable
+// 5.0c E6: one line when a grab on the panel ends: what the person did (resize or move), from where to where. Never per frame.
+inline std::string window_gesture_line(int kind, const WindowRect& from, const WindowRect& to, bool from_full, bool mouse_down) {
+    char buf[256];
+    std::snprintf(buf, sizeof buf, "window gesture: %s %.0fx%.0f at %.0f,%.0f -> %.0fx%.0f at %.0f,%.0f; mouse down after release: %s; was %s",
+                  kind == 2 ? "move" : "resize", from.w, from.h, from.x, from.y, to.w, to.h, to.x, to.y, mouse_down ? "yes" : "no",
+                  from_full ? "maximized" : "not maximized");
+    return buf;
+}
+
 inline std::string window_log_line(const char* what, const WindowRect& on_screen, bool on_screen_maximized, float dw, float dh,
                                    const WindowPrefs& stored, bool fell_back) {
     char buf[384];

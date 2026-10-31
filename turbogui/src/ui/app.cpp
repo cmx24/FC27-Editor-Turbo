@@ -2082,9 +2082,27 @@ void App::draw() {
     tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
     looks::tick_looks_studio(*this);  // 2.17 looks U: a picture answer that arrives after the person left the page frees the capture service
 
-    layout.frame(visible, now);  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden
+    layout.frame(visible, now, ImGui::IsMouseReleased(0));  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden; 5.0c E6: and one when a drag ends
 
-    if (!visible) return;
+    if (!visible) {
+        // 5.0c E6 (Cassio 10-30: "the window size and the column widths are not saved"): nothing below runs while the panel is hidden, so a
+        // window change still inside its 0.6 s debounce and a pane width not yet written to gui_settings.json would wait for the next time
+        // it is shown, which never comes if the game closes first. Write them now, once.
+        WindowPrefs& hw = prefs.window;
+        WindowTracker& ht = prefs.window_rt;
+        bool dirty = false;
+        if (ht.take_pending() && !hw.maximized) {
+            hw.rect = ht.seen;
+            hw.has_rect = true;
+            dirty = true;
+            const std::string wl = window_log_line("window saved (panel hidden)", ht.seen, false, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, hw, ht.fell_back);
+            log(wl);
+            if (log_hook) log_hook(wl);
+        }
+        if (prefs.splits.take_dirty()) dirty = true;
+        if (dirty && !save_gui_settings()) notify("cannot save the panel size", true);
+        return;
+    }
 
     // First use: 1180x760 or 90% of the screen, whichever is smaller; never larger than the screen (smaller windowed
     // resolutions, or a saved layout from a bigger screen)
@@ -2194,6 +2212,27 @@ void App::draw() {
             }
             wtrack.last_frame = frame_no;
         }
+        {   // 5.0c E6: a grab on the panel (edge, corner, title bar) is logged once when it ends: with this line in turbo_gui.log the next
+            // session can tell "the grab never happened" (the maximized edge cannot be caught) from "the grab happened and was not saved"
+            ImGuiWindow* gw = ImGui::GetCurrentWindow();
+            ImGuiContext& gctx = *ImGui::GetCurrentContext();
+            int kind = gw->ResizeBorderHeld != -1 ? 1 : 0;
+            for (int n = 0; n < 4 && kind == 0; ++n)
+                if (gctx.ActiveId != 0 && gctx.ActiveId == ImGui::GetWindowResizeCornerID(gw, n)) kind = 1;
+            if (kind == 0 && gctx.ActiveId != 0 && gctx.ActiveId == gw->MoveId) kind = 2;
+            if (kind != 0 && wtrack.gesture == 0) {
+                wtrack.gesture = kind;
+                wtrack.gesture_from = wtrack.have_last ? wtrack.last_rect : cur;
+            } else if (kind == 0 && wtrack.gesture != 0) {
+                const std::string gl = window_gesture_line(wtrack.gesture, wtrack.gesture_from, cur, window_is_full(wtrack.gesture_from, ds.x, ds.y),
+                                                           ImGui::IsMouseDown(0));
+                wtrack.gesture = 0;
+                log(gl);
+                if (log_hook) log_hook(gl);
+            }
+            wtrack.last_rect = cur;
+            wtrack.have_last = true;
+        }
         if (wprefs.maximized) {
             // moved or resized from code (a test, another feature): it is no longer maximized
             if (!window_is_full(cur, ds.x, ds.y) && !wtrack.apply_pending && win_known) {
@@ -2207,7 +2246,17 @@ void App::draw() {
                 wtrack.pending_save = true;
                 wtrack.changed_at = now;
             }
-        } else if (wtrack.observe(cur, now, ImGui::IsMouseDown(0))) {
+        } else if ([&] {
+            // 5.0c E6 fix round: a change waiting out its debounce is also written on the frame the mouse button goes up (the drag has ended),
+            // so a game killed 0.2 s after a resize (the game is killed, not closed: no save at exit) keeps the new size. observe() is unchanged
+            // (its debounce is pinned by test_window_settings.h); this only adds the release edge.
+            bool commit = wtrack.observe(cur, now, ImGui::IsMouseDown(0));
+            if (!commit && ImGui::IsMouseReleased(0) && wtrack.pending_save && wtrack.have_seen) {
+                wtrack.pending_save = false;
+                commit = true;
+            }
+            return commit;
+        }()) {
             wprefs.rect = cur;  // the last place and size the person left it at (written once, not per frame)
             wprefs.has_rect = true;
             const bool saved = save_gui_settings();
