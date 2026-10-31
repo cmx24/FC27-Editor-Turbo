@@ -226,7 +226,6 @@ static void run() {
         {
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = "BUILD-A";
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.log_line = [&](const std::string& l) { log += l + "\n"; };
             CHECK(rt.activate(kClub, 0, ks::Mode::Swap, &err), "switched on: " + err);
             rt.wait_idle();
@@ -235,14 +234,13 @@ static void run() {
                   "switching on planned the kit and published from its plan: " + st.message);
             CHECK(log.find("kit swap: planned team 95 home in") != std::string::npos && log.find("kit swap: table from plans") != std::string::npos, "logged: " + log);
         }
-        const pfs::path plan = dir / "swap_plan_4.bin";  // Runtime::plan_path: the 4.0 plan file name (5.0c base-32-red: the test still wrote swap_plan.bin, so the damaged-plan and load_swap_plan checks hit a file the Runtime never reads)
+        const pfs::path plan = dir / "swap_plan.bin";
         const std::string state_before = read_text(w.le / "turbo_output" / "kits" / "swap_state.json");
         const std::string plan_before = read_text(plan);
         auto boot = [&](const std::string& build, const std::string& expect_reason, const std::string& expect_why, const std::string& what) {
             std::string blog;
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = build;
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.log_line = [&](const std::string& l) { blog += l + "\n"; };
             rt.start();
             rt.wait_idle();
@@ -284,7 +282,6 @@ static void run() {
             std::string blog;
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = "BUILD-A";
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.start();
             rt.wait_idle();
             const ks::Status st = rt.status();
@@ -315,7 +312,6 @@ static void run() {
             std::string blog;
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = "BUILD-A";
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.log_line = [&](const std::string& l) { blog += l + "\n"; };
             rt.start();
             rt.wait_idle();
@@ -327,7 +323,6 @@ static void run() {
         {   // the same files again: from the plan, served
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = "BUILD-A";
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.start();
             rt.wait_idle();
             const ks::Status st = rt.status();
@@ -340,7 +335,6 @@ static void run() {
         {   // a plan made for another build, then Plan it now: planned and served
             ks::Runtime rt(w.le, w.root, oodle);
             rt.game_build = "BUILD-C";
-            rt.auto_plan = false;  // 2.20 first publish: 4.0 plans a stale / missing plan in the background (test_auto_plan, test_kit_swap.cpp)
             rt.start();
             rt.wait_idle();
             CHECK(rt.status().blocks == 0, "another build: off");
