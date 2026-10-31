@@ -35,3 +35,14 @@ folder).
 
 spoken_por_br.txt here comes from the FC 26 PT-BR generic surname bank (1,703 segments, exported with the FIFA Editor
 Tool in 2026-08); FC 27 keeps the commentary ids of commentarynames, but check a few in game before relying on it.
+
+Coverage check (does Turbo know every name the commentary can speak?): from the repository, with the extracted wavs
+(a folder, flat or in generic\ real\ real_link\ real_high\ subfolders) and the four FIFA Editor Tool selection exports
+"p<BANK> Selection.xlsx" (pSIMPLE_SURNAME, pPLAYER_NAMES_SIMPLE, pPLAYER_NAMES_LINK, pPLAYER_NAMES_HIGH) of the language:
+
+    python turbo/tools/callname_coverage.py "<wav folder>" "<folder of the 4 xlsx>" "<Live Editor>\turbo\callnames\masters\<lang>.json" --spoken "<Live Editor>\turbo\callnames\spoken_<lang>.txt" [--db <folder of commentarynames.txt, playernames.txt, playernamemap.txt>]
+
+It prints, per bank, the game's set (wav + selection row), Turbo's set and both differences (exit code 1 when Turbo
+misses one). Add --write-spoken spoken_<lang>.txt and --write-master <lang>.json to rebuild both from the game's data.
+spoken_eng_us.txt (4,844 ids) was rebuilt that way on 2026-10-31 from the FC 27 eng_us wavs + selection tables; its
+17 generic names above 965000 (980001..980034) are known from the master list.
