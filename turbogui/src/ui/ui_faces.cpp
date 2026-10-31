@@ -24,6 +24,7 @@
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
 #include "ui_bodytypes.h"
+#include "ui_face_tile.h"
 #include "ui_faces3d_gate.h"
 #include "ui_visual_picker.h"
 
@@ -1474,6 +1475,7 @@ struct Head3d {
     int32_t teamid = -1;  // the club, passed as the capture's second id like the Miniface editor does (-1 = none)
     std::string label;
     bool in_batch = false;  // counted by "Render all filtered heads" when it finishes
+    bool game_head = false;  // 5.0c E7: a hidden game head, requested through the manager route (head id) and cached as m_<headid>
 };
 struct Render3d {
     std::deque<Head3d> queue;  // "Render all filtered heads", in order
@@ -1487,6 +1489,11 @@ struct Render3d {
     bool batch = false;                        // "Render all filtered heads" running
     size_t batch_total = 0, batch_done = 0, failed = 0, rendered = 0;
     std::string note;
+    // 5.0c E7: the hidden heads' render route is switched off for the session when the first kBreakerFails all failed (a head no row
+    // uses may not render at all: unproven until the Tester's probe). Re-armed when the catalog changes and by "Render all".
+    face_tile::Breaker game_br;
+    uint64_t game_br_gen = 0;
+    bool game_br_log = false;  // the trip is logged by the next tick (head3d_failed has no App)
 };
 Render3d g_r3d;
 constexpr size_t kVisibleQueueMax = 3 * capture::kMaxPlayersPerRequest;  // heads on screen waiting
@@ -1502,6 +1509,18 @@ static fs::path face3d_file(App& app, bool manager, int64_t id) {
 }
 // The id the game renders for a head of the chooser: players their playerid, managers their head id
 static int64_t head3d_id(const Face& f) { return f.manager ? f.headassetid : f.id; }
+// 5.0c E7: a hidden game head lives in the manager key space (m_<headid>.dds, head3d_key(true, id)) everywhere: its cache file, its
+// fail count and its request. A hidden head's id can equal a playerid, so p_ would collide; and a head a manager row later uses is
+// then already cached.
+static bool face_in_m(const Face& f) { return f.manager || f.game_head; }
+// The hidden-head breaker, re-armed whenever the catalog changed (a reload, another game build)
+static face_tile::Breaker& game_breaker() {
+    if (g_r3d.game_br_gen != g_heads_cat_gen) {
+        g_r3d.game_br.reset();
+        g_r3d.game_br_gen = g_heads_cat_gen;
+    }
+    return g_r3d.game_br;
+}
 
 static bool face3d_cached(App& app, bool manager, int64_t id) {
     const int64_t k = head3d_key(manager, id);
@@ -1539,16 +1558,21 @@ static bool capture_usable(App& app) {
 }
 
 static void queue_head3d(App& app, const Face& f, bool front) {
-    if (f.game_head) return;  // the capture renders a player by playerid: a game head has no player to render
+    // 5.0c E7: a hidden game head is asked through the manager route (its head id, manager = true, no club) unless the breaker is off
+    if (f.game_head && game_breaker().off) return;
+    const bool inm = face_in_m(f);
     const int64_t id = head3d_id(f);
-    if (id <= 0 || face3d_cached(app, f.manager, id)) return;
-    const int64_t k = head3d_key(f.manager, id);
+    if (id <= 0 || face3d_cached(app, inm, id)) return;
+    const int64_t k = head3d_key(inm, id);
     if (head3d_given_up(k) || head3d_inflight(k)) return;
     if (front ? g_r3d.fronted.count(k) != 0 : g_r3d.queued.count(k) != 0) return;
     Head3d h;
-    h.manager = f.manager;
+    h.manager = inm;
+    h.game_head = f.game_head;
     h.id = static_cast<int32_t>(id);
-    if (f.manager) {
+    if (f.game_head) {
+        // teamid stays -1
+    } else if (f.manager) {
         if (const ManagerRow* m = find_manager(app, f.id); m && m->teamid > 0) h.teamid = static_cast<int32_t>(m->teamid);
     } else if (const PlayerRow* pr = app.model.player(f.id); pr && pr->club > 0) {
         h.teamid = static_cast<int32_t>(pr->club);
@@ -1603,11 +1627,39 @@ static bool save_head3d(App& app, const Head3d& h, const Rgba& img, std::string*
 }
 
 // A head's render failed: one more try at the end of "Render all filtered heads", else counted as failed
+// 5.0c E7: the breaker tripped: the hidden heads still waiting are dropped (they would only add failures)
+static void drop_game_heads() {
+    size_t dropped = 0;
+    for (auto it = g_r3d.queue.begin(); it != g_r3d.queue.end();) {
+        if (it->game_head) {
+            g_r3d.queued.erase(head3d_key(it->manager, it->id));
+            it = g_r3d.queue.erase(it);
+            ++dropped;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = g_r3d.front.begin(); it != g_r3d.front.end();) {
+        if (it->game_head) {
+            g_r3d.fronted.erase(head3d_key(it->manager, it->id));
+            it = g_r3d.front.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    g_r3d.batch_total -= std::min(dropped, g_r3d.batch_total);
+}
+
 static void head3d_failed(const Head3d& h, const std::string& why) {
     const int64_t k = head3d_key(h.manager, h.id);
     const int n = ++g_r3d.fails[k];
     g_r3d.note = h.label + ": " + why;
-    if (h.in_batch && g_r3d.batch && n < kMaxHeadFails && !g_r3d.queued.count(k)) {
+    const bool tripped = h.game_head && game_breaker().failure();
+    if (tripped) {
+        g_r3d.game_br_log = true;
+        drop_game_heads();
+    }
+    if (!tripped && h.in_batch && g_r3d.batch && n < kMaxHeadFails && !g_r3d.queued.count(k)) {
         g_r3d.queue.push_back(h);
         g_r3d.queued.insert(k);
         return;
@@ -1663,6 +1715,11 @@ static std::vector<Head3d> next_heads3d(App& app, size_t max) {
 // Every frame (App::draw): collect finished renders (a couple per frame), or send the next request (never waits)
 void tick_faces3d(App& app) {
     capture::CaptureService* svc = app.capture.get();
+    if (g_r3d.game_br_log) {
+        g_r3d.game_br_log = false;
+        app.log("faces: the game did not render the first " + std::to_string(face_tile::kBreakerFails) +
+                " hidden heads asked of it: Turbo stops asking for hidden heads this session (a new catalog or Render all re-arms it)");
+    }
     // 2.20: the minifaces of heads given in a career (their copies need no service; a render in flight owns it)
     if (!g_mini.empty()) {
         const bool free = g_r3d.inflight.empty() && !faces3d_preview_pending() && !*bodytype_thumbs_busy_text();
@@ -1688,6 +1745,7 @@ void tick_faces3d(App& app) {
             std::string err;
             if (r.ok && save_head3d(app, h, r.image, &err)) {
                 ++g_r3d.rendered;
+                if (h.game_head) game_breaker().success();
                 g_r3d.fails.erase(head3d_key(h.manager, h.id));
                 if (h.in_batch) ++g_r3d.batch_done;
             } else {
@@ -1785,19 +1843,103 @@ static bool face3d_cell(App& app, const fs::path& file, float cell, const std::s
     return clicked;
 }
 
-// A grid cell for a head with no picture (a game head the game ships no miniface for); true when clicked
-static bool no_picture_cell(float cell, const std::string& caption, const char* id) {
+// ---- 5.0c E7: tiles without a picture. Never the words "no picture": a head being rendered shows a spinner, one that will not be
+// rendered shows its initials and the reason (short on the tile, whole in the tooltip).
+struct TileWhy {
+    std::string brief, full;
+};
+static TileWhy unavailable_why(bool use3d, bool breaker_off, bool given_up) {
+    if (!use3d)
+        return {"3D off", "The game ships no picture for this head, and 3D heads are switched off in this session, so it cannot be previewed here."};
+    if (breaker_off)
+        return {"can't render",
+                "The game did not render the first hidden heads Turbo asked for, so Turbo stopped asking for this session. The head can still be given."};
+    if (given_up) return {"render failed", "The game could not render this head (tried twice), so there is no preview. The head can still be given."};
+    return {"no preview", "The game ships no picture for this head."};
+}
+
+// "Hidden heads" -> text cut with "..." to max_w
+static std::string fit_text(const char* s, float max_w) {
+    std::string t = s;
+    if (ImGui::CalcTextSize(t.c_str()).x <= max_w) return t;
+    const float dots = ImGui::CalcTextSize("...").x;
+    while (!t.empty() && ImGui::CalcTextSize(t.c_str()).x + dots > max_w) {
+        t.pop_back();
+        while (!t.empty() && (static_cast<unsigned char>(t.back()) & 0xC0) == 0x80) t.pop_back();
+    }
+    return t + "...";
+}
+
+// A grid cell with the head's initials (a spinner ring around them while a render is on its way) and a short line under them;
+// true when clicked
+static bool no_picture_cell(float cell, const std::string& caption, const char* id, const std::string& init, const std::string& line1, bool spinner) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float line = ImGui::GetTextLineHeightWithSpacing();
     const bool clicked = ImGui::InvisibleButton(id, ImVec2(cell, cell + line));
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p, ImVec2(p.x + cell, p.y + cell), ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_HeaderHovered : ImGuiCol_FrameBg));
-    const char* txt = "no picture";
-    const ImVec2 ts = ImGui::CalcTextSize(txt);
-    dl->AddText(ImVec2(p.x + (cell - ts.x) * 0.5f, p.y + (cell - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), txt);
+    const float fs = ImGui::GetFontSize() * 1.8f;
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, 10000.0f, 0.0f, init.c_str());
+    const ImVec2 mid(p.x + cell * 0.5f, p.y + cell * 0.46f);
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(mid.x - ts.x * 0.5f, mid.y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), init.c_str());
+    if (spinner) {
+        const float a0 = static_cast<float>(ImGui::GetTime()) * 5.0f;
+        dl->PathClear();
+        dl->PathArcTo(mid, cell * 0.30f, a0, a0 + 4.2f, 24);
+        dl->PathStroke(ImGui::GetColorU32(ImGuiCol_PlotHistogram), S(3.0f));
+    }
+    if (!line1.empty()) {
+        const std::string t = fit_text(line1.c_str(), cell - S(8.0f));
+        const ImVec2 tw = ImGui::CalcTextSize(t.c_str());
+        dl->AddText(ImVec2(p.x + (cell - tw.x) * 0.5f, p.y + cell - tw.y - S(4.0f)), ImGui::GetColorU32(ImGuiCol_Text), t.c_str());
+    }
     const ImVec4 clip(p.x, p.y + cell, p.x + cell, p.y + cell + line);
     dl->AddText(nullptr, 0.0f, ImVec2(p.x + 2.0f, p.y + cell + 1.0f), ImGui::GetColorU32(ImGuiCol_Text), caption.c_str(), nullptr, 0.0f, &clip);
     return clicked;
+}
+
+// The chips of a tile (Hidden, name match, 3D pending / failed, HQ): one placement (ui_face_tile.h), each on its own backing so
+// two never overlap and the text keeps 4.5:1 whatever picture is under it. Returns the layout (the native test reads it).
+static std::vector<face_tile::BadgeRect> draw_tile_badges(const ImVec2& cp, float cell, const std::vector<face_tile::BadgeKind>& kinds,
+                                                          std::vector<float>* drawn_w = nullptr) {
+    using namespace face_tile;
+    BadgeMetrics m;
+    m.cell = cell;
+    m.line_h = ImGui::GetTextLineHeight();
+    m.pad = S(4.0f);
+    m.margin = S(3.0f);
+    m.gap = S(2.0f);
+    m.plus_w = ImGui::CalcTextSize("+9").x;
+    std::vector<BadgeIn> in;
+    for (BadgeKind k : kinds) in.push_back({k, ImGui::CalcTextSize(badge_text(k)).x});
+    const std::vector<BadgeRect> rects = layout_badges(m, in);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    for (const BadgeRect& r : rects) {
+        const ChipColors cc = chip_colors(r.plus ? BadgeKind::RenderPending : r.kind);
+        const ImVec2 a(cp.x + r.x, cp.y + r.y), b(a.x + r.w, a.y + r.h);
+        dl->AddRectFilled(a, b, IM_COL32(cc.bg.r, cc.bg.g, cc.bg.b, 255), S(3.0f));
+        const std::string txt = r.plus ? "+" + std::to_string(r.plus_n) : fit_text(badge_text(r.kind), r.text_max_w);
+        dl->AddText(ImVec2(cp.x + r.text_x, cp.y + r.text_y), IM_COL32(cc.fg.r, cc.fg.g, cc.fg.b, 255), txt.c_str());
+        if (drawn_w) drawn_w->push_back(ImGui::CalcTextSize(txt.c_str()).x);
+    }
+    return rects;
+}
+
+// Test hook (ui_faces.h): what the last frame of the chooser drew per tile
+static bool g_tile_dbg_on = false;
+static std::vector<FaceTileDebug> g_tile_dbg;
+void face_tile_debug_enable(bool on) {
+    g_tile_dbg_on = on;
+    g_tile_dbg.clear();
+}
+const std::vector<FaceTileDebug>& face_tile_debug() { return g_tile_dbg; }
+
+// 5.0c E7: "Render all" takes the hidden heads that have no picture at all (no miniface, no legend picture, no render yet)
+static bool game_head_wants_render(App& app, const Face& f) {
+    if (!f.game_head || game_breaker().off) return false;
+    const game_heads::HeadInfo* gh = g_heads_cat.find(f.id);
+    if (gh && (gh->miniface || gh->legend)) return false;
+    return !face3d_cached(app, true, f.id) && !face3d_cached(app, false, f.id);
 }
 
 // "Render all filtered heads" / progress / Stop, or why the 3D heads are off
@@ -1818,7 +1960,7 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
     } else {
         size_t missing = 0;
         for (const Face* f : rows)
-            if (!f->game_head && head3d_id(*f) > 0 && !face3d_cached(app, f->manager, head3d_id(*f))) ++missing;
+            if (head3d_id(*f) > 0 && !face3d_cached(app, face_in_m(*f), head3d_id(*f)) && (!f->game_head || game_head_wants_render(app, *f))) ++missing;
         if (missing > 0) {
             char bl[96];
             std::snprintf(bl, sizeof(bl), "Render all filtered heads (%zu)##r3dall", missing);
@@ -1828,7 +1970,9 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
                 g_r3d.fails.clear();  // asked again: heads given up earlier get their tries back
                 g_r3d.failed = 0;
                 g_r3d.note.clear();
-                for (const Face* f : rows) queue_head3d(app, *f, false);
+                game_breaker().reset();  // ... and the hidden heads' route is tried again
+                for (const Face* f : rows)
+                    if (!f->game_head || game_head_wants_render(app, *f)) queue_head3d(app, *f, false);
                 g_r3d.batch = true;
                 g_r3d.batch_total = g_r3d.queue.size();
                 g_r3d.batch_done = 0;
@@ -1852,6 +1996,7 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
 // 5.0b-C: header = ONE row (search, Filters (n), scope) and one counter line; every other filter is inside the Filters popover
 // (ui_faces_layout.h is the table of what sits where). A click on a tile selects it; chooser_bar (below) applies it.
 static void chooser_body(App& app, Chooser& ch, bool manager_target) {
+    if (g_tile_dbg_on) g_tile_dbg.clear();  // 5.0c E7 test hook: the tiles of this frame
     const bool mheads = manager_target && ch.manager_heads;
     const std::vector<Face>& list = mheads ? manager_and_match_faces(app) : player_and_game_faces(app);
     const size_t game_count = mheads ? manager_match_faces(app).size() : game_faces(app).size();
@@ -2050,44 +2195,114 @@ static void chooser_body(App& app, Chooser& ch, bool manager_target) {
                 else
                     std::snprintf(bid, sizeof(bid), "%s%lld", f->game_head ? "gface" : f->manager ? "mface" : "face", static_cast<long long>(f->id));
                 const int64_t rid = head3d_id(*f);
+                const bool inm = face_in_m(*f);
                 const bool has3d = !f->game_head && use3d && rid > 0 && face3d_cached(app, f->manager, rid);
                 const ImVec2 cp = ImGui::GetCursorScreenPos();
                 const game_heads::HeadInfo* gh = f->game_head ? g_heads_cat.find(f->id) : nullptr;
-                const bool game3d = f->game_head && use3d && face3d_cached(app, false, f->id);  // rendered while his player was in a save
+                face_tile::Source tsrc = face_tile::Source::Unavailable;
+                face_tile::TileIn ti;
+                TileWhy why;
+                fs::path game_render;  // the cached 3D render a hidden head shows (tooltip preview)
+                std::vector<face_tile::BadgeKind> chips;
+                bool clicked = false;
                 if (f->game_head) {
-                    // a game head: the 3D render of its player when one is cached, else its game miniface when the game
-                    // ships one (it cannot be rendered before Apply)
-                    // its legend picture when the game ships no miniface for it (G1 2026-10-17)
-                    const bool clicked = game3d                  ? face3d_cell(app, face3d_file(app, false, f->id), cell, f->name, bid)
-                                         : gh && gh->miniface ? picture_cell(app, legacy_path::player_miniface(f->id), false, cell, f->name, bid, false)
-                                         : gh && gh->legend   ? picture_cell(app, legacy_path::legend_picture(f->id), false, cell, f->name, bid, false)
-                                                              : no_picture_cell(cell, f->name, bid);
-                    if (clicked) picked = f;
-                    ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_PlotHistogram),
-                                                        asset_badge_label(AssetBadge::Hidden));
-                    if (f->match_manager) {
-                        const char* nm = "name match";
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + cell - ImGui::CalcTextSize(nm).x - 3.0f, cp.y + 2.0f),
-                                                            ImGui::GetColorU32(ImGuiCol_PlotLinesHovered), nm);
+                    // 5.0c E7, one ladder for every hidden head (ui_face_tile.h choose_source): a cached 3D render (m_<headid>, else p_ from
+                    // the time his player was in a save), the game's miniface, its legend picture, a render the game is making, else the
+                    // initials with the reason. A picture the game answers "none" to is never handed to picture_cell (it draws the
+                    // words "no picture").
+                    ti.cached_m = use3d && rid > 0 && face3d_cached(app, true, rid);
+                    ti.cached_p = use3d && face3d_cached(app, false, f->id);
+                    ti.has_mini = gh && gh->miniface;
+                    if (ti.has_mini) {
+                        const LegacyImages::State st = app.legacy.locate(legacy_path::player_miniface(f->id), nullptr, false);
+                        ti.mini_missing = st == LegacyImages::State::Missing || st == LegacyImages::State::Invalid;
                     }
+                    ti.has_legend = gh && gh->legend;
+                    if (ti.has_legend) {
+                        const LegacyImages::State st = app.legacy.locate(legacy_path::legend_picture(f->id), nullptr, false);
+                        ti.legend_missing = st == LegacyImages::State::Missing || st == LegacyImages::State::Invalid;
+                    }
+                    ti.can_render = use3d && rid > 0 && !game_breaker().off;
+                    ti.given_up = rid > 0 && head3d_given_up(head3d_key(true, rid));
+                    tsrc = face_tile::choose_source(ti);
+                    const std::string init = face_tile::initials(f->name);
+                    switch (tsrc) {
+                        case face_tile::Source::Render3dM:
+                            game_render = face3d_file(app, true, rid);
+                            clicked = face3d_cell(app, game_render, cell, f->name, bid);
+                            break;
+                        case face_tile::Source::Render3dP:
+                            game_render = face3d_file(app, false, f->id);
+                            clicked = face3d_cell(app, game_render, cell, f->name, bid);
+                            break;
+                        case face_tile::Source::Miniface:
+                            clicked = picture_cell(app, legacy_path::player_miniface(f->id), false, cell, f->name, bid, false);
+                            break;
+                        case face_tile::Source::Legend:
+                            clicked = picture_cell(app, legacy_path::legend_picture(f->id), false, cell, f->name, bid, false);
+                            break;
+                        case face_tile::Source::Rendering:
+                            queue_head3d(app, *f, true);  // on screen: before the rest of the queue
+                            clicked = no_picture_cell(cell, f->name, bid, init, "rendering", true);
+                            chips.push_back(face_tile::BadgeKind::RenderPending);
+                            break;
+                        case face_tile::Source::Unavailable:
+                            why = unavailable_why(use3d, game_breaker().off, ti.given_up);
+                            clicked = no_picture_cell(cell, f->name, bid, init, why.brief, false);
+                            if (ti.given_up) chips.push_back(face_tile::BadgeKind::RenderFailed);
+                            break;
+                    }
+                    if (clicked) picked = f;
+                    chips.insert(chips.begin(), face_tile::BadgeKind::Hidden);
+                    if (f->match_manager) chips.insert(chips.begin() + 1, face_tile::BadgeKind::NameMatch);
                 } else if (has3d) {
+                    tsrc = f->manager ? face_tile::Source::Render3dM : face_tile::Source::Render3dP;
                     if (face3d_cell(app, face3d_file(app, f->manager, rid), cell, f->name, bid)) picked = f;
                     // the cell shows the 3D render, not the miniface: with "His miniface too" the miniface is asked from
                     // the game all the same, so a click finds it at hand to copy
                     if (!f->manager) app.legacy.locate(face_picture(app, *f), nullptr, true);
                 } else {
-                    if (picture_cell(app, face_picture(app, *f), false, cell, f->name, bid, false)) picked = f;
-                    if (use3d && rid > 0) {
-                        queue_head3d(app, *f, true);  // on screen: before the rest of the queue
-                        const bool given_up = head3d_given_up(head3d_key(f->manager, rid));
-                        ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + 3.0f, cp.y + 2.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                                                            given_up ? "3D failed" : "3D pending");
+                    // a save head or a manager: his flat picture; a picture the game does not have is replaced by the spinner (a render is on
+                    // its way) or by the initials and the reason, never by the words "no picture"
+                    const bool can = use3d && rid > 0;
+                    const bool given_up = can && head3d_given_up(head3d_key(inm, rid));
+                    const LegacyImages::State st = app.legacy.locate(face_picture(app, *f), nullptr, false);
+                    const bool pic_missing = st == LegacyImages::State::Missing || st == LegacyImages::State::Invalid;
+                    if (pic_missing) {
+                        if (can && !given_up) {
+                            tsrc = face_tile::Source::Rendering;
+                            queue_head3d(app, *f, true);
+                            clicked = no_picture_cell(cell, f->name, bid, face_tile::initials(f->name), "rendering", true);
+                        } else {
+                            tsrc = face_tile::Source::Unavailable;
+                            why = unavailable_why(use3d, false, given_up);
+                            clicked = no_picture_cell(cell, f->name, bid, face_tile::initials(f->name), why.brief, false);
+                        }
+                    } else {
+                        tsrc = face_tile::Source::Miniface;
+                        clicked = picture_cell(app, face_picture(app, *f), false, cell, f->name, bid, false);
+                        if (can) queue_head3d(app, *f, true);  // on screen: before the rest of the queue
                     }
+                    if (clicked) picked = f;
+                    if (can) chips.push_back(given_up ? face_tile::BadgeKind::RenderFailed : face_tile::BadgeKind::RenderPending);
                 }
-                if (!f->game_head && f->hq == 1) {
-                    const char* hq = "HQ";
-                    ImGui::GetWindowDrawList()->AddText(ImVec2(cp.x + cell - ImGui::CalcTextSize(hq).x - 3.0f, cp.y + 2.0f),
-                                                        ImGui::GetColorU32(ImGuiCol_PlotHistogram), hq);
+                if (!f->game_head && f->hq == 1) chips.push_back(face_tile::BadgeKind::Hq);
+                {
+                    std::vector<float> drawn_w;
+                    const std::vector<face_tile::BadgeRect> rects = draw_tile_badges(cp, cell, chips, g_tile_dbg_on ? &drawn_w : nullptr);
+                    if (g_tile_dbg_on) {
+                        FaceTileDebug d;
+                        d.id = f->id;
+                        d.game_head = f->game_head;
+                        d.manager = f->manager;
+                        d.source = static_cast<int>(tsrc);
+                        d.why = why.full;
+                        d.cell = cell;
+                        d.chips = chips;
+                        d.rects = rects;
+                        d.drawn_w = drawn_w;
+                        g_tile_dbg.push_back(std::move(d));
+                    }
                 }
                 if (f->game_head && ImGui::IsItemHovered()) {
                     ImGui::BeginTooltip();
@@ -2100,14 +2315,22 @@ static void chooser_body(App& app, Chooser& ch, bool manager_target) {
                     ImGui::TextDisabled("game head %lld%s%s", static_cast<long long>(f->id), gh && !gh->toc.empty() ? ", bundle " : "",
                                         gh ? gh->toc.c_str() : "");
                     if (f->look) {
-                        if (game3d) draw_file_picture(app, face3d_file(app, false, f->id), S(256.0f));
+                        if (!game_render.empty()) draw_file_picture(app, game_render, S(256.0f));
                         const std::string traits = faces::head_traits(*f, looks3d);
                         ImGui::TextUnformatted(traits.c_str() + (traits.empty() || traits[0] != '\n' ? 0 : 1));
                     }
                     const std::string src = assets::name_source_label(f->name_source);
                     if (!src.empty()) ImGui::TextDisabled("%s", src.c_str());
-                    if (gh && !gh->miniface && gh->legend && !game3d) ImGui::TextDisabled("Shown with its legend picture (the game ships no miniface for it).");
-                    else if (gh && !gh->miniface && !game3d) ImGui::TextDisabled("The game ships no miniface for it, and it cannot be rendered before it is given.");
+                    if (gh && !gh->miniface && gh->legend && game_render.empty()) ImGui::TextDisabled("Shown with its legend picture (the game ships no miniface for it).");
+                    else if (gh && !gh->miniface && game_render.empty())
+                        ImGui::TextDisabled("%s", tsrc == face_tile::Source::Rendering
+                                                      ? "The game ships no miniface for it; the game is rendering its 3D head now (up to 20 s per head)."
+                                                      : ("The game ships no miniface for it. " + why.full).c_str());
+                    if (chips.size() > 1) {
+                        std::string marks;
+                        for (face_tile::BadgeKind k : chips) marks += (marks.empty() ? "" : ", ") + std::string(face_tile::badge_text(k));
+                        ImGui::TextDisabled("Marks: %s", marks.c_str());
+                    }
                     ImGui::TextDisabled("Click to give it (you confirm first).");
                     ImGui::EndTooltip();
                 } else if (ImGui::IsItemHovered()) {

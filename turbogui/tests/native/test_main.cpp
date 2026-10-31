@@ -3791,6 +3791,7 @@ struct FakeMatchSetup : msetup::Service {
 
 #include "test_edit_unlock.h"  // game editors unlock: core and UI cases (synthetic fixtures)
 #include "test_asset_app.h"    // 2.1: asset catalog wiring (pickers, lua_gate.txt session)
+#include "test_face_tile.h"    // 5.0c E7-realface: hidden game heads are rendered, the render breaker, the tile chips
 #include "test_page_career.h"  // 2.16 gui/page-career: the Career pages (page_career_test::ui_cases)
 #include "test_page_team.h"    // 2.20 ia-team: Team > Players and Team > Transfers (page_team_test::ui_cases)
 #include "test_team_players_40.h"  // 4.0 S8: the Team pages in the page template, the preset on the page, the player card actions (called from page_team_test::ui_cases)
@@ -9975,6 +9976,7 @@ static void test_ui() {
 #include "test_integration_50b.h"  // 5.0b integration: Home's Manager looks -> the manager Appearance tab with A's Look card (Integrator wiring)
 
         test_edit_unlock_ui(app, ui, le);  // test_edit_unlock.h
+        face_tile_test::ui_cases(app, ui, le);  // test_face_tile.h (5.0c E7-realface)
         test_asset_app_ui(app, ui, le);    // test_asset_app.h
         page_career_test::ui_cases(app, ui, mem, kMb, le);  // test_page_career.h: the Career pages (drawn by function, not through the registry)
         page_team_test::ui_cases(app, ui, mem, kMb, le);  // test_page_team.h: Team > Players and Team > Transfers
