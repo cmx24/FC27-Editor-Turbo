@@ -3273,6 +3273,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_window_settings.h"  // 2.20 S3-window: gui.window (start maximized, Maximize / Restore, saved rectangle)
 #include "test_gui50_window_rect.h"  // 5.0 T7: Cassio's gui.window replayed (resize kept, Restore fits the screen, stored choice kept, window log lines)
 #include "test_layout_store.h"  // 5.0b-B: the layout store (ImGui ini owned by Turbo), converted panes, Settings > Layout
+#include "test_layout_flush.h"  // 5.0c E6-layout: pane width committed at release, ini width wins over the default, release/hide flushes (fail-old on 5.0b/integration)
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -9969,6 +9970,7 @@ static void test_ui() {
         window_settings_test::ui_cases(app, ui, le);  // test_window_settings.h: the real panel (gui.window)
         resize_ui_test::ui_cases(app, ui, le);  // test_ux_resize.h (2.22 G-resize): divider, window drags with the mouse; Row height; Refresh
         gui50_window_rect_test::ui_cases(app, ui, le);  // test_gui50_window_rect.h (5.0 T7): his file on 2560x1600
+        layout_flush_test::ui_cases(app, ui, le);  // test_layout_flush.h (5.0c E6-layout): hide inside the debounce writes gui.window
         visual_picker_test::ui_cases(app, ui, le);  // test_visual_picker.h (2.20 V): writes one field, names-only fallback, PERF
 #include "test_one_picker.h"  // 3.2 f3 (charter 19.17): one picker, one catalogue per look field (statements, not functions)
 #include "test_look_pickers.h"  // 5.0b-A: the registry drives ONE Look card for players and managers
@@ -15755,6 +15757,7 @@ int main(int argc, char** argv) {
     window_settings_test::run();  // test_window_settings.h (pure cases)
     gui50_window_rect_test::run();  // test_gui50_window_rect.h (pure cases, D3)
     layout_store_test::run();  // test_layout_store.h (5.0b-B: own-context cases, file sink, source scans)
+    layout_flush_test::run();  // test_layout_flush.h (5.0c E6-layout: own-context cases)
     test_shell();  // test_shell.h: shell contract (pure cases)
     nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)

@@ -12,13 +12,14 @@
 //   * a visible grip line in the gap between the two panes (the panes themselves cover the border), brighter on hover / drag
 //   * the width is clamped: at least min_w (default 180 px) and at most max_frac (default 70 %) of the panel it sits in
 //   * the width is remembered PER PAGE: gui_settings.json gui.splits["<page key>/<child id>"], unscaled px (gui_prefs.h SplitStore).
-//     It is written once, after the drag has rested (mouse up + 0.4 s), never per frame. The page key is set by App::draw_pages
+//     It is written once, the frame after the mouse is released (5.0c E6; was: after 0.4 s of rest), never per frame. The page key is set by App::draw_pages
 //     (split::set_page); the child's own ID is the literal given here and the ID stack is untouched, so tables inside the pane keep
 //     their saved column layout.
 // The width is applied again (ImGuiCond_Always for one frame) whenever the page or the UI size changed; between those frames ImGui's
 // own manual resize owns the size. G-ia's ##lscards and G-pickers' ##vpgrid call this after merge.
 #pragma once
 #include <cfloat>
+#include <cstdio>
 #include <map>
 #include <string>
 
@@ -50,7 +51,7 @@ inline std::string& page_key() {
 }
 inline void set_page(const char* key) { page_key() = key ? key : ""; }
 
-constexpr double kRestSeconds = 0.4;  // the size must rest this long, with the mouse up, before gui_settings.json is written
+constexpr double kRestSeconds = 0.4;  // 2.22 value, kept for the tests that name it; 5.0c E6: the width is committed as soon as the mouse is up
 
 // Run-time state per child ID (not stored)
 struct Runtime {
@@ -76,6 +77,14 @@ inline float width_to_apply(const std::string& key, float default_w, float min_w
 }
 
 namespace detail {
+// Has ImGui already made the child window of this pane (drawn earlier in this ImGui context)? A window that the layout file seeds is
+// created at its first Begin, so before that first frame this is false; later it is true. (Same name BeginChildEx builds.)
+inline bool window_exists(const char* id) {
+    ImGuiWindow* parent = ImGui::GetCurrentWindow();
+    char name[512];
+    std::snprintf(name, sizeof name, "%s/%s_%08X", parent->Name, id, static_cast<unsigned>(parent->GetID(id)));
+    return ImGui::FindWindowByName(name) != nullptr;
+}
 inline bool pane(bool along_x, const char* id, float default_size, float min_size, float max_frac, float cross, ImGuiChildFlags extra) {
     const float sc = g_ui_scale > 0.0f ? g_ui_scale : 1.0f;
     const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -98,7 +107,16 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
         }
     }
 
-    const bool force = rt.applied_key != key || rt.applied_scale != sc;
+    // 5.0c E6: the stored width is forced (ImGuiCond_Always) only when there IS one, or when the UI size changed. With no entry in
+    // gui.splits the pane keeps what ImGui's layout file holds for it (else the default as the first-use size): forcing the default there
+    // stamped it over the width the person had dragged and the layout file had saved (gui_settings.json starts with no splits).
+    // It IS forced when the page changed under the same child id (the pane keeps one ImGui window across pages: each page starts at its
+    // own default), when the UI size changed, and when ImGui already holds a window for the pane that the layout file did not make.
+    const bool changed = rt.applied_key != key || rt.applied_scale != sc;
+    const bool scale_moved = rt.applied_scale != 0.0f && rt.applied_scale != sc;
+    const bool first = rt.applied_key.empty();
+    const bool key_moved = !first && rt.applied_key != key;
+    const bool force = changed && (store().has(key) || scale_moved || key_moved || (first && window_exists(id)));
     const float want = width_to_apply(key, default_size, min_size, panel, max_frac, sc);
     if (force) ImGui::SetNextWindowSize(along_x ? ImVec2(want, 0.0f) : ImVec2(0.0f, want), ImGuiCond_Always);
     const float hi = (panel * max_frac) > min_size * sc ? panel * max_frac : min_size * sc;
@@ -113,7 +131,7 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     rt.border_active = w->ResizeBorderHeld != -1 || w->ResizeBorderHovered != -1;
     rt.have_rect = true;
     const double now = ImGui::GetTime();
-    if (force) {
+    if (changed) {
         rt.applied_key = key;
         rt.applied_scale = sc;
         rt.seen = cur;
@@ -122,7 +140,9 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
         rt.seen = cur;
         rt.pending = true;
         rt.changed_at = now;
-    } else if (rt.pending && !ImGui::IsMouseDown(0) && now - rt.changed_at >= kRestSeconds) {
+    } else if (rt.pending && !ImGui::IsMouseDown(0)) {
+        // 5.0c E6: committed the frame after the mouse is released, not 0.4 s later: hiding the panel or closing the game inside that
+        // window lost the drag (the pane is not drawn while the panel is hidden, so nothing could commit it afterwards)
         rt.pending = false;
         store().set(key, cur);
     }

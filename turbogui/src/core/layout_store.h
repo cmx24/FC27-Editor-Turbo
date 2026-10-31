@@ -81,11 +81,14 @@ public:
         return save("autosave", now, true);
     }
 
-    // The panel hidden: save at once (the transition is seen by frame()).
-    void frame(bool visible, double now) {
+    // The panel hidden: save at once (the transition is seen by frame()). 5.0c E6: the mouse button released while the panel is shown (a window
+    // resize, a column or pane drag just ended) saves the ini at once too, quietly (no new log line, nothing written when it is unchanged):
+    // the 1 s timer left a gap in which closing the game lost the drag.
+    void frame(bool visible, double now, bool mouse_released = false) {
         if (seen_visible_ && !visible && sink_.write && !paused_) save("hide", now, false);
         seen_visible_ = visible;
         pump(now);
+        if (visible && mouse_released && sink_.write && !paused_) save("release", now, true);
     }
 
     bool save_now(const char* why, double now) { return sink_.write && !paused_ && save(why, now, false); }

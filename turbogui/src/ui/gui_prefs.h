@@ -250,6 +250,13 @@ struct WindowTracker {
         disp_h = dh;
         have_seen = false;  // the next observation is the baseline, not a change
     }
+    // 5.0c E6: the panel is being hidden while a change still waits out its debounce: true = write the rectangle in `seen` now (once), so the
+    // toggle key right after a resize does not lose it. Nothing waiting = false.
+    bool take_pending() {
+        if (!pending_save || !have_seen) return false;
+        pending_save = false;
+        return true;
+    }
     // Called every frame the non-maximized window is drawn; true = write gui_settings.json now. Never per frame: the rectangle must
     // change, then rest for kDebounce seconds with the mouse up (a drag or a resize in progress changes it every frame).
     bool observe(const WindowRect& r, double now, bool mouse_down) {

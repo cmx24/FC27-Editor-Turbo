@@ -2082,9 +2082,27 @@ void App::draw() {
     tick_bodytype_thumbs(*this);  // 2.17 looks T: the body-type picture maker (ui_bodytype_thumbs.cpp), also while the window is hidden
     looks::tick_looks_studio(*this);  // 2.17 looks U: a picture answer that arrives after the person left the page frees the capture service
 
-    layout.frame(visible, now);  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden
+    layout.frame(visible, now, ImGui::IsMouseReleased(0));  // 5.0b-B: the ini text (core/layout_store.h): ImGui's save flag taken every frame, one save when the panel is hidden; 5.0c E6: and one when a drag ends
 
-    if (!visible) return;
+    if (!visible) {
+        // 5.0c E6 (Cassio 10-30: "the window size and the column widths are not saved"): nothing below runs while the panel is hidden, so a
+        // window change still inside its 0.6 s debounce and a pane width not yet written to gui_settings.json would wait for the next time
+        // it is shown, which never comes if the game closes first. Write them now, once.
+        WindowPrefs& hw = prefs.window;
+        WindowTracker& ht = prefs.window_rt;
+        bool dirty = false;
+        if (ht.take_pending() && !hw.maximized) {
+            hw.rect = ht.seen;
+            hw.has_rect = true;
+            dirty = true;
+            const std::string wl = window_log_line("window saved (panel hidden)", ht.seen, false, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, hw, ht.fell_back);
+            log(wl);
+            if (log_hook) log_hook(wl);
+        }
+        if (prefs.splits.take_dirty()) dirty = true;
+        if (dirty && !save_gui_settings()) notify("cannot save the panel size", true);
+        return;
+    }
 
     // First use: 1180x760 or 90% of the screen, whichever is smaller; never larger than the screen (smaller windowed
     // resolutions, or a saved layout from a bigger screen)
