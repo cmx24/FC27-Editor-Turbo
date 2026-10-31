@@ -679,7 +679,9 @@ const Override* Engine::built_for(size_t row, const std::string& stock, const st
         if (env_.emit) {
             char sz[32];
             std::snprintf(sz, sizeof(sz), "%llu", static_cast<unsigned long long>(b.o.size));
-            env_.emit(b.bytes ? "lua_loader: " + rw.name + " served: v4 built in memory (stock md5 " + md5 + ", " + note + ", " + sz + " B, md5 " + b.o.md5 + ")"
+            // 5.0c E13: the label names the template the bytes carry (v5 = hair replace, its gate marker), so O1 reads it from the log
+            const bool v5 = b.bytes && b.bytes->find("FACE GATE v5") != std::string::npos;
+            env_.emit(b.bytes ? "lua_loader: " + rw.name + " served: " + (v5 ? "v5" : "v4") + " built in memory (stock md5 " + md5 + ", " + note + ", " + sz + " B, md5 " + b.o.md5 + ")"
                               : "lua_loader: " + rw.name + " served: stock (" + b.error + ")");
         }
         if (!b.bytes) set_error(b.error);
