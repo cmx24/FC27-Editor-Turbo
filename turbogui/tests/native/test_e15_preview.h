@@ -1,7 +1,7 @@
 // Native tests (5.0c E15-preview, Cassio 10-30: "team audio needs preview buttons"; briefs\5.0c\E15-teamaudio.md Part B). The Commentary name card
 // lists the clubs the loaded commentary language has a recording for; every club row now has the shared play button (ui_callname_play.cpp
 // callname_play_button, kind Club, id "##play_c<club id>"). Its wav is <turbo_output>\cache\teamaudio\<lang>\<club id>.wav (club_clips.py --decode),
-// the loaded language only. A row with no wav shows a DISABLED button whose tooltip is "No FC 27 audio for this name in <lang>".
+// the loaded language only. A row with no wav shows a DISABLED button whose tooltip is "No preview clip made for this club in <lang> yet (turbo_output, cache, teamaudio)".
 // Behavioural: the cases draw the real page (club_40_test::show) with a fake WavPlayer, so the old card (no play button on the row) FAILS by assertion.
 //   a  each club row has a play button "##play_c<id>"; the "No club name" row has none
 //   b  a click on a row whose wav is in the language's folder plays exactly that file; a click on a row without one plays nothing
@@ -101,18 +101,18 @@ static void ui_cases(App& app, Ui& ui, const fs::path& /*le*/) {
         auto fk = std::make_shared<FakeWav>();
         pl.set_player(fk);
         CallnamePlayer::Button b = pl.button(a, CallnameAudioKind::Club, 1002, 0.0);
-        CHECK(!b.enabled && b.tip == std::string("No FC 27 audio for this name in ") + kLang, "no wav: disabled with the reason: " + b.tip);
+        CHECK(!b.enabled && b.tip == std::string("No preview clip made for this club in ") + kLang + " yet (turbo_output, cache, teamaudio)", "no wav: disabled with the reason: " + b.tip);
         b = pl.button(a, CallnameAudioKind::Club, 1001, 0.0);
         CHECK(b.enabled && !b.playing, "a wav in the folder: enabled: " + b.tip);
         b = pl.button(other, CallnameAudioKind::Club, 1001, 0.0);
-        CHECK(!b.enabled && b.tip == "No FC 27 audio for this name in eng_other", "another language's folder has no 1001.wav: disabled: " + b.tip);
+        CHECK(!b.enabled && b.tip == "No preview clip made for this club in eng_other yet (turbo_output, cache, teamaudio)", "another language's folder has no 1001.wav: disabled: " + b.tip);
         CHECK(!pl.click(a, CallnameAudioKind::Club, 1001, 0.0).empty() && fk->played.size() == 1, "click plays the wav");
         CHECK(pl.playing(CallnameAudioKind::Club, 1001, 0.5) && !pl.playing(CallnameAudioKind::Generic, 1001, 0.5) && !pl.playing(CallnameAudioKind::Own, 1001, 0.5),
               "Club 1001 playing is not Generic 1001 or Own 1001");
         MasterAudio none;
         none.lang = kLang;
         b = pl.button(none, CallnameAudioKind::Club, 1001, 0.0);
-        CHECK(!b.enabled && b.tip == std::string("No FC 27 audio for this name in ") + kLang, "no folder at all: the same reason: " + b.tip);
+        CHECK(!b.enabled && b.tip == std::string("No preview clip made for this club in ") + kLang + " yet (turbo_output, cache, teamaudio)", "no folder at all: the same reason: " + b.tip);
     });
 #else
     run_case("E15 preview c: the Club kind - disabled with the reason, enabled with a wav, its own state, one language folder",

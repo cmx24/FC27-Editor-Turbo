@@ -193,7 +193,7 @@ CallnamePlayer::Button CallnamePlayer::button(const MasterAudio& a, CallnameAudi
     if (kind == CallnameAudioKind::Club) {  // a club name: one wav in the loaded language's folder, or the reason in words
         const auto one = playable(a, kind, id);
         if (a.wav_dir.empty() || one.empty()) {
-            b.tip = "No FC 27 audio for this name in " + (a.lang.empty() ? std::string("the loaded language") : a.lang);
+            b.tip = "No preview clip made for this club in " + (a.lang.empty() ? std::string("the loaded language") : a.lang) + " yet (turbo_output, cache, teamaudio)";
             return b;
         }
         b.enabled = true;

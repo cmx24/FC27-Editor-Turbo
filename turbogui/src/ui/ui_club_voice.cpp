@@ -3,7 +3,9 @@
 // commentary store (load, keep, forget), published with the voice swaps (App::voice_publish, ui_callnames.cpp).
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "app.h"
@@ -174,8 +176,24 @@ void club_voice_section(App& app) {
             }
     }
     ImGui::EndChild();
-    if (!lang.empty() && !ids.empty())
+    if (!lang.empty() && !ids.empty()) {
         theme::muted_text("%zu clubs have a recording in the %s commentary (showing %zu)", g_pick.total, lang.c_str(), g_pick.shown.size());
+        // Turbo X: the play buttons need the decoded clips (turbo_output, cache, teamaudio, <lang>); count them every 5 s so the page says how many
+        // can be heard instead of a disabled button that looks like "no audio".
+        static std::string clip_dir;
+        static size_t clip_count = 0;
+        static double clip_checked = -1e9;
+        const std::string dir = (app.turbo_output() / "cache" / "teamaudio" / lang).u8string();
+        if (dir != clip_dir || app.now - clip_checked >= 5.0) {
+            clip_dir = dir;
+            clip_checked = app.now;
+            clip_count = 0;
+            std::error_code ec;
+            for (std::filesystem::directory_iterator it(std::filesystem::u8path(dir), ec), end; !ec && it != end; it.increment(ec))
+                if (it->path().extension() == ".wav") ++clip_count;
+        }
+        theme::muted_text("Preview clips ready: %zu of %zu", clip_count, g_pick.total);
+    }
     else theme::muted_text("%zu clubs listed", g_pick.shown.size());
 
     // where it applies, Save, Use its own name
