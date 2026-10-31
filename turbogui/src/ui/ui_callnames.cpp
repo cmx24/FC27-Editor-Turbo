@@ -429,7 +429,14 @@ static void language_line(App& app) {
     if (cn.spoken.verified) {
         ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1), "Spoken set from %s: %zu names, %zu player callnames", cn.spoken.source.c_str(),
                            cn.spoken.ids.size(), cn.spoken.players.size());
-    } else {
+    }
+    // Turbo X (2026-10-31, callname audit): the master list is what the pickers really offer (its generic ids and the players with
+    // their own recording); the line above counts the game's audio-service cache only, which is incomplete by design
+    if (cn.masters.loaded()) {
+        ImGui::TextDisabled("Recordings Turbo can offer: %zu generic names, %zu players with their own name", cn.masters.generic_ids.size(),
+                          cn.masters.real_players.size());
+    }
+    if (!cn.spoken.verified) {
         ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "Unverified: %s", cn.spoken.source.c_str());
         if (!app.spoken_watch_line().empty()) {
             ImGui::TextWrapped("%s", app.spoken_watch_line().c_str());
