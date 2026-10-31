@@ -8,7 +8,8 @@
    "segment": 393,
    "variation": 5391625,
    "param": "home_ID",
-   "samples": 29334
+   "samples": 29334,
+   "clubs": 1
   },
   "2": {
    "set": "fre_fr_full",
@@ -16,7 +17,8 @@
    "segment": 176,
    "variation": 4960306,
    "param": "asset_team_ID",
-   "samples": 34546
+   "samples": 34546,
+   "clubs": 1
   },
   "3": {
    "set": "fre_fr_full",
@@ -24,7 +26,8 @@
    "segment": 96,
    "variation": 4960307,
    "param": "asset_team_ID",
-   "samples": 32774
+   "samples": 32774,
+   "clubs": 1
   },
   "4": {
    "set": "fre_fr_full",
@@ -32,7 +35,8 @@
    "segment": 104,
    "variation": 5061737,
    "param": "home_ID",
-   "samples": 40100
+   "samples": 40100,
+   "clubs": 1
   },
   "5": {
    "set": "fre_fr_full",
@@ -40,7 +44,8 @@
    "segment": 399,
    "variation": 5391633,
    "param": "home_ID",
-   "samples": 25865
+   "samples": 25865,
+   "clubs": 1
   },
   "7": {
    "set": "fre_fr_full",
@@ -48,7 +53,8 @@
    "segment": 402,
    "variation": 5391636,
    "param": "home_ID",
-   "samples": 29214
+   "samples": 29214,
+   "clubs": 1
   },
   "8": {
    "set": "fre_fr_full",
@@ -56,7 +62,8 @@
    "segment": 74,
    "variation": 5061664,
    "param": "home_ID",
-   "samples": 32226
+   "samples": 32226,
+   "clubs": 1
   },
   "9": {
    "set": "fre_fr_full",
@@ -64,7 +71,8 @@
    "segment": 214,
    "variation": 4960512,
    "param": "asset_team_ID",
-   "samples": 34249
+   "samples": 34249,
+   "clubs": 1
   },
   "10": {
    "set": "fre_fr_demo",
@@ -72,7 +80,8 @@
    "segment": 8,
    "variation": 5061638,
    "param": "home_ID",
-   "samples": 47719
+   "samples": 47719,
+   "clubs": 1
   },
   "11": {
    "set": "fre_fr_full",
@@ -80,7 +89,8 @@
    "segment": 670,
    "variation": 6578114,
    "param": "home_ID",
-   "samples": 54050
+   "samples": 54050,
+   "clubs": 1
   },
   "12": {
    "set": "fre_fr_full",
@@ -88,7 +98,8 @@
    "segment": 100,
    "variation": 4960516,
    "param": "asset_team_ID",
-   "samples": 34884
+   "samples": 34884,
+   "clubs": 1
   },
   "13": {
    "set": "fre_fr_full",
@@ -96,7 +107,8 @@
    "segment": 43,
    "variation": 4960518,
    "param": "asset_team_ID",
-   "samples": 37636
+   "samples": 37636,
+   "clubs": 1
   },
   "14": {
    "set": "fre_fr_full",
@@ -104,7 +116,8 @@
    "segment": 115,
    "variation": 4971241,
    "param": "lae_focus_team_2_ID",
-   "samples": 53280
+   "samples": 53280,
+   "clubs": 1
   },
   "15": {
    "set": "fre_fr_full",
@@ -112,7 +125,8 @@
    "segment": 196,
    "variation": 5061862,
    "param": "home_ID",
-   "samples": 60534
+   "samples": 60534,
+   "clubs": 1
   },
   "17": {
    "set": "fre_fr_full",
@@ -120,7 +134,8 @@
    "segment": 42,
    "variation": 4960519,
    "param": "asset_team_ID",
-   "samples": 42348
+   "samples": 42348,
+   "clubs": 1
   },
   "18": {
    "set": "fre_fr_demo",
@@ -128,7 +143,8 @@
    "segment": 11,
    "variation": 5061679,
    "param": "home_ID",
-   "samples": 26580
+   "samples": 26580,
+   "clubs": 1
   },
   "19": {
    "set": "fre_fr_full",
@@ -136,7 +152,8 @@
    "segment": 408,
    "variation": 5391648,
    "param": "home_ID",
-   "samples": 29152
+   "samples": 29152,
+   "clubs": 1
   },
   "21": {
    "set": "fre_fr_full",
@@ -144,7 +161,8 @@
    "segment": 162,
    "variation": 4960529,
    "param": "asset_team_ID",
-   "samples": 36897
+   "samples": 36897,
+   "clubs": 1
   },
   "22": {
    "set": "fre_fr_full",
@@ -152,7 +170,8 @@
    "segment": 139,
    "variation": 6578249,
    "param": "asset_team_ID",
-   "samples": 49205
+   "samples": 49205,
+   "clubs": 1
   },
   "23": {
    "set": "fre_fr_full",
@@ -160,7 +179,8 @@
    "segment": 39,
    "variation": 5062271,
    "param": "away_ID",
-   "samples": 41196
+   "samples": 41196,
+   "clubs": 1
   },
   "25": {
    "set": "fre_fr_full",
@@ -168,7 +188,8 @@
    "segment": 79,
    "variation": 4960532,
    "param": "asset_team_ID",
-   "samples": 30169
+   "samples": 30169,
+   "clubs": 1
   },
   "27": {
    "set": "fre_fr_full",
@@ -176,7 +197,8 @@
    "segment": 273,
    "variation": 5061995,
    "param": "home_ID",
-   "samples": 49052
+   "samples": 49052,
+   "clubs": 1
   },
   "28": {
    "set": "fre_fr_full",
@@ -184,7 +206,8 @@
    "segment": 165,
    "variation": 4971848,
    "param": "lae_against_team_2_ID",
-   "samples": 25534
+   "samples": 25534,
+   "clubs": 1
   },
   "29": {
    "set": "fre_fr_full",
@@ -192,7 +215,8 @@
    "segment": 136,
    "variation": 4960539,
    "param": "asset_team_ID",
-   "samples": 46720
+   "samples": 46720,
+   "clubs": 1
   },
   "31": {
    "set": "fre_fr_full",
@@ -200,7 +224,8 @@
    "segment": 168,
    "variation": 4960542,
    "param": "asset_team_ID",
-   "samples": 25730
+   "samples": 25730,
+   "clubs": 1
   },
   "32": {
    "set": "fre_fr_full",
@@ -208,7 +233,8 @@
    "segment": 72,
    "variation": 5062314,
    "param": "away_ID",
-   "samples": 47654
+   "samples": 47654,
+   "clubs": 1
   },
   "33": {
    "set": "fre_fr_full",
@@ -216,7 +242,8 @@
    "segment": 139,
    "variation": 4960545,
    "param": "asset_team_ID",
-   "samples": 66455
+   "samples": 66455,
+   "clubs": 1
   },
   "34": {
    "set": "fre_fr_full",
@@ -224,7 +251,8 @@
    "segment": 49,
    "variation": 3442182,
    "param": "asset_team_ID",
-   "samples": 47443
+   "samples": 47443,
+   "clubs": 1
   },
   "36": {
    "set": "fre_fr_full",
@@ -232,7 +260,8 @@
    "segment": 73,
    "variation": 4960549,
    "param": "asset_team_ID",
-   "samples": 36937
+   "samples": 36937,
+   "clubs": 1
   },
   "38": {
    "set": "fre_fr_full",
@@ -240,7 +269,8 @@
    "segment": 169,
    "variation": 4960552,
    "param": "asset_team_ID",
-   "samples": 38773
+   "samples": 38773,
+   "clubs": 1
   },
   "45": {
    "set": "fre_fr_demo",
@@ -248,7 +278,8 @@
    "segment": 8,
    "variation": 4971090,
    "param": "lae_focus_team_2_ID",
-   "samples": 33653
+   "samples": 33653,
+   "clubs": 1
   },
   "48": {
    "set": "fre_fr_full",
@@ -256,7 +287,8 @@
    "segment": 728,
    "variation": 7105671,
    "param": "home_ID",
-   "samples": 28780
+   "samples": 28780,
+   "clubs": 1
   },
   "50": {
    "set": "fre_fr_full",
@@ -264,7 +296,8 @@
    "segment": 100,
    "variation": 4971263,
    "param": "lae_focus_team_2_ID",
-   "samples": 25069
+   "samples": 25069,
+   "clubs": 1
   },
   "52": {
    "set": "fre_fr_full",
@@ -272,7 +305,8 @@
    "segment": 233,
    "variation": 4960563,
    "param": "asset_team_ID",
-   "samples": 30352
+   "samples": 30352,
+   "clubs": 1
   },
   "54": {
    "set": "fre_fr_full",
@@ -280,7 +314,8 @@
    "segment": 28,
    "variation": 3442161,
    "param": "asset_team_ID",
-   "samples": 31078
+   "samples": 31078,
+   "clubs": 1
   },
   "55": {
    "set": "fre_fr_full",
@@ -288,7 +323,8 @@
    "segment": 91,
    "variation": 3442224,
    "param": "asset_team_ID",
-   "samples": 34744
+   "samples": 34744,
+   "clubs": 1
   },
   "57": {
    "set": "fre_fr_full",
@@ -296,7 +332,8 @@
    "segment": 156,
    "variation": 3442301,
    "param": "asset_team_ID",
-   "samples": 30164
+   "samples": 30164,
+   "clubs": 1
   },
   "62": {
    "set": "fre_fr_full",
@@ -304,7 +341,8 @@
    "segment": 16,
    "variation": 4960567,
    "param": "asset_team_ID",
-   "samples": 24947
+   "samples": 24947,
+   "clubs": 1
   },
   "64": {
    "set": "fre_fr_full",
@@ -312,7 +350,8 @@
    "segment": 154,
    "variation": 3442299,
    "param": "asset_team_ID",
-   "samples": 28649
+   "samples": 28649,
+   "clubs": 1
   },
   "65": {
    "set": "fre_fr_full",
@@ -320,7 +359,8 @@
    "segment": 12,
    "variation": 5061577,
    "param": "home_ID",
-   "samples": 31342
+   "samples": 31342,
+   "clubs": 1
   },
   "66": {
    "set": "fre_fr_demo",
@@ -328,7 +368,8 @@
    "segment": 13,
    "variation": 5391668,
    "param": "home_ID",
-   "samples": 17984
+   "samples": 17984,
+   "clubs": 1
   },
   "68": {
    "set": "fre_fr_full",
@@ -336,7 +377,8 @@
    "segment": 145,
    "variation": 3442284,
    "param": "asset_team_ID",
-   "samples": 42131
+   "samples": 42131,
+   "clubs": 1
   },
   "69": {
    "set": "fre_fr_full",
@@ -344,7 +386,8 @@
    "segment": 32,
    "variation": 3442165,
    "param": "asset_team_ID",
-   "samples": 31961
+   "samples": 31961,
+   "clubs": 1
   },
   "70": {
    "set": "fre_fr_full",
@@ -352,7 +395,8 @@
    "segment": 3,
    "variation": 4960576,
    "param": "asset_team_ID",
-   "samples": 32130
+   "samples": 32130,
+   "clubs": 1
   },
   "71": {
    "set": "fre_fr_full",
@@ -360,7 +404,8 @@
    "segment": 121,
    "variation": 3442256,
    "param": "asset_team_ID",
-   "samples": 28478
+   "samples": 28478,
+   "clubs": 1
   },
   "72": {
    "set": "fre_fr_full",
@@ -368,7 +413,8 @@
    "segment": 17,
    "variation": 5061583,
    "param": "home_ID",
-   "samples": 33991
+   "samples": 33991,
+   "clubs": 1
   },
   "73": {
    "set": "fre_fr_demo",
@@ -376,7 +422,8 @@
    "segment": 14,
    "variation": 5391687,
    "param": "home_ID",
-   "samples": 36148
+   "samples": 36148,
+   "clubs": 1
   },
   "74": {
    "set": "fre_fr_full",
@@ -384,7 +431,8 @@
    "segment": 14,
    "variation": 5061580,
    "param": "home_ID",
-   "samples": 31284
+   "samples": 31284,
+   "clubs": 1
   },
   "76": {
    "set": "fre_fr_full",
@@ -392,7 +440,8 @@
    "segment": 7,
    "variation": 4960584,
    "param": "asset_team_ID",
-   "samples": 33755
+   "samples": 33755,
+   "clubs": 1
   },
   "77": {
    "set": "fre_fr_full",
@@ -400,7 +449,8 @@
    "segment": 33,
    "variation": 4960585,
    "param": "asset_team_ID",
-   "samples": 34267
+   "samples": 34267,
+   "clubs": 1
   },
   "78": {
    "set": "fre_fr_full",
@@ -408,7 +458,8 @@
    "segment": 42,
    "variation": 4970991,
    "param": "lae_focus_team_1_ID",
-   "samples": 37035
+   "samples": 37035,
+   "clubs": 1
   },
   "81": {
    "set": "fre_fr_full",
@@ -416,7 +467,8 @@
    "segment": 34,
    "variation": 4960586,
    "param": "asset_team_ID",
-   "samples": 37108
+   "samples": 37108,
+   "clubs": 1
   },
   "82": {
    "set": "fre_fr_full",
@@ -424,7 +476,8 @@
    "segment": 45,
    "variation": 4971297,
    "param": "lae_focus_team_2_ID",
-   "samples": 41178
+   "samples": 41178,
+   "clubs": 1
   },
   "83": {
    "set": "fre_fr_full",
@@ -432,7 +485,8 @@
    "segment": 46,
    "variation": 4971298,
    "param": "lae_focus_team_2_ID",
-   "samples": 38822
+   "samples": 38822,
+   "clubs": 1
   },
   "86": {
    "set": "fre_fr_full",
@@ -440,7 +494,8 @@
    "segment": 41,
    "variation": 4971299,
    "param": "lae_focus_team_2_ID",
-   "samples": 52169
+   "samples": 52169,
+   "clubs": 1
   },
   "88": {
    "set": "fre_fr_full",
@@ -448,7 +503,8 @@
    "segment": 119,
    "variation": 4971300,
    "param": "lae_focus_team_2_ID",
-   "samples": 44060
+   "samples": 44060,
+   "clubs": 1
   },
   "89": {
    "set": "fre_fr_full",
@@ -456,7 +512,8 @@
    "segment": 159,
    "variation": 4971901,
    "param": "lae_against_team_2_ID",
-   "samples": 29134
+   "samples": 29134,
+   "clubs": 1
   },
   "91": {
    "set": "fre_fr_full",
@@ -464,7 +521,8 @@
    "segment": 145,
    "variation": 5061794,
    "param": "home_ID",
-   "samples": 46438
+   "samples": 46438,
+   "clubs": 1
   },
   "92": {
    "set": "fre_fr_full",
@@ -472,7 +530,8 @@
    "segment": 118,
    "variation": 5061752,
    "param": "home_ID",
-   "samples": 37753
+   "samples": 37753,
+   "clubs": 1
   },
   "94": {
    "set": "fre_fr_full",
@@ -480,7 +539,8 @@
    "segment": 164,
    "variation": 4971902,
    "param": "lae_against_team_2_ID",
-   "samples": 25590
+   "samples": 25590,
+   "clubs": 1
   },
   "95": {
    "set": "fre_fr_full",
@@ -488,7 +548,8 @@
    "segment": 404,
    "variation": 5391638,
    "param": "home_ID",
-   "samples": 31313
+   "samples": 31313,
+   "clubs": 1
   },
   "97": {
    "set": "fre_fr_full",
@@ -496,7 +557,8 @@
    "segment": 167,
    "variation": 5062477,
    "param": "away_ID",
-   "samples": 34706
+   "samples": 34706,
+   "clubs": 1
   },
   "106": {
    "set": "fre_fr_full",
@@ -504,7 +566,8 @@
    "segment": 158,
    "variation": 4971918,
    "param": "lae_against_team_2_ID",
-   "samples": 35882
+   "samples": 35882,
+   "clubs": 1
   },
   "109": {
    "set": "fre_fr_full",
@@ -512,7 +575,8 @@
    "segment": 34,
    "variation": 5062261,
    "param": "away_ID",
-   "samples": 41868
+   "samples": 41868,
+   "clubs": 1
   },
   "110": {
    "set": "fre_fr_full",
@@ -520,7 +584,8 @@
    "segment": 39,
    "variation": 4960593,
    "param": "asset_team_ID",
-   "samples": 44022
+   "samples": 44022,
+   "clubs": 1
   },
   "121": {
    "set": "fre_fr_full",
@@ -528,7 +593,8 @@
    "segment": 103,
    "variation": 5061736,
    "param": "home_ID",
-   "samples": 54450
+   "samples": 54450,
+   "clubs": 1
   },
   "127": {
    "set": "fre_fr_full",
@@ -536,7 +602,8 @@
    "segment": 166,
    "variation": 5062474,
    "param": "away_ID",
-   "samples": 53686
+   "samples": 53686,
+   "clubs": 1
   },
   "142": {
    "set": "fre_fr_full",
@@ -544,7 +611,8 @@
    "segment": 227,
    "variation": 4971021,
    "param": "lae_focus_team_1_ID",
-   "samples": 43199
+   "samples": 43199,
+   "clubs": 1
   },
   "143": {
    "set": "fre_fr_full",
@@ -552,7 +620,8 @@
    "segment": 211,
    "variation": 5061883,
    "param": "home_ID",
-   "samples": 52400
+   "samples": 52400,
+   "clubs": 1
   },
   "144": {
    "set": "fre_fr_full",
@@ -560,7 +629,8 @@
    "segment": 47,
    "variation": 4960595,
    "param": "asset_team_ID",
-   "samples": 30891
+   "samples": 30891,
+   "clubs": 1
   },
   "149": {
    "set": "fre_fr_full",
@@ -568,7 +638,8 @@
    "segment": 193,
    "variation": 5061857,
    "param": "home_ID",
-   "samples": 52256
+   "samples": 52256,
+   "clubs": 1
   },
   "159": {
    "set": "fre_fr_full",
@@ -576,7 +647,8 @@
    "segment": 97,
    "variation": 4971023,
    "param": "lae_focus_team_1_ID",
-   "samples": 59901
+   "samples": 59901,
+   "clubs": 1
   },
   "160": {
    "set": "fre_fr_full",
@@ -584,7 +656,8 @@
    "segment": 130,
    "variation": 4960596,
    "param": "asset_team_ID",
-   "samples": 28799
+   "samples": 28799,
+   "clubs": 1
   },
   "165": {
    "set": "fre_fr_full",
@@ -592,7 +665,8 @@
    "segment": 240,
    "variation": 5061938,
    "param": "home_ID",
-   "samples": 47876
+   "samples": 47876,
+   "clubs": 1
   },
   "166": {
    "set": "fre_fr_full",
@@ -600,7 +674,8 @@
    "segment": 28,
    "variation": 5062255,
    "param": "away_ID",
-   "samples": 42408
+   "samples": 42408,
+   "clubs": 1
   },
   "169": {
    "set": "fre_fr_full",
@@ -608,7 +683,8 @@
    "segment": 94,
    "variation": 4971026,
    "param": "lae_focus_team_1_ID",
-   "samples": 34365
+   "samples": 34365,
+   "clubs": 1
   },
   "171": {
    "set": "fre_fr_full",
@@ -616,7 +692,8 @@
    "segment": 229,
    "variation": 5062566,
    "param": "away_ID",
-   "samples": 37219
+   "samples": 37219,
+   "clubs": 1
   },
   "175": {
    "set": "fre_fr_full",
@@ -624,7 +701,8 @@
    "segment": 680,
    "variation": 6578132,
    "param": "home_ID",
-   "samples": 33550
+   "samples": 33550,
+   "clubs": 1
   },
   "189": {
    "set": "fre_fr_full",
@@ -632,7 +710,8 @@
    "segment": 85,
    "variation": 4960602,
    "param": "asset_team_ID",
-   "samples": 28419
+   "samples": 28419,
+   "clubs": 1
   },
   "191": {
    "set": "fre_fr_full",
@@ -640,7 +719,8 @@
    "segment": 131,
    "variation": 5062418,
    "param": "away_ID",
-   "samples": 39421
+   "samples": 39421,
+   "clubs": 1
   },
   "205": {
    "set": "fre_fr_full",
@@ -648,7 +728,8 @@
    "segment": 725,
    "variation": 7068397,
    "param": "home_ID",
-   "samples": 29712
+   "samples": 29712,
+   "clubs": 1
   },
   "206": {
    "set": "fre_fr_full",
@@ -656,7 +737,8 @@
    "segment": 108,
    "variation": 4971331,
    "param": "lae_focus_team_2_ID",
-   "samples": 37647
+   "samples": 37647,
+   "clubs": 1
   },
   "209": {
    "set": "fre_fr_full",
@@ -664,7 +746,8 @@
    "segment": 258,
    "variation": 5062618,
    "param": "away_ID",
-   "samples": 42567
+   "samples": 42567,
+   "clubs": 1
   },
   "211": {
    "set": "fre_fr_full",
@@ -672,7 +755,8 @@
    "segment": 360,
    "variation": 5062815,
    "param": "away_ID",
-   "samples": 53890
+   "samples": 53890,
+   "clubs": 1
   },
   "217": {
    "set": "fre_fr_full",
@@ -680,7 +764,8 @@
    "segment": 158,
    "variation": 3442305,
    "param": "asset_team_ID",
-   "samples": 27020
+   "samples": 27020,
+   "clubs": 1
   },
   "219": {
    "set": "fre_fr_full",
@@ -688,7 +773,8 @@
    "segment": 37,
    "variation": 3442170,
    "param": "asset_team_ID",
-   "samples": 31962
+   "samples": 31962,
+   "clubs": 1
   },
   "229": {
    "set": "fre_fr_full",
@@ -696,7 +782,8 @@
    "segment": 122,
    "variation": 4960607,
    "param": "asset_team_ID",
-   "samples": 32831
+   "samples": 32831,
+   "clubs": 1
   },
   "230": {
    "set": "fre_fr_full",
@@ -704,7 +791,8 @@
    "segment": 215,
    "variation": 4971036,
    "param": "lae_focus_team_1_ID",
-   "samples": 34381
+   "samples": 34381,
+   "clubs": 1
   },
   "231": {
    "set": "fre_fr_full",
@@ -712,7 +800,8 @@
    "segment": 148,
    "variation": 4971938,
    "param": "lae_against_team_2_ID",
-   "samples": 23165
+   "samples": 23165,
+   "clubs": 1
   },
   "232": {
    "set": "fre_fr_full",
@@ -720,7 +809,8 @@
    "segment": 154,
    "variation": 4971939,
    "param": "lae_against_team_2_ID",
-   "samples": 46405
+   "samples": 46405,
+   "clubs": 1
   },
   "234": {
    "set": "fre_fr_full",
@@ -728,7 +818,8 @@
    "segment": 113,
    "variation": 4960614,
    "param": "asset_team_ID",
-   "samples": 31062
+   "samples": 31062,
+   "clubs": 1
   },
   "236": {
    "set": "fre_fr_full",
@@ -736,7 +827,8 @@
    "segment": 130,
    "variation": 5062417,
    "param": "away_ID",
-   "samples": 36436
+   "samples": 36436,
+   "clubs": 1
   },
   "237": {
    "set": "fre_fr_full",
@@ -744,7 +836,8 @@
    "segment": 181,
    "variation": 3442347,
    "param": "asset_team_ID",
-   "samples": 40426
+   "samples": 40426,
+   "clubs": 1
   },
   "240": {
    "set": "fre_fr_demo",
@@ -752,7 +845,8 @@
    "segment": 6,
    "variation": 5599604,
    "param": "away_ID",
-   "samples": 47938
+   "samples": 47938,
+   "clubs": 1
   },
   "241": {
    "set": "fre_fr_full",
@@ -760,7 +854,8 @@
    "segment": 45,
    "variation": 5062279,
    "param": "away_ID",
-   "samples": 34754
+   "samples": 34754,
+   "clubs": 1
   },
   "242": {
    "set": "fre_fr_full",
@@ -768,7 +863,8 @@
    "segment": 196,
    "variation": 4971043,
    "param": "lae_focus_team_1_ID",
-   "samples": 58314
+   "samples": 58314,
+   "clubs": 1
   },
   "243": {
    "set": "fre_fr_full",
@@ -776,7 +872,8 @@
    "segment": 202,
    "variation": 4960625,
    "param": "asset_team_ID",
-   "samples": 44264
+   "samples": 44264,
+   "clubs": 1
   },
   "245": {
    "set": "fre_fr_full",
@@ -784,7 +881,8 @@
    "segment": 176,
    "variation": 3442342,
    "param": "asset_team_ID",
-   "samples": 33885
+   "samples": 33885,
+   "clubs": 1
   },
   "246": {
    "set": "fre_fr_full",
@@ -792,7 +890,8 @@
    "segment": 33,
    "variation": 4971346,
    "param": "lae_focus_team_2_ID",
-   "samples": 43554
+   "samples": 43554,
+   "clubs": 1
   },
   "247": {
    "set": "fre_fr_full",
@@ -800,7 +899,8 @@
    "segment": 191,
    "variation": 3442357,
    "param": "asset_team_ID",
-   "samples": 38170
+   "samples": 38170,
+   "clubs": 1
   },
   "252": {
    "set": "fre_fr_full",
@@ -808,7 +908,8 @@
    "segment": 171,
    "variation": 5061831,
    "param": "home_ID",
-   "samples": 58183
+   "samples": 58183,
+   "clubs": 1
   },
   "254": {
    "set": "fre_fr_full",
@@ -816,7 +917,8 @@
    "segment": 178,
    "variation": 5062491,
    "param": "away_ID",
-   "samples": 51453
+   "samples": 51453,
+   "clubs": 1
   },
   "256": {
    "set": "fre_fr_full",
@@ -824,7 +926,8 @@
    "segment": 203,
    "variation": 5061873,
    "param": "home_ID",
-   "samples": 51228
+   "samples": 51228,
+   "clubs": 1
   },
   "260": {
    "set": "fre_fr_full",
@@ -832,7 +935,8 @@
    "segment": 251,
    "variation": 4971348,
    "param": "lae_focus_team_2_ID",
-   "samples": 34223
+   "samples": 34223,
+   "clubs": 1
   },
   "266": {
    "set": "fre_fr_full",
@@ -840,7 +944,8 @@
    "segment": 197,
    "variation": 4971048,
    "param": "lae_focus_team_1_ID",
-   "samples": 47208
+   "samples": 47208,
+   "clubs": 1
   },
   "267": {
    "set": "fre_fr_full",
@@ -848,7 +953,8 @@
    "segment": 361,
    "variation": 5062817,
    "param": "away_ID",
-   "samples": 45153
+   "samples": 45153,
+   "clubs": 1
   },
   "269": {
    "set": "fre_fr_full",
@@ -856,7 +962,8 @@
    "segment": 142,
    "variation": 4960632,
    "param": "asset_team_ID",
-   "samples": 26499
+   "samples": 26499,
+   "clubs": 1
   },
   "271": {
    "set": "fre_fr_full",
@@ -864,7 +971,8 @@
    "segment": 143,
    "variation": 4960633,
    "param": "asset_team_ID",
-   "samples": 30715
+   "samples": 30715,
+   "clubs": 1
   },
   "272": {
    "set": "fre_fr_full",
@@ -872,7 +980,8 @@
    "segment": 243,
    "variation": 4971051,
    "param": "lae_focus_team_1_ID",
-   "samples": 35459
+   "samples": 35459,
+   "clubs": 1
   },
   "278": {
    "set": "fre_fr_full",
@@ -880,7 +989,8 @@
    "segment": 359,
    "variation": 5062814,
    "param": "away_ID",
-   "samples": 48823
+   "samples": 48823,
+   "clubs": 1
   },
   "286": {
    "set": "fre_fr_full",
@@ -888,7 +998,8 @@
    "segment": 813,
    "variation": 5061951,
    "param": "home_ID",
-   "samples": 39084
+   "samples": 39084,
+   "clubs": 1
   },
   "294": {
    "set": "fre_fr_full",
@@ -896,7 +1007,8 @@
    "segment": 17,
    "variation": 4960634,
    "param": "asset_team_ID",
-   "samples": 20910
+   "samples": 20910,
+   "clubs": 1
   },
   "298": {
    "set": "fre_fr_full",
@@ -904,7 +1016,8 @@
    "segment": 150,
    "variation": 4960635,
    "param": "asset_team_ID",
-   "samples": 36266
+   "samples": 36266,
+   "clubs": 1
   },
   "299": {
    "set": "fre_fr_full",
@@ -912,7 +1025,8 @@
    "segment": 764,
    "variation": 5062596,
    "param": "away_ID",
-   "samples": 42412
+   "samples": 42412,
+   "clubs": 1
   },
   "300": {
    "set": "fre_fr_full",
@@ -920,7 +1034,8 @@
    "segment": 153,
    "variation": 5062456,
    "param": "away_ID",
-   "samples": 48497
+   "samples": 48497,
+   "clubs": 1
   },
   "301": {
    "set": "fre_fr_full",
@@ -928,7 +1043,8 @@
    "segment": 550,
    "variation": 5961117,
    "param": "home_ID",
-   "samples": 59317
+   "samples": 59317,
+   "clubs": 1
   },
   "305": {
    "set": "fre_fr_full",
@@ -936,7 +1052,8 @@
    "segment": 272,
    "variation": 5062645,
    "param": "away_ID",
-   "samples": 50981
+   "samples": 50981,
+   "clubs": 1
   },
   "306": {
    "set": "fre_fr_full",
@@ -944,7 +1061,8 @@
    "segment": 126,
    "variation": 5062413,
    "param": "away_ID",
-   "samples": 57989
+   "samples": 57989,
+   "clubs": 1
   },
   "308": {
    "set": "fre_fr_full",
@@ -952,7 +1070,8 @@
    "segment": 374,
    "variation": 5062836,
    "param": "away_ID",
-   "samples": 39707
+   "samples": 39707,
+   "clubs": 1
   },
   "319": {
    "set": "fre_fr_full",
@@ -960,7 +1079,8 @@
    "segment": 164,
    "variation": 4971055,
    "param": "lae_focus_team_1_ID",
-   "samples": 36232
+   "samples": 36232,
+   "clubs": 1
   },
   "320": {
    "set": "fre_fr_full",
@@ -968,7 +1088,8 @@
    "segment": 154,
    "variation": 4960636,
    "param": "asset_team_ID",
-   "samples": 27189
+   "samples": 27189,
+   "clubs": 1
   },
   "321": {
    "set": "fre_fr_full",
@@ -976,7 +1097,8 @@
    "segment": 109,
    "variation": 5061742,
    "param": "home_ID",
-   "samples": 40100
+   "samples": 40100,
+   "clubs": 1
   },
   "324": {
    "set": "fre_fr_full",
@@ -984,7 +1106,8 @@
    "segment": 160,
    "variation": 5061812,
    "param": "home_ID",
-   "samples": 41868
+   "samples": 41868,
+   "clubs": 1
   },
   "325": {
    "set": "fre_fr_full",
@@ -992,7 +1115,8 @@
    "segment": 111,
    "variation": 4960638,
    "param": "asset_team_ID",
-   "samples": 43162
+   "samples": 43162,
+   "clubs": 1
   },
   "326": {
    "set": "fre_fr_full",
@@ -1000,7 +1124,8 @@
    "segment": 110,
    "variation": 4960639,
    "param": "asset_team_ID",
-   "samples": 38535
+   "samples": 38535,
+   "clubs": 1
   },
   "327": {
    "set": "fre_fr_full",
@@ -1008,7 +1133,8 @@
    "segment": 112,
    "variation": 4960640,
    "param": "asset_team_ID",
-   "samples": 37921
+   "samples": 37921,
+   "clubs": 1
   },
   "347": {
    "set": "fre_fr_full",
@@ -1016,7 +1142,8 @@
    "segment": 354,
    "variation": 5062805,
    "param": "away_ID",
-   "samples": 33331
+   "samples": 33331,
+   "clubs": 1
   },
   "361": {
    "set": "fre_fr_full",
@@ -1024,7 +1151,8 @@
    "segment": 184,
    "variation": 5061848,
    "param": "home_ID",
-   "samples": 43429
+   "samples": 43429,
+   "clubs": 1
   },
   "378": {
    "set": "fre_fr_full",
@@ -1032,7 +1160,8 @@
    "segment": 14,
    "variation": 4971062,
    "param": "lae_focus_team_1_ID",
-   "samples": 29988
+   "samples": 29988,
+   "clubs": 1
   },
   "379": {
    "set": "fre_fr_full",
@@ -1040,7 +1169,8 @@
    "segment": 419,
    "variation": 5391667,
    "param": "home_ID",
-   "samples": 23306
+   "samples": 23306,
+   "clubs": 1
   },
   "383": {
    "set": "fre_fr_full",
@@ -1048,7 +1178,8 @@
    "segment": 206,
    "variation": 3442376,
    "param": "asset_team_ID",
-   "samples": 39848
+   "samples": 39848,
+   "clubs": 1
   },
   "393": {
    "set": "fre_fr_full",
@@ -1056,7 +1187,8 @@
    "segment": 357,
    "variation": 5062161,
    "param": "home_ID",
-   "samples": 55154
+   "samples": 55154,
+   "clubs": 1
   },
   "417": {
    "set": "fre_fr_full",
@@ -1064,7 +1196,8 @@
    "segment": 149,
    "variation": 4960644,
    "param": "asset_team_ID",
-   "samples": 26692
+   "samples": 26692,
+   "clubs": 1
   },
   "418": {
    "set": "fre_fr_full",
@@ -1072,7 +1205,8 @@
    "segment": 198,
    "variation": 5062518,
    "param": "away_ID",
-   "samples": 35076
+   "samples": 35076,
+   "clubs": 1
   },
   "420": {
    "set": "fre_fr_full",
@@ -1080,7 +1214,8 @@
    "segment": 271,
    "variation": 5061992,
    "param": "home_ID",
-   "samples": 55328
+   "samples": 55328,
+   "clubs": 1
   },
   "423": {
    "set": "fre_fr_full",
@@ -1088,7 +1223,8 @@
    "segment": 197,
    "variation": 5062517,
    "param": "away_ID",
-   "samples": 73274
+   "samples": 73274,
+   "clubs": 1
   },
   "433": {
    "set": "fre_fr_full",
@@ -1096,7 +1232,8 @@
    "segment": 153,
    "variation": 4960645,
    "param": "asset_team_ID",
-   "samples": 28281
+   "samples": 28281,
+   "clubs": 1
   },
   "436": {
    "set": "fre_fr_full",
@@ -1104,7 +1241,8 @@
    "segment": 138,
    "variation": 4971367,
    "param": "lae_focus_team_2_ID",
-   "samples": 44430
+   "samples": 44430,
+   "clubs": 1
   },
   "445": {
    "set": "fre_fr_full",
@@ -1112,7 +1250,8 @@
    "segment": 154,
    "variation": 5061805,
    "param": "home_ID",
-   "samples": 47769
+   "samples": 47769,
+   "clubs": 1
   },
   "448": {
    "set": "fre_fr_full",
@@ -1120,7 +1259,8 @@
    "segment": 693,
    "variation": 6578146,
    "param": "home_ID",
-   "samples": 27275
+   "samples": 27275,
+   "clubs": 1
   },
   "449": {
    "set": "fre_fr_full",
@@ -1128,7 +1268,8 @@
    "segment": 56,
    "variation": 4960648,
    "param": "asset_team_ID",
-   "samples": 36775
+   "samples": 36775,
+   "clubs": 1
   },
   "450": {
    "set": "fre_fr_full",
@@ -1136,7 +1277,8 @@
    "segment": 55,
    "variation": 3442188,
    "param": "asset_team_ID",
-   "samples": 40592
+   "samples": 40592,
+   "clubs": 1
   },
   "452": {
    "set": "fre_fr_full",
@@ -1144,7 +1286,8 @@
    "segment": 57,
    "variation": 3442190,
    "param": "asset_team_ID",
-   "samples": 34266
+   "samples": 34266,
+   "clubs": 1
   },
   "453": {
    "set": "fre_fr_full",
@@ -1152,7 +1295,8 @@
    "segment": 159,
    "variation": 4960652,
    "param": "asset_team_ID",
-   "samples": 29074
+   "samples": 29074,
+   "clubs": 1
   },
   "457": {
    "set": "fre_fr_full",
@@ -1160,7 +1304,8 @@
    "segment": 39,
    "variation": 3442172,
    "param": "asset_team_ID",
-   "samples": 53329
+   "samples": 53329,
+   "clubs": 1
   },
   "459": {
    "set": "fre_fr_full",
@@ -1168,7 +1313,8 @@
    "segment": 176,
    "variation": 4971079,
    "param": "lae_focus_team_1_ID",
-   "samples": 30589
+   "samples": 30589,
+   "clubs": 1
   },
   "461": {
    "set": "fre_fr_full",
@@ -1176,7 +1322,8 @@
    "segment": 212,
    "variation": 4960657,
    "param": "asset_team_ID",
-   "samples": 30517
+   "samples": 30517,
+   "clubs": 1
   },
   "462": {
    "set": "fre_fr_full",
@@ -1184,7 +1331,8 @@
    "segment": 103,
    "variation": 3442238,
    "param": "asset_team_ID",
-   "samples": 41890
+   "samples": 41890,
+   "clubs": 1
   },
   "463": {
    "set": "fre_fr_full",
@@ -1192,7 +1340,8 @@
    "segment": 71,
    "variation": 3442204,
    "param": "asset_team_ID",
-   "samples": 35695
+   "samples": 35695,
+   "clubs": 1
   },
   "467": {
    "set": "fre_fr_full",
@@ -1200,7 +1349,8 @@
    "segment": 206,
    "variation": 4960661,
    "param": "asset_team_ID",
-   "samples": 26250
+   "samples": 26250,
+   "clubs": 1
   },
   "468": {
    "set": "fre_fr_full",
@@ -1208,7 +1358,8 @@
    "segment": 78,
    "variation": 4971086,
    "param": "lae_focus_team_1_ID",
-   "samples": 32053
+   "samples": 32053,
+   "clubs": 1
   },
   "472": {
    "set": "fre_fr_full",
@@ -1216,7 +1367,8 @@
    "segment": 695,
    "variation": 6578149,
    "param": "home_ID",
-   "samples": 42875
+   "samples": 42875,
+   "clubs": 1
   },
   "479": {
    "set": "fre_fr_full",
@@ -1224,7 +1376,8 @@
    "segment": 138,
    "variation": 3442273,
    "param": "asset_team_ID",
-   "samples": 31141
+   "samples": 31141,
+   "clubs": 1
   },
   "480": {
    "set": "fre_fr_full",
@@ -1232,7 +1385,8 @@
    "segment": 174,
    "variation": 4971088,
    "param": "lae_focus_team_1_ID",
-   "samples": 40280
+   "samples": 40280,
+   "clubs": 1
   },
   "481": {
    "set": "fre_fr_full",
@@ -1240,7 +1394,8 @@
    "segment": 211,
    "variation": 4960664,
    "param": "asset_team_ID",
-   "samples": 28060
+   "samples": 28060,
+   "clubs": 1
   },
   "483": {
    "set": "fre_fr_full",
@@ -1248,7 +1403,8 @@
    "segment": 22,
    "variation": 3442155,
    "param": "asset_team_ID",
-   "samples": 38962
+   "samples": 38962,
+   "clubs": 1
   },
   "485": {
    "set": "fre_fr_full",
@@ -1256,7 +1412,8 @@
    "segment": 167,
    "variation": 4971992,
    "param": "lae_against_team_2_ID",
-   "samples": 26104
+   "samples": 26104,
+   "clubs": 1
   },
   "487": {
    "set": "fre_fr_full",
@@ -1264,7 +1421,8 @@
    "segment": 179,
    "variation": 5061840,
    "param": "home_ID",
-   "samples": 43311
+   "samples": 43311,
+   "clubs": 1
   },
   "492": {
    "set": "fre_fr_full",
@@ -1272,7 +1430,8 @@
    "segment": 140,
    "variation": 4971093,
    "param": "lae_focus_team_1_ID",
-   "samples": 44469
+   "samples": 44469,
+   "clubs": 1
   },
   "503": {
    "set": "fre_fr_full",
@@ -1280,7 +1439,8 @@
    "segment": 138,
    "variation": 4971094,
    "param": "lae_focus_team_1_ID",
-   "samples": 33482
+   "samples": 33482,
+   "clubs": 1
   },
   "517": {
    "set": "fre_fr_full",
@@ -1288,7 +1448,8 @@
    "segment": 369,
    "variation": 5062828,
    "param": "away_ID",
-   "samples": 42990
+   "samples": 42990,
+   "clubs": 1
   },
   "523": {
    "set": "fre_fr_full",
@@ -1296,7 +1457,8 @@
    "segment": 269,
    "variation": 5061984,
    "param": "home_ID",
-   "samples": 43881
+   "samples": 43881,
+   "clubs": 1
   },
   "543": {
    "set": "fre_fr_full",
@@ -1304,7 +1466,8 @@
    "segment": 224,
    "variation": 5062559,
    "param": "away_ID",
-   "samples": 56163
+   "samples": 56163,
+   "clubs": 1
   },
   "563": {
    "set": "fre_fr_full",
@@ -1312,7 +1475,8 @@
    "segment": 139,
    "variation": 5062435,
    "param": "away_ID",
-   "samples": 52147
+   "samples": 52147,
+   "clubs": 1
   },
   "567": {
    "set": "fre_fr_full",
@@ -1320,7 +1484,8 @@
    "segment": 372,
    "variation": 5062183,
    "param": "home_ID",
-   "samples": 42886
+   "samples": 42886,
+   "clubs": 1
   },
   "576": {
    "set": "fre_fr_full",
@@ -1328,7 +1493,8 @@
    "segment": 245,
    "variation": 5061943,
    "param": "home_ID",
-   "samples": 46834
+   "samples": 46834,
+   "clubs": 1
   },
   "598": {
    "set": "fre_fr_full",
@@ -1336,7 +1502,8 @@
    "segment": 210,
    "variation": 3442380,
    "param": "asset_team_ID",
-   "samples": 36722
+   "samples": 36722,
+   "clubs": 1
   },
   "605": {
    "set": "fre_fr_full",
@@ -1344,7 +1511,8 @@
    "segment": 287,
    "variation": 5062026,
    "param": "home_ID",
-   "samples": 42294
+   "samples": 42294,
+   "clubs": 1
   },
   "607": {
    "set": "fre_fr_full",
@@ -1352,7 +1520,8 @@
    "segment": 289,
    "variation": 5062031,
    "param": "home_ID",
-   "samples": 48264
+   "samples": 48264,
+   "clubs": 1
   },
   "634": {
    "set": "fre_fr_full",
@@ -1360,7 +1529,8 @@
    "segment": 71,
    "variation": 5062313,
    "param": "away_ID",
-   "samples": 63027
+   "samples": 63027,
+   "clubs": 1
   },
   "650": {
    "set": "fre_fr_full",
@@ -1368,7 +1538,8 @@
    "segment": 222,
    "variation": 4971396,
    "param": "lae_focus_team_2_ID",
-   "samples": 40028
+   "samples": 40028,
+   "clubs": 1
   },
   "670": {
    "set": "fre_fr_full",
@@ -1376,7 +1547,8 @@
    "segment": 153,
    "variation": 4971997,
    "param": "lae_against_team_2_ID",
-   "samples": 28382
+   "samples": 28382,
+   "clubs": 1
   },
   "673": {
    "set": "fre_fr_full",
@@ -1384,7 +1556,8 @@
    "segment": 151,
    "variation": 4971998,
    "param": "lae_against_team_2_ID",
-   "samples": 23419
+   "samples": 23419,
+   "clubs": 1
   },
   "674": {
    "set": "fre_fr_full",
@@ -1392,7 +1565,8 @@
    "segment": 149,
    "variation": 4971999,
    "param": "lae_against_team_2_ID",
-   "samples": 32371
+   "samples": 32371,
+   "clubs": 1
   },
   "680": {
    "set": "fre_fr_full",
@@ -1400,7 +1574,8 @@
    "segment": 213,
    "variation": 5062541,
    "param": "away_ID",
-   "samples": 49110
+   "samples": 49110,
+   "clubs": 1
   },
   "681": {
    "set": "fre_fr_full",
@@ -1408,7 +1583,8 @@
    "segment": 546,
    "variation": 5961110,
    "param": "home_ID",
-   "samples": 37111
+   "samples": 37111,
+   "clubs": 1
   },
   "687": {
    "set": "fre_fr_full",
@@ -1416,7 +1592,8 @@
    "segment": 291,
    "variation": 5062034,
    "param": "home_ID",
-   "samples": 48289
+   "samples": 48289,
+   "clubs": 1
   },
   "688": {
    "set": "fre_fr_full",
@@ -1424,7 +1601,8 @@
    "segment": 314,
    "variation": 5062719,
    "param": "away_ID",
-   "samples": 53190
+   "samples": 53190,
+   "clubs": 1
   },
   "689": {
    "set": "fre_fr_full",
@@ -1432,7 +1610,8 @@
    "segment": 103,
    "variation": 4960671,
    "param": "asset_team_ID",
-   "samples": 49424
+   "samples": 49424,
+   "clubs": 1
   },
   "691": {
    "set": "fre_fr_full",
@@ -1440,7 +1619,8 @@
    "segment": 316,
    "variation": 5062723,
    "param": "away_ID",
-   "samples": 67774
+   "samples": 67774,
+   "clubs": 1
   },
   "693": {
    "set": "fre_fr_full",
@@ -1448,7 +1628,8 @@
    "segment": 306,
    "variation": 5062055,
    "param": "home_ID",
-   "samples": 56077
+   "samples": 56077,
+   "clubs": 1
   },
   "694": {
    "set": "fre_fr_full",
@@ -1456,7 +1637,8 @@
    "segment": 292,
    "variation": 5062035,
    "param": "home_ID",
-   "samples": 57887
+   "samples": 57887,
+   "clubs": 1
   },
   "695": {
    "set": "fre_fr_full",
@@ -1464,7 +1646,8 @@
    "segment": 328,
    "variation": 5062757,
    "param": "away_ID",
-   "samples": 54904
+   "samples": 54904,
+   "clubs": 1
   },
   "696": {
    "set": "fre_fr_full",
@@ -1472,7 +1655,8 @@
    "segment": 319,
    "variation": 5062082,
    "param": "home_ID",
-   "samples": 81120
+   "samples": 81120,
+   "clubs": 1
   },
   "697": {
    "set": "fre_fr_full",
@@ -1480,7 +1664,8 @@
    "segment": 104,
    "variation": 4960672,
    "param": "asset_team_ID",
-   "samples": 57541
+   "samples": 57541,
+   "clubs": 1
   },
   "698": {
    "set": "fre_fr_full",
@@ -1488,7 +1673,8 @@
    "segment": 305,
    "variation": 5062053,
    "param": "home_ID",
-   "samples": 55909
+   "samples": 55909,
+   "clubs": 1
   },
   "700": {
    "set": "fre_fr_full",
@@ -1496,7 +1682,8 @@
    "segment": 151,
    "variation": 4960673,
    "param": "asset_team_ID",
-   "samples": 34225
+   "samples": 34225,
+   "clubs": 1
   },
   "708": {
    "set": "fre_fr_full",
@@ -1504,7 +1691,8 @@
    "segment": 161,
    "variation": 4971105,
    "param": "lae_focus_team_1_ID",
-   "samples": 35128
+   "samples": 35128,
+   "clubs": 1
   },
   "710": {
    "set": "fre_fr_full",
@@ -1512,7 +1700,8 @@
    "segment": 253,
    "variation": 5061960,
    "param": "home_ID",
-   "samples": 49914
+   "samples": 49914,
+   "clubs": 1
   },
   "711": {
    "set": "fre_fr_full",
@@ -1520,7 +1709,8 @@
    "segment": 174,
    "variation": 5061834,
    "param": "home_ID",
-   "samples": 32377
+   "samples": 32377,
+   "clubs": 1
   },
   "744": {
    "set": "fre_fr_full",
@@ -1528,7 +1718,8 @@
    "segment": 102,
    "variation": 5062387,
    "param": "away_ID",
-   "samples": 38930
+   "samples": 38930,
+   "clubs": 1
   },
   "749": {
    "set": "fre_fr_full",
@@ -1536,7 +1727,8 @@
    "segment": 811,
    "variation": 5062568,
    "param": "away_ID",
-   "samples": 56107
+   "samples": 56107,
+   "clubs": 1
   },
   "753": {
    "set": "fre_fr_full",
@@ -1544,7 +1736,8 @@
    "segment": 722,
    "variation": 6876596,
    "param": "home_ID",
-   "samples": 42012
+   "samples": 42012,
+   "clubs": 1
   },
   "781": {
    "set": "fre_fr_full",
@@ -1552,7 +1745,8 @@
    "segment": 609,
    "variation": 5982527,
    "param": "asset_team_ID",
-   "samples": 92521
+   "samples": 92521,
+   "clubs": 1
   },
   "819": {
    "set": "fre_fr_full",
@@ -1560,7 +1754,8 @@
    "segment": 142,
    "variation": 4971108,
    "param": "lae_focus_team_1_ID",
-   "samples": 31006
+   "samples": 31006,
+   "clubs": 1
   },
   "834": {
    "set": "fre_fr_full",
@@ -1568,7 +1763,8 @@
    "segment": 518,
    "variation": 5652689,
    "param": "home_ID",
-   "samples": 34213
+   "samples": 34213,
+   "clubs": 1
   },
   "837": {
    "set": "fre_fr_full",
@@ -1576,7 +1772,8 @@
    "segment": 761,
    "variation": 5061791,
    "param": "home_ID",
-   "samples": 41160
+   "samples": 41160,
+   "clubs": 1
   },
   "873": {
    "set": "fre_fr_full",
@@ -1584,7 +1781,8 @@
    "segment": 166,
    "variation": 4971109,
    "param": "lae_focus_team_1_ID",
-   "samples": 32750
+   "samples": 32750,
+   "clubs": 1
   },
   "894": {
    "set": "fre_fr_full",
@@ -1592,7 +1790,8 @@
    "segment": 135,
    "variation": 4971110,
    "param": "lae_focus_team_1_ID",
-   "samples": 28687
+   "samples": 28687,
+   "clubs": 1
   },
   "896": {
    "set": "fre_fr_full",
@@ -1600,7 +1799,8 @@
    "segment": 239,
    "variation": 4971111,
    "param": "lae_focus_team_1_ID",
-   "samples": 35308
+   "samples": 35308,
+   "clubs": 1
   },
   "897": {
    "set": "fre_fr_full",
@@ -1608,7 +1808,8 @@
    "segment": 240,
    "variation": 4971112,
    "param": "lae_focus_team_1_ID",
-   "samples": 39071
+   "samples": 39071,
+   "clubs": 1
   },
   "898": {
    "set": "fre_fr_full",
@@ -1616,7 +1817,8 @@
    "segment": 280,
    "variation": 5062004,
    "param": "home_ID",
-   "samples": 41406
+   "samples": 41406,
+   "clubs": 1
   },
   "900": {
    "set": "fre_fr_full",
@@ -1624,7 +1826,8 @@
    "segment": 132,
    "variation": 4960679,
    "param": "asset_team_ID",
-   "samples": 51817
+   "samples": 51817,
+   "clubs": 1
   },
   "918": {
    "set": "fre_fr_full",
@@ -1632,7 +1835,8 @@
    "segment": 157,
    "variation": 4971114,
    "param": "lae_focus_team_1_ID",
-   "samples": 40719
+   "samples": 40719,
+   "clubs": 1
   },
   "919": {
    "set": "fre_fr_full",
@@ -1640,7 +1844,8 @@
    "segment": 113,
    "variation": 5062399,
    "param": "away_ID",
-   "samples": 34588
+   "samples": 34588,
+   "clubs": 1
   },
   "980": {
    "set": "fre_fr_full",
@@ -1648,7 +1853,8 @@
    "segment": 633,
    "variation": 6387950,
    "param": "home_ID",
-   "samples": 75042
+   "samples": 75042,
+   "clubs": 1
   },
   "1013": {
    "set": "fre_fr_full",
@@ -1656,7 +1862,8 @@
    "segment": 147,
    "variation": 4960680,
    "param": "asset_team_ID",
-   "samples": 41957
+   "samples": 41957,
+   "clubs": 1
   },
   "1032": {
    "set": "fre_fr_full",
@@ -1664,7 +1871,8 @@
    "segment": 793,
    "variation": 8018719,
    "param": "home_ID",
-   "samples": 36749
+   "samples": 36749,
+   "clubs": 1
   },
   "1035": {
    "set": "fre_fr_full",
@@ -1672,7 +1880,8 @@
    "segment": 375,
    "variation": 5062840,
    "param": "away_ID",
-   "samples": 58960
+   "samples": 58960,
+   "clubs": 1
   },
   "1041": {
    "set": "fre_fr_full",
@@ -1680,7 +1889,8 @@
    "segment": 8,
    "variation": 7902095,
    "param": "away_ID",
-   "samples": 575023
+   "samples": 575023,
+   "clubs": 2
   },
   "1043": {
    "set": "fre_fr_full",
@@ -1688,7 +1898,8 @@
    "segment": 186,
    "variation": 3442352,
    "param": "asset_team_ID",
-   "samples": 35676
+   "samples": 35676,
+   "clubs": 1
   },
   "1053": {
    "set": "fre_fr_full",
@@ -1696,7 +1907,8 @@
    "segment": 781,
    "variation": 5062214,
    "param": "home_ID",
-   "samples": 40218
+   "samples": 40218,
+   "clubs": 1
   },
   "1318": {
    "set": "fre_fr_full",
@@ -1704,7 +1916,8 @@
    "segment": 344,
    "variation": 5062785,
    "param": "away_ID",
-   "samples": 39049
+   "samples": 39049,
+   "clubs": 1
   },
   "1319": {
    "set": "fre_fr_full",
@@ -1712,7 +1925,8 @@
    "segment": 730,
    "variation": 7151355,
    "param": "home_ID",
-   "samples": 35621
+   "samples": 35621,
+   "clubs": 1
   },
   "1322": {
    "set": "fre_fr_full",
@@ -1720,7 +1934,8 @@
    "segment": 587,
    "variation": 7161160,
    "param": "asset_team_ID",
-   "samples": 54538
+   "samples": 54538,
+   "clubs": 1
   },
   "1325": {
    "set": "fre_fr_full",
@@ -1728,7 +1943,8 @@
    "segment": 588,
    "variation": 7161163,
    "param": "asset_team_ID",
-   "samples": 60781
+   "samples": 60781,
+   "clubs": 1
   },
   "1328": {
    "set": "fre_fr_full",
@@ -1736,7 +1952,8 @@
    "segment": 529,
    "variation": 5686699,
    "param": "away_ID",
-   "samples": 41600
+   "samples": 41600,
+   "clubs": 1
   },
   "1330": {
    "set": "fre_fr_full",
@@ -1744,7 +1961,8 @@
    "segment": 534,
    "variation": 5686548,
    "param": "home_ID",
-   "samples": 45888
+   "samples": 45888,
+   "clubs": 1
   },
   "1331": {
    "set": "fre_fr_full",
@@ -1752,7 +1970,8 @@
    "segment": 528,
    "variation": 5686698,
    "param": "away_ID",
-   "samples": 37568
+   "samples": 37568,
+   "clubs": 1
   },
   "1334": {
    "set": "fre_fr_full",
@@ -1760,7 +1979,8 @@
    "segment": 541,
    "variation": 5686560,
    "param": "home_ID",
-   "samples": 33088
+   "samples": 33088,
+   "clubs": 1
   },
   "1335": {
    "set": "fre_fr_full",
@@ -1768,7 +1988,8 @@
    "segment": 424,
    "variation": 5484239,
    "param": "home_ID",
-   "samples": 30378
+   "samples": 30378,
+   "clubs": 1
   },
   "1336": {
    "set": "fre_fr_full",
@@ -1776,7 +1997,8 @@
    "segment": 729,
    "variation": 7151353,
    "param": "home_ID",
-   "samples": 36527
+   "samples": 36527,
+   "clubs": 1
   },
   "1337": {
    "set": "fre_fr_full",
@@ -1784,7 +2006,8 @@
    "segment": 523,
    "variation": 5686534,
    "param": "home_ID",
-   "samples": 31424
+   "samples": 31424,
+   "clubs": 1
   },
   "1338": {
    "set": "fre_fr_full",
@@ -1792,7 +2015,8 @@
    "segment": 829,
    "variation": 7151306,
    "param": "home_ID",
-   "samples": 26766
+   "samples": 26766,
+   "clubs": 1
   },
   "1341": {
    "set": "fre_fr_full",
@@ -1800,7 +2024,8 @@
    "segment": 542,
    "variation": 5686561,
    "param": "home_ID",
-   "samples": 34432
+   "samples": 34432,
+   "clubs": 1
   },
   "1343": {
    "set": "fre_fr_full",
@@ -1808,7 +2033,8 @@
    "segment": 522,
    "variation": 5686533,
    "param": "home_ID",
-   "samples": 34304
+   "samples": 34304,
+   "clubs": 1
   },
   "1352": {
    "set": "fre_fr_full",
@@ -1816,7 +2042,8 @@
    "segment": 3,
    "variation": 4806619,
    "param": "away_ID",
-   "samples": 40441
+   "samples": 40441,
+   "clubs": 1
   },
   "1353": {
    "set": "fre_fr_full",
@@ -1824,7 +2051,8 @@
    "segment": 531,
    "variation": 5686703,
    "param": "away_ID",
-   "samples": 35944
+   "samples": 35944,
+   "clubs": 1
   },
   "1354": {
    "set": "fre_fr_full",
@@ -1832,7 +2060,8 @@
    "segment": 521,
    "variation": 5686532,
    "param": "home_ID",
-   "samples": 40777
+   "samples": 40777,
+   "clubs": 1
   },
   "1355": {
    "set": "fre_fr_full",
@@ -1840,7 +2069,8 @@
    "segment": 538,
    "variation": 5686557,
    "param": "home_ID",
-   "samples": 30656
+   "samples": 30656,
+   "clubs": 1
   },
   "1356": {
    "set": "fre_fr_full",
@@ -1848,7 +2078,8 @@
    "segment": 539,
    "variation": 5686558,
    "param": "home_ID",
-   "samples": 35840
+   "samples": 35840,
+   "clubs": 1
   },
   "1359": {
    "set": "fre_fr_full",
@@ -1856,7 +2087,8 @@
    "segment": 531,
    "variation": 5686545,
    "param": "home_ID",
-   "samples": 25893
+   "samples": 25893,
+   "clubs": 1
   },
   "1360": {
    "set": "fre_fr_full",
@@ -1864,7 +2096,8 @@
    "segment": 732,
    "variation": 7151357,
    "param": "home_ID",
-   "samples": 37382
+   "samples": 37382,
+   "clubs": 1
   },
   "1362": {
    "set": "fre_fr_full",
@@ -1872,7 +2105,8 @@
    "segment": 524,
    "variation": 5686535,
    "param": "home_ID",
-   "samples": 37909
+   "samples": 37909,
+   "clubs": 1
   },
   "1363": {
    "set": "fre_fr_full",
@@ -1880,7 +2114,8 @@
    "segment": 532,
    "variation": 5686546,
    "param": "home_ID",
-   "samples": 25350
+   "samples": 25350,
+   "clubs": 1
   },
   "1364": {
    "set": "fre_fr_full",
@@ -1888,7 +2123,8 @@
    "segment": 828,
    "variation": 5686549,
    "param": "home_ID",
-   "samples": 28736
+   "samples": 28736,
+   "clubs": 1
   },
   "1365": {
    "set": "fre_fr_full",
@@ -1896,7 +2132,8 @@
    "segment": 822,
    "variation": 7151305,
    "param": "home_ID",
-   "samples": 32401
+   "samples": 32401,
+   "clubs": 1
   },
   "1366": {
    "set": "fre_fr_full",
@@ -1904,7 +2141,8 @@
    "segment": 533,
    "variation": 5686547,
    "param": "home_ID",
-   "samples": 29120
+   "samples": 29120,
+   "clubs": 1
   },
   "1367": {
    "set": "fre_fr_full",
@@ -1912,7 +2150,8 @@
    "segment": 536,
    "variation": 5686553,
    "param": "home_ID",
-   "samples": 41280
+   "samples": 41280,
+   "clubs": 1
   },
   "1369": {
    "set": "fre_fr_full",
@@ -1920,7 +2159,8 @@
    "segment": 423,
    "variation": 5484237,
    "param": "home_ID",
-   "samples": 41121
+   "samples": 41121,
+   "clubs": 1
   },
   "1375": {
    "set": "fre_fr_full",
@@ -1928,7 +2168,8 @@
    "segment": 823,
    "variation": 5062124,
    "param": "home_ID",
-   "samples": 43928
+   "samples": 43928,
+   "clubs": 1
   },
   "1377": {
    "set": "fre_fr_full",
@@ -1936,7 +2177,8 @@
    "segment": 827,
    "variation": 5686542,
    "param": "home_ID",
-   "samples": 33088
+   "samples": 33088,
+   "clubs": 1
   },
   "1386": {
    "set": "fre_fr_full",
@@ -1944,7 +2186,8 @@
    "segment": 529,
    "variation": 5686540,
    "param": "home_ID",
-   "samples": 35264
+   "samples": 35264,
+   "clubs": 1
   },
   "1387": {
    "set": "fre_fr_full",
@@ -1952,7 +2195,8 @@
    "segment": 536,
    "variation": 5686712,
    "param": "away_ID",
-   "samples": 39285
+   "samples": 39285,
+   "clubs": 1
   },
   "1411": {
    "set": "fre_fr_full",
@@ -1960,7 +2204,8 @@
    "segment": 786,
    "variation": 5686710,
    "param": "away_ID",
-   "samples": 34880
+   "samples": 34880,
+   "clubs": 1
   },
   "1439": {
    "set": "fre_fr_full",
@@ -1968,7 +2213,8 @@
    "segment": 246,
    "variation": 4971116,
    "param": "lae_focus_team_1_ID",
-   "samples": 34617
+   "samples": 34617,
+   "clubs": 1
   },
   "1516": {
    "set": "fre_fr_full",
@@ -1976,7 +2222,8 @@
    "segment": 141,
    "variation": 4960681,
    "param": "asset_team_ID",
-   "samples": 34318
+   "samples": 34318,
+   "clubs": 1
   },
   "1530": {
    "set": "fre_fr_full",
@@ -1984,7 +2231,8 @@
    "segment": 8,
    "variation": 4960682,
    "param": "asset_team_ID",
-   "samples": 22012
+   "samples": 22012,
+   "clubs": 1
   },
   "1571": {
    "set": "fre_fr_full",
@@ -1992,7 +2240,8 @@
    "segment": 719,
    "variation": 6876592,
    "param": "home_ID",
-   "samples": 51018
+   "samples": 51018,
+   "clubs": 1
   },
   "1572": {
    "set": "fre_fr_full",
@@ -2000,7 +2249,8 @@
    "segment": 236,
    "variation": 5061931,
    "param": "home_ID",
-   "samples": 63186
+   "samples": 63186,
+   "clubs": 1
   },
   "1738": {
    "set": "fre_fr_full",
@@ -2008,7 +2258,8 @@
    "segment": 23,
    "variation": 4972019,
    "param": "lae_against_team_2_ID",
-   "samples": 20242
+   "samples": 20242,
+   "clubs": 1
   },
   "1745": {
    "set": "fre_fr_full",
@@ -2016,7 +2267,8 @@
    "segment": 723,
    "variation": 7068395,
    "param": "home_ID",
-   "samples": 18141
+   "samples": 18141,
+   "clubs": 1
   },
   "1746": {
    "set": "fre_fr_full",
@@ -2024,7 +2276,8 @@
    "segment": 364,
    "variation": 5062171,
    "param": "home_ID",
-   "samples": 38533
+   "samples": 38533,
+   "clubs": 1
   },
   "1750": {
    "set": "fre_fr_full",
@@ -2032,7 +2285,8 @@
    "segment": 241,
    "variation": 5061939,
    "param": "home_ID",
-   "samples": 52897
+   "samples": 52897,
+   "clubs": 1
   },
   "1756": {
    "set": "fre_fr_full",
@@ -2040,7 +2294,8 @@
    "segment": 519,
    "variation": 5652693,
    "param": "home_ID",
-   "samples": 45054
+   "samples": 45054,
+   "clubs": 1
   },
   "1757": {
    "set": "fre_fr_full",
@@ -2048,7 +2303,8 @@
    "segment": 232,
    "variation": 5062574,
    "param": "away_ID",
-   "samples": 41110
+   "samples": 41110,
+   "clubs": 1
   },
   "1786": {
    "set": "fre_fr_full",
@@ -2056,7 +2312,8 @@
    "segment": 147,
    "variation": 4971124,
    "param": "lae_focus_team_1_ID",
-   "samples": 37388
+   "samples": 37388,
+   "clubs": 1
   },
   "1788": {
    "set": "fre_fr_full",
@@ -2064,7 +2321,8 @@
    "segment": 185,
    "variation": 5062501,
    "param": "away_ID",
-   "samples": 41755
+   "samples": 41755,
+   "clubs": 1
   },
   "1790": {
    "set": "fre_fr_full",
@@ -2072,7 +2330,8 @@
    "segment": 161,
    "variation": 4972027,
    "param": "lae_against_team_2_ID",
-   "samples": 29524
+   "samples": 29524,
+   "clubs": 1
   },
   "1792": {
    "set": "fre_fr_full",
@@ -2080,7 +2339,8 @@
    "segment": 93,
    "variation": 4960687,
    "param": "asset_team_ID",
-   "samples": 33873
+   "samples": 33873,
+   "clubs": 1
   },
   "1793": {
    "set": "fre_fr_full",
@@ -2088,7 +2348,8 @@
    "segment": 99,
    "variation": 4960688,
    "param": "asset_team_ID",
-   "samples": 27569
+   "samples": 27569,
+   "clubs": 1
   },
   "1794": {
    "set": "fre_fr_full",
@@ -2096,7 +2357,8 @@
    "segment": 62,
    "variation": 4971130,
    "param": "lae_focus_team_1_ID",
-   "samples": 45076
+   "samples": 45076,
+   "clubs": 1
   },
   "1795": {
    "set": "fre_fr_full",
@@ -2104,7 +2366,8 @@
    "segment": 91,
    "variation": 4960690,
    "param": "asset_team_ID",
-   "samples": 33924
+   "samples": 33924,
+   "clubs": 1
   },
   "1796": {
    "set": "fre_fr_full",
@@ -2112,7 +2375,8 @@
    "segment": 681,
    "variation": 6578133,
    "param": "home_ID",
-   "samples": 25725
+   "samples": 25725,
+   "clubs": 1
   },
   "1797": {
    "set": "fre_fr_full",
@@ -2120,7 +2384,8 @@
    "segment": 141,
    "variation": 5062437,
    "param": "away_ID",
-   "samples": 64733
+   "samples": 64733,
+   "clubs": 1
   },
   "1798": {
    "set": "fre_fr_full",
@@ -2128,7 +2393,8 @@
    "segment": 142,
    "variation": 5062438,
    "param": "away_ID",
-   "samples": 66963
+   "samples": 66963,
+   "clubs": 1
   },
   "1799": {
    "set": "fre_fr_full",
@@ -2136,7 +2402,8 @@
    "segment": 45,
    "variation": 4960692,
    "param": "asset_team_ID",
-   "samples": 46954
+   "samples": 46954,
+   "clubs": 1
   },
   "1800": {
    "set": "fre_fr_full",
@@ -2144,7 +2411,8 @@
    "segment": 219,
    "variation": 5061899,
    "param": "home_ID",
-   "samples": 51614
+   "samples": 51614,
+   "clubs": 1
   },
   "1801": {
    "set": "fre_fr_full",
@@ -2152,7 +2420,8 @@
    "segment": 187,
    "variation": 5061851,
    "param": "home_ID",
-   "samples": 59768
+   "samples": 59768,
+   "clubs": 1
   },
   "1802": {
    "set": "fre_fr_full",
@@ -2160,7 +2429,8 @@
    "segment": 254,
    "variation": 5061961,
    "param": "home_ID",
-   "samples": 41401
+   "samples": 41401,
+   "clubs": 1
   },
   "1803": {
    "set": "fre_fr_full",
@@ -2168,7 +2438,8 @@
    "segment": 186,
    "variation": 5061850,
    "param": "home_ID",
-   "samples": 40959
+   "samples": 40959,
+   "clubs": 1
   },
   "1804": {
    "set": "fre_fr_full",
@@ -2176,7 +2447,8 @@
    "segment": 157,
    "variation": 5061809,
    "param": "home_ID",
-   "samples": 49384
+   "samples": 49384,
+   "clubs": 1
   },
   "1805": {
    "set": "fre_fr_full",
@@ -2184,7 +2456,8 @@
    "segment": 20,
    "variation": 4972037,
    "param": "lae_against_team_2_ID",
-   "samples": 26201
+   "samples": 26201,
+   "clubs": 1
   },
   "1806": {
    "set": "fre_fr_full",
@@ -2192,7 +2465,8 @@
    "segment": 97,
    "variation": 4960694,
    "param": "asset_team_ID",
-   "samples": 27124
+   "samples": 27124,
+   "clubs": 1
   },
   "1807": {
    "set": "fre_fr_full",
@@ -2200,7 +2474,8 @@
    "segment": 210,
    "variation": 5062532,
    "param": "away_ID",
-   "samples": 50698
+   "samples": 50698,
+   "clubs": 1
   },
   "1808": {
    "set": "fre_fr_full",
@@ -2208,7 +2483,8 @@
    "segment": 683,
    "variation": 6578135,
    "param": "home_ID",
-   "samples": 28875
+   "samples": 28875,
+   "clubs": 1
   },
   "1809": {
    "set": "fre_fr_full",
@@ -2216,7 +2492,8 @@
    "segment": 19,
    "variation": 4972041,
    "param": "lae_against_team_2_ID",
-   "samples": 24403
+   "samples": 24403,
+   "clubs": 1
   },
   "1814": {
    "set": "fre_fr_full",
@@ -2224,7 +2501,8 @@
    "segment": 554,
    "variation": 5961309,
    "param": "home_ID",
-   "samples": 44355
+   "samples": 44355,
+   "clubs": 1
   },
   "1815": {
    "set": "fre_fr_full",
@@ -2232,7 +2510,8 @@
    "segment": 21,
    "variation": 4972042,
    "param": "lae_against_team_2_ID",
-   "samples": 19848
+   "samples": 19848,
+   "clubs": 1
   },
   "1819": {
    "set": "fre_fr_full",
@@ -2240,7 +2519,8 @@
    "segment": 421,
    "variation": 5391669,
    "param": "home_ID",
-   "samples": 36296
+   "samples": 36296,
+   "clubs": 1
   },
   "1824": {
    "set": "fre_fr_full",
@@ -2248,7 +2528,8 @@
    "segment": 164,
    "variation": 6696835,
    "param": "asset_team_ID",
-   "samples": 38330
+   "samples": 38330,
+   "clubs": 1
   },
   "1831": {
    "set": "fre_fr_full",
@@ -2256,7 +2537,8 @@
    "segment": 149,
    "variation": 3442290,
    "param": "asset_team_ID",
-   "samples": 41458
+   "samples": 41458,
+   "clubs": 1
   },
   "1832": {
    "set": "fre_fr_full",
@@ -2264,7 +2546,8 @@
    "segment": 239,
    "variation": 5062587,
    "param": "away_ID",
-   "samples": 35675
+   "samples": 35675,
+   "clubs": 1
   },
   "1837": {
    "set": "fre_fr_full",
@@ -2272,7 +2555,8 @@
    "segment": 86,
    "variation": 6696837,
    "param": "asset_team_ID",
-   "samples": 38170
+   "samples": 38170,
+   "clubs": 1
   },
   "1842": {
    "set": "fre_fr_full",
@@ -2280,7 +2564,8 @@
    "segment": 101,
    "variation": 4971149,
    "param": "lae_focus_team_1_ID",
-   "samples": 37557
+   "samples": 37557,
+   "clubs": 1
   },
   "1853": {
    "set": "fre_fr_full",
@@ -2288,7 +2573,8 @@
    "segment": 77,
    "variation": 3442210,
    "param": "asset_team_ID",
-   "samples": 31084
+   "samples": 31084,
+   "clubs": 1
   },
   "1860": {
    "set": "fre_fr_full",
@@ -2296,7 +2582,8 @@
    "segment": 58,
    "variation": 6696841,
    "param": "asset_team_ID",
-   "samples": 34219
+   "samples": 34219,
+   "clubs": 1
   },
   "1861": {
    "set": "fre_fr_full",
@@ -2304,7 +2591,8 @@
    "segment": 686,
    "variation": 6578138,
    "param": "home_ID",
-   "samples": 29800
+   "samples": 29800,
+   "clubs": 1
   },
   "1871": {
    "set": "fre_fr_full",
@@ -2312,7 +2600,8 @@
    "segment": 155,
    "variation": 6696842,
    "param": "asset_team_ID",
-   "samples": 49117
+   "samples": 49117,
+   "clubs": 1
   },
   "1876": {
    "set": "fre_fr_full",
@@ -2320,7 +2609,8 @@
    "segment": 188,
    "variation": 3442354,
    "param": "asset_team_ID",
-   "samples": 43060
+   "samples": 43060,
+   "clubs": 1
   },
   "1877": {
    "set": "fre_fr_full",
@@ -2328,7 +2618,8 @@
    "segment": 198,
    "variation": 3442364,
    "param": "asset_team_ID",
-   "samples": 43329
+   "samples": 43329,
+   "clubs": 1
   },
   "1878": {
    "set": "fre_fr_full",
@@ -2336,7 +2627,8 @@
    "segment": 789,
    "variation": 8018714,
    "param": "home_ID",
-   "samples": 39791
+   "samples": 39791,
+   "clubs": 1
   },
   "1879": {
    "set": "fre_fr_full",
@@ -2344,7 +2636,8 @@
    "segment": 786,
    "variation": 8018711,
    "param": "home_ID",
-   "samples": 34542
+   "samples": 34542,
+   "clubs": 1
   },
   "1880": {
    "set": "fre_fr_full",
@@ -2352,7 +2645,8 @@
    "segment": 791,
    "variation": 8018716,
    "param": "home_ID",
-   "samples": 41282
+   "samples": 41282,
+   "clubs": 1
   },
   "1881": {
    "set": "fre_fr_full",
@@ -2360,7 +2654,8 @@
    "segment": 797,
    "variation": 8018723,
    "param": "home_ID",
-   "samples": 42285
+   "samples": 42285,
+   "clubs": 1
   },
   "1882": {
    "set": "fre_fr_full",
@@ -2368,7 +2663,8 @@
    "segment": 802,
    "variation": 8018728,
    "param": "home_ID",
-   "samples": 25139
+   "samples": 25139,
+   "clubs": 1
   },
   "1884": {
    "set": "fre_fr_full",
@@ -2376,7 +2672,8 @@
    "segment": 361,
    "variation": 5062166,
    "param": "home_ID",
-   "samples": 51571
+   "samples": 51571,
+   "clubs": 1
   },
   "1886": {
    "set": "fre_fr_full",
@@ -2384,7 +2681,8 @@
    "segment": 540,
    "variation": 5686559,
    "param": "home_ID",
-   "samples": 29149
+   "samples": 29149,
+   "clubs": 1
   },
   "1887": {
    "set": "fre_fr_full",
@@ -2392,7 +2690,8 @@
    "segment": 132,
    "variation": 4971154,
    "param": "lae_focus_team_1_ID",
-   "samples": 43892
+   "samples": 43892,
+   "clubs": 1
   },
   "1888": {
    "set": "fre_fr_full",
@@ -2400,7 +2699,8 @@
    "segment": 134,
    "variation": 4971155,
    "param": "lae_focus_team_1_ID",
-   "samples": 48068
+   "samples": 48068,
+   "clubs": 1
   },
   "1891": {
    "set": "fre_fr_full",
@@ -2408,7 +2708,8 @@
    "segment": 266,
    "variation": 5061981,
    "param": "home_ID",
-   "samples": 58623
+   "samples": 58623,
+   "clubs": 1
   },
   "1896": {
    "set": "fre_fr_full",
@@ -2416,7 +2717,8 @@
    "segment": 189,
    "variation": 5061853,
    "param": "home_ID",
-   "samples": 29788
+   "samples": 29788,
+   "clubs": 1
   },
   "1903": {
    "set": "fre_fr_full",
@@ -2424,7 +2726,8 @@
    "segment": 35,
    "variation": 4971157,
    "param": "lae_focus_team_1_ID",
-   "samples": 34981
+   "samples": 34981,
+   "clubs": 1
   },
   "1906": {
    "set": "fre_fr_full",
@@ -2432,7 +2735,8 @@
    "segment": 29,
    "variation": 6696845,
    "param": "asset_team_ID",
-   "samples": 44460
+   "samples": 44460,
+   "clubs": 1
   },
   "1908": {
    "set": "fre_fr_full",
@@ -2440,7 +2744,8 @@
    "segment": 76,
    "variation": 5062319,
    "param": "away_ID",
-   "samples": 34868
+   "samples": 34868,
+   "clubs": 1
   },
   "1910": {
    "set": "fre_fr_full",
@@ -2448,7 +2753,8 @@
    "segment": 687,
    "variation": 6578139,
    "param": "home_ID",
-   "samples": 42400
+   "samples": 42400,
+   "clubs": 1
   },
   "1913": {
    "set": "fre_fr_full",
@@ -2456,7 +2762,8 @@
    "segment": 36,
    "variation": 4971460,
    "param": "lae_focus_team_2_ID",
-   "samples": 38070
+   "samples": 38070,
+   "clubs": 1
   },
   "1914": {
    "set": "fre_fr_full",
@@ -2464,7 +2771,8 @@
    "segment": 688,
    "variation": 6578140,
    "param": "home_ID",
-   "samples": 39550
+   "samples": 39550,
+   "clubs": 1
   },
   "1917": {
    "set": "fre_fr_full",
@@ -2472,7 +2780,8 @@
    "segment": 238,
    "variation": 5062585,
    "param": "away_ID",
-   "samples": 33913
+   "samples": 33913,
+   "clubs": 1
   },
   "1919": {
    "set": "fre_fr_full",
@@ -2480,7 +2789,8 @@
    "segment": 217,
    "variation": 6696847,
    "param": "asset_team_ID",
-   "samples": 45465
+   "samples": 45465,
+   "clubs": 1
   },
   "1923": {
    "set": "fre_fr_full",
@@ -2488,7 +2798,8 @@
    "segment": 169,
    "variation": 5062479,
    "param": "away_ID",
-   "samples": 43865
+   "samples": 43865,
+   "clubs": 1
   },
   "1925": {
    "set": "fre_fr_full",
@@ -2496,7 +2807,8 @@
    "segment": 95,
    "variation": 6696848,
    "param": "asset_team_ID",
-   "samples": 33438
+   "samples": 33438,
+   "clubs": 1
   },
   "1926": {
    "set": "fre_fr_full",
@@ -2504,7 +2816,8 @@
    "segment": 251,
    "variation": 5062607,
    "param": "away_ID",
-   "samples": 39410
+   "samples": 39410,
+   "clubs": 1
   },
   "1928": {
    "set": "fre_fr_full",
@@ -2512,7 +2825,8 @@
    "segment": 158,
    "variation": 5061810,
    "param": "home_ID",
-   "samples": 41068
+   "samples": 41068,
+   "clubs": 1
   },
   "1929": {
    "set": "fre_fr_full",
@@ -2520,7 +2834,8 @@
    "segment": 127,
    "variation": 5062414,
    "param": "away_ID",
-   "samples": 52583
+   "samples": 52583,
+   "clubs": 1
   },
   "1930": {
    "set": "fre_fr_full",
@@ -2528,7 +2843,8 @@
    "segment": 204,
    "variation": 5062526,
    "param": "away_ID",
-   "samples": 58798
+   "samples": 58798,
+   "clubs": 1
   },
   "1931": {
    "set": "fre_fr_full",
@@ -2536,7 +2852,8 @@
    "segment": 549,
    "variation": 5961116,
    "param": "home_ID",
-   "samples": 52526
+   "samples": 52526,
+   "clubs": 1
   },
   "1932": {
    "set": "fre_fr_full",
@@ -2544,7 +2861,8 @@
    "segment": 264,
    "variation": 5062631,
    "param": "away_ID",
-   "samples": 39891
+   "samples": 39891,
+   "clubs": 1
   },
   "1933": {
    "set": "fre_fr_full",
@@ -2552,7 +2870,8 @@
    "segment": 117,
    "variation": 5061751,
    "param": "home_ID",
-   "samples": 67816
+   "samples": 67816,
+   "clubs": 1
   },
   "1934": {
    "set": "fre_fr_full",
@@ -2560,7 +2879,8 @@
    "segment": 116,
    "variation": 5062402,
    "param": "away_ID",
-   "samples": 48411
+   "samples": 48411,
+   "clubs": 1
   },
   "1935": {
    "set": "fre_fr_full",
@@ -2568,7 +2888,8 @@
    "segment": 143,
    "variation": 5061789,
    "param": "home_ID",
-   "samples": 62182
+   "samples": 62182,
+   "clubs": 1
   },
   "1936": {
    "set": "fre_fr_full",
@@ -2576,7 +2897,8 @@
    "segment": 159,
    "variation": 5061811,
    "param": "home_ID",
-   "samples": 54039
+   "samples": 54039,
+   "clubs": 1
   },
   "1938": {
    "set": "fre_fr_full",
@@ -2584,7 +2906,8 @@
    "segment": 237,
    "variation": 5061932,
    "param": "home_ID",
-   "samples": 43887
+   "samples": 43887,
+   "clubs": 1
   },
   "1939": {
    "set": "fre_fr_full",
@@ -2592,7 +2915,8 @@
    "segment": 165,
    "variation": 5061821,
    "param": "home_ID",
-   "samples": 54642
+   "samples": 54642,
+   "clubs": 1
   },
   "1940": {
    "set": "fre_fr_full",
@@ -2600,7 +2924,8 @@
    "segment": 188,
    "variation": 5062504,
    "param": "away_ID",
-   "samples": 47926
+   "samples": 47926,
+   "clubs": 1
   },
   "1943": {
    "set": "fre_fr_full",
@@ -2608,7 +2933,8 @@
    "segment": 92,
    "variation": 6696849,
    "param": "asset_team_ID",
-   "samples": 38517
+   "samples": 38517,
+   "clubs": 1
   },
   "1944": {
    "set": "fre_fr_full",
@@ -2616,7 +2942,8 @@
    "segment": 155,
    "variation": 5062458,
    "param": "away_ID",
-   "samples": 54492
+   "samples": 54492,
+   "clubs": 1
   },
   "1947": {
    "set": "fre_fr_full",
@@ -2624,7 +2951,8 @@
    "segment": 709,
    "variation": 6849144,
    "param": "home_ID",
-   "samples": 31551
+   "samples": 31551,
+   "clubs": 1
   },
   "1951": {
    "set": "fre_fr_full",
@@ -2632,7 +2960,8 @@
    "segment": 220,
    "variation": 5062554,
    "param": "away_ID",
-   "samples": 59649
+   "samples": 59649,
+   "clubs": 1
   },
   "1952": {
    "set": "fre_fr_full",
@@ -2640,7 +2969,8 @@
    "segment": 157,
    "variation": 4972064,
    "param": "lae_against_team_2_ID",
-   "samples": 30695
+   "samples": 30695,
+   "clubs": 1
   },
   "1958": {
    "set": "fre_fr_full",
@@ -2648,7 +2978,8 @@
    "segment": 115,
    "variation": 5061749,
    "param": "home_ID",
-   "samples": 54600
+   "samples": 54600,
+   "clubs": 1
   },
   "1960": {
    "set": "fre_fr_full",
@@ -2656,7 +2987,8 @@
    "segment": 94,
    "variation": 6696851,
    "param": "asset_team_ID",
-   "samples": 29760
+   "samples": 29760,
+   "clubs": 1
   },
   "1961": {
    "set": "fre_fr_full",
@@ -2664,7 +2996,8 @@
    "segment": 98,
    "variation": 6696852,
    "param": "asset_team_ID",
-   "samples": 28401
+   "samples": 28401,
+   "clubs": 1
   },
   "1962": {
    "set": "fre_fr_full",
@@ -2672,7 +3005,8 @@
    "segment": 176,
    "variation": 5062489,
    "param": "away_ID",
-   "samples": 34625
+   "samples": 34625,
+   "clubs": 1
   },
   "1968": {
    "set": "fre_fr_full",
@@ -2680,7 +3014,8 @@
    "segment": 66,
    "variation": 6696853,
    "param": "asset_team_ID",
-   "samples": 26295
+   "samples": 26295,
+   "clubs": 1
   },
   "1970": {
    "set": "fre_fr_full",
@@ -2688,7 +3023,8 @@
    "segment": 767,
    "variation": 5062668,
    "param": "away_ID",
-   "samples": 40898
+   "samples": 40898,
+   "clubs": 1
   },
   "1971": {
    "set": "fre_fr_full",
@@ -2696,7 +3032,8 @@
    "segment": 750,
    "variation": 6578141,
    "param": "home_ID",
-   "samples": 35637
+   "samples": 35637,
+   "clubs": 1
   },
   "2014": {
    "set": "fre_fr_full",
@@ -2704,7 +3041,8 @@
    "segment": 710,
    "variation": 6849145,
    "param": "home_ID",
-   "samples": 54965
+   "samples": 54965,
+   "clubs": 1
   },
   "2017": {
    "set": "fre_fr_full",
@@ -2712,7 +3050,8 @@
    "segment": 217,
    "variation": 5061897,
    "param": "home_ID",
-   "samples": 38087
+   "samples": 38087,
+   "clubs": 1
   },
   "2041": {
    "set": "fre_fr_full",
@@ -2720,7 +3059,8 @@
    "segment": 720,
    "variation": 6876593,
    "param": "home_ID",
-   "samples": 69220
+   "samples": 69220,
+   "clubs": 1
   },
   "2055": {
    "set": "fre_fr_full",
@@ -2728,7 +3068,8 @@
    "segment": 721,
    "variation": 6876594,
    "param": "home_ID",
-   "samples": 54232
+   "samples": 54232,
+   "clubs": 1
   },
   "10029": {
    "set": "fre_fr_full",
@@ -2736,7 +3077,8 @@
    "segment": 70,
    "variation": 6696854,
    "param": "asset_team_ID",
-   "samples": 34428
+   "samples": 34428,
+   "clubs": 1
   },
   "10030": {
    "set": "fre_fr_full",
@@ -2744,7 +3086,8 @@
    "segment": 170,
    "variation": 4971469,
    "param": "lae_focus_team_2_ID",
-   "samples": 39739
+   "samples": 39739,
+   "clubs": 1
   },
   "10032": {
    "set": "fre_fr_full",
@@ -2752,7 +3095,8 @@
    "segment": 135,
    "variation": 6696856,
    "param": "asset_team_ID",
-   "samples": 31979
+   "samples": 31979,
+   "clubs": 1
   },
   "10846": {
    "set": "fre_fr_full",
@@ -2760,7 +3104,8 @@
    "segment": 129,
    "variation": 3442264,
    "param": "asset_team_ID",
-   "samples": 34494
+   "samples": 34494,
+   "clubs": 1
   },
   "15001": {
    "set": "fre_fr_full",
@@ -2768,7 +3113,8 @@
    "segment": 810,
    "variation": 5062545,
    "param": "away_ID",
-   "samples": 36371
+   "samples": 36371,
+   "clubs": 1
   },
   "15009": {
    "set": "fre_fr_full",
@@ -2776,7 +3122,8 @@
    "segment": 156,
    "variation": 5061808,
    "param": "home_ID",
-   "samples": 39439
+   "samples": 39439,
+   "clubs": 1
   },
   "15015": {
    "set": "fre_fr_full",
@@ -2784,7 +3131,8 @@
    "segment": 192,
    "variation": 5062508,
    "param": "away_ID",
-   "samples": 49715
+   "samples": 49715,
+   "clubs": 1
   },
   "15040": {
    "set": "fre_fr_full",
@@ -2792,7 +3140,8 @@
    "segment": 146,
    "variation": 5061795,
    "param": "home_ID",
-   "samples": 34811
+   "samples": 34811,
+   "clubs": 1
   },
   "15048": {
    "set": "fre_fr_full",
@@ -2800,7 +3149,8 @@
    "segment": 112,
    "variation": 5061746,
    "param": "home_ID",
-   "samples": 57900
+   "samples": 57900,
+   "clubs": 1
   },
   "100081": {
    "set": "fre_fr_full",
@@ -2808,7 +3158,8 @@
    "segment": 223,
    "variation": 4972072,
    "param": "lae_against_team_2_ID",
-   "samples": 21588
+   "samples": 21588,
+   "clubs": 1
   },
   "100087": {
    "set": "fre_fr_full",
@@ -2816,7 +3167,8 @@
    "segment": 246,
    "variation": 5062597,
    "param": "away_ID",
-   "samples": 28181
+   "samples": 28181,
+   "clubs": 1
   },
   "100325": {
    "set": "fre_fr_full",
@@ -2824,7 +3176,8 @@
    "segment": 354,
    "variation": 5062155,
    "param": "home_ID",
-   "samples": 41853
+   "samples": 41853,
+   "clubs": 1
   },
   "100409": {
    "set": "fre_fr_full",
@@ -2832,7 +3185,8 @@
    "segment": 667,
    "variation": 6578110,
    "param": "home_ID",
-   "samples": 30500
+   "samples": 30500,
+   "clubs": 1
   },
   "100632": {
    "set": "fre_fr_full",
@@ -2840,7 +3194,8 @@
    "segment": 668,
    "variation": 6578111,
    "param": "home_ID",
-   "samples": 53025
+   "samples": 53025,
+   "clubs": 1
   },
   "100646": {
    "set": "fre_fr_full",
@@ -2848,7 +3203,8 @@
    "segment": 669,
    "variation": 6578113,
    "param": "home_ID",
-   "samples": 56325
+   "samples": 56325,
+   "clubs": 1
   },
   "100761": {
    "set": "fre_fr_full",
@@ -2856,7 +3212,8 @@
    "segment": 389,
    "variation": 5062870,
    "param": "away_ID",
-   "samples": 60560
+   "samples": 60560,
+   "clubs": 1
   },
   "100804": {
    "set": "fre_fr_full",
@@ -2864,7 +3221,8 @@
    "segment": 807,
    "variation": 5062442,
    "param": "away_ID",
-   "samples": 54807
+   "samples": 54807,
+   "clubs": 1
   },
   "100805": {
    "set": "fre_fr_full",
@@ -2872,7 +3230,8 @@
    "segment": 256,
    "variation": 5062615,
    "param": "away_ID",
-   "samples": 45860
+   "samples": 45860,
+   "clubs": 1
   },
   "100888": {
    "set": "fre_fr_full",
@@ -2880,7 +3239,8 @@
    "segment": 724,
    "variation": 7068396,
    "param": "home_ID",
-   "samples": 31080
+   "samples": 31080,
+   "clubs": 1
   },
   "101014": {
    "set": "fre_fr_full",
@@ -2888,7 +3248,8 @@
    "segment": 202,
    "variation": 3442370,
    "param": "asset_team_ID",
-   "samples": 46441
+   "samples": 46441,
+   "clubs": 1
   },
   "101025": {
    "set": "fre_fr_full",
@@ -2896,7 +3257,8 @@
    "segment": 744,
    "variation": 5061895,
    "param": "home_ID",
-   "samples": 59946
+   "samples": 59946,
+   "clubs": 1
   },
   "101033": {
    "set": "fre_fr_full",
@@ -2904,7 +3266,8 @@
    "segment": 231,
    "variation": 5062571,
    "param": "away_ID",
-   "samples": 42465
+   "samples": 42465,
+   "clubs": 1
   },
   "101047": {
    "set": "fre_fr_full",
@@ -2912,7 +3275,8 @@
    "segment": 366,
    "variation": 5062824,
    "param": "away_ID",
-   "samples": 49639
+   "samples": 49639,
+   "clubs": 1
   },
   "101059": {
    "set": "fre_fr_full",
@@ -2920,7 +3284,8 @@
    "segment": 352,
    "variation": 5062150,
    "param": "home_ID",
-   "samples": 54584
+   "samples": 54584,
+   "clubs": 1
   },
   "101083": {
    "set": "fre_fr_full",
@@ -2928,7 +3293,8 @@
    "segment": 148,
    "variation": 6696861,
    "param": "asset_team_ID",
-   "samples": 43762
+   "samples": 43762,
+   "clubs": 1
   },
   "101084": {
    "set": "fre_fr_full",
@@ -2936,7 +3302,8 @@
    "segment": 379,
    "variation": 5062845,
    "param": "away_ID",
-   "samples": 39524
+   "samples": 39524,
+   "clubs": 1
   },
   "101085": {
    "set": "fre_fr_full",
@@ -2944,7 +3311,8 @@
    "segment": 144,
    "variation": 6696862,
    "param": "asset_team_ID",
-   "samples": 34084
+   "samples": 34084,
+   "clubs": 1
   },
   "101088": {
    "set": "fre_fr_full",
@@ -2952,7 +3320,8 @@
    "segment": 150,
    "variation": 4971183,
    "param": "lae_focus_team_1_ID",
-   "samples": 30742
+   "samples": 30742,
+   "clubs": 1
   },
   "101097": {
    "set": "fre_fr_full",
@@ -2960,7 +3329,8 @@
    "segment": 761,
    "variation": 5062366,
    "param": "away_ID",
-   "samples": 62046
+   "samples": 62046,
+   "clubs": 1
   },
   "101100": {
    "set": "fre_fr_full",
@@ -2968,7 +3338,8 @@
    "segment": 99,
    "variation": 5061725,
    "param": "home_ID",
-   "samples": 64914
+   "samples": 64914,
+   "clubs": 1
   },
   "101101": {
    "set": "fre_fr_full",
@@ -2976,7 +3347,8 @@
    "segment": 755,
    "variation": 5062341,
    "param": "away_ID",
-   "samples": 68610
+   "samples": 68610,
+   "clubs": 1
   },
   "101103": {
    "set": "fre_fr_full",
@@ -2984,7 +3356,8 @@
    "segment": 782,
    "variation": 5652707,
    "param": "home_ID",
-   "samples": 71777
+   "samples": 71777,
+   "clubs": 1
   },
   "101105": {
    "set": "fre_fr_full",
@@ -2992,7 +3365,8 @@
    "segment": 755,
    "variation": 5061691,
    "param": "home_ID",
-   "samples": 51100
+   "samples": 51100,
+   "clubs": 1
   },
   "101108": {
    "set": "fre_fr_full",
@@ -3000,7 +3374,8 @@
    "segment": 84,
    "variation": 5061675,
    "param": "home_ID",
-   "samples": 63300
+   "samples": 63300,
+   "clubs": 1
   },
   "101110": {
    "set": "fre_fr_full",
@@ -3008,7 +3383,8 @@
    "segment": 96,
    "variation": 5061706,
    "param": "home_ID",
-   "samples": 41000
+   "samples": 41000,
+   "clubs": 1
   },
   "101112": {
    "set": "fre_fr_full",
@@ -3016,7 +3392,8 @@
    "segment": 323,
    "variation": 5062091,
    "param": "home_ID",
-   "samples": 63683
+   "samples": 63683,
+   "clubs": 1
   },
   "101114": {
    "set": "fre_fr_full",
@@ -3024,7 +3401,8 @@
    "segment": 787,
    "variation": 8018712,
    "param": "home_ID",
-   "samples": 33937
+   "samples": 33937,
+   "clubs": 1
   },
   "101121": {
    "set": "fre_fr_full",
@@ -3032,7 +3410,8 @@
    "segment": 775,
    "variation": 5062696,
    "param": "away_ID",
-   "samples": 39702
+   "samples": 39702,
+   "clubs": 1
   },
   "105035": {
    "set": "fre_fr_full",
@@ -3040,7 +3419,8 @@
    "segment": 526,
    "variation": 5686537,
    "param": "home_ID",
-   "samples": 33600
+   "samples": 33600,
+   "clubs": 1
   },
   "110062": {
    "set": "fre_fr_full",
@@ -3048,7 +3428,8 @@
    "segment": 671,
    "variation": 6578115,
    "param": "home_ID",
-   "samples": 30250
+   "samples": 30250,
+   "clubs": 1
   },
   "110078": {
    "set": "fre_fr_full",
@@ -3056,7 +3437,8 @@
    "segment": 548,
    "variation": 5961114,
    "param": "home_ID",
-   "samples": 74273
+   "samples": 74273,
+   "clubs": 1
   },
   "110081": {
    "set": "fre_fr_full",
@@ -3064,7 +3446,8 @@
    "segment": 340,
    "variation": 5062779,
    "param": "away_ID",
-   "samples": 49094
+   "samples": 49094,
+   "clubs": 1
   },
   "110093": {
    "set": "fre_fr_full",
@@ -3072,7 +3455,8 @@
    "segment": 145,
    "variation": 6696865,
    "param": "asset_team_ID",
-   "samples": 44740
+   "samples": 44740,
+   "clubs": 1
   },
   "110144": {
    "set": "fre_fr_full",
@@ -3080,7 +3464,8 @@
    "segment": 799,
    "variation": 8018725,
    "param": "home_ID",
-   "samples": 52853
+   "samples": 52853,
+   "clubs": 1
   },
   "110147": {
    "set": "fre_fr_full",
@@ -3088,7 +3473,8 @@
    "segment": 795,
    "variation": 8018721,
    "param": "home_ID",
-   "samples": 28599
+   "samples": 28599,
+   "clubs": 1
   },
   "110150": {
    "set": "fre_fr_full",
@@ -3096,7 +3482,8 @@
    "segment": 799,
    "variation": 8018742,
    "param": "away_ID",
-   "samples": 57948
+   "samples": 57948,
+   "clubs": 1
   },
   "110152": {
    "set": "fre_fr_full",
@@ -3104,7 +3491,8 @@
    "segment": 796,
    "variation": 8018722,
    "param": "home_ID",
-   "samples": 27770
+   "samples": 27770,
+   "clubs": 1
   },
   "110313": {
    "set": "fre_fr_full",
@@ -3112,7 +3500,8 @@
    "segment": 206,
    "variation": 5061876,
    "param": "home_ID",
-   "samples": 61815
+   "samples": 61815,
+   "clubs": 1
   },
   "110321": {
    "set": "fre_fr_full",
@@ -3120,7 +3509,8 @@
    "segment": 170,
    "variation": 3442325,
    "param": "asset_team_ID",
-   "samples": 25634
+   "samples": 25634,
+   "clubs": 1
   },
   "110329": {
    "set": "fre_fr_full",
@@ -3128,7 +3518,8 @@
    "segment": 131,
    "variation": 6696867,
    "param": "asset_team_ID",
-   "samples": 35468
+   "samples": 35468,
+   "clubs": 1
   },
   "110374": {
    "set": "fre_fr_full",
@@ -3136,7 +3527,8 @@
    "segment": 84,
    "variation": 6696868,
    "param": "asset_team_ID",
-   "samples": 40195
+   "samples": 40195,
+   "clubs": 1
   },
   "110395": {
    "set": "fre_fr_full",
@@ -3144,7 +3536,8 @@
    "segment": 152,
    "variation": 4971190,
    "param": "lae_focus_team_1_ID",
-   "samples": 32596
+   "samples": 32596,
+   "clubs": 1
   },
   "110396": {
    "set": "fre_fr_full",
@@ -3152,7 +3545,8 @@
    "segment": 153,
    "variation": 4971191,
    "param": "lae_focus_team_1_ID",
-   "samples": 35693
+   "samples": 35693,
+   "clubs": 1
   },
   "110404": {
    "set": "fre_fr_full",
@@ -3160,7 +3554,8 @@
    "segment": 371,
    "variation": 5062181,
    "param": "home_ID",
-   "samples": 39133
+   "samples": 39133,
+   "clubs": 1
   },
   "110468": {
    "set": "fre_fr_full",
@@ -3168,7 +3563,8 @@
    "segment": 356,
    "variation": 5062809,
    "param": "away_ID",
-   "samples": 60364
+   "samples": 60364,
+   "clubs": 1
   },
   "110500": {
    "set": "fre_fr_full",
@@ -3176,7 +3572,8 @@
    "segment": 205,
    "variation": 5062527,
    "param": "away_ID",
-   "samples": 64217
+   "samples": 64217,
+   "clubs": 1
   },
   "110501": {
    "set": "fre_fr_full",
@@ -3184,7 +3581,8 @@
    "segment": 259,
    "variation": 5061969,
    "param": "home_ID",
-   "samples": 34675
+   "samples": 34675,
+   "clubs": 1
   },
   "110502": {
    "set": "fre_fr_full",
@@ -3192,7 +3590,8 @@
    "segment": 265,
    "variation": 5061980,
    "param": "home_ID",
-   "samples": 37876
+   "samples": 37876,
+   "clubs": 1
   },
   "110532": {
    "set": "fre_fr_full",
@@ -3200,7 +3599,8 @@
    "segment": 279,
    "variation": 5062003,
    "param": "home_ID",
-   "samples": 57392
+   "samples": 57392,
+   "clubs": 1
   },
   "110556": {
    "set": "fre_fr_full",
@@ -3208,7 +3608,8 @@
    "segment": 111,
    "variation": 3442246,
    "param": "asset_team_ID",
-   "samples": 31788
+   "samples": 31788,
+   "clubs": 1
   },
   "110580": {
    "set": "fre_fr_full",
@@ -3216,7 +3617,8 @@
    "segment": 382,
    "variation": 5062851,
    "param": "away_ID",
-   "samples": 38517
+   "samples": 38517,
+   "clubs": 1
   },
   "110588": {
    "set": "fre_fr_full",
@@ -3224,7 +3626,8 @@
    "segment": 138,
    "variation": 5062434,
    "param": "away_ID",
-   "samples": 41707
+   "samples": 41707,
+   "clubs": 1
   },
   "110636": {
    "set": "fre_fr_full",
@@ -3232,7 +3635,8 @@
    "segment": 231,
    "variation": 4971193,
    "param": "lae_focus_team_1_ID",
-   "samples": 48800
+   "samples": 48800,
+   "clubs": 1
   },
   "110645": {
    "set": "fre_fr_full",
@@ -3240,7 +3644,8 @@
    "segment": 139,
    "variation": 4971194,
    "param": "lae_focus_team_1_ID",
-   "samples": 29076
+   "samples": 29076,
+   "clubs": 1
   },
   "110724": {
    "set": "fre_fr_full",
@@ -3248,7 +3653,8 @@
    "segment": 155,
    "variation": 4972095,
    "param": "lae_against_team_2_ID",
-   "samples": 27930
+   "samples": 27930,
+   "clubs": 1
   },
   "110745": {
    "set": "fre_fr_full",
@@ -3256,7 +3662,8 @@
    "segment": 167,
    "variation": 4971197,
    "param": "lae_focus_team_1_ID",
-   "samples": 41476
+   "samples": 41476,
+   "clubs": 1
   },
   "110746": {
    "set": "fre_fr_full",
@@ -3264,7 +3671,8 @@
    "segment": 270,
    "variation": 5061989,
    "param": "home_ID",
-   "samples": 52713
+   "samples": 52713,
+   "clubs": 1
   },
   "110747": {
    "set": "fre_fr_full",
@@ -3272,7 +3680,8 @@
    "segment": 260,
    "variation": 5062623,
    "param": "away_ID",
-   "samples": 42105
+   "samples": 42105,
+   "clubs": 1
   },
   "110749": {
    "set": "fre_fr_full",
@@ -3280,7 +3689,8 @@
    "segment": 255,
    "variation": 5062614,
    "param": "away_ID",
-   "samples": 57956
+   "samples": 57956,
+   "clubs": 1
   },
   "110750": {
    "set": "fre_fr_full",
@@ -3288,7 +3698,8 @@
    "segment": 389,
    "variation": 5062219,
    "param": "home_ID",
-   "samples": 46727
+   "samples": 46727,
+   "clubs": 1
   },
   "110751": {
    "set": "fre_fr_full",
@@ -3296,7 +3707,8 @@
    "segment": 551,
    "variation": 5961119,
    "param": "home_ID",
-   "samples": 65466
+   "samples": 65466,
+   "clubs": 1
   },
   "110752": {
    "set": "fre_fr_full",
@@ -3304,7 +3716,8 @@
    "segment": 379,
    "variation": 5062194,
    "param": "home_ID",
-   "samples": 42029
+   "samples": 42029,
+   "clubs": 1
   },
   "110776": {
    "set": "fre_fr_full",
@@ -3312,7 +3725,8 @@
    "segment": 149,
    "variation": 5061798,
    "param": "home_ID",
-   "samples": 43171
+   "samples": 43171,
+   "clubs": 1
   },
   "110781": {
    "set": "fre_fr_full",
@@ -3320,7 +3734,8 @@
    "segment": 792,
    "variation": 8018717,
    "param": "home_ID",
-   "samples": 29206
+   "samples": 29206,
+   "clubs": 1
   },
   "110832": {
    "set": "fre_fr_full",
@@ -3328,7 +3743,8 @@
    "segment": 219,
    "variation": 6696872,
    "param": "asset_team_ID",
-   "samples": 29602
+   "samples": 29602,
+   "clubs": 1
   },
   "110839": {
    "set": "fre_fr_full",
@@ -3336,7 +3752,8 @@
    "segment": 39,
    "variation": 4971802,
    "param": "lae_against_team_1_ID",
-   "samples": 33821
+   "samples": 33821,
+   "clubs": 1
   },
   "110890": {
    "set": "fre_fr_full",
@@ -3344,7 +3761,8 @@
    "segment": 107,
    "variation": 5061740,
    "param": "home_ID",
-   "samples": 48100
+   "samples": 48100,
+   "clubs": 1
   },
   "110913": {
    "set": "fre_fr_full",
@@ -3352,7 +3770,8 @@
    "segment": 809,
    "variation": 5062536,
    "param": "away_ID",
-   "samples": 55677
+   "samples": 55677,
+   "clubs": 1
   },
   "110953": {
    "set": "fre_fr_full",
@@ -3360,7 +3779,8 @@
    "segment": 630,
    "variation": 6387946,
    "param": "home_ID",
-   "samples": 72708
+   "samples": 72708,
+   "clubs": 1
   },
   "110955": {
    "set": "fre_fr_full",
@@ -3368,7 +3788,8 @@
    "segment": 29,
    "variation": 4971207,
    "param": "lae_focus_team_1_ID",
-   "samples": 52810
+   "samples": 52810,
+   "clubs": 1
   },
   "110967": {
    "set": "fre_fr_full",
@@ -3376,7 +3797,8 @@
    "segment": 756,
    "variation": 5061696,
    "param": "home_ID",
-   "samples": 45400
+   "samples": 45400,
+   "clubs": 1
   },
   "110968": {
    "set": "fre_fr_full",
@@ -3384,7 +3806,8 @@
    "segment": 98,
    "variation": 5061719,
    "param": "home_ID",
-   "samples": 47006
+   "samples": 47006,
+   "clubs": 1
   },
   "110975": {
    "set": "fre_fr_full",
@@ -3392,7 +3815,8 @@
    "segment": 93,
    "variation": 5062346,
    "param": "away_ID",
-   "samples": 73670
+   "samples": 73670,
+   "clubs": 1
   },
   "110981": {
    "set": "fre_fr_full",
@@ -3400,7 +3824,8 @@
    "segment": 92,
    "variation": 5062345,
    "param": "away_ID",
-   "samples": 73090
+   "samples": 73090,
+   "clubs": 1
   },
   "110986": {
    "set": "fre_fr_full",
@@ -3408,7 +3833,8 @@
    "segment": 94,
    "variation": 5061702,
    "param": "home_ID",
-   "samples": 29400
+   "samples": 29400,
+   "clubs": 1
   },
   "110989": {
    "set": "fre_fr_full",
@@ -3416,7 +3842,8 @@
    "segment": 100,
    "variation": 5061727,
    "param": "home_ID",
-   "samples": 42000
+   "samples": 42000,
+   "clubs": 1
   },
   "111008": {
    "set": "fre_fr_full",
@@ -3424,7 +3851,8 @@
    "segment": 95,
    "variation": 5061705,
    "param": "home_ID",
-   "samples": 50800
+   "samples": 50800,
+   "clubs": 1
   },
   "111011": {
    "set": "fre_fr_full",
@@ -3432,7 +3860,8 @@
    "segment": 746,
    "variation": 5652713,
    "param": "home_ID",
-   "samples": 36897
+   "samples": 36897,
+   "clubs": 1
   },
   "111019": {
    "set": "fre_fr_full",
@@ -3440,7 +3869,8 @@
    "segment": 385,
    "variation": 5062209,
    "param": "home_ID",
-   "samples": 63305
+   "samples": 63305,
+   "clubs": 1
   },
   "111020": {
    "set": "fre_fr_full",
@@ -3448,7 +3878,8 @@
    "segment": 711,
    "variation": 6876583,
    "param": "home_ID",
-   "samples": 80156
+   "samples": 80156,
+   "clubs": 1
   },
   "111022": {
    "set": "fre_fr_full",
@@ -3456,7 +3887,8 @@
    "segment": 629,
    "variation": 6387945,
    "param": "home_ID",
-   "samples": 57028
+   "samples": 57028,
+   "clubs": 1
   },
   "111065": {
    "set": "fre_fr_full",
@@ -3464,7 +3896,8 @@
    "segment": 330,
    "variation": 5062760,
    "param": "away_ID",
-   "samples": 54948
+   "samples": 54948,
+   "clubs": 1
   },
   "111083": {
    "set": "fre_fr_full",
@@ -3472,7 +3905,8 @@
    "segment": 712,
    "variation": 6876584,
    "param": "home_ID",
-   "samples": 46974
+   "samples": 46974,
+   "clubs": 1
   },
   "111086": {
    "set": "fre_fr_full",
@@ -3480,7 +3914,8 @@
    "segment": 164,
    "variation": 5062472,
    "param": "away_ID",
-   "samples": 56624
+   "samples": 56624,
+   "clubs": 1
   },
   "111092": {
    "set": "fre_fr_full",
@@ -3488,7 +3923,8 @@
    "segment": 808,
    "variation": 5062468,
    "param": "away_ID",
-   "samples": 65696
+   "samples": 65696,
+   "clubs": 1
   },
   "111111": {
    "set": "fre_fr_full",
@@ -3496,7 +3932,8 @@
    "segment": 707,
    "variation": 6849142,
    "param": "home_ID",
-   "samples": 32002
+   "samples": 32002,
+   "clubs": 1
   },
   "111114": {
    "set": "fre_fr_full",
@@ -3504,7 +3941,8 @@
    "segment": 803,
    "variation": 8019801,
    "param": "home_ID",
-   "samples": 56270
+   "samples": 56270,
+   "clubs": 1
   },
   "111138": {
    "set": "fre_fr_full",
@@ -3512,7 +3950,8 @@
    "segment": 323,
    "variation": 5062742,
    "param": "away_ID",
-   "samples": 61345
+   "samples": 61345,
+   "clubs": 1
   },
   "111139": {
    "set": "fre_fr_full",
@@ -3520,7 +3959,8 @@
    "segment": 107,
    "variation": 6696873,
    "param": "asset_team_ID",
-   "samples": 32882
+   "samples": 32882,
+   "clubs": 1
   },
   "111140": {
    "set": "fre_fr_full",
@@ -3528,7 +3968,8 @@
    "segment": 201,
    "variation": 4971210,
    "param": "lae_focus_team_1_ID",
-   "samples": 53246
+   "samples": 53246,
+   "clubs": 1
   },
   "111144": {
    "set": "fre_fr_full",
@@ -3536,7 +3977,8 @@
    "segment": 310,
    "variation": 5062061,
    "param": "home_ID",
-   "samples": 62369
+   "samples": 62369,
+   "clubs": 1
   },
   "111205": {
    "set": "fre_fr_full",
@@ -3544,7 +3986,8 @@
    "segment": 751,
    "variation": 7620085,
    "param": "home_ID",
-   "samples": 41235
+   "samples": 41235,
+   "clubs": 1
   },
   "111235": {
    "set": "fre_fr_full",
@@ -3552,7 +3995,8 @@
    "segment": 233,
    "variation": 4971211,
    "param": "lae_focus_team_1_ID",
-   "samples": 45013
+   "samples": 45013,
+   "clubs": 1
   },
   "111239": {
    "set": "fre_fr_full",
@@ -3560,7 +4004,8 @@
    "segment": 137,
    "variation": 6696874,
    "param": "asset_team_ID",
-   "samples": 36424
+   "samples": 36424,
+   "clubs": 1
   },
   "111273": {
    "set": "fre_fr_full",
@@ -3568,7 +4013,8 @@
    "segment": 734,
    "variation": 7162683,
    "param": "home_ID",
-   "samples": 39391
+   "samples": 39391,
+   "clubs": 1
   },
   "111276": {
    "set": "fre_fr_full",
@@ -3576,7 +4022,8 @@
    "segment": 673,
    "variation": 6578119,
    "param": "home_ID",
-   "samples": 28575
+   "samples": 28575,
+   "clubs": 1
   },
   "111325": {
    "set": "fre_fr_full",
@@ -3584,7 +4031,8 @@
    "segment": 87,
    "variation": 5062331,
    "param": "away_ID",
-   "samples": 76200
+   "samples": 76200,
+   "clubs": 1
   },
   "111339": {
    "set": "fre_fr_full",
@@ -3592,7 +4040,8 @@
    "segment": 223,
    "variation": 5062558,
    "param": "away_ID",
-   "samples": 45054
+   "samples": 45054,
+   "clubs": 1
   },
   "111459": {
    "set": "fre_fr_full",
@@ -3600,7 +4049,8 @@
    "segment": 825,
    "variation": 5062781,
    "param": "away_ID",
-   "samples": 37313
+   "samples": 37313,
+   "clubs": 1
   },
   "111462": {
    "set": "fre_fr_full",
@@ -3608,7 +4058,8 @@
    "segment": 553,
    "variation": 5961124,
    "param": "home_ID",
-   "samples": 30732
+   "samples": 30732,
+   "clubs": 1
   },
   "111473": {
    "set": "fre_fr_full",
@@ -3616,7 +4067,8 @@
    "segment": 826,
    "variation": 5062797,
    "param": "away_ID",
-   "samples": 47543
+   "samples": 47543,
+   "clubs": 1
   },
   "111527": {
    "set": "fre_fr_full",
@@ -3624,7 +4076,8 @@
    "segment": 543,
    "variation": 5686563,
    "param": "home_ID",
-   "samples": 33920
+   "samples": 33920,
+   "clubs": 1
   },
   "111594": {
    "set": "fre_fr_full",
@@ -3632,7 +4085,8 @@
    "segment": 713,
    "variation": 6876585,
    "param": "home_ID",
-   "samples": 28621
+   "samples": 28621,
+   "clubs": 1
   },
   "111629": {
    "set": "fre_fr_full",
@@ -3640,7 +4094,8 @@
    "segment": 286,
    "variation": 5062025,
    "param": "home_ID",
-   "samples": 46546
+   "samples": 46546,
+   "clubs": 1
   },
   "111651": {
    "set": "fre_fr_full",
@@ -3648,7 +4103,8 @@
    "segment": 105,
    "variation": 6696875,
    "param": "asset_team_ID",
-   "samples": 29181
+   "samples": 29181,
+   "clubs": 1
   },
   "111657": {
    "set": "fre_fr_full",
@@ -3656,7 +4112,8 @@
    "segment": 674,
    "variation": 6578121,
    "param": "home_ID",
-   "samples": 34625
+   "samples": 34625,
+   "clubs": 1
   },
   "111659": {
    "set": "fre_fr_full",
@@ -3664,7 +4121,8 @@
    "segment": 24,
    "variation": 6696876,
    "param": "asset_team_ID",
-   "samples": 29997
+   "samples": 29997,
+   "clubs": 1
   },
   "111674": {
    "set": "fre_fr_full",
@@ -3672,7 +4130,8 @@
    "segment": 312,
    "variation": 5062066,
    "param": "home_ID",
-   "samples": 38290
+   "samples": 38290,
+   "clubs": 1
   },
   "111678": {
    "set": "fre_fr_full",
@@ -3680,7 +4139,8 @@
    "segment": 801,
    "variation": 8018727,
    "param": "home_ID",
-   "samples": 39597
+   "samples": 39597,
+   "clubs": 1
   },
   "111701": {
    "set": "fre_fr_full",
@@ -3688,7 +4148,8 @@
    "segment": 363,
    "variation": 5062169,
    "param": "home_ID",
-   "samples": 35150
+   "samples": 35150,
+   "clubs": 1
   },
   "111705": {
    "set": "fre_fr_full",
@@ -3696,7 +4157,8 @@
    "segment": 631,
    "variation": 6387947,
    "param": "home_ID",
-   "samples": 54811
+   "samples": 54811,
+   "clubs": 1
   },
   "111707": {
    "set": "fre_fr_full",
@@ -3704,7 +4166,8 @@
    "segment": 740,
    "variation": 7293515,
    "param": "home_ID",
-   "samples": 41357
+   "samples": 41357,
+   "clubs": 1
   },
   "111708": {
    "set": "fre_fr_full",
@@ -3712,7 +4175,8 @@
    "segment": 381,
    "variation": 5062849,
    "param": "away_ID",
-   "samples": 67023
+   "samples": 67023,
+   "clubs": 1
   },
   "111710": {
    "set": "fre_fr_full",
@@ -3720,7 +4184,8 @@
    "segment": 386,
    "variation": 5062211,
    "param": "home_ID",
-   "samples": 73263
+   "samples": 73263,
+   "clubs": 1
   },
   "111711": {
    "set": "fre_fr_full",
@@ -3728,7 +4193,8 @@
    "segment": 370,
    "variation": 5062179,
    "param": "home_ID",
-   "samples": 38718
+   "samples": 38718,
+   "clubs": 1
   },
   "111715": {
    "set": "fre_fr_full",
@@ -3736,7 +4202,8 @@
    "segment": 516,
    "variation": 5652687,
    "param": "home_ID",
-   "samples": 24008
+   "samples": 24008,
+   "clubs": 1
   },
   "111716": {
    "set": "fre_fr_full",
@@ -3744,7 +4211,8 @@
    "segment": 391,
    "variation": 5062224,
    "param": "home_ID",
-   "samples": 63387
+   "samples": 63387,
+   "clubs": 1
   },
   "111724": {
    "set": "fre_fr_full",
@@ -3752,7 +4220,8 @@
    "segment": 28,
    "variation": 4971215,
    "param": "lae_focus_team_1_ID",
-   "samples": 50688
+   "samples": 50688,
+   "clubs": 1
   },
   "111768": {
    "set": "fre_fr_full",
@@ -3760,7 +4229,8 @@
    "segment": 25,
    "variation": 6696877,
    "param": "asset_team_ID",
-   "samples": 51324
+   "samples": 51324,
+   "clubs": 1
   },
   "111774": {
    "set": "fre_fr_full",
@@ -3768,7 +4238,8 @@
    "segment": 317,
    "variation": 5062727,
    "param": "away_ID",
-   "samples": 56400
+   "samples": 56400,
+   "clubs": 1
   },
   "111779": {
    "set": "fre_fr_full",
@@ -3776,7 +4247,8 @@
    "segment": 30,
    "variation": 4972117,
    "param": "lae_against_team_2_ID",
-   "samples": 29568
+   "samples": 29568,
+   "clubs": 1
   },
   "111811": {
    "set": "fre_fr_full",
@@ -3784,7 +4256,8 @@
    "segment": 356,
    "variation": 5062159,
    "param": "home_ID",
-   "samples": 47577
+   "samples": 47577,
+   "clubs": 1
   },
   "111817": {
    "set": "fre_fr_full",
@@ -3792,7 +4265,8 @@
    "segment": 22,
    "variation": 4972118,
    "param": "lae_against_team_2_ID",
-   "samples": 36376
+   "samples": 36376,
+   "clubs": 1
   },
   "111822": {
    "set": "fre_fr_full",
@@ -3800,7 +4274,8 @@
    "segment": 137,
    "variation": 5062432,
    "param": "away_ID",
-   "samples": 53187
+   "samples": 53187,
+   "clubs": 1
   },
   "111928": {
    "set": "fre_fr_full",
@@ -3808,7 +4283,8 @@
    "segment": 293,
    "variation": 5062036,
    "param": "home_ID",
-   "samples": 73121
+   "samples": 73121,
+   "clubs": 1
   },
   "111974": {
    "set": "fre_fr_full",
@@ -3816,7 +4292,8 @@
    "segment": 113,
    "variation": 3442248,
    "param": "asset_team_ID",
-   "samples": 36647
+   "samples": 36647,
+   "clubs": 1
   },
   "112072": {
    "set": "fre_fr_full",
@@ -3824,7 +4301,8 @@
    "segment": 263,
    "variation": 5061978,
    "param": "home_ID",
-   "samples": 39283
+   "samples": 39283,
+   "clubs": 1
   },
   "112096": {
    "set": "fre_fr_full",
@@ -3832,7 +4310,8 @@
    "segment": 325,
    "variation": 5062101,
    "param": "home_ID",
-   "samples": 37645
+   "samples": 37645,
+   "clubs": 1
   },
   "112134": {
    "set": "fre_fr_full",
@@ -3840,7 +4319,8 @@
    "segment": 89,
    "variation": 4971822,
    "param": "lae_against_team_1_ID",
-   "samples": 55166
+   "samples": 55166,
+   "clubs": 1
   },
   "112139": {
    "set": "fre_fr_full",
@@ -3848,7 +4328,8 @@
    "segment": 294,
    "variation": 5062037,
    "param": "home_ID",
-   "samples": 42236
+   "samples": 42236,
+   "clubs": 1
   },
   "112172": {
    "set": "fre_fr_full",
@@ -3856,7 +4337,8 @@
    "segment": 180,
    "variation": 6696883,
    "param": "asset_team_ID",
-   "samples": 33650
+   "samples": 33650,
+   "clubs": 1
   },
   "112180": {
    "set": "fre_fr_full",
@@ -3864,7 +4346,8 @@
    "segment": 783,
    "variation": 6876586,
    "param": "home_ID",
-   "samples": 67422
+   "samples": 67422,
+   "clubs": 1
   },
   "112199": {
    "set": "fre_fr_full",
@@ -3872,7 +4355,8 @@
    "segment": 221,
    "variation": 5062556,
    "param": "away_ID",
-   "samples": 42636
+   "samples": 42636,
+   "clubs": 1
   },
   "112254": {
    "set": "fre_fr_full",
@@ -3880,7 +4364,8 @@
    "segment": 101,
    "variation": 5061734,
    "param": "home_ID",
-   "samples": 44143
+   "samples": 44143,
+   "clubs": 1
   },
   "112258": {
    "set": "fre_fr_full",
@@ -3888,7 +4373,8 @@
    "segment": 632,
    "variation": 6387949,
    "param": "home_ID",
-   "samples": 55346
+   "samples": 55346,
+   "clubs": 1
   },
   "112259": {
    "set": "fre_fr_full",
@@ -3896,7 +4382,8 @@
    "segment": 262,
    "variation": 5062628,
    "param": "away_ID",
-   "samples": 37481
+   "samples": 37481,
+   "clubs": 1
   },
   "112260": {
    "set": "fre_fr_full",
@@ -3904,7 +4391,8 @@
    "segment": 160,
    "variation": 4972124,
    "param": "lae_against_team_2_ID",
-   "samples": 44100
+   "samples": 44100,
+   "clubs": 1
   },
   "112387": {
    "set": "fre_fr_full",
@@ -3912,7 +4400,8 @@
    "segment": 676,
    "variation": 6578123,
    "param": "home_ID",
-   "samples": 22450
+   "samples": 22450,
+   "clubs": 1
   },
   "112390": {
    "set": "fre_fr_full",
@@ -3920,7 +4409,8 @@
    "segment": 329,
    "variation": 5062759,
    "param": "away_ID",
-   "samples": 40021
+   "samples": 40021,
+   "clubs": 1
   },
   "112391": {
    "set": "fre_fr_full",
@@ -3928,7 +4418,8 @@
    "segment": 304,
    "variation": 5062052,
    "param": "home_ID",
-   "samples": 45694
+   "samples": 45694,
+   "clubs": 1
   },
   "112393": {
    "set": "fre_fr_full",
@@ -3936,7 +4427,8 @@
    "segment": 295,
    "variation": 5062038,
    "param": "home_ID",
-   "samples": 39629
+   "samples": 39629,
+   "clubs": 1
   },
   "112540": {
    "set": "fre_fr_full",
@@ -3944,7 +4436,8 @@
    "segment": 318,
    "variation": 5062081,
    "param": "home_ID",
-   "samples": 47048
+   "samples": 47048,
+   "clubs": 1
   },
   "112606": {
    "set": "fre_fr_full",
@@ -3952,7 +4445,8 @@
    "segment": 202,
    "variation": 4971226,
    "param": "lae_focus_team_1_ID",
-   "samples": 36367
+   "samples": 36367,
+   "clubs": 1
   },
   "112659": {
    "set": "fre_fr_full",
@@ -3960,7 +4454,8 @@
    "segment": 759,
    "variation": 5061703,
    "param": "home_ID",
-   "samples": 50600
+   "samples": 50600,
+   "clubs": 1
   },
   "112670": {
    "set": "fre_fr_full",
@@ -3968,7 +4463,8 @@
    "segment": 393,
    "variation": 5062877,
    "param": "away_ID",
-   "samples": 60979
+   "samples": 60979,
+   "clubs": 1
   },
   "112678": {
    "set": "fre_fr_full",
@@ -3976,7 +4472,8 @@
    "segment": 776,
    "variation": 5062703,
    "param": "away_ID",
-   "samples": 69152
+   "samples": 69152,
+   "clubs": 1
   },
   "112689": {
    "set": "fre_fr_full",
@@ -3984,7 +4481,8 @@
    "segment": 370,
    "variation": 5062829,
    "param": "away_ID",
-   "samples": 39884
+   "samples": 39884,
+   "clubs": 1
   },
   "112705": {
    "set": "fre_fr_full",
@@ -3992,7 +4490,8 @@
    "segment": 754,
    "variation": 5062328,
    "param": "away_ID",
-   "samples": 63191
+   "samples": 63191,
+   "clubs": 1
   },
   "112713": {
    "set": "fre_fr_full",
@@ -4000,7 +4499,8 @@
    "segment": 388,
    "variation": 5062867,
    "param": "away_ID",
-   "samples": 39527
+   "samples": 39527,
+   "clubs": 1
   },
   "112764": {
    "set": "fre_fr_full",
@@ -4008,7 +4508,8 @@
    "segment": 743,
    "variation": 7355285,
    "param": "home_ID",
-   "samples": 25364
+   "samples": 25364,
+   "clubs": 1
   },
   "112809": {
    "set": "fre_fr_full",
@@ -4016,7 +4517,8 @@
    "segment": 147,
    "variation": 4972128,
    "param": "lae_against_team_2_ID",
-   "samples": 34038
+   "samples": 34038,
+   "clubs": 1
   },
   "112828": {
    "set": "fre_fr_full",
@@ -4024,7 +4526,8 @@
    "segment": 317,
    "variation": 5062080,
    "param": "home_ID",
-   "samples": 49826
+   "samples": 49826,
+   "clubs": 1
   },
   "112883": {
    "set": "fre_fr_full",
@@ -4032,7 +4535,8 @@
    "segment": 552,
    "variation": 5961122,
    "param": "home_ID",
-   "samples": 34401
+   "samples": 34401,
+   "clubs": 1
   },
   "112885": {
    "set": "fre_fr_full",
@@ -4040,7 +4544,8 @@
    "segment": 203,
    "variation": 4971229,
    "param": "lae_focus_team_1_ID",
-   "samples": 38729
+   "samples": 38729,
+   "clubs": 1
   },
   "112893": {
    "set": "fre_fr_full",
@@ -4048,7 +4553,8 @@
    "segment": 108,
    "variation": 6696885,
    "param": "asset_team_ID",
-   "samples": 44613
+   "samples": 44613,
+   "clubs": 1
   },
   "112908": {
    "set": "fre_fr_full",
@@ -4056,7 +4562,8 @@
    "segment": 97,
    "variation": 5061718,
    "param": "home_ID",
-   "samples": 74700
+   "samples": 74700,
+   "clubs": 1
   },
   "112965": {
    "set": "fre_fr_full",
@@ -4064,7 +4571,8 @@
    "segment": 383,
    "variation": 5062201,
    "param": "home_ID",
-   "samples": 57488
+   "samples": 57488,
+   "clubs": 1
   },
   "112996": {
    "set": "fre_fr_full",
@@ -4072,7 +4580,8 @@
    "segment": 102,
    "variation": 6696887,
    "param": "asset_team_ID",
-   "samples": 52324
+   "samples": 52324,
+   "clubs": 1
   },
   "113002": {
    "set": "fre_fr_full",
@@ -4080,7 +4589,8 @@
    "segment": 344,
    "variation": 5062785,
    "param": "away_ID",
-   "samples": 39049
+   "samples": 39049,
+   "clubs": 1
   },
   "113003": {
    "set": "fre_fr_full",
@@ -4088,7 +4598,8 @@
    "segment": 424,
    "variation": 5484239,
    "param": "home_ID",
-   "samples": 30378
+   "samples": 30378,
+   "clubs": 1
   },
   "113004": {
    "set": "fre_fr_full",
@@ -4096,7 +4607,8 @@
    "segment": 2,
    "variation": 4806618,
    "param": "away_ID",
-   "samples": 34750
+   "samples": 34750,
+   "clubs": 1
   },
   "113006": {
    "set": "fre_fr_full",
@@ -4104,7 +4616,8 @@
    "segment": 786,
    "variation": 5686710,
    "param": "away_ID",
-   "samples": 34880
+   "samples": 34880,
+   "clubs": 1
   },
   "113007": {
    "set": "fre_fr_full",
@@ -4112,7 +4625,8 @@
    "segment": 3,
    "variation": 4806619,
    "param": "away_ID",
-   "samples": 40441
+   "samples": 40441,
+   "clubs": 1
   },
   "113008": {
    "set": "fre_fr_full",
@@ -4120,7 +4634,8 @@
    "segment": 335,
    "variation": 5062770,
    "param": "away_ID",
-   "samples": 33741
+   "samples": 33741,
+   "clubs": 1
   },
   "113009": {
    "set": "fre_fr_full",
@@ -4128,7 +4643,8 @@
    "segment": 5,
    "variation": 4806621,
    "param": "away_ID",
-   "samples": 47723
+   "samples": 47723,
+   "clubs": 1
   },
   "113010": {
    "set": "fre_fr_full",
@@ -4136,7 +4652,8 @@
    "segment": 349,
    "variation": 5062794,
    "param": "away_ID",
-   "samples": 37079
+   "samples": 37079,
+   "clubs": 1
   },
   "113011": {
    "set": "fre_fr_full",
@@ -4144,7 +4661,8 @@
    "segment": 653,
    "variation": 6492498,
    "param": "home_ID",
-   "samples": 34195
+   "samples": 34195,
+   "clubs": 1
   },
   "113012": {
    "set": "fre_fr_full",
@@ -4152,7 +4670,8 @@
    "segment": 8,
    "variation": 4806624,
    "param": "away_ID",
-   "samples": 38894
+   "samples": 38894,
+   "clubs": 1
   },
   "113018": {
    "set": "fre_fr_full",
@@ -4160,7 +4679,8 @@
    "segment": 628,
    "variation": 6387944,
    "param": "home_ID",
-   "samples": 51501
+   "samples": 51501,
+   "clubs": 1
   },
   "113037": {
    "set": "fre_fr_full",
@@ -4168,7 +4688,8 @@
    "segment": 677,
    "variation": 6578126,
    "param": "home_ID",
-   "samples": 32325
+   "samples": 32325,
+   "clubs": 1
   },
   "113040": {
    "set": "fre_fr_full",
@@ -4176,7 +4697,8 @@
    "segment": 290,
    "variation": 5062033,
    "param": "home_ID",
-   "samples": 67853
+   "samples": 67853,
+   "clubs": 1
   },
   "113044": {
    "set": "fre_fr_full",
@@ -4184,7 +4706,8 @@
    "segment": 517,
    "variation": 5652688,
    "param": "home_ID",
-   "samples": 53185
+   "samples": 53185,
+   "clubs": 1
   },
   "113057": {
    "set": "fre_fr_full",
@@ -4192,7 +4715,8 @@
    "segment": 678,
    "variation": 6578127,
    "param": "home_ID",
-   "samples": 31650
+   "samples": 31650,
+   "clubs": 1
   },
   "113058": {
    "set": "fre_fr_full",
@@ -4200,7 +4724,8 @@
    "segment": 814,
    "variation": 5062748,
    "param": "away_ID",
-   "samples": 41548
+   "samples": 41548,
+   "clubs": 1
   },
   "113134": {
    "set": "fre_fr_full",
@@ -4208,7 +4733,8 @@
    "segment": 770,
    "variation": 5062673,
    "param": "away_ID",
-   "samples": 39612
+   "samples": 39612,
+   "clubs": 1
   },
   "113142": {
    "set": "fre_fr_full",
@@ -4216,7 +4742,8 @@
    "segment": 137,
    "variation": 8222800,
    "param": "lae_focus_team_2_ID",
-   "samples": 52541
+   "samples": 52541,
+   "clubs": 1
   },
   "113149": {
    "set": "fre_fr_full",
@@ -4224,7 +4751,8 @@
    "segment": 302,
    "variation": 5062049,
    "param": "home_ID",
-   "samples": 48128
+   "samples": 48128,
+   "clubs": 1
   },
   "113182": {
    "set": "fre_fr_full",
@@ -4232,7 +4760,8 @@
    "segment": 815,
    "variation": 5062175,
    "param": "home_ID",
-   "samples": 47352
+   "samples": 47352,
+   "clubs": 1
   },
   "113222": {
    "set": "fre_fr_full",
@@ -4240,7 +4769,8 @@
    "segment": 749,
    "variation": 6578129,
    "param": "home_ID",
-   "samples": 31700
+   "samples": 31700,
+   "clubs": 1
   },
   "113257": {
    "set": "fre_fr_full",
@@ -4248,7 +4778,8 @@
    "segment": 326,
    "variation": 5062104,
    "param": "home_ID",
-   "samples": 35166
+   "samples": 35166,
+   "clubs": 1
   },
   "113297": {
    "set": "fre_fr_full",
@@ -4256,7 +4787,8 @@
    "segment": 288,
    "variation": 5062028,
    "param": "home_ID",
-   "samples": 42086
+   "samples": 42086,
+   "clubs": 1
   },
   "113298": {
    "set": "fre_fr_full",
@@ -4264,7 +4796,8 @@
    "segment": 282,
    "variation": 5062010,
    "param": "home_ID",
-   "samples": 47498
+   "samples": 47498,
+   "clubs": 1
   },
   "113299": {
    "set": "fre_fr_full",
@@ -4272,7 +4805,8 @@
    "segment": 314,
    "variation": 5062068,
    "param": "home_ID",
-   "samples": 58588
+   "samples": 58588,
+   "clubs": 1
   },
   "113300": {
    "set": "fre_fr_full",
@@ -4280,7 +4814,8 @@
    "segment": 281,
    "variation": 5062660,
    "param": "away_ID",
-   "samples": 53168
+   "samples": 53168,
+   "clubs": 1
   },
   "113301": {
    "set": "fre_fr_full",
@@ -4288,7 +4823,8 @@
    "segment": 784,
    "variation": 5062047,
    "param": "home_ID",
-   "samples": 40520
+   "samples": 40520,
+   "clubs": 1
   },
   "113302": {
    "set": "fre_fr_full",
@@ -4296,7 +4832,8 @@
    "segment": 301,
    "variation": 5062048,
    "param": "home_ID",
-   "samples": 46385
+   "samples": 46385,
+   "clubs": 1
   },
   "113378": {
    "set": "fre_fr_full",
@@ -4304,7 +4841,8 @@
    "segment": 816,
    "variation": 5062216,
    "param": "home_ID",
-   "samples": 38605
+   "samples": 38605,
+   "clubs": 1
   },
   "113458": {
    "set": "fre_fr_full",
@@ -4312,7 +4850,8 @@
    "segment": 267,
    "variation": 5061982,
    "param": "home_ID",
-   "samples": 53402
+   "samples": 53402,
+   "clubs": 1
   },
   "113459": {
    "set": "fre_fr_full",
@@ -4320,7 +4859,8 @@
    "segment": 714,
    "variation": 6876587,
    "param": "home_ID",
-   "samples": 72210
+   "samples": 72210,
+   "clubs": 1
   },
   "113926": {
    "set": "fre_fr_full",
@@ -4328,7 +4868,8 @@
    "segment": 128,
    "variation": 5062415,
    "param": "away_ID",
-   "samples": 55189
+   "samples": 55189,
+   "clubs": 1
   },
   "113984": {
    "set": "fre_fr_full",
@@ -4336,7 +4877,8 @@
    "segment": 351,
    "variation": 5062147,
    "param": "home_ID",
-   "samples": 36022
+   "samples": 36022,
+   "clubs": 1
   },
   "113996": {
    "set": "fre_fr_full",
@@ -4344,7 +4886,8 @@
    "segment": 652,
    "variation": 6492497,
    "param": "home_ID",
-   "samples": 39707
+   "samples": 39707,
+   "clubs": 1
   },
   "114161": {
    "set": "fre_fr_full",
@@ -4352,7 +4895,8 @@
    "segment": 321,
    "variation": 5062089,
    "param": "home_ID",
-   "samples": 34202
+   "samples": 34202,
+   "clubs": 1
   },
   "114162": {
    "set": "fre_fr_full",
@@ -4360,7 +4904,8 @@
    "segment": 308,
    "variation": 5062708,
    "param": "away_ID",
-   "samples": 38230
+   "samples": 38230,
+   "clubs": 1
   },
   "114168": {
    "set": "fre_fr_full",
@@ -4368,7 +4913,8 @@
    "segment": 299,
    "variation": 5062045,
    "param": "home_ID",
-   "samples": 46033
+   "samples": 46033,
+   "clubs": 1
   },
   "114326": {
    "set": "fre_fr_full",
@@ -4376,7 +4922,8 @@
    "segment": 244,
    "variation": 5062594,
    "param": "away_ID",
-   "samples": 57739
+   "samples": 57739,
+   "clubs": 1
   },
   "114385": {
    "set": "fre_fr_full",
@@ -4384,7 +4931,8 @@
    "segment": 382,
    "variation": 5062200,
    "param": "home_ID",
-   "samples": 29659
+   "samples": 29659,
+   "clubs": 1
   },
   "114510": {
    "set": "fre_fr_full",
@@ -4392,7 +4940,8 @@
    "segment": 547,
    "variation": 5961113,
    "param": "home_ID",
-   "samples": 35016
+   "samples": 35016,
+   "clubs": 1
   },
   "114577": {
    "set": "fre_fr_full",
@@ -4400,7 +4949,8 @@
    "segment": 757,
    "variation": 5061697,
    "param": "home_ID",
-   "samples": 52000
+   "samples": 52000,
+   "clubs": 1
   },
   "114640": {
    "set": "fre_fr_full",
@@ -4408,7 +4958,8 @@
    "segment": 516,
    "variation": 5653055,
    "param": "away_ID",
-   "samples": 45286
+   "samples": 45286,
+   "clubs": 1
   },
   "114815": {
    "set": "fre_fr_full",
@@ -4416,7 +4967,8 @@
    "segment": 708,
    "variation": 6849143,
    "param": "home_ID",
-   "samples": 50516
+   "samples": 50516,
+   "clubs": 1
   },
   "115202": {
    "set": "fre_fr_full",
@@ -4424,7 +4976,8 @@
    "segment": 704,
    "variation": 6764822,
    "param": "home_ID",
-   "samples": 60071
+   "samples": 60071,
+   "clubs": 1
   },
   "115472": {
    "set": "fre_fr_full",
@@ -4432,7 +4985,8 @@
    "segment": 715,
    "variation": 6876805,
    "param": "away_ID",
-   "samples": 73298
+   "samples": 73298,
+   "clubs": 1
   },
   "115682": {
    "set": "fre_fr_full",
@@ -4440,7 +4994,8 @@
    "segment": 657,
    "variation": 6571105,
    "param": "home_ID",
-   "samples": 40425
+   "samples": 40425,
+   "clubs": 1
   },
   "115841": {
    "set": "fre_fr_full",
@@ -4448,7 +5003,8 @@
    "segment": 250,
    "variation": 8222802,
    "param": "lae_focus_team_2_ID",
-   "samples": 38578
+   "samples": 38578,
+   "clubs": 1
   },
   "115995": {
    "set": "fre_fr_full",
@@ -4456,7 +5012,8 @@
    "segment": 162,
    "variation": 6696890,
    "param": "asset_team_ID",
-   "samples": 36897
+   "samples": 36897,
+   "clubs": 1
   },
   "115996": {
    "set": "fre_fr_full",
@@ -4464,7 +5021,8 @@
    "segment": 562,
    "variation": 6167291,
    "param": "home_ID",
-   "samples": 45689
+   "samples": 45689,
+   "clubs": 1
   },
   "115997": {
    "set": "fre_fr_full",
@@ -4472,7 +5030,8 @@
    "segment": 164,
    "variation": 6696896,
    "param": "asset_team_ID",
-   "samples": 38330
+   "samples": 38330,
+   "clubs": 1
   },
   "115998": {
    "set": "fre_fr_full",
@@ -4480,7 +5039,8 @@
    "segment": 165,
    "variation": 7073324,
    "param": "asset_team_ID",
-   "samples": 35563
+   "samples": 35563,
+   "clubs": 1
   },
   "115999": {
    "set": "fre_fr_full",
@@ -4488,7 +5048,8 @@
    "segment": 560,
    "variation": 6167289,
    "param": "home_ID",
-   "samples": 31765
+   "samples": 31765,
+   "clubs": 1
   },
   "116002": {
    "set": "fre_fr_full",
@@ -4496,7 +5057,8 @@
    "segment": 79,
    "variation": 7073327,
    "param": "asset_team_ID",
-   "samples": 30169
+   "samples": 30169,
+   "clubs": 1
   },
   "116003": {
    "set": "fre_fr_full",
@@ -4504,7 +5066,8 @@
    "segment": 168,
    "variation": 7073329,
    "param": "asset_team_ID",
-   "samples": 25730
+   "samples": 25730,
+   "clubs": 1
   },
   "116004": {
    "set": "fre_fr_full",
@@ -4512,7 +5075,8 @@
    "segment": 169,
    "variation": 7073331,
    "param": "asset_team_ID",
-   "samples": 38773
+   "samples": 38773,
+   "clubs": 1
   },
   "116009": {
    "set": "fre_fr_full",
@@ -4520,7 +5084,8 @@
    "segment": 393,
    "variation": 5391625,
    "param": "home_ID",
-   "samples": 29334
+   "samples": 29334,
+   "clubs": 1
   },
   "116010": {
    "set": "fre_fr_full",
@@ -4528,7 +5093,8 @@
    "segment": 648,
    "variation": 6480716,
    "param": "home_ID",
-   "samples": 25735
+   "samples": 25735,
+   "clubs": 1
   },
   "116011": {
    "set": "fre_fr_demo",
@@ -4536,7 +5102,8 @@
    "segment": 11,
    "variation": 6480743,
    "param": "home_ID",
-   "samples": 26580
+   "samples": 26580,
+   "clubs": 1
   },
   "116012": {
    "set": "fre_fr_full",
@@ -4544,7 +5111,8 @@
    "segment": 405,
    "variation": 5391641,
    "param": "home_ID",
-   "samples": 55079
+   "samples": 55079,
+   "clubs": 1
   },
   "116013": {
    "set": "fre_fr_full",
@@ -4552,7 +5120,8 @@
    "segment": 174,
    "variation": 7073339,
    "param": "asset_team_ID",
-   "samples": 33399
+   "samples": 33399,
+   "clubs": 1
   },
   "116014": {
    "set": "fre_fr_full",
@@ -4560,7 +5129,8 @@
    "segment": 408,
    "variation": 5391648,
    "param": "home_ID",
-   "samples": 29152
+   "samples": 29152,
+   "clubs": 1
   },
   "116015": {
    "set": "fre_fr_full",
@@ -4568,7 +5138,8 @@
    "segment": 176,
    "variation": 615766303,
    "param": "asset_team_ID",
-   "samples": 34546
+   "samples": 34546,
+   "clubs": 1
   },
   "116016": {
    "set": "fre_fr_full",
@@ -4576,7 +5147,8 @@
    "segment": 402,
    "variation": 5391636,
    "param": "home_ID",
-   "samples": 29214
+   "samples": 29214,
+   "clubs": 1
   },
   "116017": {
    "set": "fre_fr_demo",
@@ -4584,7 +5156,8 @@
    "segment": 8,
    "variation": 185205791,
    "param": "home_ID",
-   "samples": 47719
+   "samples": 47719,
+   "clubs": 1
   },
   "116019": {
    "set": "fre_fr_full",
@@ -4592,7 +5165,8 @@
    "segment": 817,
    "variation": 5391629,
    "param": "home_ID",
-   "samples": 38672
+   "samples": 38672,
+   "clubs": 1
   },
   "116020": {
    "set": "fre_fr_full",
@@ -4600,7 +5174,8 @@
    "segment": 404,
    "variation": 5391638,
    "param": "home_ID",
-   "samples": 31313
+   "samples": 31313,
+   "clubs": 1
   },
   "116021": {
    "set": "fre_fr_full",
@@ -4608,7 +5183,8 @@
    "segment": 180,
    "variation": 1508765002,
    "param": "asset_team_ID",
-   "samples": 33650
+   "samples": 33650,
+   "clubs": 1
   },
   "116033": {
    "set": "fre_fr_demo",
@@ -4616,7 +5192,8 @@
    "segment": 13,
    "variation": 67306780,
    "param": "home_ID",
-   "samples": 17984
+   "samples": 17984,
+   "clubs": 1
   },
   "116034": {
    "set": "fre_fr_demo",
@@ -4624,7 +5201,8 @@
    "segment": 14,
    "variation": 855071,
    "param": "home_ID",
-   "samples": 36148
+   "samples": 36148,
+   "clubs": 1
   },
   "116035": {
    "set": "fre_fr_full",
@@ -4632,7 +5210,8 @@
    "segment": 21,
    "variation": 50335221,
    "param": "asset_team_ID",
-   "samples": 39095
+   "samples": 39095,
+   "clubs": 1
   },
   "116036": {
    "set": "fre_fr_full",
@@ -4640,7 +5219,8 @@
    "segment": 411,
    "variation": 5391653,
    "param": "home_ID",
-   "samples": 31248
+   "samples": 31248,
+   "clubs": 1
   },
   "116037": {
    "set": "fre_fr_full",
@@ -4648,7 +5228,8 @@
    "segment": 3,
    "variation": 3022397968,
    "param": "asset_team_ID",
-   "samples": 32130
+   "samples": 32130,
+   "clubs": 1
   },
   "116039": {
    "set": "fre_fr_full",
@@ -4656,7 +5237,8 @@
    "segment": 409,
    "variation": 5391651,
    "param": "home_ID",
-   "samples": 26258
+   "samples": 26258,
+   "clubs": 1
   },
   "116040": {
    "set": "fre_fr_full",
@@ -4664,7 +5246,8 @@
    "segment": 419,
    "variation": 5391667,
    "param": "home_ID",
-   "samples": 23306
+   "samples": 23306,
+   "clubs": 1
   },
   "116042": {
    "set": "fre_fr_full",
@@ -4672,7 +5255,8 @@
    "segment": 16,
    "variation": 1920759913,
    "param": "asset_team_ID",
-   "samples": 24947
+   "samples": 24947,
+   "clubs": 1
   },
   "116044": {
    "set": "fre_fr_full",
@@ -4680,7 +5264,8 @@
    "segment": 421,
    "variation": 5391669,
    "param": "home_ID",
-   "samples": 36296
+   "samples": 36296,
+   "clubs": 1
   },
   "116280": {
    "set": "fre_fr_demo",
@@ -4688,7 +5273,8 @@
    "segment": 8,
    "variation": 1619477020,
    "param": "lae_focus_team_2_ID",
-   "samples": 33653
+   "samples": 33653,
+   "clubs": 1
   },
   "116282": {
    "set": "fre_fr_full",
@@ -4696,7 +5282,8 @@
    "segment": 233,
    "variation": 932878252,
    "param": "asset_team_ID",
-   "samples": 30352
+   "samples": 30352,
+   "clubs": 1
   },
   "116300": {
    "set": "fre_fr_full",
@@ -4704,7 +5291,8 @@
    "segment": 190,
    "variation": 1120877246,
    "param": "asset_team_ID",
-   "samples": 42128
+   "samples": 42128,
+   "clubs": 1
   },
   "116302": {
    "set": "fre_fr_full",
@@ -4712,7 +5300,8 @@
    "segment": 191,
    "variation": 3560481167,
    "param": "asset_team_ID",
-   "samples": 28837
+   "samples": 28837,
+   "clubs": 1
   },
   "116303": {
    "set": "fre_fr_full",
@@ -4720,7 +5309,8 @@
    "segment": 192,
    "variation": 1044240170,
    "param": "asset_team_ID",
-   "samples": 68190
+   "samples": 68190,
+   "clubs": 1
   },
   "116304": {
    "set": "fre_fr_full",
@@ -4728,7 +5318,8 @@
    "segment": 182,
    "variation": 68364,
    "param": "lae_focus_team_1_ID",
-   "samples": 49898
+   "samples": 49898,
+   "clubs": 1
   },
   "116305": {
    "set": "fre_fr_full",
@@ -4736,7 +5327,8 @@
    "segment": 237,
    "variation": 2195142597,
    "param": "asset_team_ID",
-   "samples": 64386
+   "samples": 64386,
+   "clubs": 1
   },
   "116306": {
    "set": "fre_fr_full",
@@ -4744,7 +5336,8 @@
    "segment": 194,
    "variation": 1752726395,
    "param": "asset_team_ID",
-   "samples": 44379
+   "samples": 44379,
+   "clubs": 1
   },
   "116307": {
    "set": "fre_fr_full",
@@ -4752,7 +5345,8 @@
    "segment": 195,
    "variation": 2375653721,
    "param": "asset_team_ID",
-   "samples": 32850
+   "samples": 32850,
+   "clubs": 1
   },
   "116308": {
    "set": "fre_fr_full",
@@ -4760,7 +5354,8 @@
    "segment": 196,
    "variation": 2240213214,
    "param": "asset_team_ID",
-   "samples": 56222
+   "samples": 56222,
+   "clubs": 1
   },
   "116309": {
    "set": "fre_fr_full",
@@ -4768,7 +5363,8 @@
    "segment": 197,
    "variation": 386502532,
    "param": "asset_team_ID",
-   "samples": 42497
+   "samples": 42497,
+   "clubs": 1
   },
   "116310": {
    "set": "fre_fr_full",
@@ -4776,7 +5372,8 @@
    "segment": 198,
    "variation": 1683914953,
    "param": "asset_team_ID",
-   "samples": 31727
+   "samples": 31727,
+   "clubs": 1
   },
   "116311": {
    "set": "fre_fr_full",
@@ -4784,7 +5381,8 @@
    "segment": 199,
    "variation": 774724899,
    "param": "asset_team_ID",
-   "samples": 39400
+   "samples": 39400,
+   "clubs": 1
   },
   "116312": {
    "set": "fre_fr_full",
@@ -4792,7 +5390,8 @@
    "segment": 200,
    "variation": 2939249412,
    "param": "asset_team_ID",
-   "samples": 35996
+   "samples": 35996,
+   "clubs": 1
   },
   "116325": {
    "set": "fre_fr_full",
@@ -4800,7 +5399,8 @@
    "segment": 567,
    "variation": 6167298,
    "param": "home_ID",
-   "samples": 34464
+   "samples": 34464,
+   "clubs": 1
   },
   "116326": {
    "set": "fre_fr_full",
@@ -4808,7 +5408,8 @@
    "segment": 651,
    "variation": 6480722,
    "param": "home_ID",
-   "samples": 44235
+   "samples": 44235,
+   "clubs": 1
   },
   "116327": {
    "set": "fre_fr_demo",
@@ -4816,7 +5417,8 @@
    "segment": 18,
    "variation": 39,
    "param": "home_ID",
-   "samples": 41004
+   "samples": 41004,
+   "clubs": 1
   },
   "116328": {
    "set": "fre_fr_full",
@@ -4824,7 +5426,8 @@
    "segment": 54,
    "variation": 2103271883,
    "param": "asset_team_ID",
-   "samples": 31804
+   "samples": 31804,
+   "clubs": 1
   },
   "116330": {
    "set": "fre_fr_full",
@@ -4832,7 +5435,8 @@
    "segment": 56,
    "variation": 2706344343,
    "param": "asset_team_ID",
-   "samples": 36775
+   "samples": 36775,
+   "clubs": 1
   },
   "116331": {
    "set": "fre_fr_full",
@@ -4840,7 +5444,8 @@
    "segment": 206,
    "variation": 1016943941,
    "param": "asset_team_ID",
-   "samples": 26250
+   "samples": 26250,
+   "clubs": 1
   },
   "116332": {
    "set": "fre_fr_full",
@@ -4848,7 +5453,8 @@
    "segment": 570,
    "variation": 6167303,
    "param": "home_ID",
-   "samples": 28745
+   "samples": 28745,
+   "clubs": 1
   },
   "116333": {
    "set": "fre_fr_full",
@@ -4856,7 +5462,8 @@
    "segment": 77,
    "variation": 3442210,
    "param": "asset_team_ID",
-   "samples": 31084
+   "samples": 31084,
+   "clubs": 1
   },
   "116334": {
    "set": "fre_fr_full",
@@ -4864,7 +5471,8 @@
    "segment": 574,
    "variation": 6167313,
    "param": "home_ID",
-   "samples": 54180
+   "samples": 54180,
+   "clubs": 1
   },
   "116336": {
    "set": "fre_fr_full",
@@ -4872,7 +5480,8 @@
    "segment": 39,
    "variation": 3442172,
    "param": "asset_team_ID",
-   "samples": 53329
+   "samples": 53329,
+   "clubs": 1
   },
   "116337": {
    "set": "fre_fr_full",
@@ -4880,7 +5489,8 @@
    "segment": 211,
    "variation": 631917977,
    "param": "asset_team_ID",
-   "samples": 28060
+   "samples": 28060,
+   "clubs": 1
   },
   "116339": {
    "set": "fre_fr_full",
@@ -4888,7 +5498,8 @@
    "segment": 820,
    "variation": 6167314,
    "param": "home_ID",
-   "samples": 28715
+   "samples": 28715,
+   "clubs": 1
   },
   "116340": {
    "set": "fre_fr_full",
@@ -4896,7 +5507,8 @@
    "segment": 22,
    "variation": 3442155,
    "param": "asset_team_ID",
-   "samples": 38962
+   "samples": 38962,
+   "clubs": 1
   },
   "116343": {
    "set": "fre_fr_full",
@@ -4904,7 +5516,8 @@
    "segment": 214,
    "variation": 3082204728,
    "param": "asset_team_ID",
-   "samples": 34249
+   "samples": 34249,
+   "clubs": 1
   },
   "116416": {
    "set": "fre_fr_full",
@@ -4912,7 +5525,8 @@
    "segment": 22,
    "variation": 62503174,
    "param": "asset_team_ID",
-   "samples": 24985
+   "samples": 24985,
+   "clubs": 1
   },
   "116417": {
    "set": "fre_fr_full",
@@ -4920,7 +5534,8 @@
    "segment": 6,
    "variation": 3188506113,
    "param": "asset_team_ID",
-   "samples": 44036
+   "samples": 44036,
+   "clubs": 1
   },
   "116428": {
    "set": "fre_fr_full",
@@ -4928,7 +5543,8 @@
    "segment": 654,
    "variation": 6492500,
    "param": "home_ID",
-   "samples": 33909
+   "samples": 33909,
+   "clubs": 1
   },
   "131124": {
    "set": "fre_fr_full",
@@ -4936,7 +5552,8 @@
    "segment": 726,
    "variation": 7068399,
    "param": "home_ID",
-   "samples": 40864
+   "samples": 40864,
+   "clubs": 1
   },
   "131125": {
    "set": "fre_fr_full",
@@ -4944,7 +5561,8 @@
    "segment": 742,
    "variation": 7293518,
    "param": "home_ID",
-   "samples": 75268
+   "samples": 75268,
+   "clubs": 1
   },
   "131173": {
    "set": "fre_fr_full",
@@ -4952,7 +5570,8 @@
    "segment": 634,
    "variation": 6387952,
    "param": "home_ID",
-   "samples": 78716
+   "samples": 78716,
+   "clubs": 1
   },
   "131219": {
    "set": "fre_fr_full",
@@ -4960,7 +5579,8 @@
    "segment": 12,
    "variation": 5061577,
    "param": "home_ID",
-   "samples": 31342
+   "samples": 31342,
+   "clubs": 1
   },
   "131283": {
    "set": "fre_fr_full",
@@ -4968,7 +5588,8 @@
    "segment": 217,
    "variation": 3334849971,
    "param": "asset_team_ID",
-   "samples": 45465
+   "samples": 45465,
+   "clubs": 1
   },
   "131358": {
    "set": "fre_fr_full",
@@ -4976,7 +5597,8 @@
    "segment": 619,
    "variation": 6383008,
    "param": "home_ID",
-   "samples": 28829
+   "samples": 28829,
+   "clubs": 1
   },
   "131359": {
    "set": "fre_fr_full",
@@ -4984,7 +5606,8 @@
    "segment": 620,
    "variation": 6383009,
    "param": "home_ID",
-   "samples": 28830
+   "samples": 28830,
+   "clubs": 1
   },
   "131360": {
    "set": "fre_fr_full",
@@ -4992,7 +5615,8 @@
    "segment": 616,
    "variation": 6383005,
    "param": "home_ID",
-   "samples": 42914
+   "samples": 42914,
+   "clubs": 1
   },
   "131361": {
    "set": "fre_fr_full",
@@ -5000,7 +5624,8 @@
    "segment": 622,
    "variation": 6383011,
    "param": "home_ID",
-   "samples": 26432
+   "samples": 26432,
+   "clubs": 1
   },
   "131362": {
    "set": "fre_fr_full",
@@ -5008,7 +5633,8 @@
    "segment": 626,
    "variation": 6383015,
    "param": "home_ID",
-   "samples": 39619
+   "samples": 39619,
+   "clubs": 1
   },
   "131363": {
    "set": "fre_fr_full",
@@ -5016,7 +5642,8 @@
    "segment": 665,
    "variation": 6571118,
    "param": "home_ID",
-   "samples": 41375
+   "samples": 41375,
+   "clubs": 1
   },
   "131386": {
    "set": "fre_fr_full",
@@ -5024,7 +5651,8 @@
    "segment": 229,
    "variation": 5062566,
    "param": "away_ID",
-   "samples": 37219
+   "samples": 37219,
+   "clubs": 1
   },
   "131391": {
    "set": "fre_fr_full",
@@ -5032,7 +5660,8 @@
    "segment": 666,
    "variation": 6571120,
    "param": "home_ID",
-   "samples": 26313
+   "samples": 26313,
+   "clubs": 1
   },
   "131439": {
    "set": "fre_fr_full",
@@ -5040,7 +5669,8 @@
    "segment": 741,
    "variation": 7293517,
    "param": "home_ID",
-   "samples": 52929
+   "samples": 52929,
+   "clubs": 1
   },
   "131447": {
    "set": "fre_fr_full",
@@ -5048,7 +5678,8 @@
    "segment": 679,
    "variation": 6578131,
    "param": "home_ID",
-   "samples": 46144
+   "samples": 46144,
+   "clubs": 1
   },
   "131477": {
    "set": "fre_fr_full",
@@ -5056,7 +5687,8 @@
    "segment": 239,
    "variation": 791110170,
    "param": "asset_team_ID",
-   "samples": 37175
+   "samples": 37175,
+   "clubs": 1
   },
   "131478": {
    "set": "fre_fr_full",
@@ -5064,7 +5696,8 @@
    "segment": 195,
    "variation": 2446646850,
    "param": "lae_focus_team_1_ID",
-   "samples": 52960
+   "samples": 52960,
+   "clubs": 1
   },
   "131487": {
    "set": "fre_fr_full",
@@ -5072,7 +5705,8 @@
    "segment": 716,
    "variation": 6876589,
    "param": "home_ID",
-   "samples": 62652
+   "samples": 62652,
+   "clubs": 1
   },
   "131488": {
    "set": "fre_fr_full",
@@ -5080,7 +5714,8 @@
    "segment": 717,
    "variation": 6876590,
    "param": "home_ID",
-   "samples": 80933
+   "samples": 80933,
+   "clubs": 1
   },
   "131491": {
    "set": "fre_fr_full",
@@ -5088,7 +5723,8 @@
    "segment": 718,
    "variation": 6876591,
    "param": "home_ID",
-   "samples": 53285
+   "samples": 53285,
+   "clubs": 1
   },
   "131720": {
    "set": "fre_fr_full",
@@ -5096,7 +5732,8 @@
    "segment": 196,
    "variation": 572756366,
    "param": "lae_focus_team_1_ID",
-   "samples": 58314
+   "samples": 58314,
+   "clubs": 1
   },
   "131724": {
    "set": "fre_fr_full",
@@ -5104,7 +5741,8 @@
    "segment": 7,
    "variation": 286284105,
    "param": "asset_team_ID",
-   "samples": 33755
+   "samples": 33755,
+   "clubs": 1
   },
   "131725": {
    "set": "fre_fr_full",
@@ -5112,7 +5750,8 @@
    "segment": 821,
    "variation": 7068398,
    "param": "home_ID",
-   "samples": 40989
+   "samples": 40989,
+   "clubs": 1
   },
   "131733": {
    "set": "fre_fr_full",
@@ -5120,7 +5759,8 @@
    "segment": 170,
    "variation": 3014415948,
    "param": "lae_focus_team_1_ID",
-   "samples": 43971
+   "samples": 43971,
+   "clubs": 1
   },
   "132370": {
    "set": "fre_fr_full",
@@ -5128,7 +5768,8 @@
    "segment": 752,
    "variation": 7624397,
    "param": "home_ID",
-   "samples": 55631
+   "samples": 55631,
+   "clubs": 1
   },
   "132588": {
    "set": "fre_fr_full",
@@ -5136,7 +5777,8 @@
    "segment": 49,
    "variation": 7793499,
    "param": "asset_team_ID",
-   "samples": 68023
+   "samples": 68023,
+   "clubs": 1
   },
   "132823": {
    "set": "fre_fr_full",
@@ -5144,7 +5786,8 @@
    "segment": 805,
    "variation": 8027395,
    "param": "home_ID",
-   "samples": 87683
+   "samples": 87683,
+   "clubs": 1
   },
   "800001": {
    "set": "fre_fr_full",
@@ -5152,7 +5795,8 @@
    "segment": 70,
    "variation": 5587631,
    "param": "home_ID",
-   "samples": 36687
+   "samples": 36687,
+   "clubs": 1
   },
   "800002": {
    "set": "fre_fr_full",
@@ -5160,7 +5804,8 @@
    "segment": 82,
    "variation": 5587632,
    "param": "home_ID",
-   "samples": 31380
+   "samples": 31380,
+   "clubs": 1
   },
   "800003": {
    "set": "fre_fr_full",
@@ -5168,7 +5813,8 @@
    "segment": 51,
    "variation": 5587633,
    "param": "home_ID",
-   "samples": 34812
+   "samples": 34812,
+   "clubs": 1
   },
   "800004": {
    "set": "fre_fr_full",
@@ -5176,7 +5822,8 @@
    "segment": 52,
    "variation": 5587634,
    "param": "home_ID",
-   "samples": 29728
+   "samples": 29728,
+   "clubs": 1
   },
   "800005": {
    "set": "fre_fr_full",
@@ -5184,7 +5831,8 @@
    "segment": 56,
    "variation": 5587635,
    "param": "home_ID",
-   "samples": 27797
+   "samples": 27797,
+   "clubs": 1
   },
   "800006": {
    "set": "fre_fr_full",
@@ -5192,7 +5840,8 @@
    "segment": 483,
    "variation": 5590600,
    "param": "home_ID",
-   "samples": 31605
+   "samples": 31605,
+   "clubs": 1
   },
   "800007": {
    "set": "fre_fr_full",
@@ -5200,7 +5849,8 @@
    "segment": 59,
    "variation": 5587637,
    "param": "home_ID",
-   "samples": 55739
+   "samples": 55739,
+   "clubs": 1
   },
   "800008": {
    "set": "fre_fr_full",
@@ -5208,7 +5858,8 @@
    "segment": 62,
    "variation": 5587638,
    "param": "home_ID",
-   "samples": 30974
+   "samples": 30974,
+   "clubs": 1
   },
   "800011": {
    "set": "fre_fr_full",
@@ -5216,7 +5867,8 @@
    "segment": 64,
    "variation": 5587639,
    "param": "home_ID",
-   "samples": 43449
+   "samples": 43449,
+   "clubs": 1
   },
   "800013": {
    "set": "fre_fr_full",
@@ -5224,7 +5876,8 @@
    "segment": 66,
    "variation": 5587640,
    "param": "home_ID",
-   "samples": 32835
+   "samples": 32835,
+   "clubs": 1
   },
   "800014": {
    "set": "fre_fr_full",
@@ -5232,7 +5885,8 @@
    "segment": 67,
    "variation": 5587641,
    "param": "home_ID",
-   "samples": 27955
+   "samples": 27955,
+   "clubs": 1
   },
   "800015": {
    "set": "fre_fr_full",
@@ -5240,7 +5894,8 @@
    "segment": 71,
    "variation": 5587642,
    "param": "home_ID",
-   "samples": 34575
+   "samples": 34575,
+   "clubs": 1
   },
   "800016": {
    "set": "fre_fr_full",
@@ -5248,7 +5903,8 @@
    "segment": 72,
    "variation": 5587643,
    "param": "home_ID",
-   "samples": 34714
+   "samples": 34714,
+   "clubs": 1
   },
   "800019": {
    "set": "fre_fr_full",
@@ -5256,7 +5912,8 @@
    "segment": 73,
    "variation": 5587644,
    "param": "home_ID",
-   "samples": 36714
+   "samples": 36714,
+   "clubs": 1
   },
   "800020": {
    "set": "fre_fr_full",
@@ -5264,7 +5921,8 @@
    "segment": 76,
    "variation": 5587645,
    "param": "home_ID",
-   "samples": 32280
+   "samples": 32280,
+   "clubs": 1
   },
   "800021": {
    "set": "fre_fr_full",
@@ -5272,7 +5930,8 @@
    "segment": 77,
    "variation": 5587646,
    "param": "home_ID",
-   "samples": 31615
+   "samples": 31615,
+   "clubs": 1
   },
   "800022": {
    "set": "fre_fr_full",
@@ -5280,7 +5939,8 @@
    "segment": 79,
    "variation": 5587647,
    "param": "home_ID",
-   "samples": 33276
+   "samples": 33276,
+   "clubs": 1
   },
   "800023": {
    "set": "fre_fr_full",
@@ -5288,7 +5948,8 @@
    "segment": 80,
    "variation": 5593204,
    "param": "home_ID",
-   "samples": 30879
+   "samples": 30879,
+   "clubs": 1
   },
   "800024": {
    "set": "fre_fr_full",
@@ -5296,7 +5957,8 @@
    "segment": 84,
    "variation": 5593205,
    "param": "home_ID",
-   "samples": 31553
+   "samples": 31553,
+   "clubs": 1
   },
   "800028": {
    "set": "fre_fr_full",
@@ -5304,7 +5966,8 @@
    "segment": 87,
    "variation": 5593206,
    "param": "home_ID",
-   "samples": 31654
+   "samples": 31654,
+   "clubs": 1
   },
   "800029": {
    "set": "fre_fr_full",
@@ -5312,7 +5975,8 @@
    "segment": 48,
    "variation": 5593207,
    "param": "home_ID",
-   "samples": 27915
+   "samples": 27915,
+   "clubs": 1
   },
   "800030": {
    "set": "fre_fr_full",
@@ -5320,7 +5984,8 @@
    "segment": 49,
    "variation": 5593209,
    "param": "home_ID",
-   "samples": 29918
+   "samples": 29918,
+   "clubs": 1
   },
   "800031": {
    "set": "fre_fr_full",
@@ -5328,7 +5993,8 @@
    "segment": 50,
    "variation": 5593210,
    "param": "home_ID",
-   "samples": 31308
+   "samples": 31308,
+   "clubs": 1
   },
   "800033": {
    "set": "fre_fr_full",
@@ -5336,7 +6002,8 @@
    "segment": 53,
    "variation": 5593212,
    "param": "home_ID",
-   "samples": 24187
+   "samples": 24187,
+   "clubs": 1
   },
   "800034": {
    "set": "fre_fr_full",
@@ -5344,7 +6011,8 @@
    "segment": 54,
    "variation": 5593213,
    "param": "home_ID",
-   "samples": 34708
+   "samples": 34708,
+   "clubs": 1
   },
   "800035": {
    "set": "fre_fr_full",
@@ -5352,7 +6020,8 @@
    "segment": 480,
    "variation": 5590597,
    "param": "home_ID",
-   "samples": 27136
+   "samples": 27136,
+   "clubs": 1
   },
   "800036": {
    "set": "fre_fr_full",
@@ -5360,7 +6029,8 @@
    "segment": 57,
    "variation": 5593215,
    "param": "home_ID",
-   "samples": 30782
+   "samples": 30782,
+   "clubs": 1
   },
   "800037": {
    "set": "fre_fr_full",
@@ -5368,7 +6038,8 @@
    "segment": 60,
    "variation": 5593216,
    "param": "home_ID",
-   "samples": 26243
+   "samples": 26243,
+   "clubs": 1
   },
   "800038": {
    "set": "fre_fr_full",
@@ -5376,7 +6047,8 @@
    "segment": 61,
    "variation": 5593217,
    "param": "home_ID",
-   "samples": 45545
+   "samples": 45545,
+   "clubs": 1
   },
   "800040": {
    "set": "fre_fr_full",
@@ -5384,7 +6056,8 @@
    "segment": 583,
    "variation": 6328752,
    "param": "home_ID",
-   "samples": 38205
+   "samples": 38205,
+   "clubs": 1
   },
   "800041": {
    "set": "fre_fr_full",
@@ -5392,7 +6065,8 @@
    "segment": 65,
    "variation": 5593220,
    "param": "home_ID",
-   "samples": 33559
+   "samples": 33559,
+   "clubs": 1
   },
   "800042": {
    "set": "fre_fr_full",
@@ -5400,7 +6074,8 @@
    "segment": 493,
    "variation": 5590613,
    "param": "home_ID",
-   "samples": 44160
+   "samples": 44160,
+   "clubs": 1
   },
   "800043": {
    "set": "fre_fr_full",
@@ -5408,7 +6083,8 @@
    "segment": 69,
    "variation": 5593222,
    "param": "home_ID",
-   "samples": 39360
+   "samples": 39360,
+   "clubs": 1
   },
   "800047": {
    "set": "fre_fr_full",
@@ -5416,7 +6092,8 @@
    "segment": 74,
    "variation": 5593224,
    "param": "home_ID",
-   "samples": 35667
+   "samples": 35667,
+   "clubs": 1
   },
   "800048": {
    "set": "fre_fr_full",
@@ -5424,7 +6101,8 @@
    "segment": 75,
    "variation": 5593225,
    "param": "home_ID",
-   "samples": 25921
+   "samples": 25921,
+   "clubs": 1
   },
   "800049": {
    "set": "fre_fr_full",
@@ -5432,7 +6110,8 @@
    "segment": 503,
    "variation": 5590629,
    "param": "home_ID",
-   "samples": 35882
+   "samples": 35882,
+   "clubs": 1
   },
   "800050": {
    "set": "fre_fr_full",
@@ -5440,7 +6119,8 @@
    "segment": 81,
    "variation": 5593227,
    "param": "home_ID",
-   "samples": 40625
+   "samples": 40625,
+   "clubs": 1
   },
   "800051": {
    "set": "fre_fr_full",
@@ -5448,7 +6128,8 @@
    "segment": 83,
    "variation": 5593228,
    "param": "home_ID",
-   "samples": 37191
+   "samples": 37191,
+   "clubs": 1
   },
   "800053": {
    "set": "fre_fr_full",
@@ -5456,7 +6137,8 @@
    "segment": 591,
    "variation": 6328760,
    "param": "home_ID",
-   "samples": 30665
+   "samples": 30665,
+   "clubs": 1
   },
   "800054": {
    "set": "fre_fr_full",
@@ -5464,7 +6146,8 @@
    "segment": 86,
    "variation": 5593230,
    "param": "home_ID",
-   "samples": 35466
+   "samples": 35466,
+   "clubs": 1
   },
   "800055": {
    "set": "fre_fr_full",
@@ -5472,7 +6155,8 @@
    "segment": 88,
    "variation": 5593231,
    "param": "home_ID",
-   "samples": 37100
+   "samples": 37100,
+   "clubs": 1
   },
   "800056": {
    "set": "fre_fr_full",
@@ -5480,7 +6164,8 @@
    "segment": 89,
    "variation": 5593232,
    "param": "home_ID",
-   "samples": 30282
+   "samples": 30282,
+   "clubs": 1
   },
   "800057": {
    "set": "fre_fr_full",
@@ -5488,7 +6173,8 @@
    "segment": 17,
    "variation": 5593233,
    "param": "home_ID",
-   "samples": 26986
+   "samples": 26986,
+   "clubs": 1
   },
   "800058": {
    "set": "fre_fr_full",
@@ -5496,7 +6182,8 @@
    "segment": 443,
    "variation": 5590514,
    "param": "home_ID",
-   "samples": 38528
+   "samples": 38528,
+   "clubs": 1
   },
   "800059": {
    "set": "fre_fr_full",
@@ -5504,7 +6191,8 @@
    "segment": 444,
    "variation": 5590515,
    "param": "home_ID",
-   "samples": 45652
+   "samples": 45652,
+   "clubs": 1
   },
   "800060": {
    "set": "fre_fr_full",
@@ -5512,7 +6200,8 @@
    "segment": 20,
    "variation": 5593237,
    "param": "home_ID",
-   "samples": 33806
+   "samples": 33806,
+   "clubs": 1
   },
   "800062": {
    "set": "fre_fr_full",
@@ -5520,7 +6209,8 @@
    "segment": 21,
    "variation": 5593238,
    "param": "home_ID",
-   "samples": 30486
+   "samples": 30486,
+   "clubs": 1
   },
   "800063": {
    "set": "fre_fr_full",
@@ -5528,7 +6218,8 @@
    "segment": 22,
    "variation": 5593239,
    "param": "home_ID",
-   "samples": 33671
+   "samples": 33671,
+   "clubs": 1
   },
   "800065": {
    "set": "fre_fr_full",
@@ -5536,7 +6227,8 @@
    "segment": 23,
    "variation": 5593240,
    "param": "home_ID",
-   "samples": 30255
+   "samples": 30255,
+   "clubs": 1
   },
   "800066": {
    "set": "fre_fr_full",
@@ -5544,7 +6236,8 @@
    "segment": 24,
    "variation": 5593241,
    "param": "home_ID",
-   "samples": 26823
+   "samples": 26823,
+   "clubs": 1
   },
   "800067": {
    "set": "fre_fr_full",
@@ -5552,7 +6245,8 @@
    "segment": 25,
    "variation": 5593242,
    "param": "home_ID",
-   "samples": 36473
+   "samples": 36473,
+   "clubs": 1
   },
   "800068": {
    "set": "fre_fr_full",
@@ -5560,7 +6254,8 @@
    "segment": 26,
    "variation": 5593244,
    "param": "home_ID",
-   "samples": 40198
+   "samples": 40198,
+   "clubs": 1
   },
   "800069": {
    "set": "fre_fr_full",
@@ -5568,7 +6263,8 @@
    "segment": 27,
    "variation": 5593245,
    "param": "home_ID",
-   "samples": 31997
+   "samples": 31997,
+   "clubs": 1
   },
   "800070": {
    "set": "fre_fr_full",
@@ -5576,7 +6272,8 @@
    "segment": 28,
    "variation": 5593246,
    "param": "home_ID",
-   "samples": 25907
+   "samples": 25907,
+   "clubs": 1
   },
   "800071": {
    "set": "fre_fr_full",
@@ -5584,7 +6281,8 @@
    "segment": 29,
    "variation": 5593247,
    "param": "home_ID",
-   "samples": 29792
+   "samples": 29792,
+   "clubs": 1
   },
   "800073": {
    "set": "fre_fr_full",
@@ -5592,7 +6290,8 @@
    "segment": 30,
    "variation": 5593248,
    "param": "home_ID",
-   "samples": 32037
+   "samples": 32037,
+   "clubs": 1
   },
   "800074": {
    "set": "fre_fr_full",
@@ -5600,7 +6299,8 @@
    "segment": 31,
    "variation": 5593249,
    "param": "home_ID",
-   "samples": 29129
+   "samples": 29129,
+   "clubs": 1
   },
   "800075": {
    "set": "fre_fr_full",
@@ -5608,7 +6308,8 @@
    "segment": 32,
    "variation": 5593250,
    "param": "home_ID",
-   "samples": 22608
+   "samples": 22608,
+   "clubs": 1
   },
   "800077": {
    "set": "fre_fr_full",
@@ -5616,7 +6317,8 @@
    "segment": 33,
    "variation": 5593251,
    "param": "home_ID",
-   "samples": 32428
+   "samples": 32428,
+   "clubs": 1
   },
   "800078": {
    "set": "fre_fr_full",
@@ -5624,7 +6326,8 @@
    "segment": 34,
    "variation": 5593252,
    "param": "home_ID",
-   "samples": 35072
+   "samples": 35072,
+   "clubs": 1
   },
   "800079": {
    "set": "fre_fr_full",
@@ -5632,7 +6335,8 @@
    "segment": 35,
    "variation": 5593253,
    "param": "home_ID",
-   "samples": 30136
+   "samples": 30136,
+   "clubs": 1
   },
   "800080": {
    "set": "fre_fr_full",
@@ -5640,7 +6344,8 @@
    "segment": 36,
    "variation": 5593254,
    "param": "home_ID",
-   "samples": 29585
+   "samples": 29585,
+   "clubs": 1
   },
   "800081": {
    "set": "fre_fr_full",
@@ -5648,7 +6353,8 @@
    "segment": 37,
    "variation": 5593255,
    "param": "home_ID",
-   "samples": 33650
+   "samples": 33650,
+   "clubs": 1
   },
   "800082": {
    "set": "fre_fr_full",
@@ -5656,7 +6362,8 @@
    "segment": 38,
    "variation": 5593258,
    "param": "home_ID",
-   "samples": 38229
+   "samples": 38229,
+   "clubs": 1
   },
   "800083": {
    "set": "fre_fr_full",
@@ -5664,7 +6371,8 @@
    "segment": 39,
    "variation": 5593259,
    "param": "home_ID",
-   "samples": 38182
+   "samples": 38182,
+   "clubs": 1
   },
   "800084": {
    "set": "fre_fr_full",
@@ -5672,7 +6380,8 @@
    "segment": 40,
    "variation": 5593260,
    "param": "home_ID",
-   "samples": 50914
+   "samples": 50914,
+   "clubs": 1
   },
   "800086": {
    "set": "fre_fr_full",
@@ -5680,7 +6389,8 @@
    "segment": 41,
    "variation": 5593262,
    "param": "home_ID",
-   "samples": 43250
+   "samples": 43250,
+   "clubs": 1
   },
   "800087": {
    "set": "fre_fr_full",
@@ -5688,7 +6398,8 @@
    "segment": 42,
    "variation": 5593263,
    "param": "home_ID",
-   "samples": 50463
+   "samples": 50463,
+   "clubs": 1
   },
   "800088": {
    "set": "fre_fr_full",
@@ -5696,7 +6407,8 @@
    "segment": 43,
    "variation": 5593264,
    "param": "home_ID",
-   "samples": 35266
+   "samples": 35266,
+   "clubs": 1
   },
   "800091": {
    "set": "fre_fr_full",
@@ -5704,7 +6416,8 @@
    "segment": 44,
    "variation": 5593265,
    "param": "home_ID",
-   "samples": 35271
+   "samples": 35271,
+   "clubs": 1
   },
   "800092": {
    "set": "fre_fr_full",
@@ -5712,7 +6425,8 @@
    "segment": 45,
    "variation": 5593266,
    "param": "home_ID",
-   "samples": 38414
+   "samples": 38414,
+   "clubs": 1
   },
   "800093": {
    "set": "fre_fr_full",
@@ -5720,7 +6434,8 @@
    "segment": 471,
    "variation": 5590549,
    "param": "home_ID",
-   "samples": 48704
+   "samples": 48704,
+   "clubs": 1
   },
   "800094": {
    "set": "fre_fr_full",
@@ -5728,7 +6443,8 @@
    "segment": 47,
    "variation": 5593269,
    "param": "home_ID",
-   "samples": 46745
+   "samples": 46745,
+   "clubs": 1
   },
   "800095": {
    "set": "fre_fr_full",
@@ -5736,7 +6452,8 @@
    "segment": 433,
    "variation": 5578912,
    "param": "home_ID",
-   "samples": 41449
+   "samples": 41449,
+   "clubs": 1
   },
   "800096": {
    "set": "fre_fr_full",
@@ -5744,7 +6461,8 @@
    "segment": 432,
    "variation": 5578911,
    "param": "home_ID",
-   "samples": 37320
+   "samples": 37320,
+   "clubs": 1
   },
   "800097": {
    "set": "fre_fr_full",
@@ -5752,7 +6470,8 @@
    "segment": 431,
    "variation": 5578910,
    "param": "home_ID",
-   "samples": 45631
+   "samples": 45631,
+   "clubs": 1
   },
   "800098": {
    "set": "fre_fr_full",
@@ -5760,7 +6479,8 @@
    "segment": 5,
    "variation": 5593278,
    "param": "home_ID",
-   "samples": 44092
+   "samples": 44092,
+   "clubs": 1
   },
   "800099": {
    "set": "fre_fr_full",
@@ -5768,7 +6488,8 @@
    "segment": 4,
    "variation": 5593279,
    "param": "home_ID",
-   "samples": 42726
+   "samples": 42726,
+   "clubs": 1
   },
   "800100": {
    "set": "fre_fr_full",
@@ -5776,7 +6497,8 @@
    "segment": 428,
    "variation": 5578907,
    "param": "home_ID",
-   "samples": 39704
+   "samples": 39704,
+   "clubs": 1
   },
   "800101": {
    "set": "fre_fr_full",
@@ -5784,7 +6506,8 @@
    "segment": 427,
    "variation": 5578906,
    "param": "home_ID",
-   "samples": 60761
+   "samples": 60761,
+   "clubs": 1
   },
   "800102": {
    "set": "fre_fr_full",
@@ -5792,7 +6515,8 @@
    "segment": 1,
    "variation": 5593282,
    "param": "home_ID",
-   "samples": 26733
+   "samples": 26733,
+   "clubs": 1
   },
   "800103": {
    "set": "fre_fr_full",
@@ -5800,7 +6524,8 @@
    "segment": 0,
    "variation": 5593283,
    "param": "home_ID",
-   "samples": 23520
+   "samples": 23520,
+   "clubs": 1
   },
   "800104": {
    "set": "fre_fr_full",
@@ -5808,7 +6533,8 @@
    "segment": 434,
    "variation": 5578913,
    "param": "home_ID",
-   "samples": 47456
+   "samples": 47456,
+   "clubs": 1
   },
   "800105": {
    "set": "fre_fr_full",
@@ -5816,7 +6542,8 @@
    "segment": 435,
    "variation": 5578914,
    "param": "home_ID",
-   "samples": 42112
+   "samples": 42112,
+   "clubs": 1
   },
   "800106": {
    "set": "fre_fr_full",
@@ -5824,7 +6551,8 @@
    "segment": 11,
    "variation": 5593286,
    "param": "home_ID",
-   "samples": 35141
+   "samples": 35141,
+   "clubs": 1
   },
   "800107": {
    "set": "fre_fr_full",
@@ -5832,7 +6560,8 @@
    "segment": 12,
    "variation": 5593288,
    "param": "home_ID",
-   "samples": 31211
+   "samples": 31211,
+   "clubs": 1
   },
   "800108": {
    "set": "fre_fr_full",
@@ -5840,7 +6569,8 @@
    "segment": 13,
    "variation": 5593289,
    "param": "home_ID",
-   "samples": 29401
+   "samples": 29401,
+   "clubs": 1
   },
   "800109": {
    "set": "fre_fr_full",
@@ -5848,7 +6578,8 @@
    "segment": 14,
    "variation": 5593292,
    "param": "home_ID",
-   "samples": 46115
+   "samples": 46115,
+   "clubs": 1
   },
   "800110": {
    "set": "fre_fr_full",
@@ -5856,7 +6587,8 @@
    "segment": 15,
    "variation": 5593293,
    "param": "home_ID",
-   "samples": 38182
+   "samples": 38182,
+   "clubs": 1
   },
   "800111": {
    "set": "fre_fr_full",
@@ -5864,7 +6596,8 @@
    "segment": 441,
    "variation": 5578920,
    "param": "home_ID",
-   "samples": 24223
+   "samples": 24223,
+   "clubs": 1
   },
   "800112": {
    "set": "fre_fr_full",
@@ -5872,7 +6605,8 @@
    "segment": 90,
    "variation": 6397953,
    "param": "home_ID",
-   "samples": 34741
+   "samples": 34741,
+   "clubs": 1
   },
   "999997": {
    "set": "fre_fr_full",
@@ -5880,7 +6614,8 @@
    "segment": 656,
    "variation": 6544844,
    "param": "home_ID",
-   "samples": 57500
+   "samples": 57500,
+   "clubs": 1
   },
   "9999990": {
    "set": "fre_fr_full",
@@ -5888,7 +6623,8 @@
    "segment": 731,
    "variation": 7151356,
    "param": "home_ID",
-   "samples": 41256
+   "samples": 41256,
+   "clubs": 1
   }
  }
 }

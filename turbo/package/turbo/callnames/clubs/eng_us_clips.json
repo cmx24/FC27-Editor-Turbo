@@ -8,7 +8,8 @@
    "segment": 2,
    "variation": 1002683,
    "param": "home_ID",
-   "samples": 33792
+   "samples": 33792,
+   "clubs": 1
   },
   "2": {
    "set": "eng_us_gm_full",
@@ -16,7 +17,8 @@
    "segment": 27,
    "variation": 1023968,
    "param": "lae_focus_team_2_ID",
-   "samples": 30437
+   "samples": 30437,
+   "clubs": 1
   },
   "3": {
    "set": "eng_us_gm_full",
@@ -24,7 +26,8 @@
    "segment": 108,
    "variation": 1031353,
    "param": "lae_focus_team_1_ID",
-   "samples": 37865
+   "samples": 37865,
+   "clubs": 1
   },
   "4": {
    "set": "eng_us_gm_full",
@@ -32,7 +35,8 @@
    "segment": 115,
    "variation": 1031364,
    "param": "lae_focus_team_1_ID",
-   "samples": 37801
+   "samples": 37801,
+   "clubs": 1
   },
   "5": {
    "set": "eng_us_gm_full",
@@ -40,7 +44,8 @@
    "segment": 40,
    "variation": 1023981,
    "param": "lae_focus_team_2_ID",
-   "samples": 35869
+   "samples": 35869,
+   "clubs": 1
   },
   "7": {
    "set": "eng_us_gm_full",
@@ -48,7 +53,8 @@
    "segment": 95,
    "variation": 1010488,
    "param": "home_ID",
-   "samples": 33864
+   "samples": 33864,
+   "clubs": 1
   },
   "8": {
    "set": "eng_us_gm_full",
@@ -56,7 +62,8 @@
    "segment": 133,
    "variation": 1031382,
    "param": "lae_focus_team_1_ID",
-   "samples": 32234
+   "samples": 32234,
+   "clubs": 1
   },
   "9": {
    "set": "eng_us_gm_full",
@@ -64,7 +71,8 @@
    "segment": 351,
    "variation": 1002696,
    "param": "home_ID",
-   "samples": 38262
+   "samples": 38262,
+   "clubs": 1
   },
   "10": {
    "set": "eng_us_gm_full",
@@ -72,7 +80,8 @@
    "segment": 0,
    "variation": 1023941,
    "param": "lae_focus_team_2_ID",
-   "samples": 31332
+   "samples": 31332,
+   "clubs": 1
   },
   "11": {
    "set": "eng_us_gm_full",
@@ -80,7 +89,8 @@
    "segment": 4,
    "variation": 1023945,
    "param": "lae_focus_team_2_ID",
-   "samples": 38213
+   "samples": 38213,
+   "clubs": 1
   },
   "12": {
    "set": "eng_us_gm_full",
@@ -88,7 +98,8 @@
    "segment": 60,
    "variation": 1031304,
    "param": "lae_focus_team_1_ID",
-   "samples": 32706
+   "samples": 32706,
+   "clubs": 1
   },
   "13": {
    "set": "eng_us_gm_full",
@@ -96,7 +107,8 @@
    "segment": 5,
    "variation": 1023946,
    "param": "lae_focus_team_2_ID",
-   "samples": 47503
+   "samples": 47503,
+   "clubs": 1
   },
   "14": {
    "set": "eng_us_gm_full",
@@ -104,7 +116,8 @@
    "segment": 7,
    "variation": 1023948,
    "param": "lae_focus_team_2_ID",
-   "samples": 37845
+   "samples": 37845,
+   "clubs": 1
   },
   "15": {
    "set": "eng_us_gm_full",
@@ -112,7 +125,8 @@
    "segment": 62,
    "variation": 1031306,
    "param": "lae_focus_team_1_ID",
-   "samples": 43564
+   "samples": 43564,
+   "clubs": 1
   },
   "17": {
    "set": "eng_us_gm_full",
@@ -120,7 +134,8 @@
    "segment": 73,
    "variation": 1031317,
    "param": "lae_focus_team_1_ID",
-   "samples": 40530
+   "samples": 40530,
+   "clubs": 1
   },
   "18": {
    "set": "eng_us_gm_full",
@@ -128,7 +143,8 @@
    "segment": 14,
    "variation": 1023955,
    "param": "lae_focus_team_2_ID",
-   "samples": 36612
+   "samples": 36612,
+   "clubs": 1
   },
   "19": {
    "set": "eng_us_gm_full",
@@ -136,7 +152,8 @@
    "segment": 19,
    "variation": 1023960,
    "param": "lae_focus_team_2_ID",
-   "samples": 44718
+   "samples": 44718,
+   "clubs": 1
   },
   "21": {
    "set": "eng_us_gm_full",
@@ -144,7 +161,8 @@
    "segment": 21,
    "variation": 1023962,
    "param": "lae_focus_team_2_ID",
-   "samples": 41483
+   "samples": 41483,
+   "clubs": 1
   },
   "22": {
    "set": "eng_us_gm_full",
@@ -152,7 +170,8 @@
    "segment": 22,
    "variation": 1023963,
    "param": "lae_focus_team_2_ID",
-   "samples": 42401
+   "samples": 42401,
+   "clubs": 1
   },
   "23": {
    "set": "eng_us_gm_full",
@@ -160,7 +179,8 @@
    "segment": 23,
    "variation": 1023964,
    "param": "lae_focus_team_2_ID",
-   "samples": 56924
+   "samples": 56924,
+   "clubs": 1
   },
   "25": {
    "set": "eng_us_gm_full",
@@ -168,7 +188,8 @@
    "segment": 66,
    "variation": 1010366,
    "param": "home_ID",
-   "samples": 42313
+   "samples": 42313,
+   "clubs": 1
   },
   "27": {
    "set": "eng_us_gm_full",
@@ -176,7 +197,8 @@
    "segment": 310,
    "variation": 1025584,
    "param": "home_ID",
-   "samples": 57875
+   "samples": 57875,
+   "clubs": 1
   },
   "28": {
    "set": "eng_us_gm_full",
@@ -184,7 +206,8 @@
    "segment": 99,
    "variation": 1031343,
    "param": "lae_focus_team_1_ID",
-   "samples": 40364
+   "samples": 40364,
+   "clubs": 1
   },
   "29": {
    "set": "eng_us_gm_full",
@@ -192,7 +215,8 @@
    "segment": 247,
    "variation": 1024316,
    "param": "home_ID",
-   "samples": 53217
+   "samples": 53217,
+   "clubs": 1
   },
   "31": {
    "set": "eng_us_gm_full",
@@ -200,7 +224,8 @@
    "segment": 100,
    "variation": 1031344,
    "param": "lae_focus_team_1_ID",
-   "samples": 38363
+   "samples": 38363,
+   "clubs": 1
   },
   "32": {
    "set": "eng_us_gm_full",
@@ -208,7 +233,8 @@
    "segment": 101,
    "variation": 1031345,
    "param": "lae_focus_team_1_ID",
-   "samples": 54680
+   "samples": 54680,
+   "clubs": 1
   },
   "33": {
    "set": "eng_us_dr_full",
@@ -216,7 +242,8 @@
    "segment": 221,
    "variation": 689275,
    "param": "lae_focus_team_1_ID",
-   "samples": 52353
+   "samples": 52353,
+   "clubs": 1
   },
   "34": {
    "set": "eng_us_gm_full",
@@ -224,7 +251,8 @@
    "segment": 70,
    "variation": 1010370,
    "param": "home_ID",
-   "samples": 39697
+   "samples": 39697,
+   "clubs": 1
   },
   "36": {
    "set": "eng_us_gm_full",
@@ -232,7 +260,8 @@
    "segment": 104,
    "variation": 1031348,
    "param": "lae_focus_team_1_ID",
-   "samples": 41718
+   "samples": 41718,
+   "clubs": 1
   },
   "38": {
    "set": "eng_us_gm_full",
@@ -240,7 +269,8 @@
    "segment": 180,
    "variation": 1013484,
    "param": "home_ID",
-   "samples": 46276
+   "samples": 46276,
+   "clubs": 1
   },
   "45": {
    "set": "eng_us_gm_full",
@@ -248,7 +278,8 @@
    "segment": 110,
    "variation": 1031356,
    "param": "lae_focus_team_1_ID",
-   "samples": 42885
+   "samples": 42885,
+   "clubs": 1
   },
   "46": {
    "set": "eng_us_drsr_full",
@@ -256,7 +287,8 @@
    "segment": 62,
    "variation": 204890,
    "param": "home_ID",
-   "samples": 594410
+   "samples": 594410,
+   "clubs": 1
   },
   "48": {
    "set": "eng_us_gm_demo",
@@ -264,7 +296,8 @@
    "segment": 7,
    "variation": 1010473,
    "param": "home_ID",
-   "samples": 38962
+   "samples": 38962,
+   "clubs": 1
   },
   "50": {
    "set": "eng_us_gm_full",
@@ -272,7 +305,8 @@
    "segment": 116,
    "variation": 1031365,
    "param": "lae_focus_team_1_ID",
-   "samples": 37858
+   "samples": 37858,
+   "clubs": 1
   },
   "52": {
    "set": "eng_us_gm_demo",
@@ -280,7 +314,8 @@
    "segment": 6,
    "variation": 1009512,
    "param": "home_ID",
-   "samples": 33286
+   "samples": 33286,
+   "clubs": 1
   },
   "54": {
    "set": "eng_us_gm_full",
@@ -288,7 +323,8 @@
    "segment": 182,
    "variation": 1013486,
    "param": "home_ID",
-   "samples": 45119
+   "samples": 45119,
+   "clubs": 1
   },
   "55": {
    "set": "eng_us_gm_full",
@@ -296,7 +332,8 @@
    "segment": 183,
    "variation": 1013487,
    "param": "home_ID",
-   "samples": 45701
+   "samples": 45701,
+   "clubs": 1
   },
   "57": {
    "set": "eng_us_gm_full",
@@ -304,7 +341,8 @@
    "segment": 289,
    "variation": 1025307,
    "param": "home_ID",
-   "samples": 43074
+   "samples": 43074,
+   "clubs": 1
   },
   "62": {
    "set": "eng_us_dr_full",
@@ -312,7 +350,8 @@
    "segment": 135,
    "variation": 689096,
    "param": "lae_focus_team_1_ID",
-   "samples": 50435
+   "samples": 50435,
+   "clubs": 1
   },
   "64": {
    "set": "eng_us_gm_full",
@@ -320,7 +359,8 @@
    "segment": 79,
    "variation": 1010380,
    "param": "home_ID",
-   "samples": 36452
+   "samples": 36452,
+   "clubs": 1
   },
   "65": {
    "set": "eng_us_gm_full",
@@ -328,7 +368,8 @@
    "segment": 122,
    "variation": 1031371,
    "param": "lae_focus_team_1_ID",
-   "samples": 31614
+   "samples": 31614,
+   "clubs": 1
   },
   "66": {
    "set": "eng_us_gm_full",
@@ -336,7 +377,8 @@
    "segment": 123,
    "variation": 1031372,
    "param": "lae_focus_team_1_ID",
-   "samples": 34494
+   "samples": 34494,
+   "clubs": 1
   },
   "68": {
    "set": "eng_us_gm_full",
@@ -344,7 +386,8 @@
    "segment": 124,
    "variation": 1031373,
    "param": "lae_focus_team_1_ID",
-   "samples": 33990
+   "samples": 33990,
+   "clubs": 1
   },
   "69": {
    "set": "eng_us_gm_full",
@@ -352,7 +395,8 @@
    "segment": 47,
    "variation": 1009953,
    "param": "home_ID",
-   "samples": 38276
+   "samples": 38276,
+   "clubs": 1
   },
   "70": {
    "set": "eng_us_gm_full",
@@ -360,7 +404,8 @@
    "segment": 126,
    "variation": 1031375,
    "param": "lae_focus_team_1_ID",
-   "samples": 51364
+   "samples": 51364,
+   "clubs": 1
   },
   "71": {
    "set": "eng_us_gm_full",
@@ -368,7 +413,8 @@
    "segment": 199,
    "variation": 1013822,
    "param": "home_ID",
-   "samples": 34132
+   "samples": 34132,
+   "clubs": 1
   },
   "72": {
    "set": "eng_us_gm_full",
@@ -376,7 +422,8 @@
    "segment": 128,
    "variation": 1031377,
    "param": "lae_focus_team_1_ID",
-   "samples": 32469
+   "samples": 32469,
+   "clubs": 1
   },
   "73": {
    "set": "eng_us_gm_full",
@@ -384,7 +431,8 @@
    "segment": 129,
    "variation": 1031378,
    "param": "lae_focus_team_1_ID",
-   "samples": 47267
+   "samples": 47267,
+   "clubs": 1
   },
   "74": {
    "set": "eng_us_gm_full",
@@ -392,7 +440,8 @@
    "segment": 130,
    "variation": 1031379,
    "param": "lae_focus_team_1_ID",
-   "samples": 34954
+   "samples": 34954,
+   "clubs": 1
   },
   "76": {
    "set": "eng_us_gm_full",
@@ -400,7 +449,8 @@
    "segment": 131,
    "variation": 1031380,
    "param": "lae_focus_team_1_ID",
-   "samples": 46887
+   "samples": 46887,
+   "clubs": 1
   },
   "77": {
    "set": "eng_us_dr_full",
@@ -408,7 +458,8 @@
    "segment": 155,
    "variation": 689120,
    "param": "lae_focus_team_1_ID",
-   "samples": 50683
+   "samples": 50683,
+   "clubs": 1
   },
   "78": {
    "set": "eng_us_gm_full",
@@ -416,7 +467,8 @@
    "segment": 81,
    "variation": 1010383,
    "param": "home_ID",
-   "samples": 40000
+   "samples": 40000,
+   "clubs": 1
   },
   "80": {
    "set": "eng_us_dr_full",
@@ -424,7 +476,8 @@
    "segment": 163,
    "variation": 691447,
    "param": "asset_team_ID",
-   "samples": 64570
+   "samples": 64570,
+   "clubs": 1
   },
   "81": {
    "set": "eng_us_dr_full",
@@ -432,7 +485,8 @@
    "segment": 169,
    "variation": 684924,
    "param": "home_ID",
-   "samples": 47976
+   "samples": 47976,
+   "clubs": 1
   },
   "82": {
    "set": "eng_us_dr_full",
@@ -440,7 +494,8 @@
    "segment": 219,
    "variation": 685020,
    "param": "home_ID",
-   "samples": 48633
+   "samples": 48633,
+   "clubs": 1
   },
   "83": {
    "set": "eng_us_dr_full",
@@ -448,7 +503,8 @@
    "segment": 166,
    "variation": 691450,
    "param": "asset_team_ID",
-   "samples": 44347
+   "samples": 44347,
+   "clubs": 1
   },
   "86": {
    "set": "eng_us_gm_full",
@@ -456,7 +512,8 @@
    "segment": 82,
    "variation": 1010384,
    "param": "home_ID",
-   "samples": 42535
+   "samples": 42535,
+   "clubs": 1
   },
   "88": {
    "set": "eng_us_gm_full",
@@ -464,7 +521,8 @@
    "segment": 132,
    "variation": 1031381,
    "param": "lae_focus_team_1_ID",
-   "samples": 39477
+   "samples": 39477,
+   "clubs": 1
   },
   "89": {
    "set": "eng_us_gm_full",
@@ -472,7 +530,8 @@
    "segment": 336,
    "variation": 1028196,
    "param": "home_ID",
-   "samples": 62298
+   "samples": 62298,
+   "clubs": 1
   },
   "91": {
    "set": "eng_us_gm_full",
@@ -480,7 +539,8 @@
    "segment": 134,
    "variation": 1031383,
    "param": "lae_focus_team_1_ID",
-   "samples": 35661
+   "samples": 35661,
+   "clubs": 1
   },
   "92": {
    "set": "eng_us_gm_full",
@@ -488,7 +548,8 @@
    "segment": 239,
    "variation": 1022346,
    "param": "lb_against_team_ID",
-   "samples": 113365
+   "samples": 113365,
+   "clubs": 1
   },
   "94": {
    "set": "eng_us_gm_full",
@@ -496,7 +557,8 @@
    "segment": 135,
    "variation": 1031384,
    "param": "lae_focus_team_1_ID",
-   "samples": 37730
+   "samples": 37730,
+   "clubs": 1
   },
   "95": {
    "set": "eng_us_gm_full",
@@ -504,7 +566,8 @@
    "segment": 136,
    "variation": 1031385,
    "param": "lae_focus_team_1_ID",
-   "samples": 37630
+   "samples": 37630,
+   "clubs": 1
   },
   "97": {
    "set": "eng_us_gm_full",
@@ -512,7 +575,8 @@
    "segment": 137,
    "variation": 1031386,
    "param": "lae_focus_team_1_ID",
-   "samples": 42255
+   "samples": 42255,
+   "clubs": 1
   },
   "106": {
    "set": "eng_us_gm_full",
@@ -520,7 +584,8 @@
    "segment": 46,
    "variation": 1031290,
    "param": "lae_focus_team_1_ID",
-   "samples": 37988
+   "samples": 37988,
+   "clubs": 1
   },
   "109": {
    "set": "eng_us_gm_full",
@@ -528,7 +593,8 @@
    "segment": 47,
    "variation": 1031291,
    "param": "lae_focus_team_1_ID",
-   "samples": 46913
+   "samples": 46913,
+   "clubs": 1
   },
   "110": {
    "set": "eng_us_gm_full",
@@ -536,7 +602,8 @@
    "segment": 3,
    "variation": 1023944,
    "param": "lae_focus_team_2_ID",
-   "samples": 33511
+   "samples": 33511,
+   "clubs": 1
   },
   "121": {
    "set": "eng_us_gm_full",
@@ -544,7 +611,8 @@
    "segment": 272,
    "variation": 1025287,
    "param": "home_ID",
-   "samples": 56331
+   "samples": 56331,
+   "clubs": 1
   },
   "127": {
    "set": "eng_us_gm_full",
@@ -552,7 +620,8 @@
    "segment": 273,
    "variation": 1025288,
    "param": "home_ID",
-   "samples": 55101
+   "samples": 55101,
+   "clubs": 1
   },
   "142": {
    "set": "eng_us_gm_full",
@@ -560,7 +629,8 @@
    "segment": 274,
    "variation": 1025289,
    "param": "home_ID",
-   "samples": 63148
+   "samples": 63148,
+   "clubs": 1
   },
   "143": {
    "set": "eng_us_gm_full",
@@ -568,7 +638,8 @@
    "segment": 324,
    "variation": 1028182,
    "param": "home_ID",
-   "samples": 50255
+   "samples": 50255,
+   "clubs": 1
   },
   "144": {
    "set": "eng_us_gm_full",
@@ -576,7 +647,8 @@
    "segment": 6,
    "variation": 1023947,
    "param": "lae_focus_team_2_ID",
-   "samples": 33761
+   "samples": 33761,
+   "clubs": 1
   },
   "149": {
    "set": "eng_us_gm_full",
@@ -584,7 +656,8 @@
    "segment": 61,
    "variation": 1031305,
    "param": "lae_focus_team_1_ID",
-   "samples": 38200
+   "samples": 38200,
+   "clubs": 1
   },
   "159": {
    "set": "eng_us_gm_full",
@@ -592,7 +665,8 @@
    "segment": 189,
    "variation": 1013809,
    "param": "home_ID",
-   "samples": 70293
+   "samples": 70293,
+   "clubs": 1
   },
   "160": {
    "set": "eng_us_gm_full",
@@ -600,7 +674,8 @@
    "segment": 63,
    "variation": 1031307,
    "param": "lae_focus_team_1_ID",
-   "samples": 35811
+   "samples": 35811,
+   "clubs": 1
   },
   "165": {
    "set": "eng_us_gm_full",
@@ -608,7 +683,8 @@
    "segment": 211,
    "variation": 1024111,
    "param": "home_ID",
-   "samples": 54712
+   "samples": 54712,
+   "clubs": 1
   },
   "166": {
    "set": "eng_us_dr_full",
@@ -616,7 +692,8 @@
    "segment": 51,
    "variation": 688979,
    "param": "lae_focus_team_1_ID",
-   "samples": 44051
+   "samples": 44051,
+   "clubs": 1
   },
   "169": {
    "set": "eng_us_gm_full",
@@ -624,7 +701,8 @@
    "segment": 64,
    "variation": 1031308,
    "param": "lae_focus_team_1_ID",
-   "samples": 37472
+   "samples": 37472,
+   "clubs": 1
   },
   "171": {
    "set": "eng_us_dr_full",
@@ -632,7 +710,8 @@
    "segment": 53,
    "variation": 688981,
    "param": "lae_focus_team_1_ID",
-   "samples": 54742
+   "samples": 54742,
+   "clubs": 1
   },
   "175": {
    "set": "eng_us_gm_full",
@@ -640,7 +719,8 @@
    "segment": 68,
    "variation": 1031312,
    "param": "lae_focus_team_1_ID",
-   "samples": 43543
+   "samples": 43543,
+   "clubs": 1
   },
   "180": {
    "set": "eng_us_dr_full",
@@ -648,7 +728,8 @@
    "segment": 188,
    "variation": 691381,
    "param": "asset_team_ID",
-   "samples": 45996
+   "samples": 45996,
+   "clubs": 1
   },
   "189": {
    "set": "eng_us_gm_full",
@@ -656,7 +737,8 @@
    "segment": 179,
    "variation": 1013483,
    "param": "home_ID",
-   "samples": 41664
+   "samples": 41664,
+   "clubs": 1
   },
   "191": {
    "set": "eng_us_dr_full",
@@ -664,7 +746,8 @@
    "segment": 53,
    "variation": 684734,
    "param": "home_ID",
-   "samples": 61565
+   "samples": 61565,
+   "clubs": 1
   },
   "192": {
    "set": "eng_us_dr_full",
@@ -672,7 +755,8 @@
    "segment": 84,
    "variation": 698238,
    "param": "ta_focus_team1_ID",
-   "samples": 367616
+   "samples": 367616,
+   "clubs": 1
   },
   "205": {
    "set": "eng_us_gm_full",
@@ -680,7 +764,8 @@
    "segment": 61,
    "variation": 1010360,
    "param": "home_ID",
-   "samples": 42430
+   "samples": 42430,
+   "clubs": 1
   },
   "206": {
    "set": "eng_us_dr_full",
@@ -688,7 +773,8 @@
    "segment": 94,
    "variation": 689040,
    "param": "lae_focus_team_1_ID",
-   "samples": 40812
+   "samples": 40812,
+   "clubs": 1
   },
   "209": {
    "set": "eng_us_dr_full",
@@ -696,7 +782,8 @@
    "segment": 55,
    "variation": 684737,
    "param": "home_ID",
-   "samples": 66550
+   "samples": 66550,
+   "clubs": 1
   },
   "210": {
    "set": "eng_us_dr_full",
@@ -704,7 +791,8 @@
    "segment": 52,
    "variation": 698670,
    "param": "ta_focus_team1_ID",
-   "samples": 283998
+   "samples": 283998,
+   "clubs": 1
   },
   "211": {
    "set": "eng_us_dr_full",
@@ -712,7 +800,8 @@
    "segment": 206,
    "variation": 689256,
    "param": "lae_focus_team_1_ID",
-   "samples": 66225
+   "samples": 66225,
+   "clubs": 1
   },
   "217": {
    "set": "eng_us_gm_full",
@@ -720,7 +809,8 @@
    "segment": 244,
    "variation": 1024312,
    "param": "home_ID",
-   "samples": 41031
+   "samples": 41031,
+   "clubs": 1
   },
   "219": {
    "set": "eng_us_gm_full",
@@ -728,7 +818,8 @@
    "segment": 91,
    "variation": 1010483,
    "param": "home_ID",
-   "samples": 41066
+   "samples": 41066,
+   "clubs": 1
   },
   "226": {
    "set": "eng_us_dr_full",
@@ -736,7 +827,8 @@
    "segment": 308,
    "variation": 689259,
    "param": "lae_focus_team_1_ID",
-   "samples": 48355
+   "samples": 48355,
+   "clubs": 1
   },
   "229": {
    "set": "eng_us_gm_full",
@@ -744,7 +836,8 @@
    "segment": 245,
    "variation": 1024313,
    "param": "home_ID",
-   "samples": 41986
+   "samples": 41986,
+   "clubs": 1
   },
   "230": {
    "set": "eng_us_gm_full",
@@ -752,7 +845,8 @@
    "segment": 345,
    "variation": 1030336,
    "param": "home_ID",
-   "samples": 41665
+   "samples": 41665,
+   "clubs": 1
   },
   "231": {
    "set": "eng_us_gm_full",
@@ -760,7 +854,8 @@
    "segment": 63,
    "variation": 1010363,
    "param": "home_ID",
-   "samples": 51605
+   "samples": 51605,
+   "clubs": 1
   },
   "232": {
    "set": "eng_us_dr_full",
@@ -768,7 +863,8 @@
    "segment": 380,
    "variation": 685498,
    "param": "home_ID",
-   "samples": 66404
+   "samples": 66404,
+   "clubs": 1
   },
   "234": {
    "set": "eng_us_gm_full",
@@ -776,7 +872,8 @@
    "segment": 39,
    "variation": 1009515,
    "param": "home_ID",
-   "samples": 41349
+   "samples": 41349,
+   "clubs": 1
   },
   "236": {
    "set": "eng_us_dr_full",
@@ -784,7 +881,8 @@
    "segment": 23,
    "variation": 684694,
    "param": "home_ID",
-   "samples": 41570
+   "samples": 41570,
+   "clubs": 1
   },
   "237": {
    "set": "eng_us_gm_full",
@@ -792,7 +890,8 @@
    "segment": 104,
    "variation": 1010698,
    "param": "home_ID",
-   "samples": 41310
+   "samples": 41310,
+   "clubs": 1
   },
   "240": {
    "set": "eng_us_gm_full",
@@ -800,7 +899,8 @@
    "segment": 24,
    "variation": 1023965,
    "param": "lae_focus_team_2_ID",
-   "samples": 45550
+   "samples": 45550,
+   "clubs": 1
   },
   "241": {
    "set": "eng_us_gm_full",
@@ -808,7 +908,8 @@
    "segment": 3,
    "variation": 1002687,
    "param": "home_ID",
-   "samples": 47484
+   "samples": 47484,
+   "clubs": 1
   },
   "242": {
    "set": "eng_us_drsr_full",
@@ -816,7 +917,8 @@
    "segment": 75,
    "variation": 699429,
    "param": "tr_team_b_ID",
-   "samples": 120262
+   "samples": 120262,
+   "clubs": 1
   },
   "243": {
    "set": "eng_us_gm_full",
@@ -824,7 +926,8 @@
    "segment": 26,
    "variation": 1023967,
    "param": "lae_focus_team_2_ID",
-   "samples": 33997
+   "samples": 33997,
+   "clubs": 1
   },
   "244": {
    "set": "eng_us_gm_full",
@@ -832,7 +935,8 @@
    "segment": 246,
    "variation": 1024314,
    "param": "home_ID",
-   "samples": 61236
+   "samples": 61236,
+   "clubs": 1
   },
   "245": {
    "set": "eng_us_gm_full",
@@ -840,7 +944,8 @@
    "segment": 92,
    "variation": 1010484,
    "param": "home_ID",
-   "samples": 36083
+   "samples": 36083,
+   "clubs": 1
   },
   "246": {
    "set": "eng_us_gm_full",
@@ -848,7 +953,8 @@
    "segment": 64,
    "variation": 1010364,
    "param": "home_ID",
-   "samples": 43563
+   "samples": 43563,
+   "clubs": 1
   },
   "247": {
    "set": "eng_us_gm_full",
@@ -856,7 +962,8 @@
    "segment": 65,
    "variation": 1010365,
    "param": "home_ID",
-   "samples": 48645
+   "samples": 48645,
+   "clubs": 1
   },
   "252": {
    "set": "eng_us_dr_full",
@@ -864,7 +971,8 @@
    "segment": 213,
    "variation": 689265,
    "param": "lae_focus_team_1_ID",
-   "samples": 46033
+   "samples": 46033,
+   "clubs": 1
   },
   "254": {
    "set": "eng_us_gm_full",
@@ -872,7 +980,8 @@
    "segment": 308,
    "variation": 1025582,
    "param": "home_ID",
-   "samples": 54867
+   "samples": 54867,
+   "clubs": 1
   },
   "256": {
    "set": "eng_us_dr_full",
@@ -880,7 +989,8 @@
    "segment": 238,
    "variation": 685061,
    "param": "home_ID",
-   "samples": 63650
+   "samples": 63650,
+   "clubs": 1
   },
   "260": {
    "set": "eng_us_gm_full",
@@ -888,7 +998,8 @@
    "segment": 309,
    "variation": 1025583,
    "param": "home_ID",
-   "samples": 49304
+   "samples": 49304,
+   "clubs": 1
   },
   "263": {
    "set": "eng_us_dr_full",
@@ -896,7 +1007,8 @@
    "segment": 485,
    "variation": 685675,
    "param": "home_ID",
-   "samples": 59304
+   "samples": 59304,
+   "clubs": 1
   },
   "266": {
    "set": "eng_us_gm_full",
@@ -904,7 +1016,8 @@
    "segment": 286,
    "variation": 1025303,
    "param": "home_ID",
-   "samples": 55050
+   "samples": 55050,
+   "clubs": 1
   },
   "267": {
    "set": "eng_us_dr_full",
@@ -912,7 +1025,8 @@
    "segment": 141,
    "variation": 691418,
    "param": "asset_team_ID",
-   "samples": 48307
+   "samples": 48307,
+   "clubs": 1
   },
   "269": {
    "set": "eng_us_dr_full",
@@ -920,7 +1034,8 @@
    "segment": 57,
    "variation": 684739,
    "param": "home_ID",
-   "samples": 50615
+   "samples": 50615,
+   "clubs": 1
   },
   "270": {
    "set": "eng_us_dr_full",
@@ -928,7 +1043,8 @@
    "segment": 58,
    "variation": 684740,
    "param": "home_ID",
-   "samples": 65337
+   "samples": 65337,
+   "clubs": 1
   },
   "271": {
    "set": "eng_us_dr_full",
@@ -936,7 +1052,8 @@
    "segment": 313,
    "variation": 685245,
    "param": "home_ID",
-   "samples": 53033
+   "samples": 53033,
+   "clubs": 1
   },
   "272": {
    "set": "eng_us_dr_full",
@@ -944,7 +1061,8 @@
    "segment": 615,
    "variation": 685470,
    "param": "home_ID",
-   "samples": 48945
+   "samples": 48945,
+   "clubs": 1
   },
   "278": {
    "set": "eng_us_dr_full",
@@ -952,7 +1070,8 @@
    "segment": 142,
    "variation": 691419,
    "param": "asset_team_ID",
-   "samples": 63347
+   "samples": 63347,
+   "clubs": 1
   },
   "294": {
    "set": "eng_us_gm_full",
@@ -960,7 +1079,8 @@
    "segment": 320,
    "variation": 1024117,
    "param": "home_ID",
-   "samples": 33289
+   "samples": 33289,
+   "clubs": 1
   },
   "298": {
    "set": "eng_us_dr_full",
@@ -968,7 +1088,8 @@
    "segment": 59,
    "variation": 684741,
    "param": "home_ID",
-   "samples": 58878
+   "samples": 58878,
+   "clubs": 1
   },
   "299": {
    "set": "eng_us_dr_full",
@@ -976,7 +1097,8 @@
    "segment": 620,
    "variation": 684700,
    "param": "home_ID",
-   "samples": 58844
+   "samples": 58844,
+   "clubs": 1
   },
   "305": {
    "set": "eng_us_dr_full",
@@ -984,7 +1106,8 @@
    "segment": 239,
    "variation": 685062,
    "param": "home_ID",
-   "samples": 51229
+   "samples": 51229,
+   "clubs": 1
   },
   "306": {
    "set": "eng_us_dr_full",
@@ -992,7 +1115,8 @@
    "segment": 472,
    "variation": 685657,
    "param": "home_ID",
-   "samples": 69307
+   "samples": 69307,
+   "clubs": 1
   },
   "308": {
    "set": "eng_us_dr_full",
@@ -1000,7 +1124,8 @@
    "segment": 497,
    "variation": 685699,
    "param": "home_ID",
-   "samples": 100348
+   "samples": 100348,
+   "clubs": 1
   },
   "310": {
    "set": "eng_us_dr_full",
@@ -1008,7 +1133,8 @@
    "segment": 498,
    "variation": 685700,
    "param": "home_ID",
-   "samples": 78782
+   "samples": 78782,
+   "clubs": 1
   },
   "320": {
    "set": "eng_us_dr_full",
@@ -1016,7 +1142,8 @@
    "segment": 61,
    "variation": 684743,
    "param": "home_ID",
-   "samples": 46942
+   "samples": 46942,
+   "clubs": 1
   },
   "322": {
    "set": "eng_us_dr_full",
@@ -1024,7 +1151,8 @@
    "segment": 220,
    "variation": 689274,
    "param": "lae_focus_team_1_ID",
-   "samples": 50059
+   "samples": 50059,
+   "clubs": 1
   },
   "324": {
    "set": "eng_us_dr_full",
@@ -1032,7 +1160,8 @@
    "segment": 370,
    "variation": 685474,
    "param": "home_ID",
-   "samples": 44036
+   "samples": 44036,
+   "clubs": 1
   },
   "325": {
    "set": "eng_us_gm_full",
@@ -1040,7 +1169,8 @@
    "segment": 106,
    "variation": 1010700,
    "param": "home_ID",
-   "samples": 55399
+   "samples": 55399,
+   "clubs": 1
   },
   "326": {
    "set": "eng_us_gm_full",
@@ -1048,7 +1178,8 @@
    "segment": 107,
    "variation": 1010701,
    "param": "home_ID",
-   "samples": 46012
+   "samples": 46012,
+   "clubs": 1
   },
   "327": {
    "set": "eng_us_gm_full",
@@ -1056,7 +1187,8 @@
    "segment": 69,
    "variation": 1010369,
    "param": "home_ID",
-   "samples": 46920
+   "samples": 46920,
+   "clubs": 1
   },
   "347": {
    "set": "eng_us_gm_full",
@@ -1064,7 +1196,8 @@
    "segment": 102,
    "variation": 1031346,
    "param": "lae_focus_team_1_ID",
-   "samples": 39516
+   "samples": 39516,
+   "clubs": 1
   },
   "357": {
    "set": "eng_us_common_full",
@@ -1072,7 +1205,8 @@
    "segment": 120,
    "variation": 2880,
    "param": "asset_team_ID",
-   "samples": 125833
+   "samples": 125833,
+   "clubs": 1
   },
   "361": {
    "set": "eng_us_gm_full",
@@ -1080,7 +1214,8 @@
    "segment": 103,
    "variation": 1031347,
    "param": "lae_focus_team_1_ID",
-   "samples": 39853
+   "samples": 39853,
+   "clubs": 1
   },
   "378": {
    "set": "eng_us_gm_full",
@@ -1088,7 +1223,8 @@
    "segment": 105,
    "variation": 1031349,
    "param": "lae_focus_team_1_ID",
-   "samples": 35530
+   "samples": 35530,
+   "clubs": 1
   },
   "379": {
    "set": "eng_us_gm_full",
@@ -1096,7 +1232,8 @@
    "segment": 106,
    "variation": 1031350,
    "param": "lae_focus_team_1_ID",
-   "samples": 35722
+   "samples": 35722,
+   "clubs": 1
   },
   "381": {
    "set": "eng_us_common_full",
@@ -1104,7 +1241,8 @@
    "segment": 124,
    "variation": 2885,
    "param": "asset_team_ID",
-   "samples": 102490
+   "samples": 102490,
+   "clubs": 1
   },
   "383": {
    "set": "eng_us_dr_full",
@@ -1112,7 +1250,8 @@
    "segment": 294,
    "variation": 685202,
    "param": "home_ID",
-   "samples": 54521
+   "samples": 54521,
+   "clubs": 1
   },
   "393": {
    "set": "eng_us_dr_full",
@@ -1120,7 +1259,8 @@
    "segment": 149,
    "variation": 691428,
    "param": "asset_team_ID",
-   "samples": 43779
+   "samples": 43779,
+   "clubs": 1
   },
   "417": {
    "set": "eng_us_dr_full",
@@ -1128,7 +1268,8 @@
    "segment": 31,
    "variation": 684707,
    "param": "home_ID",
-   "samples": 44557
+   "samples": 44557,
+   "clubs": 1
   },
   "420": {
    "set": "eng_us_dr_full",
@@ -1136,7 +1277,8 @@
    "segment": 192,
    "variation": 684968,
    "param": "home_ID",
-   "samples": 60858
+   "samples": 60858,
+   "clubs": 1
   },
   "436": {
    "set": "eng_us_gm_full",
@@ -1144,7 +1286,8 @@
    "segment": 218,
    "variation": 1024119,
    "param": "home_ID",
-   "samples": 55844
+   "samples": 55844,
+   "clubs": 1
   },
   "445": {
    "set": "eng_us_dr_full",
@@ -1152,7 +1295,8 @@
    "segment": 63,
    "variation": 684747,
    "param": "home_ID",
-   "samples": 58080
+   "samples": 58080,
+   "clubs": 1
   },
   "448": {
    "set": "eng_us_gm_full",
@@ -1160,7 +1304,8 @@
    "segment": 28,
    "variation": 1023969,
    "param": "lae_focus_team_2_ID",
-   "samples": 40623
+   "samples": 40623,
+   "clubs": 1
   },
   "449": {
    "set": "eng_us_gm_full",
@@ -1168,7 +1313,8 @@
    "segment": 29,
    "variation": 1023970,
    "param": "lae_focus_team_2_ID",
-   "samples": 38003
+   "samples": 38003,
+   "clubs": 1
   },
   "450": {
    "set": "eng_us_gm_full",
@@ -1176,7 +1322,8 @@
    "segment": 30,
    "variation": 1023971,
    "param": "lae_focus_team_2_ID",
-   "samples": 36675
+   "samples": 36675,
+   "clubs": 1
   },
   "452": {
    "set": "eng_us_gm_full",
@@ -1184,7 +1331,8 @@
    "segment": 109,
    "variation": 1031355,
    "param": "lae_focus_team_1_ID",
-   "samples": 46243
+   "samples": 46243,
+   "clubs": 1
   },
   "453": {
    "set": "eng_us_gm_full",
@@ -1192,7 +1340,8 @@
    "segment": 31,
    "variation": 1023972,
    "param": "lae_focus_team_2_ID",
-   "samples": 41086
+   "samples": 41086,
+   "clubs": 1
   },
   "456": {
    "set": "eng_us_dr_full",
@@ -1200,7 +1349,8 @@
    "segment": 536,
    "variation": 685760,
    "param": "home_ID",
-   "samples": 83692
+   "samples": 83692,
+   "clubs": 1
   },
   "457": {
    "set": "eng_us_gm_full",
@@ -1208,7 +1358,8 @@
    "segment": 45,
    "variation": 1009951,
    "param": "home_ID",
-   "samples": 59064
+   "samples": 59064,
+   "clubs": 1
   },
   "459": {
    "set": "eng_us_gm_full",
@@ -1216,7 +1367,8 @@
    "segment": 346,
    "variation": 1030337,
    "param": "home_ID",
-   "samples": 56893
+   "samples": 56893,
+   "clubs": 1
   },
   "461": {
    "set": "eng_us_gm_full",
@@ -1224,7 +1376,8 @@
    "segment": 46,
    "variation": 1009952,
    "param": "home_ID",
-   "samples": 44648
+   "samples": 44648,
+   "clubs": 1
   },
   "462": {
    "set": "eng_us_gm_full",
@@ -1232,7 +1385,8 @@
    "segment": 111,
    "variation": 1031357,
    "param": "lae_focus_team_1_ID",
-   "samples": 48704
+   "samples": 48704,
+   "clubs": 1
   },
   "463": {
    "set": "eng_us_gm_full",
@@ -1240,7 +1394,8 @@
    "segment": 34,
    "variation": 1023975,
    "param": "lae_focus_team_2_ID",
-   "samples": 37520
+   "samples": 37520,
+   "clubs": 1
   },
   "468": {
    "set": "eng_us_gm_full",
@@ -1248,7 +1403,8 @@
    "segment": 181,
    "variation": 1013485,
    "param": "home_ID",
-   "samples": 35284
+   "samples": 35284,
+   "clubs": 1
   },
   "469": {
    "set": "eng_us_drsr_full",
@@ -1256,7 +1412,8 @@
    "segment": 170,
    "variation": 691162,
    "param": "lb_against_team_ID",
-   "samples": 153283
+   "samples": 153283,
+   "clubs": 1
   },
   "472": {
    "set": "eng_us_gm_full",
@@ -1264,7 +1421,8 @@
    "segment": 35,
    "variation": 1023976,
    "param": "lae_focus_team_2_ID",
-   "samples": 52029
+   "samples": 52029,
+   "clubs": 1
   },
   "477": {
    "set": "eng_us_drsr_full",
@@ -1272,7 +1430,8 @@
    "segment": 172,
    "variation": 691164,
    "param": "lb_against_team_ID",
-   "samples": 121785
+   "samples": 121785,
+   "clubs": 1
   },
   "479": {
    "set": "eng_us_gm_full",
@@ -1280,7 +1439,8 @@
    "segment": 36,
    "variation": 1023977,
    "param": "lae_focus_team_2_ID",
-   "samples": 46540
+   "samples": 46540,
+   "clubs": 1
   },
   "480": {
    "set": "eng_us_gm_full",
@@ -1288,7 +1448,8 @@
    "segment": 37,
    "variation": 1023978,
    "param": "lae_focus_team_2_ID",
-   "samples": 36096
+   "samples": 36096,
+   "clubs": 1
   },
   "481": {
    "set": "eng_us_gm_full",
@@ -1296,7 +1457,8 @@
    "segment": 38,
    "variation": 1023979,
    "param": "lae_focus_team_2_ID",
-   "samples": 35267
+   "samples": 35267,
+   "clubs": 1
   },
   "483": {
    "set": "eng_us_gm_full",
@@ -1304,7 +1466,8 @@
    "segment": 94,
    "variation": 1010486,
    "param": "home_ID",
-   "samples": 49201
+   "samples": 49201,
+   "clubs": 1
   },
   "485": {
    "set": "eng_us_gm_full",
@@ -1312,7 +1475,8 @@
    "segment": 113,
    "variation": 1031362,
    "param": "lae_focus_team_1_ID",
-   "samples": 37442
+   "samples": 37442,
+   "clubs": 1
   },
   "487": {
    "set": "eng_us_dr_full",
@@ -1320,7 +1484,8 @@
    "segment": 228,
    "variation": 689282,
    "param": "lae_focus_team_1_ID",
-   "samples": 86018
+   "samples": 86018,
+   "clubs": 1
   },
   "492": {
    "set": "eng_us_dr_full",
@@ -1328,7 +1493,8 @@
    "segment": 477,
    "variation": 685662,
    "param": "home_ID",
-   "samples": 73729
+   "samples": 73729,
+   "clubs": 1
   },
   "503": {
    "set": "eng_us_gm_full",
@@ -1336,7 +1502,8 @@
    "segment": 311,
    "variation": 1025585,
    "param": "home_ID",
-   "samples": 61024
+   "samples": 61024,
+   "clubs": 1
   },
   "517": {
    "set": "eng_us_dr_full",
@@ -1344,7 +1511,8 @@
    "segment": 573,
    "variation": 684913,
    "param": "home_ID",
-   "samples": 55179
+   "samples": 55179,
+   "clubs": 1
   },
   "523": {
    "set": "eng_us_gm_full",
@@ -1352,7 +1520,8 @@
    "segment": 296,
    "variation": 1023372,
    "param": "lb_against_team_ID",
-   "samples": 129476
+   "samples": 129476,
+   "clubs": 1
   },
   "526": {
    "set": "eng_us_dr_full",
@@ -1360,7 +1529,8 @@
    "segment": 537,
    "variation": 685762,
    "param": "home_ID",
-   "samples": 69930
+   "samples": 69930,
+   "clubs": 1
   },
   "531": {
    "set": "eng_us_gm_full",
@@ -1368,7 +1538,8 @@
    "segment": 298,
    "variation": 1023374,
    "param": "lb_against_team_ID",
-   "samples": 148073
+   "samples": 148073,
+   "clubs": 1
   },
   "543": {
    "set": "eng_us_dr_full",
@@ -1376,7 +1547,8 @@
    "segment": 255,
    "variation": 685100,
    "param": "home_ID",
-   "samples": 69161
+   "samples": 69161,
+   "clubs": 1
   },
   "567": {
    "set": "eng_us_dr_full",
@@ -1384,7 +1556,8 @@
    "segment": 161,
    "variation": 684914,
    "param": "home_ID",
-   "samples": 51590
+   "samples": 51590,
+   "clubs": 1
   },
   "569": {
    "set": "eng_us_dr_full",
@@ -1392,7 +1565,8 @@
    "segment": 277,
    "variation": 685179,
    "param": "home_ID",
-   "samples": 60259
+   "samples": 60259,
+   "clubs": 1
   },
   "573": {
    "set": "eng_us_gm_full",
@@ -1400,7 +1574,8 @@
    "segment": 319,
    "variation": 1013819,
    "param": "home_ID",
-   "samples": 36185
+   "samples": 36185,
+   "clubs": 1
   },
   "576": {
    "set": "eng_us_gm_full",
@@ -1408,7 +1583,8 @@
    "segment": 120,
    "variation": 1031369,
    "param": "lae_focus_team_1_ID",
-   "samples": 53903
+   "samples": 53903,
+   "clubs": 1
   },
   "580": {
    "set": "eng_us_dr_full",
@@ -1416,7 +1592,8 @@
    "segment": 538,
    "variation": 685764,
    "param": "home_ID",
-   "samples": 61122
+   "samples": 61122,
+   "clubs": 1
   },
   "598": {
    "set": "eng_us_dr_full",
@@ -1424,7 +1601,8 @@
    "segment": 278,
    "variation": 685180,
    "param": "home_ID",
-   "samples": 51766
+   "samples": 51766,
+   "clubs": 1
   },
   "605": {
    "set": "eng_us_gm_full",
@@ -1432,7 +1610,8 @@
    "segment": 78,
    "variation": 1010379,
    "param": "home_ID",
-   "samples": 47818
+   "samples": 47818,
+   "clubs": 1
   },
   "607": {
    "set": "eng_us_gm_full",
@@ -1440,7 +1619,8 @@
    "segment": 198,
    "variation": 1013821,
    "param": "home_ID",
-   "samples": 45482
+   "samples": 45482,
+   "clubs": 1
   },
   "614": {
    "set": "eng_us_dr_full",
@@ -1448,7 +1628,8 @@
    "segment": 250,
    "variation": 685085,
    "param": "home_ID",
-   "samples": 52786
+   "samples": 52786,
+   "clubs": 1
   },
   "634": {
    "set": "eng_us_dr_full",
@@ -1456,7 +1637,8 @@
    "segment": 159,
    "variation": 691441,
    "param": "asset_team_ID",
-   "samples": 63356
+   "samples": 63356,
+   "clubs": 1
   },
   "635": {
    "set": "eng_us_drsr_full",
@@ -1464,7 +1646,8 @@
    "segment": 178,
    "variation": 691174,
    "param": "lb_against_team_ID",
-   "samples": 137002
+   "samples": 137002,
+   "clubs": 1
   },
   "647": {
    "set": "eng_us_gm_full",
@@ -1472,7 +1655,8 @@
    "segment": 395,
    "variation": 1025308,
    "param": "home_ID",
-   "samples": 43252
+   "samples": 43252,
+   "clubs": 1
   },
   "650": {
    "set": "eng_us_dr_full",
@@ -1480,7 +1664,8 @@
    "segment": 303,
    "variation": 689100,
    "param": "lae_focus_team_1_ID",
-   "samples": 63721
+   "samples": 63721,
+   "clubs": 1
   },
   "666": {
    "set": "eng_us_drsr_full",
@@ -1488,7 +1673,8 @@
    "segment": 179,
    "variation": 691177,
    "param": "lb_against_team_ID",
-   "samples": 157672
+   "samples": 157672,
+   "clubs": 1
   },
   "670": {
    "set": "eng_us_dr_full",
@@ -1496,7 +1682,8 @@
    "segment": 232,
    "variation": 689288,
    "param": "lae_focus_team_1_ID",
-   "samples": 50141
+   "samples": 50141,
+   "clubs": 1
   },
   "673": {
    "set": "eng_us_gm_full",
@@ -1504,7 +1691,8 @@
    "segment": 333,
    "variation": 1028193,
    "param": "home_ID",
-   "samples": 35192
+   "samples": 35192,
+   "clubs": 1
   },
   "674": {
    "set": "eng_us_gm_full",
@@ -1512,7 +1700,8 @@
    "segment": 290,
    "variation": 1025309,
    "param": "home_ID",
-   "samples": 34623
+   "samples": 34623,
+   "clubs": 1
   },
   "680": {
    "set": "eng_us_dr_full",
@@ -1520,7 +1709,8 @@
    "segment": 236,
    "variation": 689292,
    "param": "lae_focus_team_1_ID",
-   "samples": 60140
+   "samples": 60140,
+   "clubs": 1
   },
   "681": {
    "set": "eng_us_dr_full",
@@ -1528,7 +1718,8 @@
    "segment": 539,
    "variation": 685766,
    "param": "home_ID",
-   "samples": 49728
+   "samples": 49728,
+   "clubs": 1
   },
   "687": {
    "set": "eng_us_gm_full",
@@ -1536,7 +1727,8 @@
    "segment": 314,
    "variation": 1025663,
    "param": "home_ID",
-   "samples": 54059
+   "samples": 54059,
+   "clubs": 1
   },
   "688": {
    "set": "eng_us_dr_full",
@@ -1544,7 +1736,8 @@
    "segment": 140,
    "variation": 689103,
    "param": "lae_focus_team_1_ID",
-   "samples": 66066
+   "samples": 66066,
+   "clubs": 1
   },
   "689": {
    "set": "eng_us_gm_full",
@@ -1552,7 +1745,8 @@
    "segment": 291,
    "variation": 1025311,
    "param": "home_ID",
-   "samples": 64633
+   "samples": 64633,
+   "clubs": 1
   },
   "691": {
    "set": "eng_us_dr_full",
@@ -1560,7 +1754,8 @@
    "segment": 143,
    "variation": 689106,
    "param": "lae_focus_team_1_ID",
-   "samples": 75455
+   "samples": 75455,
+   "clubs": 1
   },
   "693": {
    "set": "eng_us_dr_full",
@@ -1568,7 +1763,8 @@
    "segment": 374,
    "variation": 685483,
    "param": "home_ID",
-   "samples": 67110
+   "samples": 67110,
+   "clubs": 1
   },
   "694": {
    "set": "eng_us_dr_full",
@@ -1576,7 +1772,8 @@
    "segment": 217,
    "variation": 685018,
    "param": "home_ID",
-   "samples": 74317
+   "samples": 74317,
+   "clubs": 1
   },
   "695": {
    "set": "eng_us_dr_full",
@@ -1584,7 +1781,8 @@
    "segment": 165,
    "variation": 684920,
    "param": "home_ID",
-   "samples": 55024
+   "samples": 55024,
+   "clubs": 1
   },
   "696": {
    "set": "eng_us_dr_full",
@@ -1592,7 +1790,8 @@
    "segment": 166,
    "variation": 684921,
    "param": "home_ID",
-   "samples": 75040
+   "samples": 75040,
+   "clubs": 1
   },
   "697": {
    "set": "eng_us_gm_full",
@@ -1600,7 +1799,8 @@
    "segment": 334,
    "variation": 1028194,
    "param": "home_ID",
-   "samples": 60443
+   "samples": 60443,
+   "clubs": 1
   },
   "698": {
    "set": "eng_us_dr_full",
@@ -1608,7 +1808,8 @@
    "segment": 167,
    "variation": 684922,
    "param": "home_ID",
-   "samples": 68891
+   "samples": 68891,
+   "clubs": 1
   },
   "708": {
    "set": "eng_us_dr_full",
@@ -1616,7 +1817,8 @@
    "segment": 245,
    "variation": 685069,
    "param": "home_ID",
-   "samples": 45110
+   "samples": 45110,
+   "clubs": 1
   },
   "710": {
    "set": "eng_us_dr_full",
@@ -1624,7 +1826,8 @@
    "segment": 251,
    "variation": 685086,
    "param": "home_ID",
-   "samples": 54169
+   "samples": 54169,
+   "clubs": 1
   },
   "718": {
    "set": "eng_us_gm_full",
@@ -1632,7 +1835,8 @@
    "segment": 307,
    "variation": 1023384,
    "param": "lb_against_team_ID",
-   "samples": 139906
+   "samples": 139906,
+   "clubs": 1
   },
   "742": {
    "set": "eng_us_drsr_full",
@@ -1640,7 +1844,8 @@
    "segment": 180,
    "variation": 691179,
    "param": "lb_against_team_ID",
-   "samples": 144921
+   "samples": 144921,
+   "clubs": 1
   },
   "744": {
    "set": "eng_us_dr_full",
@@ -1648,7 +1853,8 @@
    "segment": 218,
    "variation": 685019,
    "param": "home_ID",
-   "samples": 47506
+   "samples": 47506,
+   "clubs": 1
   },
   "748": {
    "set": "eng_us_gm_full",
@@ -1656,7 +1862,8 @@
    "segment": 308,
    "variation": 1023386,
    "param": "lb_against_team_ID",
-   "samples": 112854
+   "samples": 112854,
+   "clubs": 1
   },
   "749": {
    "set": "eng_us_drsr_full",
@@ -1664,7 +1871,8 @@
    "segment": 252,
    "variation": 691181,
    "param": "lb_against_team_ID",
-   "samples": 151275
+   "samples": 151275,
+   "clubs": 1
   },
   "753": {
    "set": "eng_us_dr_full",
@@ -1672,7 +1880,8 @@
    "segment": 587,
    "variation": 685087,
    "param": "home_ID",
-   "samples": 46842
+   "samples": 46842,
+   "clubs": 1
   },
   "819": {
    "set": "eng_us_gm_full",
@@ -1680,7 +1889,8 @@
    "segment": 335,
    "variation": 1028195,
    "param": "home_ID",
-   "samples": 65270
+   "samples": 65270,
+   "clubs": 1
   },
   "834": {
    "set": "eng_us_dr_full",
@@ -1688,7 +1898,8 @@
    "segment": 344,
    "variation": 685328,
    "param": "home_ID",
-   "samples": 50475
+   "samples": 50475,
+   "clubs": 1
   },
   "837": {
    "set": "eng_us_dr_full",
@@ -1696,7 +1907,8 @@
    "segment": 621,
    "variation": 684750,
    "param": "home_ID",
-   "samples": 58487
+   "samples": 58487,
+   "clubs": 1
   },
   "873": {
    "set": "eng_us_gm_full",
@@ -1704,7 +1916,8 @@
    "segment": 220,
    "variation": 1024121,
    "param": "home_ID",
-   "samples": 52992
+   "samples": 52992,
+   "clubs": 1
   },
   "894": {
    "set": "eng_us_dr_full",
@@ -1712,7 +1925,8 @@
    "segment": 480,
    "variation": 685667,
    "param": "home_ID",
-   "samples": 49488
+   "samples": 49488,
+   "clubs": 1
   },
   "896": {
    "set": "eng_us_dr_full",
@@ -1720,7 +1934,8 @@
    "segment": 48,
    "variation": 684726,
    "param": "home_ID",
-   "samples": 45525
+   "samples": 45525,
+   "clubs": 1
   },
   "897": {
    "set": "eng_us_dr_full",
@@ -1728,7 +1943,8 @@
    "segment": 64,
    "variation": 684751,
    "param": "home_ID",
-   "samples": 61021
+   "samples": 61021,
+   "clubs": 1
   },
   "898": {
    "set": "eng_us_dr_full",
@@ -1736,7 +1952,8 @@
    "segment": 75,
    "variation": 685879,
    "param": "away_ID",
-   "samples": 67747
+   "samples": 67747,
+   "clubs": 1
   },
   "900": {
    "set": "eng_us_gm_full",
@@ -1744,7 +1961,8 @@
    "segment": 202,
    "variation": 1013825,
    "param": "home_ID",
-   "samples": 43919
+   "samples": 43919,
+   "clubs": 1
   },
   "918": {
    "set": "eng_us_gm_full",
@@ -1752,7 +1970,8 @@
    "segment": 314,
    "variation": 1023392,
    "param": "lb_against_team_ID",
-   "samples": 130059
+   "samples": 130059,
+   "clubs": 1
   },
   "919": {
    "set": "eng_us_dr_full",
@@ -1760,7 +1979,8 @@
    "segment": 579,
    "variation": 685215,
    "param": "home_ID",
-   "samples": 38808
+   "samples": 38808,
+   "clubs": 1
   },
   "920": {
    "set": "eng_us_dr_full",
@@ -1768,7 +1988,8 @@
    "segment": 605,
    "variation": 685216,
    "param": "home_ID",
-   "samples": 49407
+   "samples": 49407,
+   "clubs": 1
   },
   "974": {
    "set": "eng_us_dr_full",
@@ -1776,7 +1997,8 @@
    "segment": 522,
    "variation": 685733,
    "param": "home_ID",
-   "samples": 70096
+   "samples": 70096,
+   "clubs": 1
   },
   "982": {
    "set": "eng_us_dr_full",
@@ -1784,7 +2006,8 @@
    "segment": 301,
    "variation": 685217,
    "param": "home_ID",
-   "samples": 58227
+   "samples": 58227,
+   "clubs": 1
   },
   "1013": {
    "set": "eng_us_dr_full",
@@ -1792,7 +2015,8 @@
    "segment": 133,
    "variation": 684858,
    "param": "home_ID",
-   "samples": 55704
+   "samples": 55704,
+   "clubs": 1
   },
   "1032": {
    "set": "eng_us_gm_full",
@@ -1800,7 +2024,8 @@
    "segment": 378,
    "variation": 1040750,
    "param": "home_ID",
-   "samples": 46020
+   "samples": 46020,
+   "clubs": 1
   },
   "1035": {
    "set": "eng_us_dr_full",
@@ -1808,7 +2033,8 @@
    "segment": 261,
    "variation": 685113,
    "param": "home_ID",
-   "samples": 69066
+   "samples": 69066,
+   "clubs": 1
   },
   "1041": {
    "set": "eng_us_dr_full",
@@ -1816,7 +2042,8 @@
    "segment": 262,
    "variation": 685115,
    "param": "home_ID",
-   "samples": 57905
+   "samples": 57905,
+   "clubs": 1
   },
   "1043": {
    "set": "eng_us_gm_full",
@@ -1824,7 +2051,8 @@
    "segment": 255,
    "variation": 1025268,
    "param": "home_ID",
-   "samples": 44502
+   "samples": 44502,
+   "clubs": 1
   },
   "1053": {
    "set": "eng_us_dr_full",
@@ -1832,7 +2060,8 @@
    "segment": 622,
    "variation": 684861,
    "param": "home_ID",
-   "samples": 62066
+   "samples": 62066,
+   "clubs": 1
   },
   "1318": {
    "set": "eng_us_gm_full",
@@ -1840,7 +2069,8 @@
    "segment": 359,
    "variation": 1039937,
    "param": "home_ID",
-   "samples": 37554
+   "samples": 37554,
+   "clubs": 1
   },
   "1322": {
    "set": "eng_us_gm_full",
@@ -1848,7 +2078,8 @@
    "segment": 360,
    "variation": 1039938,
    "param": "home_ID",
-   "samples": 37251
+   "samples": 37251,
+   "clubs": 1
   },
   "1325": {
    "set": "eng_us_sr_full",
@@ -1856,7 +2087,8 @@
    "segment": 34,
    "variation": 408923,
    "param": "asset_team_ID",
-   "samples": 91304
+   "samples": 91304,
+   "clubs": 1
   },
   "1328": {
    "set": "eng_us_gm_full",
@@ -1864,7 +2096,8 @@
    "segment": 361,
    "variation": 1039940,
    "param": "home_ID",
-   "samples": 42256
+   "samples": 42256,
+   "clubs": 1
   },
   "1330": {
    "set": "eng_us_dr_full",
@@ -1872,7 +2105,8 @@
    "segment": 649,
    "variation": 727133,
    "param": "home_ID",
-   "samples": 43140
+   "samples": 43140,
+   "clubs": 1
   },
   "1331": {
    "set": "eng_us_dr_full",
@@ -1880,7 +2114,8 @@
    "segment": 346,
    "variation": 685349,
    "param": "home_ID",
-   "samples": 45831
+   "samples": 45831,
+   "clubs": 1
   },
   "1334": {
    "set": "eng_us_gm_full",
@@ -1888,7 +2123,8 @@
    "segment": 341,
    "variation": 1030332,
    "param": "home_ID",
-   "samples": 40936
+   "samples": 40936,
+   "clubs": 1
   },
   "1335": {
    "set": "eng_us_dr_full",
@@ -1896,7 +2132,8 @@
    "segment": 650,
    "variation": 727134,
    "param": "home_ID",
-   "samples": 42556
+   "samples": 42556,
+   "clubs": 1
   },
   "1337": {
    "set": "eng_us_dr_full",
@@ -1904,7 +2141,8 @@
    "segment": 651,
    "variation": 727135,
    "param": "home_ID",
-   "samples": 41830
+   "samples": 41830,
+   "clubs": 1
   },
   "1338": {
    "set": "eng_us_dr_full",
@@ -1912,7 +2150,8 @@
    "segment": 348,
    "variation": 685353,
    "param": "home_ID",
-   "samples": 43923
+   "samples": 43923,
+   "clubs": 1
   },
   "1341": {
    "set": "eng_us_gm_full",
@@ -1920,7 +2159,8 @@
    "segment": 296,
    "variation": 1025567,
    "param": "home_ID",
-   "samples": 38816
+   "samples": 38816,
+   "clubs": 1
   },
   "1343": {
    "set": "eng_us_gm_full",
@@ -1928,7 +2168,8 @@
    "segment": 98,
    "variation": 1010690,
    "param": "home_ID",
-   "samples": 33488
+   "samples": 33488,
+   "clubs": 1
   },
   "1352": {
    "set": "eng_us_dr_full",
@@ -1936,7 +2177,8 @@
    "segment": 652,
    "variation": 727136,
    "param": "home_ID",
-   "samples": 42220
+   "samples": 42220,
+   "clubs": 1
   },
   "1353": {
    "set": "eng_us_gm_full",
@@ -1944,7 +2186,8 @@
    "segment": 172,
    "variation": 1013475,
    "param": "home_ID",
-   "samples": 43562
+   "samples": 43562,
+   "clubs": 1
   },
   "1354": {
    "set": "eng_us_dr_full",
@@ -1952,7 +2195,8 @@
    "segment": 653,
    "variation": 727137,
    "param": "home_ID",
-   "samples": 44855
+   "samples": 44855,
+   "clubs": 1
   },
   "1355": {
    "set": "eng_us_gm_full",
@@ -1960,7 +2204,8 @@
    "segment": 208,
    "variation": 1024108,
    "param": "home_ID",
-   "samples": 63837
+   "samples": 63837,
+   "clubs": 1
   },
   "1356": {
    "set": "eng_us_gm_full",
@@ -1968,7 +2213,8 @@
    "segment": 323,
    "variation": 1028180,
    "param": "home_ID",
-   "samples": 43124
+   "samples": 43124,
+   "clubs": 1
   },
   "1359": {
    "set": "eng_us_dr_full",
@@ -1976,7 +2222,8 @@
    "segment": 654,
    "variation": 727138,
    "param": "home_ID",
-   "samples": 44633
+   "samples": 44633,
+   "clubs": 1
   },
   "1362": {
    "set": "eng_us_dr_full",
@@ -1984,7 +2231,8 @@
    "segment": 655,
    "variation": 727139,
    "param": "home_ID",
-   "samples": 39958
+   "samples": 39958,
+   "clubs": 1
   },
   "1363": {
    "set": "eng_us_dr_full",
@@ -1992,7 +2240,8 @@
    "segment": 656,
    "variation": 727140,
    "param": "home_ID",
-   "samples": 40548
+   "samples": 40548,
+   "clubs": 1
   },
   "1364": {
    "set": "eng_us_dr_full",
@@ -2000,7 +2249,8 @@
    "segment": 657,
    "variation": 727141,
    "param": "home_ID",
-   "samples": 46738
+   "samples": 46738,
+   "clubs": 1
   },
   "1365": {
    "set": "eng_us_dr_full",
@@ -2008,7 +2258,8 @@
    "segment": 658,
    "variation": 727142,
    "param": "home_ID",
-   "samples": 41825
+   "samples": 41825,
+   "clubs": 1
   },
   "1366": {
    "set": "eng_us_gm_full",
@@ -2016,7 +2267,8 @@
    "segment": 231,
    "variation": 1024298,
    "param": "home_ID",
-   "samples": 45517
+   "samples": 45517,
+   "clubs": 1
   },
   "1367": {
    "set": "eng_us_gm_full",
@@ -2024,7 +2276,8 @@
    "segment": 232,
    "variation": 1024299,
    "param": "home_ID",
-   "samples": 40358
+   "samples": 40358,
+   "clubs": 1
   },
   "1369": {
    "set": "eng_us_gm_full",
@@ -2032,7 +2285,8 @@
    "segment": 372,
    "variation": 1039951,
    "param": "home_ID",
-   "samples": 50032
+   "samples": 50032,
+   "clubs": 1
   },
   "1370": {
    "set": "eng_us_gm_full",
@@ -2040,7 +2294,8 @@
    "segment": 373,
    "variation": 1039952,
    "param": "home_ID",
-   "samples": 40742
+   "samples": 40742,
+   "clubs": 1
   },
   "1375": {
    "set": "eng_us_dr_full",
@@ -2048,7 +2303,8 @@
    "segment": 181,
    "variation": 700222,
    "param": "asset_team_ID",
-   "samples": 132727
+   "samples": 132727,
+   "clubs": 1
   },
   "1383": {
    "set": "eng_us_dr_full",
@@ -2056,7 +2312,8 @@
    "segment": 519,
    "variation": 685729,
    "param": "home_ID",
-   "samples": 58130
+   "samples": 58130,
+   "clubs": 1
   },
   "1386": {
    "set": "eng_us_gm_full",
@@ -2064,7 +2321,8 @@
    "segment": 374,
    "variation": 1039955,
    "param": "home_ID",
-   "samples": 46864
+   "samples": 46864,
+   "clubs": 1
   },
   "1387": {
    "set": "eng_us_gm_full",
@@ -2072,7 +2330,8 @@
    "segment": 375,
    "variation": 1039956,
    "param": "home_ID",
-   "samples": 50209
+   "samples": 50209,
+   "clubs": 1
   },
   "1391": {
    "set": "eng_us_dr_full",
@@ -2080,7 +2339,8 @@
    "segment": 520,
    "variation": 685730,
    "param": "home_ID",
-   "samples": 50325
+   "samples": 50325,
+   "clubs": 1
   },
   "1413": {
    "set": "eng_us_gm_full",
@@ -2088,7 +2348,8 @@
    "segment": 251,
    "variation": 1030547,
    "param": "asset_team_ID",
-   "samples": 77534
+   "samples": 77534,
+   "clubs": 1
   },
   "1438": {
    "set": "eng_us_gm_full",
@@ -2096,7 +2357,8 @@
    "segment": 275,
    "variation": 1025290,
    "param": "home_ID",
-   "samples": 50744
+   "samples": 50744,
+   "clubs": 1
   },
   "1473": {
    "set": "eng_us_dr_full",
@@ -2104,7 +2366,8 @@
    "segment": 298,
    "variation": 685209,
    "param": "home_ID",
-   "samples": 64914
+   "samples": 64914,
+   "clubs": 1
   },
   "1474": {
    "set": "eng_us_dr_full",
@@ -2112,7 +2375,8 @@
    "segment": 312,
    "variation": 685242,
    "param": "home_ID",
-   "samples": 74564
+   "samples": 74564,
+   "clubs": 1
   },
   "1477": {
    "set": "eng_us_dr_full",
@@ -2120,7 +2384,8 @@
    "segment": 230,
    "variation": 685047,
    "param": "home_ID",
-   "samples": 114376
+   "samples": 114376,
+   "clubs": 1
   },
   "1480": {
    "set": "eng_us_common_full",
@@ -2128,7 +2393,8 @@
    "segment": 112,
    "variation": 2145,
    "param": "asset_team_ID",
-   "samples": 86187
+   "samples": 86187,
+   "clubs": 1
   },
   "1516": {
    "set": "eng_us_gm_full",
@@ -2136,7 +2402,8 @@
    "segment": 298,
    "variation": 1025571,
    "param": "home_ID",
-   "samples": 41675
+   "samples": 41675,
+   "clubs": 1
   },
   "1524": {
    "set": "eng_us_dr_full",
@@ -2144,7 +2411,8 @@
    "segment": 633,
    "variation": 685325,
    "param": "home_ID",
-   "samples": 71690
+   "samples": 71690,
+   "clubs": 1
   },
   "1530": {
    "set": "eng_us_gm_full",
@@ -2152,7 +2420,8 @@
    "segment": 209,
    "variation": 1024109,
    "param": "home_ID",
-   "samples": 41317
+   "samples": 41317,
+   "clubs": 1
   },
   "1569": {
    "set": "eng_us_dr_full",
@@ -2160,7 +2429,8 @@
    "segment": 616,
    "variation": 685628,
    "param": "home_ID",
-   "samples": 61431
+   "samples": 61431,
+   "clubs": 1
   },
   "1598": {
    "set": "eng_us_dr_full",
@@ -2168,7 +2438,8 @@
    "segment": 602,
    "variation": 685176,
    "param": "home_ID",
-   "samples": 44580
+   "samples": 44580,
+   "clubs": 1
   },
   "1629": {
    "set": "eng_us_dr_full",
@@ -2176,7 +2447,8 @@
    "segment": 590,
    "variation": 685177,
    "param": "home_ID",
-   "samples": 50994
+   "samples": 50994,
+   "clubs": 1
   },
   "1667": {
    "set": "eng_us_dr_full",
@@ -2184,7 +2456,8 @@
    "segment": 521,
    "variation": 685732,
    "param": "home_ID",
-   "samples": 48011
+   "samples": 48011,
+   "clubs": 1
   },
   "1715": {
    "set": "eng_us_drsr_full",
@@ -2192,7 +2465,8 @@
    "segment": 245,
    "variation": 691103,
    "param": "lb_against_team_ID",
-   "samples": 133780
+   "samples": 133780,
+   "clubs": 1
   },
   "1738": {
    "set": "eng_us_gm_full",
@@ -2200,7 +2474,8 @@
    "segment": 65,
    "variation": 1031309,
    "param": "lae_focus_team_1_ID",
-   "samples": 36859
+   "samples": 36859,
+   "clubs": 1
   },
   "1744": {
    "set": "eng_us_dr_full",
@@ -2208,7 +2483,8 @@
    "segment": 532,
    "variation": 685753,
    "param": "home_ID",
-   "samples": 43515
+   "samples": 43515,
+   "clubs": 1
   },
   "1745": {
    "set": "eng_us_gm_full",
@@ -2216,7 +2492,8 @@
    "segment": 66,
    "variation": 1031310,
    "param": "lae_focus_team_1_ID",
-   "samples": 36812
+   "samples": 36812,
+   "clubs": 1
   },
   "1746": {
    "set": "eng_us_gm_full",
@@ -2224,7 +2501,8 @@
    "segment": 67,
    "variation": 1031311,
    "param": "lae_focus_team_1_ID",
-   "samples": 33218
+   "samples": 33218,
+   "clubs": 1
   },
   "1750": {
    "set": "eng_us_dr_full",
@@ -2232,7 +2510,8 @@
    "segment": 253,
    "variation": 685096,
    "param": "home_ID",
-   "samples": 60764
+   "samples": 60764,
+   "clubs": 1
   },
   "1755": {
    "set": "eng_us_dr_full",
@@ -2240,7 +2519,8 @@
    "segment": 634,
    "variation": 685326,
    "param": "home_ID",
-   "samples": 54850
+   "samples": 54850,
+   "clubs": 1
   },
   "1757": {
    "set": "eng_us_dr_full",
@@ -2248,7 +2528,8 @@
    "segment": 343,
    "variation": 685327,
    "param": "home_ID",
-   "samples": 55087
+   "samples": 55087,
+   "clubs": 1
   },
   "1790": {
    "set": "eng_us_gm_full",
@@ -2256,7 +2537,8 @@
    "segment": 69,
    "variation": 1031313,
    "param": "lae_focus_team_1_ID",
-   "samples": 40739
+   "samples": 40739,
+   "clubs": 1
   },
   "1792": {
    "set": "eng_us_gm_full",
@@ -2264,7 +2546,8 @@
    "segment": 70,
    "variation": 1031314,
    "param": "lae_focus_team_1_ID",
-   "samples": 39157
+   "samples": 39157,
+   "clubs": 1
   },
   "1793": {
    "set": "eng_us_gm_full",
@@ -2272,7 +2555,8 @@
    "segment": 213,
    "variation": 1024113,
    "param": "home_ID",
-   "samples": 33661
+   "samples": 33661,
+   "clubs": 1
   },
   "1794": {
    "set": "eng_us_gm_full",
@@ -2280,7 +2564,8 @@
    "segment": 8,
    "variation": 1023949,
    "param": "lae_focus_team_2_ID",
-   "samples": 51909
+   "samples": 51909,
+   "clubs": 1
   },
   "1795": {
    "set": "eng_us_gm_full",
@@ -2288,7 +2573,8 @@
    "segment": 37,
    "variation": 1009513,
    "param": "home_ID",
-   "samples": 35282
+   "samples": 35282,
+   "clubs": 1
   },
   "1796": {
    "set": "eng_us_gm_full",
@@ -2296,7 +2582,8 @@
    "segment": 9,
    "variation": 1023950,
    "param": "lae_focus_team_2_ID",
-   "samples": 35675
+   "samples": 35675,
+   "clubs": 1
   },
   "1797": {
    "set": "eng_us_gm_full",
@@ -2304,7 +2591,8 @@
    "segment": 72,
    "variation": 1031316,
    "param": "lae_focus_team_1_ID",
-   "samples": 38577
+   "samples": 38577,
+   "clubs": 1
   },
   "1798": {
    "set": "eng_us_gm_full",
@@ -2312,7 +2600,8 @@
    "segment": 342,
    "variation": 1030333,
    "param": "home_ID",
-   "samples": 65835
+   "samples": 65835,
+   "clubs": 1
   },
   "1799": {
    "set": "eng_us_gm_full",
@@ -2320,7 +2609,8 @@
    "segment": 10,
    "variation": 1023951,
    "param": "lae_focus_team_2_ID",
-   "samples": 36723
+   "samples": 36723,
+   "clubs": 1
   },
   "1800": {
    "set": "eng_us_gm_full",
@@ -2328,7 +2618,8 @@
    "segment": 74,
    "variation": 1031318,
    "param": "lae_focus_team_1_ID",
-   "samples": 36676
+   "samples": 36676,
+   "clubs": 1
   },
   "1801": {
    "set": "eng_us_gm_full",
@@ -2336,7 +2627,8 @@
    "segment": 75,
    "variation": 1031319,
    "param": "lae_focus_team_1_ID",
-   "samples": 41451
+   "samples": 41451,
+   "clubs": 1
   },
   "1802": {
    "set": "eng_us_gm_full",
@@ -2344,7 +2636,8 @@
    "segment": 313,
    "variation": 1025661,
    "param": "home_ID",
-   "samples": 37920
+   "samples": 37920,
+   "clubs": 1
   },
   "1803": {
    "set": "eng_us_dr_full",
@@ -2352,7 +2645,8 @@
    "segment": 61,
    "variation": 688990,
    "param": "lae_focus_team_1_ID",
-   "samples": 41890
+   "samples": 41890,
+   "clubs": 1
   },
   "1804": {
    "set": "eng_us_gm_full",
@@ -2360,7 +2654,8 @@
    "segment": 233,
    "variation": 1024301,
    "param": "home_ID",
-   "samples": 51190
+   "samples": 51190,
+   "clubs": 1
   },
   "1805": {
    "set": "eng_us_dr_full",
@@ -2368,7 +2663,8 @@
    "segment": 179,
    "variation": 684951,
    "param": "home_ID",
-   "samples": 44708
+   "samples": 44708,
+   "clubs": 1
   },
   "1806": {
    "set": "eng_us_gm_full",
@@ -2376,7 +2672,8 @@
    "segment": 76,
    "variation": 1031320,
    "param": "lae_focus_team_1_ID",
-   "samples": 35163
+   "samples": 35163,
+   "clubs": 1
   },
   "1807": {
    "set": "eng_us_gm_full",
@@ -2384,7 +2681,8 @@
    "segment": 77,
    "variation": 1031321,
    "param": "lae_focus_team_1_ID",
-   "samples": 42707
+   "samples": 42707,
+   "clubs": 1
   },
   "1808": {
    "set": "eng_us_gm_full",
@@ -2392,7 +2690,8 @@
    "segment": 11,
    "variation": 1023952,
    "param": "lae_focus_team_2_ID",
-   "samples": 39569
+   "samples": 39569,
+   "clubs": 1
   },
   "1809": {
    "set": "eng_us_gm_full",
@@ -2400,7 +2699,8 @@
    "segment": 78,
    "variation": 1031322,
    "param": "lae_focus_team_1_ID",
-   "samples": 38592
+   "samples": 38592,
+   "clubs": 1
   },
   "1814": {
    "set": "eng_us_dr_full",
@@ -2408,7 +2708,8 @@
    "segment": 534,
    "variation": 685755,
    "param": "home_ID",
-   "samples": 70276
+   "samples": 70276,
+   "clubs": 1
   },
   "1815": {
    "set": "eng_us_gm_full",
@@ -2416,7 +2717,8 @@
    "segment": 79,
    "variation": 1031323,
    "param": "lae_focus_team_1_ID",
-   "samples": 39051
+   "samples": 39051,
+   "clubs": 1
   },
   "1819": {
    "set": "eng_us_gm_full",
@@ -2424,7 +2726,8 @@
    "segment": 175,
    "variation": 1013479,
    "param": "home_ID",
-   "samples": 48681
+   "samples": 48681,
+   "clubs": 1
   },
   "1823": {
    "set": "eng_us_dr_full",
@@ -2432,7 +2735,8 @@
    "segment": 612,
    "variation": 685052,
    "param": "home_ID",
-   "samples": 45838
+   "samples": 45838,
+   "clubs": 1
   },
   "1824": {
    "set": "eng_us_gm_full",
@@ -2440,7 +2744,8 @@
    "segment": 80,
    "variation": 1031324,
    "param": "lae_focus_team_1_ID",
-   "samples": 42527
+   "samples": 42527,
+   "clubs": 1
   },
   "1825": {
    "set": "eng_us_gm_full",
@@ -2448,7 +2753,8 @@
    "segment": 317,
    "variation": 1025658,
    "param": "home_ID",
-   "samples": 48513
+   "samples": 48513,
+   "clubs": 1
   },
   "1831": {
    "set": "eng_us_gm_full",
@@ -2456,7 +2762,8 @@
    "segment": 81,
    "variation": 1031325,
    "param": "lae_focus_team_1_ID",
-   "samples": 38646
+   "samples": 38646,
+   "clubs": 1
   },
   "1832": {
    "set": "eng_us_gm_full",
@@ -2464,7 +2771,8 @@
    "segment": 278,
    "variation": 1025293,
    "param": "home_ID",
-   "samples": 46180
+   "samples": 46180,
+   "clubs": 1
   },
   "1837": {
    "set": "eng_us_gm_full",
@@ -2472,7 +2780,8 @@
    "segment": 177,
    "variation": 1013481,
    "param": "home_ID",
-   "samples": 47412
+   "samples": 47412,
+   "clubs": 1
   },
   "1842": {
    "set": "eng_us_gm_full",
@@ -2480,7 +2789,8 @@
    "segment": 82,
    "variation": 1031326,
    "param": "lae_focus_team_1_ID",
-   "samples": 41682
+   "samples": 41682,
+   "clubs": 1
   },
   "1843": {
    "set": "eng_us_gm_full",
@@ -2488,7 +2798,8 @@
    "segment": 83,
    "variation": 1031327,
    "param": "lae_focus_team_1_ID",
-   "samples": 42642
+   "samples": 42642,
+   "clubs": 1
   },
   "1847": {
    "set": "eng_us_dr_full",
@@ -2496,7 +2807,8 @@
    "segment": 693,
    "variation": 685756,
    "param": "home_ID",
-   "samples": 45198
+   "samples": 45198,
+   "clubs": 1
   },
   "1853": {
    "set": "eng_us_gm_full",
@@ -2504,7 +2816,8 @@
    "segment": 56,
    "variation": 1010355,
    "param": "home_ID",
-   "samples": 45280
+   "samples": 45280,
+   "clubs": 1
   },
   "1854": {
    "set": "eng_us_dr_full",
@@ -2512,7 +2825,8 @@
    "segment": 234,
    "variation": 685054,
    "param": "home_ID",
-   "samples": 50256
+   "samples": 50256,
+   "clubs": 1
   },
   "1860": {
    "set": "eng_us_gm_full",
@@ -2520,7 +2834,8 @@
    "segment": 12,
    "variation": 1023953,
    "param": "lae_focus_team_2_ID",
-   "samples": 43144
+   "samples": 43144,
+   "clubs": 1
   },
   "1861": {
    "set": "eng_us_gm_full",
@@ -2528,7 +2843,8 @@
    "segment": 13,
    "variation": 1023954,
    "param": "lae_focus_team_2_ID",
-   "samples": 43895
+   "samples": 43895,
+   "clubs": 1
   },
   "1867": {
    "set": "eng_us_dr_full",
@@ -2536,7 +2852,8 @@
    "segment": 675,
    "variation": 686772,
    "param": "away_ID",
-   "samples": 69864
+   "samples": 69864,
+   "clubs": 1
   },
   "1871": {
    "set": "eng_us_gm_full",
@@ -2544,7 +2861,8 @@
    "segment": 215,
    "variation": 1024115,
    "param": "home_ID",
-   "samples": 62640
+   "samples": 62640,
+   "clubs": 1
   },
   "1873": {
    "set": "eng_us_dr_full",
@@ -2552,7 +2870,8 @@
    "segment": 684,
    "variation": 684953,
    "param": "home_ID",
-   "samples": 67635
+   "samples": 67635,
+   "clubs": 1
   },
   "1874": {
    "set": "eng_us_gm_full",
@@ -2560,7 +2879,8 @@
    "segment": 301,
    "variation": 1025574,
    "param": "home_ID",
-   "samples": 57687
+   "samples": 57687,
+   "clubs": 1
   },
   "1876": {
    "set": "eng_us_gm_full",
@@ -2568,7 +2888,8 @@
    "segment": 58,
    "variation": 1010357,
    "param": "home_ID",
-   "samples": 44918
+   "samples": 44918,
+   "clubs": 1
   },
   "1877": {
    "set": "eng_us_gm_full",
@@ -2576,7 +2897,8 @@
    "segment": 102,
    "variation": 1010696,
    "param": "home_ID",
-   "samples": 53855
+   "samples": 53855,
+   "clubs": 1
   },
   "1878": {
    "set": "eng_us_dr_licensed",
@@ -2584,7 +2906,8 @@
    "segment": 9,
    "variation": 691387,
    "param": "asset_team_ID",
-   "samples": 46472
+   "samples": 46472,
+   "clubs": 1
   },
   "1879": {
    "set": "eng_us_gm_full",
@@ -2592,7 +2915,8 @@
    "segment": 388,
    "variation": 1040770,
    "param": "home_ID",
-   "samples": 41777
+   "samples": 41777,
+   "clubs": 1
   },
   "1880": {
    "set": "eng_us_gm_full",
@@ -2600,7 +2924,8 @@
    "segment": 390,
    "variation": 1040772,
    "param": "home_ID",
-   "samples": 46448
+   "samples": 46448,
+   "clubs": 1
   },
   "1881": {
    "set": "eng_us_gm_full",
@@ -2608,7 +2933,8 @@
    "segment": 391,
    "variation": 1040774,
    "param": "home_ID",
-   "samples": 42602
+   "samples": 42602,
+   "clubs": 1
   },
   "1882": {
    "set": "eng_us_dr_licensed",
@@ -2616,7 +2942,8 @@
    "segment": 7,
    "variation": 684895,
    "param": "home_ID",
-   "samples": 39677
+   "samples": 39677,
+   "clubs": 1
   },
   "1884": {
    "set": "eng_us_dr_full",
@@ -2624,7 +2951,8 @@
    "segment": 181,
    "variation": 684954,
    "param": "home_ID",
-   "samples": 62873
+   "samples": 62873,
+   "clubs": 1
   },
   "1886": {
    "set": "eng_us_gm_full",
@@ -2632,7 +2960,8 @@
    "segment": 325,
    "variation": 1028183,
    "param": "home_ID",
-   "samples": 37964
+   "samples": 37964,
+   "clubs": 1
   },
   "1887": {
    "set": "eng_us_gm_full",
@@ -2640,7 +2969,8 @@
    "segment": 302,
    "variation": 1025575,
    "param": "home_ID",
-   "samples": 76601
+   "samples": 76601,
+   "clubs": 1
   },
   "1888": {
    "set": "eng_us_dr_full",
@@ -2648,7 +2978,8 @@
    "segment": 254,
    "variation": 689318,
    "param": "lae_focus_team_1_ID",
-   "samples": 55314
+   "samples": 55314,
+   "clubs": 1
   },
   "1891": {
    "set": "eng_us_drsr_full",
@@ -2656,7 +2987,8 @@
    "segment": 224,
    "variation": 691119,
    "param": "lb_against_team_ID",
-   "samples": 123991
+   "samples": 123991,
+   "clubs": 1
   },
   "1893": {
    "set": "eng_us_dr_full",
@@ -2664,7 +2996,8 @@
    "segment": 686,
    "variation": 685005,
    "param": "home_ID",
-   "samples": 50121
+   "samples": 50121,
+   "clubs": 1
   },
   "1896": {
    "set": "eng_us_dr_full",
@@ -2672,7 +3005,8 @@
    "segment": 126,
    "variation": 691396,
    "param": "asset_team_ID",
-   "samples": 39776
+   "samples": 39776,
+   "clubs": 1
   },
   "1900": {
    "set": "eng_us_dr_full",
@@ -2680,7 +3014,8 @@
    "segment": 572,
    "variation": 684899,
    "param": "home_ID",
-   "samples": 53984
+   "samples": 53984,
+   "clubs": 1
   },
   "1903": {
    "set": "eng_us_gm_full",
@@ -2688,7 +3023,8 @@
    "segment": 303,
    "variation": 1025576,
    "param": "home_ID",
-   "samples": 44144
+   "samples": 44144,
+   "clubs": 1
   },
   "1906": {
    "set": "eng_us_gm_full",
@@ -2696,7 +3032,8 @@
    "segment": 235,
    "variation": 1024303,
    "param": "home_ID",
-   "samples": 41264
+   "samples": 41264,
+   "clubs": 1
   },
   "1907": {
    "set": "eng_us_dr_full",
@@ -2704,7 +3041,8 @@
    "segment": 199,
    "variation": 691401,
    "param": "asset_team_ID",
-   "samples": 45383
+   "samples": 45383,
+   "clubs": 1
   },
   "1908": {
    "set": "eng_us_gm_full",
@@ -2712,7 +3050,8 @@
    "segment": 304,
    "variation": 1025577,
    "param": "home_ID",
-   "samples": 41903
+   "samples": 41903,
+   "clubs": 1
   },
   "1910": {
    "set": "eng_us_gm_full",
@@ -2720,7 +3059,8 @@
    "segment": 279,
    "variation": 1025295,
    "param": "home_ID",
-   "samples": 44312
+   "samples": 44312,
+   "clubs": 1
   },
   "1913": {
    "set": "eng_us_gm_full",
@@ -2728,7 +3068,8 @@
    "segment": 280,
    "variation": 1025296,
    "param": "home_ID",
-   "samples": 52717
+   "samples": 52717,
+   "clubs": 1
   },
   "1914": {
    "set": "eng_us_dr_full",
@@ -2736,7 +3077,8 @@
    "segment": 190,
    "variation": 691404,
    "param": "asset_team_ID",
-   "samples": 47371
+   "samples": 47371,
+   "clubs": 1
   },
   "1915": {
    "set": "eng_us_gm_full",
@@ -2744,7 +3086,8 @@
    "segment": 282,
    "variation": 1025298,
    "param": "home_ID",
-   "samples": 43006
+   "samples": 43006,
+   "clubs": 1
   },
   "1917": {
    "set": "eng_us_gm_full",
@@ -2752,7 +3095,8 @@
    "segment": 326,
    "variation": 1028185,
    "param": "home_ID",
-   "samples": 55328
+   "samples": 55328,
+   "clubs": 1
   },
   "1919": {
    "set": "eng_us_gm_full",
@@ -2760,7 +3104,8 @@
    "segment": 85,
    "variation": 1031329,
    "param": "lae_focus_team_1_ID",
-   "samples": 39632
+   "samples": 39632,
+   "clubs": 1
   },
   "1920": {
    "set": "eng_us_gm_full",
@@ -2768,7 +3113,8 @@
    "segment": 348,
    "variation": 1028186,
    "param": "home_ID",
-   "samples": 53181
+   "samples": 53181,
+   "clubs": 1
   },
   "1923": {
    "set": "eng_us_gm_full",
@@ -2776,7 +3122,8 @@
    "segment": 15,
    "variation": 1023956,
    "param": "lae_focus_team_2_ID",
-   "samples": 33811
+   "samples": 33811,
+   "clubs": 1
   },
   "1925": {
    "set": "eng_us_gm_full",
@@ -2784,7 +3131,8 @@
    "segment": 16,
    "variation": 1023957,
    "param": "lae_focus_team_2_ID",
-   "samples": 40289
+   "samples": 40289,
+   "clubs": 1
   },
   "1926": {
    "set": "eng_us_dr_full",
@@ -2792,7 +3140,8 @@
    "segment": 79,
    "variation": 689022,
    "param": "lae_focus_team_1_ID",
-   "samples": 46774
+   "samples": 46774,
+   "clubs": 1
   },
   "1928": {
    "set": "eng_us_dr_full",
@@ -2800,7 +3149,8 @@
    "segment": 182,
    "variation": 684955,
    "param": "home_ID",
-   "samples": 55142
+   "samples": 55142,
+   "clubs": 1
   },
   "1929": {
    "set": "eng_us_gm_full",
@@ -2808,7 +3158,8 @@
    "segment": 86,
    "variation": 1031330,
    "param": "lae_focus_team_1_ID",
-   "samples": 41696
+   "samples": 41696,
+   "clubs": 1
   },
   "1930": {
    "set": "eng_us_gm_full",
@@ -2816,7 +3167,8 @@
    "segment": 327,
    "variation": 1028187,
    "param": "home_ID",
-   "samples": 60335
+   "samples": 60335,
+   "clubs": 1
   },
   "1931": {
    "set": "eng_us_dr_full",
@@ -2824,7 +3176,8 @@
    "segment": 535,
    "variation": 685758,
    "param": "home_ID",
-   "samples": 66160
+   "samples": 66160,
+   "clubs": 1
   },
   "1932": {
    "set": "eng_us_gm_full",
@@ -2832,7 +3185,8 @@
    "segment": 87,
    "variation": 1031331,
    "param": "lae_focus_team_1_ID",
-   "samples": 38768
+   "samples": 38768,
+   "clubs": 1
   },
   "1933": {
    "set": "eng_us_gm_full",
@@ -2840,7 +3194,8 @@
    "segment": 239,
    "variation": 1024307,
    "param": "home_ID",
-   "samples": 54102
+   "samples": 54102,
+   "clubs": 1
   },
   "1934": {
    "set": "eng_us_dr_full",
@@ -2848,7 +3203,8 @@
    "segment": 183,
    "variation": 684956,
    "param": "home_ID",
-   "samples": 53426
+   "samples": 53426,
+   "clubs": 1
   },
   "1935": {
    "set": "eng_us_gm_full",
@@ -2856,7 +3212,8 @@
    "segment": 305,
    "variation": 1025578,
    "param": "home_ID",
-   "samples": 64158
+   "samples": 64158,
+   "clubs": 1
   },
   "1936": {
    "set": "eng_us_dr_full",
@@ -2864,7 +3221,8 @@
    "segment": 235,
    "variation": 685056,
    "param": "home_ID",
-   "samples": 57761
+   "samples": 57761,
+   "clubs": 1
   },
   "1937": {
    "set": "eng_us_drsr_full",
@@ -2872,7 +3230,8 @@
    "segment": 72,
    "variation": 699419,
    "param": "tr_team_b_ID",
-   "samples": 122964
+   "samples": 122964,
+   "clubs": 1
   },
   "1938": {
    "set": "eng_us_gm_full",
@@ -2880,7 +3239,8 @@
    "segment": 88,
    "variation": 1031332,
    "param": "lae_focus_team_1_ID",
-   "samples": 38868
+   "samples": 38868,
+   "clubs": 1
   },
   "1939": {
    "set": "eng_us_gm_full",
@@ -2888,7 +3248,8 @@
    "segment": 89,
    "variation": 1031333,
    "param": "lae_focus_team_1_ID",
-   "samples": 44023
+   "samples": 44023,
+   "clubs": 1
   },
   "1940": {
    "set": "eng_us_gm_full",
@@ -2896,7 +3257,8 @@
    "segment": 306,
    "variation": 1025579,
    "param": "home_ID",
-   "samples": 57461
+   "samples": 57461,
+   "clubs": 1
   },
   "1941": {
    "set": "eng_us_gm_full",
@@ -2904,7 +3266,8 @@
    "segment": 328,
    "variation": 1028188,
    "param": "home_ID",
-   "samples": 67768
+   "samples": 67768,
+   "clubs": 1
   },
   "1943": {
    "set": "eng_us_dr_full",
@@ -2912,7 +3275,8 @@
    "segment": 182,
    "variation": 691258,
    "param": "asset_team_ID",
-   "samples": 36646
+   "samples": 36646,
+   "clubs": 1
   },
   "1944": {
    "set": "eng_us_gm_full",
@@ -2920,7 +3284,8 @@
    "segment": 283,
    "variation": 1025299,
    "param": "home_ID",
-   "samples": 54820
+   "samples": 54820,
+   "clubs": 1
   },
   "1947": {
    "set": "eng_us_gm_full",
@@ -2928,7 +3293,8 @@
    "segment": 284,
    "variation": 1025300,
    "param": "home_ID",
-   "samples": 34819
+   "samples": 34819,
+   "clubs": 1
   },
   "1951": {
    "set": "eng_us_gm_full",
@@ -2936,7 +3302,8 @@
    "segment": 90,
    "variation": 1031334,
    "param": "lae_focus_team_1_ID",
-   "samples": 34467
+   "samples": 34467,
+   "clubs": 1
   },
   "1952": {
    "set": "eng_us_gm_full",
@@ -2944,7 +3311,8 @@
    "segment": 91,
    "variation": 1031335,
    "param": "lae_focus_team_1_ID",
-   "samples": 31570
+   "samples": 31570,
+   "clubs": 1
   },
   "1955": {
    "set": "eng_us_gm_full",
@@ -2952,7 +3320,8 @@
    "segment": 307,
    "variation": 1025581,
    "param": "home_ID",
-   "samples": 44210
+   "samples": 44210,
+   "clubs": 1
   },
   "1958": {
    "set": "eng_us_gm_full",
@@ -2960,7 +3329,8 @@
    "segment": 242,
    "variation": 1024310,
    "param": "home_ID",
-   "samples": 52304
+   "samples": 52304,
+   "clubs": 1
   },
   "1960": {
    "set": "eng_us_gm_full",
@@ -2968,7 +3338,8 @@
    "segment": 92,
    "variation": 1031336,
    "param": "lae_focus_team_1_ID",
-   "samples": 35863
+   "samples": 35863,
+   "clubs": 1
   },
   "1961": {
    "set": "eng_us_gm_full",
@@ -2976,7 +3347,8 @@
    "segment": 93,
    "variation": 1031337,
    "param": "lae_focus_team_1_ID",
-   "samples": 31692
+   "samples": 31692,
+   "clubs": 1
   },
   "1962": {
    "set": "eng_us_gm_full",
@@ -2984,7 +3356,8 @@
    "segment": 243,
    "variation": 1024311,
    "param": "home_ID",
-   "samples": 52875
+   "samples": 52875,
+   "clubs": 1
   },
   "1968": {
    "set": "eng_us_dr_full",
@@ -2992,7 +3365,8 @@
    "segment": 367,
    "variation": 685462,
    "param": "home_ID",
-   "samples": 39009
+   "samples": 39009,
+   "clubs": 1
   },
   "1970": {
    "set": "eng_us_gm_full",
@@ -3000,7 +3374,8 @@
    "segment": 393,
    "variation": 1040776,
    "param": "home_ID",
-   "samples": 44944
+   "samples": 44944,
+   "clubs": 1
   },
   "1971": {
    "set": "eng_us_dr_full",
@@ -3008,7 +3383,8 @@
    "segment": 619,
    "variation": 685759,
    "param": "home_ID",
-   "samples": 59248
+   "samples": 59248,
+   "clubs": 1
   },
   "2014": {
    "set": "eng_us_gm_full",
@@ -3016,7 +3392,8 @@
    "segment": 288,
    "variation": 1023361,
    "param": "lb_against_team_ID",
-   "samples": 147283
+   "samples": 147283,
+   "clubs": 1
   },
   "2017": {
    "set": "eng_us_dr_full",
@@ -3024,7 +3401,8 @@
    "segment": 204,
    "variation": 689254,
    "param": "lae_focus_team_1_ID",
-   "samples": 87664
+   "samples": 87664,
+   "clubs": 1
   },
   "10020": {
    "set": "eng_us_dr_full",
@@ -3032,7 +3410,8 @@
    "segment": 243,
    "variation": 689300,
    "param": "lae_focus_team_1_ID",
-   "samples": 53559
+   "samples": 53559,
+   "clubs": 1
   },
   "10029": {
    "set": "eng_us_gm_full",
@@ -3040,7 +3419,8 @@
    "segment": 48,
    "variation": 1010342,
    "param": "home_ID",
-   "samples": 44559
+   "samples": 44559,
+   "clubs": 1
   },
   "10030": {
    "set": "eng_us_gm_full",
@@ -3048,7 +3428,8 @@
    "segment": 251,
    "variation": 1025262,
    "param": "home_ID",
-   "samples": 47223
+   "samples": 47223,
+   "clubs": 1
   },
   "10032": {
    "set": "eng_us_dr_full",
@@ -3056,7 +3437,8 @@
    "segment": 186,
    "variation": 689173,
    "param": "lae_focus_team_1_ID",
-   "samples": 45633
+   "samples": 45633,
+   "clubs": 1
   },
   "10846": {
    "set": "eng_us_gm_full",
@@ -3064,7 +3446,8 @@
    "segment": 256,
    "variation": 1025269,
    "param": "home_ID",
-   "samples": 44124
+   "samples": 44124,
+   "clubs": 1
   },
   "15005": {
    "set": "eng_us_dr_full",
@@ -3072,7 +3455,8 @@
    "segment": 613,
    "variation": 685243,
    "param": "home_ID",
-   "samples": 66378
+   "samples": 66378,
+   "clubs": 1
   },
   "15009": {
    "set": "eng_us_dr_full",
@@ -3080,7 +3464,8 @@
    "segment": 193,
    "variation": 689233,
    "param": "lae_focus_team_1_ID",
-   "samples": 90095
+   "samples": 90095,
+   "clubs": 1
   },
   "15015": {
    "set": "eng_us_gm_full",
@@ -3088,7 +3473,8 @@
    "segment": 277,
    "variation": 1025292,
    "param": "home_ID",
-   "samples": 50951
+   "samples": 50951,
+   "clubs": 1
   },
   "15048": {
    "set": "eng_us_gm_full",
@@ -3096,7 +3482,8 @@
    "segment": 297,
    "variation": 1025570,
    "param": "home_ID",
-   "samples": 54805
+   "samples": 54805,
+   "clubs": 1
   },
   "100081": {
    "set": "eng_us_dr_full",
@@ -3104,7 +3491,8 @@
    "segment": 304,
    "variation": 689172,
    "param": "lae_focus_team_1_ID",
-   "samples": 52311
+   "samples": 52311,
+   "clubs": 1
   },
   "100135": {
    "set": "eng_us_dr_full",
@@ -3112,7 +3500,8 @@
    "segment": 481,
    "variation": 685668,
    "param": "home_ID",
-   "samples": 74224
+   "samples": 74224,
+   "clubs": 1
   },
   "100325": {
    "set": "eng_us_dr_full",
@@ -3120,7 +3509,8 @@
    "segment": 102,
    "variation": 691321,
    "param": "asset_team_ID",
-   "samples": 77993
+   "samples": 77993,
+   "clubs": 1
   },
   "100409": {
    "set": "eng_us_gm_full",
@@ -3128,7 +3518,8 @@
    "segment": 44,
    "variation": 1031288,
    "param": "lae_focus_team_1_ID",
-   "samples": 42822
+   "samples": 42822,
+   "clubs": 1
   },
   "100632": {
    "set": "eng_us_gm_full",
@@ -3136,7 +3527,8 @@
    "segment": 312,
    "variation": 1025656,
    "param": "home_ID",
-   "samples": 55228
+   "samples": 55228,
+   "clubs": 1
   },
   "100646": {
    "set": "eng_us_gm_full",
@@ -3144,7 +3536,8 @@
    "segment": 252,
    "variation": 1025263,
    "param": "home_ID",
-   "samples": 55975
+   "samples": 55975,
+   "clubs": 1
   },
   "100757": {
    "set": "eng_us_dr_full",
@@ -3152,7 +3545,8 @@
    "segment": 580,
    "variation": 685220,
    "param": "home_ID",
-   "samples": 80633
+   "samples": 80633,
+   "clubs": 1
   },
   "100759": {
    "set": "eng_us_dr_full",
@@ -3160,7 +3554,8 @@
    "segment": 618,
    "variation": 685676,
    "param": "home_ID",
-   "samples": 51041
+   "samples": 51041,
+   "clubs": 1
   },
   "100761": {
    "set": "eng_us_gm_full",
@@ -3168,7 +3563,8 @@
    "segment": 222,
    "variation": 1024284,
    "param": "home_ID",
-   "samples": 56091
+   "samples": 56091,
+   "clubs": 1
   },
   "100804": {
    "set": "eng_us_dr_full",
@@ -3176,7 +3572,8 @@
    "segment": 197,
    "variation": 691327,
    "param": "asset_team_ID",
-   "samples": 49645
+   "samples": 49645,
+   "clubs": 1
   },
   "100805": {
    "set": "eng_us_dr_full",
@@ -3184,7 +3581,8 @@
    "segment": 129,
    "variation": 684852,
    "param": "home_ID",
-   "samples": 44064
+   "samples": 44064,
+   "clubs": 1
   },
   "100851": {
    "set": "eng_us_gm_full",
@@ -3192,7 +3590,8 @@
    "segment": 253,
    "variation": 1025266,
    "param": "home_ID",
-   "samples": 49568
+   "samples": 49568,
+   "clubs": 1
   },
   "100888": {
    "set": "eng_us_gm_full",
@@ -3200,7 +3599,8 @@
    "segment": 45,
    "variation": 1031289,
    "param": "lae_focus_team_1_ID",
-   "samples": 46706
+   "samples": 46706,
+   "clubs": 1
   },
   "101014": {
    "set": "eng_us_gm_full",
@@ -3208,7 +3608,8 @@
    "segment": 293,
    "variation": 1025562,
    "param": "home_ID",
-   "samples": 56746
+   "samples": 56746,
+   "clubs": 1
   },
   "101026": {
    "set": "eng_us_dr_full",
@@ -3216,7 +3617,8 @@
    "segment": 278,
    "variation": 688922,
    "param": "lae_focus_team_1_ID",
-   "samples": 57296
+   "samples": 57296,
+   "clubs": 1
   },
   "101033": {
    "set": "eng_us_gm_full",
@@ -3224,7 +3626,8 @@
    "segment": 246,
    "variation": 1023306,
    "param": "lb_against_team_ID",
-   "samples": 116752
+   "samples": 116752,
+   "clubs": 1
   },
   "101037": {
    "set": "eng_us_dr_full",
@@ -3232,7 +3635,8 @@
    "segment": 187,
    "variation": 691335,
    "param": "asset_team_ID",
-   "samples": 84753
+   "samples": 84753,
+   "clubs": 1
   },
   "101047": {
    "set": "eng_us_gm_full",
@@ -3240,7 +3644,8 @@
    "segment": 185,
    "variation": 1013804,
    "param": "home_ID",
-   "samples": 58416
+   "samples": 58416,
+   "clubs": 1
   },
   "101059": {
    "set": "eng_us_gm_full",
@@ -3248,7 +3653,8 @@
    "segment": 186,
    "variation": 1013805,
    "param": "home_ID",
-   "samples": 61349
+   "samples": 61349,
+   "clubs": 1
   },
   "101083": {
    "set": "eng_us_dr_full",
@@ -3256,7 +3662,8 @@
    "segment": 130,
    "variation": 684853,
    "param": "home_ID",
-   "samples": 62475
+   "samples": 62475,
+   "clubs": 1
   },
   "101084": {
    "set": "eng_us_gm_full",
@@ -3264,7 +3671,8 @@
    "segment": 250,
    "variation": 1023310,
    "param": "lb_against_team_ID",
-   "samples": 123420
+   "samples": 123420,
+   "clubs": 1
   },
   "101085": {
    "set": "eng_us_dr_full",
@@ -3272,7 +3680,8 @@
    "segment": 435,
    "variation": 685572,
    "param": "home_ID",
-   "samples": 44066
+   "samples": 44066,
+   "clubs": 1
   },
   "101088": {
    "set": "eng_us_gm_full",
@@ -3280,7 +3689,8 @@
    "segment": 254,
    "variation": 1025267,
    "param": "home_ID",
-   "samples": 60865
+   "samples": 60865,
+   "clubs": 1
   },
   "101097": {
    "set": "eng_us_dr_full",
@@ -3288,7 +3698,8 @@
    "segment": 624,
    "variation": 685104,
    "param": "home_ID",
-   "samples": 77203
+   "samples": 77203,
+   "clubs": 1
   },
   "101099": {
    "set": "eng_us_dr_full",
@@ -3296,7 +3707,8 @@
    "segment": 588,
    "variation": 685105,
    "param": "home_ID",
-   "samples": 63921
+   "samples": 63921,
+   "clubs": 1
   },
   "101100": {
    "set": "eng_us_dr_full",
@@ -3304,7 +3716,8 @@
    "segment": 258,
    "variation": 685106,
    "param": "home_ID",
-   "samples": 85297
+   "samples": 85297,
+   "clubs": 1
   },
   "101101": {
    "set": "eng_us_dr_full",
@@ -3312,7 +3725,8 @@
    "segment": 625,
    "variation": 685107,
    "param": "home_ID",
-   "samples": 51019
+   "samples": 51019,
+   "clubs": 1
   },
   "101103": {
    "set": "eng_us_dr_full",
@@ -3320,7 +3734,8 @@
    "segment": 626,
    "variation": 685109,
    "param": "home_ID",
-   "samples": 93701
+   "samples": 93701,
+   "clubs": 1
   },
   "101104": {
    "set": "eng_us_dr_full",
@@ -3328,7 +3743,8 @@
    "segment": 604,
    "variation": 685204,
    "param": "home_ID",
-   "samples": 90393
+   "samples": 90393,
+   "clubs": 1
   },
   "101105": {
    "set": "eng_us_dr_full",
@@ -3336,7 +3752,8 @@
    "segment": 627,
    "variation": 685110,
    "param": "home_ID",
-   "samples": 58299
+   "samples": 58299,
+   "clubs": 1
   },
   "101108": {
    "set": "eng_us_dr_full",
@@ -3344,7 +3761,8 @@
    "segment": 259,
    "variation": 685111,
    "param": "home_ID",
-   "samples": 43036
+   "samples": 43036,
+   "clubs": 1
   },
   "101110": {
    "set": "eng_us_dr_full",
@@ -3352,7 +3770,8 @@
    "segment": 260,
    "variation": 685112,
    "param": "home_ID",
-   "samples": 49671
+   "samples": 49671,
+   "clubs": 1
   },
   "101112": {
    "set": "eng_us_dr_full",
@@ -3360,7 +3779,8 @@
    "segment": 6,
    "variation": 688926,
    "param": "lae_focus_team_1_ID",
-   "samples": 79181
+   "samples": 79181,
+   "clubs": 1
   },
   "101114": {
    "set": "eng_us_gm_full",
@@ -3368,7 +3788,8 @@
    "segment": 376,
    "variation": 1040748,
    "param": "home_ID",
-   "samples": 39719
+   "samples": 39719,
+   "clubs": 1
   },
   "101121": {
    "set": "eng_us_gm_full",
@@ -3376,7 +3797,8 @@
    "segment": 377,
    "variation": 1040749,
    "param": "home_ID",
-   "samples": 43316
+   "samples": 43316,
+   "clubs": 1
   },
   "105035": {
    "set": "eng_us_dr_full",
@@ -3384,7 +3806,8 @@
    "segment": 640,
    "variation": 727104,
    "param": "home_ID",
-   "samples": 52231
+   "samples": 52231,
+   "clubs": 1
   },
   "110062": {
    "set": "eng_us_gm_full",
@@ -3392,7 +3815,8 @@
    "segment": 1,
    "variation": 1023942,
    "param": "lae_focus_team_2_ID",
-   "samples": 40080
+   "samples": 40080,
+   "clubs": 1
   },
   "110069": {
    "set": "eng_us_gm_full",
@@ -3400,7 +3824,8 @@
    "segment": 75,
    "variation": 1021991,
    "param": "lb_against_team_ID",
-   "samples": 116467
+   "samples": 116467,
+   "clubs": 1
   },
   "110078": {
    "set": "eng_us_dr_full",
@@ -3408,7 +3833,8 @@
    "segment": 523,
    "variation": 685735,
    "param": "home_ID",
-   "samples": 88315
+   "samples": 88315,
+   "clubs": 1
   },
   "110081": {
    "set": "eng_us_gm_full",
@@ -3416,7 +3842,8 @@
    "segment": 294,
    "variation": 1025564,
    "param": "home_ID",
-   "samples": 52484
+   "samples": 52484,
+   "clubs": 1
   },
   "110093": {
    "set": "eng_us_gm_full",
@@ -3424,7 +3851,8 @@
    "segment": 338,
    "variation": 1030329,
    "param": "home_ID",
-   "samples": 59391
+   "samples": 59391,
+   "clubs": 1
   },
   "110144": {
    "set": "eng_us_gm_full",
@@ -3432,7 +3860,8 @@
    "segment": 379,
    "variation": 1040751,
    "param": "home_ID",
-   "samples": 61674
+   "samples": 61674,
+   "clubs": 1
   },
   "110147": {
    "set": "eng_us_dr_licensed",
@@ -3440,7 +3869,8 @@
    "segment": 5,
    "variation": 684864,
    "param": "home_ID",
-   "samples": 41679
+   "samples": 41679,
+   "clubs": 1
   },
   "110150": {
    "set": "eng_us_dr_licensed",
@@ -3448,7 +3878,8 @@
    "segment": 5,
    "variation": 691344,
    "param": "asset_team_ID",
-   "samples": 93880
+   "samples": 93880,
+   "clubs": 1
   },
   "110152": {
    "set": "eng_us_gm_full",
@@ -3456,7 +3887,8 @@
    "segment": 382,
    "variation": 1040759,
    "param": "home_ID",
-   "samples": 39500
+   "samples": 39500,
+   "clubs": 1
   },
   "110197": {
    "set": "eng_us_dr_full",
@@ -3464,7 +3896,8 @@
    "segment": 305,
    "variation": 689191,
    "param": "lae_focus_team_1_ID",
-   "samples": 76018
+   "samples": 76018,
+   "clubs": 1
   },
   "110242": {
    "set": "eng_us_gm_full",
@@ -3472,7 +3905,8 @@
    "segment": 76,
    "variation": 1021992,
    "param": "lb_against_team_ID",
-   "samples": 129993
+   "samples": 129993,
+   "clubs": 1
   },
   "110313": {
    "set": "eng_us_gm_full",
@@ -3480,7 +3914,8 @@
    "segment": 257,
    "variation": 1025270,
    "param": "home_ID",
-   "samples": 58005
+   "samples": 58005,
+   "clubs": 1
   },
   "110321": {
    "set": "eng_us_gm_full",
@@ -3488,7 +3923,8 @@
    "segment": 168,
    "variation": 1022263,
    "param": "lb_against_team_ID",
-   "samples": 112030
+   "samples": 112030,
+   "clubs": 1
   },
   "110329": {
    "set": "eng_us_dr_full",
@@ -3496,7 +3932,8 @@
    "segment": 107,
    "variation": 691347,
    "param": "asset_team_ID",
-   "samples": 47928
+   "samples": 47928,
+   "clubs": 1
   },
   "110373": {
    "set": "eng_us_gm_full",
@@ -3504,7 +3941,8 @@
    "segment": 51,
    "variation": 1010346,
    "param": "home_ID",
-   "samples": 53113
+   "samples": 53113,
+   "clubs": 1
   },
   "110374": {
    "set": "eng_us_gm_full",
@@ -3512,7 +3950,8 @@
    "segment": 50,
    "variation": 1031294,
    "param": "lae_focus_team_1_ID",
-   "samples": 50555
+   "samples": 50555,
+   "clubs": 1
   },
   "110395": {
    "set": "eng_us_dr_full",
@@ -3520,7 +3959,8 @@
    "segment": 136,
    "variation": 684866,
    "param": "home_ID",
-   "samples": 45873
+   "samples": 45873,
+   "clubs": 1
   },
   "110396": {
    "set": "eng_us_dr_full",
@@ -3528,7 +3968,8 @@
    "segment": 137,
    "variation": 684867,
    "param": "home_ID",
-   "samples": 61446
+   "samples": 61446,
+   "clubs": 1
   },
   "110404": {
    "set": "eng_us_dr_full",
@@ -3536,7 +3977,8 @@
    "segment": 199,
    "variation": 684984,
    "param": "home_ID",
-   "samples": 50917
+   "samples": 50917,
+   "clubs": 1
   },
   "110468": {
    "set": "eng_us_dr_full",
@@ -3544,7 +3986,8 @@
    "segment": 108,
    "variation": 691348,
    "param": "asset_team_ID",
-   "samples": 68761
+   "samples": 68761,
+   "clubs": 1
   },
   "110500": {
    "set": "eng_us_dr_full",
@@ -3552,7 +3995,8 @@
    "segment": 173,
    "variation": 684936,
    "param": "home_ID",
-   "samples": 71974
+   "samples": 71974,
+   "clubs": 1
   },
   "110502": {
    "set": "eng_us_gm_full",
@@ -3560,7 +4004,8 @@
    "segment": 51,
    "variation": 1031295,
    "param": "lae_focus_team_1_ID",
-   "samples": 47522
+   "samples": 47522,
+   "clubs": 1
   },
   "110532": {
    "set": "eng_us_gm_full",
@@ -3568,7 +4013,8 @@
    "segment": 259,
    "variation": 1025272,
    "param": "home_ID",
-   "samples": 64065
+   "samples": 64065,
+   "clubs": 1
   },
   "110556": {
    "set": "eng_us_gm_full",
@@ -3576,7 +4022,8 @@
    "segment": 52,
    "variation": 1031296,
    "param": "lae_focus_team_1_ID",
-   "samples": 38621
+   "samples": 38621,
+   "clubs": 1
   },
   "110569": {
    "set": "eng_us_dr_full",
@@ -3584,7 +4031,8 @@
    "segment": 299,
    "variation": 688935,
    "param": "lae_focus_team_1_ID",
-   "samples": 49777
+   "samples": 49777,
+   "clubs": 1
   },
   "110580": {
    "set": "eng_us_dr_full",
@@ -3592,7 +4040,8 @@
    "segment": 439,
    "variation": 685582,
    "param": "home_ID",
-   "samples": 81285
+   "samples": 81285,
+   "clubs": 1
   },
   "110588": {
    "set": "eng_us_dr_full",
@@ -3600,7 +4049,8 @@
    "segment": 174,
    "variation": 684937,
    "param": "home_ID",
-   "samples": 50314
+   "samples": 50314,
+   "clubs": 1
   },
   "110597": {
    "set": "eng_us_dr_full",
@@ -3608,7 +4058,8 @@
    "segment": 306,
    "variation": 689196,
    "param": "lae_focus_team_1_ID",
-   "samples": 59901
+   "samples": 59901,
+   "clubs": 1
   },
   "110636": {
    "set": "eng_us_gm_full",
@@ -3616,7 +4067,8 @@
    "segment": 53,
    "variation": 1031297,
    "param": "lae_focus_team_1_ID",
-   "samples": 43309
+   "samples": 43309,
+   "clubs": 1
   },
   "110724": {
    "set": "eng_us_dr_full",
@@ -3624,7 +4076,8 @@
    "segment": 296,
    "variation": 685206,
    "param": "home_ID",
-   "samples": 68726
+   "samples": 68726,
+   "clubs": 1
   },
   "110738": {
    "set": "eng_us_dr_full",
@@ -3632,7 +4085,8 @@
    "segment": 524,
    "variation": 685737,
    "param": "home_ID",
-   "samples": 41135
+   "samples": 41135,
+   "clubs": 1
   },
   "110745": {
    "set": "eng_us_dr_full",
@@ -3640,7 +4094,8 @@
    "segment": 223,
    "variation": 685028,
    "param": "home_ID",
-   "samples": 102650
+   "samples": 102650,
+   "clubs": 1
   },
   "110746": {
    "set": "eng_us_dr_full",
@@ -3648,7 +4103,8 @@
    "segment": 224,
    "variation": 685029,
    "param": "home_ID",
-   "samples": 78096
+   "samples": 78096,
+   "clubs": 1
   },
   "110750": {
    "set": "eng_us_dr_full",
@@ -3656,7 +4112,8 @@
    "segment": 487,
    "variation": 685678,
    "param": "home_ID",
-   "samples": 70163
+   "samples": 70163,
+   "clubs": 1
   },
   "110751": {
    "set": "eng_us_dr_full",
@@ -3664,7 +4121,8 @@
    "segment": 525,
    "variation": 685738,
    "param": "home_ID",
-   "samples": 97123
+   "samples": 97123,
+   "clubs": 1
   },
   "110752": {
    "set": "eng_us_dr_full",
@@ -3672,7 +4130,8 @@
    "segment": 488,
    "variation": 685679,
    "param": "home_ID",
-   "samples": 59286
+   "samples": 59286,
+   "clubs": 1
   },
   "110770": {
    "set": "eng_us_dr_full",
@@ -3680,7 +4139,8 @@
    "segment": 593,
    "variation": 685584,
    "param": "home_ID",
-   "samples": 39981
+   "samples": 39981,
+   "clubs": 1
   },
   "110781": {
    "set": "eng_us_gm_full",
@@ -3688,7 +4148,8 @@
    "segment": 383,
    "variation": 1040760,
    "param": "home_ID",
-   "samples": 37802
+   "samples": 37802,
+   "clubs": 1
   },
   "110827": {
    "set": "eng_us_gm_full",
@@ -3696,7 +4157,8 @@
    "segment": 260,
    "variation": 1025273,
    "param": "home_ID",
-   "samples": 59190
+   "samples": 59190,
+   "clubs": 1
   },
   "110832": {
    "set": "eng_us_gm_full",
@@ -3704,7 +4166,8 @@
    "segment": 2,
    "variation": 1023943,
    "param": "lae_focus_team_2_ID",
-   "samples": 41190
+   "samples": 41190,
+   "clubs": 1
   },
   "110839": {
    "set": "eng_us_gm_full",
@@ -3712,7 +4175,8 @@
    "segment": 339,
    "variation": 1030330,
    "param": "home_ID",
-   "samples": 39600
+   "samples": 39600,
+   "clubs": 1
   },
   "110854": {
    "set": "eng_us_drsr_full",
@@ -3720,7 +4184,8 @@
    "segment": 126,
    "variation": 691070,
    "param": "lb_against_team_ID",
-   "samples": 191904
+   "samples": 191904,
+   "clubs": 1
   },
   "110890": {
    "set": "eng_us_gm_full",
@@ -3728,7 +4193,8 @@
    "segment": 340,
    "variation": 1030331,
    "param": "home_ID",
-   "samples": 50769
+   "samples": 50769,
+   "clubs": 1
   },
   "110908": {
    "set": "eng_us_gm_full",
@@ -3736,7 +4202,8 @@
    "segment": 83,
    "variation": 1022002,
    "param": "lb_against_team_ID",
-   "samples": 129355
+   "samples": 129355,
+   "clubs": 1
   },
   "110913": {
    "set": "eng_us_dr_full",
@@ -3744,7 +4211,8 @@
    "segment": 307,
    "variation": 689202,
    "param": "lae_focus_team_1_ID",
-   "samples": 63418
+   "samples": 63418,
+   "clubs": 1
   },
   "110967": {
    "set": "eng_us_dr_full",
@@ -3752,7 +4220,8 @@
    "segment": 608,
    "variation": 685588,
    "param": "home_ID",
-   "samples": 56680
+   "samples": 56680,
+   "clubs": 1
   },
   "110968": {
    "set": "eng_us_dr_full",
@@ -3760,7 +4229,8 @@
    "segment": 284,
    "variation": 685187,
    "param": "home_ID",
-   "samples": 65009
+   "samples": 65009,
+   "clubs": 1
   },
   "110973": {
    "set": "eng_us_dr_full",
@@ -3768,7 +4238,8 @@
    "segment": 285,
    "variation": 685190,
    "param": "home_ID",
-   "samples": 61352
+   "samples": 61352,
+   "clubs": 1
   },
   "110975": {
    "set": "eng_us_dr_full",
@@ -3776,7 +4247,8 @@
    "segment": 247,
    "variation": 685077,
    "param": "home_ID",
-   "samples": 87942
+   "samples": 87942,
+   "clubs": 1
   },
   "110981": {
    "set": "eng_us_dr_full",
@@ -3784,7 +4256,8 @@
    "segment": 264,
    "variation": 685122,
    "param": "home_ID",
-   "samples": 50191
+   "samples": 50191,
+   "clubs": 1
   },
   "110986": {
    "set": "eng_us_dr_full",
@@ -3792,7 +4265,8 @@
    "segment": 357,
    "variation": 685405,
    "param": "home_ID",
-   "samples": 58071
+   "samples": 58071,
+   "clubs": 1
   },
   "110987": {
    "set": "eng_us_dr_full",
@@ -3800,7 +4274,8 @@
    "segment": 599,
    "variation": 685125,
    "param": "home_ID",
-   "samples": 51384
+   "samples": 51384,
+   "clubs": 1
   },
   "110989": {
    "set": "eng_us_dr_full",
@@ -3808,7 +4283,8 @@
    "segment": 265,
    "variation": 685126,
    "param": "home_ID",
-   "samples": 69382
+   "samples": 69382,
+   "clubs": 1
   },
   "110990": {
    "set": "eng_us_dr_full",
@@ -3816,7 +4292,8 @@
    "segment": 404,
    "variation": 686537,
    "param": "away_ID",
-   "samples": 89157
+   "samples": 89157,
+   "clubs": 1
   },
   "110991": {
    "set": "eng_us_dr_full",
@@ -3824,7 +4301,8 @@
    "segment": 266,
    "variation": 685128,
    "param": "home_ID",
-   "samples": 70974
+   "samples": 70974,
+   "clubs": 1
   },
   "111008": {
    "set": "eng_us_dr_full",
@@ -3832,7 +4310,8 @@
    "segment": 267,
    "variation": 685133,
    "param": "home_ID",
-   "samples": 60448
+   "samples": 60448,
+   "clubs": 1
   },
   "111010": {
    "set": "eng_us_dr_full",
@@ -3840,7 +4319,8 @@
    "segment": 268,
    "variation": 685134,
    "param": "home_ID",
-   "samples": 59519
+   "samples": 59519,
+   "clubs": 1
   },
   "111013": {
    "set": "eng_us_dr_full",
@@ -3848,7 +4328,8 @@
    "segment": 269,
    "variation": 685135,
    "param": "home_ID",
-   "samples": 64786
+   "samples": 64786,
+   "clubs": 1
   },
   "111014": {
    "set": "eng_us_dr_full",
@@ -3856,7 +4337,8 @@
    "segment": 270,
    "variation": 685136,
    "param": "home_ID",
-   "samples": 71428
+   "samples": 71428,
+   "clubs": 1
   },
   "111019": {
    "set": "eng_us_dr_full",
@@ -3864,7 +4346,8 @@
    "segment": 271,
    "variation": 685137,
    "param": "home_ID",
-   "samples": 89721
+   "samples": 89721,
+   "clubs": 1
   },
   "111022": {
    "set": "eng_us_gm_full",
@@ -3872,7 +4355,8 @@
    "segment": 256,
    "variation": 1023318,
    "param": "lb_against_team_ID",
-   "samples": 134767
+   "samples": 134767,
+   "clubs": 1
   },
   "111035": {
    "set": "eng_us_drsr_full",
@@ -3880,7 +4364,8 @@
    "segment": 127,
    "variation": 691074,
    "param": "lb_against_team_ID",
-   "samples": 122084
+   "samples": 122084,
+   "clubs": 1
   },
   "111065": {
    "set": "eng_us_dr_full",
@@ -3888,7 +4373,8 @@
    "segment": 200,
    "variation": 684989,
    "param": "home_ID",
-   "samples": 68273
+   "samples": 68273,
+   "clubs": 1
   },
   "111086": {
    "set": "eng_us_dr_full",
@@ -3896,7 +4382,8 @@
    "segment": 304,
    "variation": 685225,
    "param": "home_ID",
-   "samples": 71218
+   "samples": 71218,
+   "clubs": 1
   },
   "111108": {
    "set": "eng_us_dr_full",
@@ -3904,7 +4391,8 @@
    "segment": 177,
    "variation": 700211,
    "param": "asset_team_ID",
-   "samples": 111338
+   "samples": 111338,
+   "clubs": 1
   },
   "111111": {
    "set": "eng_us_gm_full",
@@ -3912,7 +4400,8 @@
    "segment": 354,
    "variation": 1039914,
    "param": "home_ID",
-   "samples": 44027
+   "samples": 44027,
+   "clubs": 1
   },
   "111114": {
    "set": "eng_us_gm_full",
@@ -3920,7 +4409,8 @@
    "segment": 355,
    "variation": 1039917,
    "param": "home_ID",
-   "samples": 54702
+   "samples": 54702,
+   "clubs": 1
   },
   "111115": {
    "set": "eng_us_dr_full",
@@ -3928,7 +4418,8 @@
    "segment": 517,
    "variation": 685724,
    "param": "home_ID",
-   "samples": 42626
+   "samples": 42626,
+   "clubs": 1
   },
   "111138": {
    "set": "eng_us_dr_full",
@@ -3936,7 +4427,8 @@
    "segment": 138,
    "variation": 684871,
    "param": "home_ID",
-   "samples": 71891
+   "samples": 71891,
+   "clubs": 1
   },
   "111139": {
    "set": "eng_us_dr_full",
@@ -3944,7 +4436,8 @@
    "segment": 245,
    "variation": 689302,
    "param": "lae_focus_team_1_ID",
-   "samples": 68239
+   "samples": 68239,
+   "clubs": 1
   },
   "111140": {
    "set": "eng_us_dr_full",
@@ -3952,7 +4445,8 @@
    "segment": 20,
    "variation": 688942,
    "param": "lae_focus_team_1_ID",
-   "samples": 69242
+   "samples": 69242,
+   "clubs": 1
   },
   "111144": {
    "set": "eng_us_gm_full",
@@ -3960,7 +4454,8 @@
    "segment": 261,
    "variation": 1025274,
    "param": "home_ID",
-   "samples": 58373
+   "samples": 58373,
+   "clubs": 1
   },
   "111235": {
    "set": "eng_us_gm_full",
@@ -3968,7 +4463,8 @@
    "segment": 54,
    "variation": 1031298,
    "param": "lae_focus_team_1_ID",
-   "samples": 47282
+   "samples": 47282,
+   "clubs": 1
   },
   "111239": {
    "set": "eng_us_gm_full",
@@ -3976,7 +4472,8 @@
    "segment": 318,
    "variation": 1025659,
    "param": "home_ID",
-   "samples": 46945
+   "samples": 46945,
+   "clubs": 1
   },
   "111276": {
    "set": "eng_us_dr_full",
@@ -3984,7 +4481,8 @@
    "segment": 581,
    "variation": 685315,
    "param": "home_ID",
-   "samples": 52647
+   "samples": 52647,
+   "clubs": 1
   },
   "111325": {
    "set": "eng_us_dr_full",
@@ -3992,7 +4490,8 @@
    "segment": 272,
    "variation": 685141,
    "param": "home_ID",
-   "samples": 86624
+   "samples": 86624,
+   "clubs": 1
   },
   "111328": {
    "set": "eng_us_dr_full",
@@ -4000,7 +4499,8 @@
    "segment": 575,
    "variation": 685144,
    "param": "home_ID",
-   "samples": 53251
+   "samples": 53251,
+   "clubs": 1
   },
   "111329": {
    "set": "eng_us_dr_full",
@@ -4008,7 +4508,8 @@
    "segment": 576,
    "variation": 685145,
    "param": "home_ID",
-   "samples": 46569
+   "samples": 46569,
+   "clubs": 1
   },
   "111331": {
    "set": "eng_us_dr_full",
@@ -4016,7 +4517,8 @@
    "segment": 577,
    "variation": 685146,
    "param": "home_ID",
-   "samples": 61625
+   "samples": 61625,
+   "clubs": 1
   },
   "111334": {
    "set": "eng_us_dr_full",
@@ -4024,7 +4526,8 @@
    "segment": 600,
    "variation": 685148,
    "param": "home_ID",
-   "samples": 45847
+   "samples": 45847,
+   "clubs": 1
   },
   "111339": {
    "set": "eng_us_dr_full",
@@ -4032,7 +4535,8 @@
    "segment": 306,
    "variation": 685227,
    "param": "home_ID",
-   "samples": 57144
+   "samples": 57144,
+   "clubs": 1
   },
   "111340": {
    "set": "eng_us_drsr_full",
@@ -4040,7 +4544,8 @@
    "segment": 131,
    "variation": 691078,
    "param": "lb_against_team_ID",
-   "samples": 200045
+   "samples": 200045,
+   "clubs": 1
   },
   "111397": {
    "set": "eng_us_dr_full",
@@ -4048,7 +4553,8 @@
    "segment": 227,
    "variation": 685037,
    "param": "home_ID",
-   "samples": 62309
+   "samples": 62309,
+   "clubs": 1
   },
   "111399": {
    "set": "eng_us_dr_full",
@@ -4056,7 +4562,8 @@
    "segment": 307,
    "variation": 685228,
    "param": "home_ID",
-   "samples": 52530
+   "samples": 52530,
+   "clubs": 1
   },
   "111400": {
    "set": "eng_us_dr_full",
@@ -4064,7 +4571,8 @@
    "segment": 308,
    "variation": 685229,
    "param": "home_ID",
-   "samples": 70032
+   "samples": 70032,
+   "clubs": 1
   },
   "111434": {
    "set": "eng_us_gm_full",
@@ -4072,7 +4580,8 @@
    "segment": 55,
    "variation": 1031299,
    "param": "lae_focus_team_1_ID",
-   "samples": 46095
+   "samples": 46095,
+   "clubs": 1
   },
   "111451": {
    "set": "eng_us_dr_full",
@@ -4080,7 +4589,8 @@
    "segment": 178,
    "variation": 700213,
    "param": "asset_team_ID",
-   "samples": 103597
+   "samples": 103597,
+   "clubs": 1
   },
   "111462": {
    "set": "eng_us_gm_full",
@@ -4088,7 +4598,8 @@
    "segment": 357,
    "variation": 1039924,
    "param": "home_ID",
-   "samples": 38588
+   "samples": 38588,
+   "clubs": 1
   },
   "111473": {
    "set": "eng_us_gm_full",
@@ -4096,7 +4607,8 @@
    "segment": 295,
    "variation": 1025566,
    "param": "home_ID",
-   "samples": 45253
+   "samples": 45253,
+   "clubs": 1
   },
   "111510": {
    "set": "eng_us_gm_full",
@@ -4104,7 +4616,8 @@
    "segment": 394,
    "variation": 1041031,
    "param": "home_ID",
-   "samples": 48007
+   "samples": 48007,
+   "clubs": 1
   },
   "111527": {
    "set": "eng_us_gm_full",
@@ -4112,7 +4625,8 @@
    "segment": 358,
    "variation": 1039931,
    "param": "home_ID",
-   "samples": 39123
+   "samples": 39123,
+   "clubs": 1
   },
   "111651": {
    "set": "eng_us_dr_full",
@@ -4120,7 +4634,8 @@
    "segment": 25,
    "variation": 688947,
    "param": "lae_focus_team_1_ID",
-   "samples": 63767
+   "samples": 63767,
+   "clubs": 1
   },
   "111657": {
    "set": "eng_us_gm_full",
@@ -4128,7 +4643,8 @@
    "segment": 56,
    "variation": 1031300,
    "param": "lae_focus_team_1_ID",
-   "samples": 48797
+   "samples": 48797,
+   "clubs": 1
   },
   "111659": {
    "set": "eng_us_gm_full",
@@ -4136,7 +4652,8 @@
    "segment": 170,
    "variation": 1022268,
    "param": "lb_against_team_ID",
-   "samples": 102700
+   "samples": 102700,
+   "clubs": 1
   },
   "111674": {
    "set": "eng_us_dr_full",
@@ -4144,7 +4661,8 @@
    "segment": 248,
    "variation": 685078,
    "param": "home_ID",
-   "samples": 59039
+   "samples": 59039,
+   "clubs": 1
   },
   "111678": {
    "set": "eng_us_gm_full",
@@ -4152,7 +4670,8 @@
    "segment": 384,
    "variation": 1040761,
    "param": "home_ID",
-   "samples": 52863
+   "samples": 52863,
+   "clubs": 1
   },
   "111701": {
    "set": "eng_us_dr_full",
@@ -4160,7 +4679,8 @@
    "segment": 358,
    "variation": 685414,
    "param": "home_ID",
-   "samples": 49225
+   "samples": 49225,
+   "clubs": 1
   },
   "111707": {
    "set": "eng_us_dr_full",
@@ -4168,7 +4688,8 @@
    "segment": 598,
    "variation": 684877,
    "param": "home_ID",
-   "samples": 57921
+   "samples": 57921,
+   "clubs": 1
   },
   "111708": {
    "set": "eng_us_dr_full",
@@ -4176,7 +4697,8 @@
    "segment": 286,
    "variation": 685192,
    "param": "home_ID",
-   "samples": 80380
+   "samples": 80380,
+   "clubs": 1
   },
   "111710": {
    "set": "eng_us_dr_full",
@@ -4184,7 +4706,8 @@
    "segment": 201,
    "variation": 684992,
    "param": "home_ID",
-   "samples": 87937
+   "samples": 87937,
+   "clubs": 1
   },
   "111711": {
    "set": "eng_us_dr_full",
@@ -4192,7 +4715,8 @@
    "segment": 202,
    "variation": 684993,
    "param": "home_ID",
-   "samples": 51031
+   "samples": 51031,
+   "clubs": 1
   },
   "111715": {
    "set": "eng_us_dr_full",
@@ -4200,7 +4724,8 @@
    "segment": 289,
    "variation": 685195,
    "param": "home_ID",
-   "samples": 37573
+   "samples": 37573,
+   "clubs": 1
   },
   "111716": {
    "set": "eng_us_dr_full",
@@ -4208,7 +4733,8 @@
    "segment": 203,
    "variation": 684994,
    "param": "home_ID",
-   "samples": 74444
+   "samples": 74444,
+   "clubs": 1
   },
   "111722": {
    "set": "eng_us_dr_full",
@@ -4216,7 +4742,8 @@
    "segment": 628,
    "variation": 685149,
    "param": "home_ID",
-   "samples": 75006
+   "samples": 75006,
+   "clubs": 1
   },
   "111766": {
    "set": "eng_us_dr_full",
@@ -4224,7 +4751,8 @@
    "segment": 257,
    "variation": 685102,
    "param": "home_ID",
-   "samples": 63673
+   "samples": 63673,
+   "clubs": 1
   },
   "111811": {
    "set": "eng_us_gm_full",
@@ -4232,7 +4760,8 @@
    "segment": 57,
    "variation": 1031301,
    "param": "lae_focus_team_1_ID",
-   "samples": 40869
+   "samples": 40869,
+   "clubs": 1
   },
   "111817": {
    "set": "eng_us_dr_full",
@@ -4240,7 +4769,8 @@
    "segment": 191,
    "variation": 689215,
    "param": "lae_focus_team_1_ID",
-   "samples": 61849
+   "samples": 61849,
+   "clubs": 1
   },
   "111822": {
    "set": "eng_us_dr_full",
@@ -4248,7 +4778,8 @@
    "segment": 192,
    "variation": 689217,
    "param": "lae_focus_team_1_ID",
-   "samples": 82186
+   "samples": 82186,
+   "clubs": 1
   },
   "111928": {
    "set": "eng_us_dr_full",
@@ -4256,7 +4787,8 @@
    "segment": 141,
    "variation": 684878,
    "param": "home_ID",
-   "samples": 78342
+   "samples": 78342,
+   "clubs": 1
   },
   "111974": {
    "set": "eng_us_gm_full",
@@ -4264,7 +4796,8 @@
    "segment": 53,
    "variation": 1010348,
    "param": "home_ID",
-   "samples": 48809
+   "samples": 48809,
+   "clubs": 1
   },
   "112096": {
    "set": "eng_us_gm_full",
@@ -4272,7 +4805,8 @@
    "segment": 261,
    "variation": 1023326,
    "param": "lb_against_team_ID",
-   "samples": 132451
+   "samples": 132451,
+   "clubs": 1
   },
   "112115": {
    "set": "eng_us_dr_full",
@@ -4280,7 +4814,8 @@
    "segment": 228,
    "variation": 685043,
    "param": "home_ID",
-   "samples": 78263
+   "samples": 78263,
+   "clubs": 1
   },
   "112134": {
    "set": "eng_us_dr_full",
@@ -4288,7 +4823,8 @@
    "segment": 29,
    "variation": 688952,
    "param": "lae_focus_team_1_ID",
-   "samples": 76113
+   "samples": 76113,
+   "clubs": 1
   },
   "112139": {
    "set": "eng_us_gm_full",
@@ -4296,7 +4832,8 @@
    "segment": 207,
    "variation": 1024106,
    "param": "home_ID",
-   "samples": 42725
+   "samples": 42725,
+   "clubs": 1
   },
   "112172": {
    "set": "eng_us_gm_full",
@@ -4304,7 +4841,8 @@
    "segment": 84,
    "variation": 1010472,
    "param": "home_ID",
-   "samples": 39355
+   "samples": 39355,
+   "clubs": 1
   },
   "112190": {
    "set": "eng_us_gm_full",
@@ -4312,7 +4850,8 @@
    "segment": 54,
    "variation": 1010349,
    "param": "home_ID",
-   "samples": 74067
+   "samples": 74067,
+   "clubs": 1
   },
   "112199": {
    "set": "eng_us_dr_full",
@@ -4320,7 +4859,8 @@
    "segment": 359,
    "variation": 685418,
    "param": "home_ID",
-   "samples": 48073
+   "samples": 48073,
+   "clubs": 1
   },
   "112222": {
    "set": "eng_us_common_full",
@@ -4328,7 +4868,8 @@
    "segment": 108,
    "variation": 2139,
    "param": "asset_team_ID",
-   "samples": 92552
+   "samples": 92552,
+   "clubs": 1
   },
   "112224": {
    "set": "eng_us_dr_full",
@@ -4336,7 +4877,8 @@
    "segment": 252,
    "variation": 685093,
    "param": "home_ID",
-   "samples": 55714
+   "samples": 55714,
+   "clubs": 1
   },
   "112254": {
    "set": "eng_us_gm_full",
@@ -4344,7 +4886,8 @@
    "segment": 227,
    "variation": 1024292,
    "param": "home_ID",
-   "samples": 57137
+   "samples": 57137,
+   "clubs": 1
   },
   "112258": {
    "set": "eng_us_dr_full",
@@ -4352,7 +4895,8 @@
    "segment": 582,
    "variation": 685317,
    "param": "home_ID",
-   "samples": 74647
+   "samples": 74647,
+   "clubs": 1
   },
   "112259": {
    "set": "eng_us_gm_full",
@@ -4360,7 +4904,8 @@
    "segment": 262,
    "variation": 1025275,
    "param": "home_ID",
-   "samples": 38514
+   "samples": 38514,
+   "clubs": 1
   },
   "112260": {
    "set": "eng_us_gm_full",
@@ -4368,7 +4913,8 @@
    "segment": 263,
    "variation": 1025276,
    "param": "home_ID",
-   "samples": 51259
+   "samples": 51259,
+   "clubs": 1
   },
   "112304": {
    "set": "eng_us_dr_full",
@@ -4376,7 +4922,8 @@
    "segment": 310,
    "variation": 685235,
    "param": "home_ID",
-   "samples": 48121
+   "samples": 48121,
+   "clubs": 1
   },
   "112387": {
    "set": "eng_us_gm_full",
@@ -4384,7 +4931,8 @@
    "segment": 264,
    "variation": 1025277,
    "param": "home_ID",
-   "samples": 40341
+   "samples": 40341,
+   "clubs": 1
   },
   "112427": {
    "set": "eng_us_dr_full",
@@ -4392,7 +4940,8 @@
    "segment": 229,
    "variation": 685044,
    "param": "home_ID",
-   "samples": 95400
+   "samples": 95400,
+   "clubs": 1
   },
   "112494": {
    "set": "eng_us_dr_full",
@@ -4400,7 +4949,8 @@
    "segment": 527,
    "variation": 685743,
    "param": "home_ID",
-   "samples": 64879
+   "samples": 64879,
+   "clubs": 1
   },
   "112513": {
    "set": "eng_us_gm_full",
@@ -4408,7 +4958,8 @@
    "segment": 265,
    "variation": 1025278,
    "param": "home_ID",
-   "samples": 36555
+   "samples": 36555,
+   "clubs": 1
   },
   "112540": {
    "set": "eng_us_gm_full",
@@ -4416,7 +4967,8 @@
    "segment": 266,
    "variation": 1025280,
    "param": "home_ID",
-   "samples": 55837
+   "samples": 55837,
+   "clubs": 1
   },
   "112606": {
    "set": "eng_us_gm_full",
@@ -4424,7 +4976,8 @@
    "segment": 267,
    "variation": 1025281,
    "param": "home_ID",
-   "samples": 56076
+   "samples": 56076,
+   "clubs": 1
   },
   "112616": {
    "set": "eng_us_dr_full",
@@ -4432,7 +4985,8 @@
    "segment": 273,
    "variation": 685155,
    "param": "home_ID",
-   "samples": 59363
+   "samples": 59363,
+   "clubs": 1
   },
   "112667": {
    "set": "eng_us_dr_full",
@@ -4440,7 +4994,8 @@
    "segment": 591,
    "variation": 685197,
    "param": "home_ID",
-   "samples": 86639
+   "samples": 86639,
+   "clubs": 1
   },
   "112670": {
    "set": "eng_us_dr_full",
@@ -4448,7 +5003,8 @@
    "segment": 207,
    "variation": 685000,
    "param": "home_ID",
-   "samples": 59659
+   "samples": 59659,
+   "clubs": 1
   },
   "112678": {
    "set": "eng_us_gm_full",
@@ -4456,7 +5012,8 @@
    "segment": 385,
    "variation": 1040763,
    "param": "home_ID",
-   "samples": 86124
+   "samples": 86124,
+   "clubs": 1
   },
   "112689": {
    "set": "eng_us_dr_full",
@@ -4464,7 +5021,8 @@
    "segment": 482,
    "variation": 685670,
    "param": "home_ID",
-   "samples": 52772
+   "samples": 52772,
+   "clubs": 1
   },
   "112705": {
    "set": "eng_us_dr_full",
@@ -4472,7 +5030,8 @@
    "segment": 629,
    "variation": 685158,
    "param": "home_ID",
-   "samples": 77048
+   "samples": 77048,
+   "clubs": 1
   },
   "112713": {
    "set": "eng_us_dr_full",
@@ -4480,7 +5039,8 @@
    "segment": 483,
    "variation": 685671,
    "param": "home_ID",
-   "samples": 59190
+   "samples": 59190,
+   "clubs": 1
   },
   "112716": {
    "set": "eng_us_dr_full",
@@ -4488,7 +5048,8 @@
    "segment": 275,
    "variation": 685159,
    "param": "home_ID",
-   "samples": 72729
+   "samples": 72729,
+   "clubs": 1
   },
   "112809": {
    "set": "eng_us_gm_full",
@@ -4496,7 +5057,8 @@
    "segment": 268,
    "variation": 1025282,
    "param": "home_ID",
-   "samples": 52630
+   "samples": 52630,
+   "clubs": 1
   },
   "112828": {
    "set": "eng_us_gm_full",
@@ -4504,7 +5066,8 @@
    "segment": 269,
    "variation": 1025283,
    "param": "home_ID",
-   "samples": 50770
+   "samples": 50770,
+   "clubs": 1
   },
   "112853": {
    "set": "eng_us_dr_full",
@@ -4512,7 +5075,8 @@
    "segment": 630,
    "variation": 685160,
    "param": "home_ID",
-   "samples": 88365
+   "samples": 88365,
+   "clubs": 1
   },
   "112885": {
    "set": "eng_us_gm_full",
@@ -4520,7 +5084,8 @@
    "segment": 322,
    "variation": 1028178,
    "param": "home_ID",
-   "samples": 65221
+   "samples": 65221,
+   "clubs": 1
   },
   "112893": {
    "set": "eng_us_gm_full",
@@ -4528,7 +5093,8 @@
    "segment": 228,
    "variation": 1024293,
    "param": "home_ID",
-   "samples": 53769
+   "samples": 53769,
+   "clubs": 1
   },
   "112908": {
    "set": "eng_us_dr_full",
@@ -4536,7 +5102,8 @@
    "segment": 449,
    "variation": 685607,
    "param": "home_ID",
-   "samples": 99020
+   "samples": 99020,
+   "clubs": 1
   },
   "112954": {
    "set": "eng_us_dr_full",
@@ -4544,7 +5111,8 @@
    "segment": 528,
    "variation": 685744,
    "param": "home_ID",
-   "samples": 51959
+   "samples": 51959,
+   "clubs": 1
   },
   "112965": {
    "set": "eng_us_dr_full",
@@ -4552,7 +5120,8 @@
    "segment": 291,
    "variation": 685198,
    "param": "home_ID",
-   "samples": 69876
+   "samples": 69876,
+   "clubs": 1
   },
   "112996": {
    "set": "eng_us_gm_full",
@@ -4560,7 +5129,8 @@
    "segment": 315,
    "variation": 1025703,
    "param": "home_ID",
-   "samples": 51906
+   "samples": 51906,
+   "clubs": 1
   },
   "112999": {
    "set": "eng_us_gm_full",
@@ -4568,7 +5138,8 @@
    "segment": 373,
    "variation": 1039952,
    "param": "home_ID",
-   "samples": 40742
+   "samples": 40742,
+   "clubs": 1
   },
   "113000": {
    "set": "eng_us_gm_full",
@@ -4576,7 +5147,8 @@
    "segment": 225,
    "variation": 1024289,
    "param": "home_ID",
-   "samples": 40057
+   "samples": 40057,
+   "clubs": 1
   },
   "113001": {
    "set": "eng_us_gm_full",
@@ -4584,7 +5156,8 @@
    "segment": 251,
    "variation": 1030547,
    "param": "asset_team_ID",
-   "samples": 77534
+   "samples": 77534,
+   "clubs": 1
   },
   "113002": {
    "set": "eng_us_gm_full",
@@ -4592,7 +5165,8 @@
    "segment": 359,
    "variation": 1039937,
    "param": "home_ID",
-   "samples": 37554
+   "samples": 37554,
+   "clubs": 1
   },
   "113003": {
    "set": "eng_us_gm_full",
@@ -4600,7 +5174,8 @@
    "segment": 270,
    "variation": 1025284,
    "param": "home_ID",
-   "samples": 38230
+   "samples": 38230,
+   "clubs": 1
   },
   "113004": {
    "set": "eng_us_gm_full",
@@ -4608,7 +5183,8 @@
    "segment": 271,
    "variation": 1025285,
    "param": "home_ID",
-   "samples": 39142
+   "samples": 39142,
+   "clubs": 1
   },
   "113007": {
    "set": "eng_us_dr_full",
@@ -4616,7 +5192,8 @@
    "segment": 652,
    "variation": 727136,
    "param": "home_ID",
-   "samples": 42220
+   "samples": 42220,
+   "clubs": 1
   },
   "113008": {
    "set": "eng_us_dr_full",
@@ -4624,7 +5201,8 @@
    "segment": 656,
    "variation": 727140,
    "param": "home_ID",
-   "samples": 40548
+   "samples": 40548,
+   "clubs": 1
   },
   "113009": {
    "set": "eng_us_gm_full",
@@ -4632,7 +5210,8 @@
    "segment": 229,
    "variation": 1024294,
    "param": "home_ID",
-   "samples": 50005
+   "samples": 50005,
+   "clubs": 1
   },
   "113010": {
    "set": "eng_us_gm_full",
@@ -4640,7 +5219,8 @@
    "segment": 374,
    "variation": 1039955,
    "param": "home_ID",
-   "samples": 46864
+   "samples": 46864,
+   "clubs": 1
   },
   "113011": {
    "set": "eng_us_dr_full",
@@ -4648,7 +5228,8 @@
    "segment": 640,
    "variation": 727104,
    "param": "home_ID",
-   "samples": 52231
+   "samples": 52231,
+   "clubs": 1
   },
   "113012": {
    "set": "eng_us_dr_full",
@@ -4656,7 +5237,8 @@
    "segment": 655,
    "variation": 727139,
    "param": "home_ID",
-   "samples": 39958
+   "samples": 39958,
+   "clubs": 1
   },
   "113037": {
    "set": "eng_us_gm_full",
@@ -4664,7 +5246,8 @@
    "segment": 269,
    "variation": 1023335,
    "param": "lb_against_team_ID",
-   "samples": 130586
+   "samples": 130586,
+   "clubs": 1
   },
   "113040": {
    "set": "eng_us_dr_full",
@@ -4672,7 +5255,8 @@
    "segment": 489,
    "variation": 685682,
    "param": "home_ID",
-   "samples": 74083
+   "samples": 74083,
+   "clubs": 1
   },
   "113134": {
    "set": "eng_us_gm_full",
@@ -4680,7 +5264,8 @@
    "segment": 386,
    "variation": 1040765,
    "param": "home_ID",
-   "samples": 62303
+   "samples": 62303,
+   "clubs": 1
   },
   "113142": {
    "set": "eng_us_dr_full",
@@ -4688,7 +5273,8 @@
    "segment": 116,
    "variation": 691375,
    "param": "asset_team_ID",
-   "samples": 66836
+   "samples": 66836,
+   "clubs": 1
   },
   "113149": {
    "set": "eng_us_dr_full",
@@ -4696,7 +5282,8 @@
    "segment": 39,
    "variation": 688964,
    "param": "lae_focus_team_1_ID",
-   "samples": 77194
+   "samples": 77194,
+   "clubs": 1
   },
   "113182": {
    "set": "eng_us_dr_full",
@@ -4704,7 +5291,8 @@
    "segment": 691,
    "variation": 685685,
    "param": "home_ID",
-   "samples": 58412
+   "samples": 58412,
+   "clubs": 1
   },
   "113257": {
    "set": "eng_us_dr_full",
@@ -4712,7 +5300,8 @@
    "segment": 490,
    "variation": 685686,
    "param": "home_ID",
-   "samples": 77504
+   "samples": 77504,
+   "clubs": 1
   },
   "113258": {
    "set": "eng_us_gm_full",
@@ -4720,7 +5309,8 @@
    "segment": 295,
    "variation": 1025566,
    "param": "home_ID",
-   "samples": 45253
+   "samples": 45253,
+   "clubs": 1
   },
   "113297": {
    "set": "eng_us_dr_full",
@@ -4728,7 +5318,8 @@
    "segment": 491,
    "variation": 685687,
    "param": "home_ID",
-   "samples": 47684
+   "samples": 47684,
+   "clubs": 1
   },
   "113298": {
    "set": "eng_us_dr_full",
@@ -4736,7 +5327,8 @@
    "segment": 492,
    "variation": 685688,
    "param": "home_ID",
-   "samples": 61940
+   "samples": 61940,
+   "clubs": 1
   },
   "113299": {
    "set": "eng_us_dr_full",
@@ -4744,7 +5336,8 @@
    "segment": 493,
    "variation": 685689,
    "param": "home_ID",
-   "samples": 81138
+   "samples": 81138,
+   "clubs": 1
   },
   "113300": {
    "set": "eng_us_dr_full",
@@ -4752,7 +5345,8 @@
    "segment": 494,
    "variation": 685690,
    "param": "home_ID",
-   "samples": 67296
+   "samples": 67296,
+   "clubs": 1
   },
   "113302": {
    "set": "eng_us_dr_full",
@@ -4760,7 +5354,8 @@
    "segment": 495,
    "variation": 685692,
    "param": "home_ID",
-   "samples": 62791
+   "samples": 62791,
+   "clubs": 1
   },
   "113378": {
    "set": "eng_us_dr_full",
@@ -4768,7 +5363,8 @@
    "segment": 692,
    "variation": 685693,
    "param": "home_ID",
-   "samples": 79061
+   "samples": 79061,
+   "clubs": 1
   },
   "113394": {
    "set": "eng_us_sr_full",
@@ -4776,7 +5372,8 @@
    "segment": 34,
    "variation": 408923,
    "param": "asset_team_ID",
-   "samples": 91304
+   "samples": 91304,
+   "clubs": 1
   },
   "113926": {
    "set": "eng_us_gm_full",
@@ -4784,7 +5381,8 @@
    "segment": 171,
    "variation": 1013474,
    "param": "home_ID",
-   "samples": 49100
+   "samples": 49100,
+   "clubs": 1
   },
   "113973": {
    "set": "eng_us_dr_full",
@@ -4792,7 +5390,8 @@
    "segment": 82,
    "variation": 698234,
    "param": "ta_focus_team1_ID",
-   "samples": 219697
+   "samples": 219697,
+   "clubs": 1
   },
   "113974": {
    "set": "eng_us_common_full",
@@ -4800,7 +5399,8 @@
    "segment": 162,
    "variation": 2205,
    "param": "asset_team_ID",
-   "samples": 93672
+   "samples": 93672,
+   "clubs": 1
   },
   "113981": {
    "set": "eng_us_gm_full",
@@ -4808,7 +5408,8 @@
    "segment": 230,
    "variation": 1024295,
    "param": "home_ID",
-   "samples": 60034
+   "samples": 60034,
+   "clubs": 1
   },
   "113984": {
    "set": "eng_us_dr_full",
@@ -4816,7 +5417,8 @@
    "segment": 654,
    "variation": 727138,
    "param": "home_ID",
-   "samples": 44633
+   "samples": 44633,
+   "clubs": 1
   },
   "113996": {
    "set": "eng_us_gm_full",
@@ -4824,7 +5426,8 @@
    "segment": 372,
    "variation": 1039951,
    "param": "home_ID",
-   "samples": 50032
+   "samples": 50032,
+   "clubs": 1
   },
   "114024": {
    "set": "eng_us_dr_full",
@@ -4832,7 +5435,8 @@
    "segment": 276,
    "variation": 685165,
    "param": "home_ID",
-   "samples": 65881
+   "samples": 65881,
+   "clubs": 1
   },
   "114161": {
    "set": "eng_us_dr_full",
@@ -4840,7 +5444,8 @@
    "segment": 250,
    "variation": 689310,
    "param": "lae_focus_team_1_ID",
-   "samples": 61377
+   "samples": 61377,
+   "clubs": 1
   },
   "114162": {
    "set": "eng_us_dr_full",
@@ -4848,7 +5453,8 @@
    "segment": 341,
    "variation": 685310,
    "param": "home_ID",
-   "samples": 52682
+   "samples": 52682,
+   "clubs": 1
   },
   "114168": {
    "set": "eng_us_dr_full",
@@ -4856,7 +5462,8 @@
    "segment": 496,
    "variation": 685697,
    "param": "home_ID",
-   "samples": 68199
+   "samples": 68199,
+   "clubs": 1
   },
   "114326": {
    "set": "eng_us_gm_full",
@@ -4864,7 +5471,8 @@
    "segment": 271,
    "variation": 1023337,
    "param": "lb_against_team_ID",
-   "samples": 154598
+   "samples": 154598,
+   "clubs": 1
   },
   "114385": {
    "set": "eng_us_dr_full",
@@ -4872,7 +5480,8 @@
    "segment": 311,
    "variation": 685240,
    "param": "home_ID",
-   "samples": 66891
+   "samples": 66891,
+   "clubs": 1
   },
   "114510": {
    "set": "eng_us_dr_full",
@@ -4880,7 +5489,8 @@
    "segment": 252,
    "variation": 689312,
    "param": "lae_focus_team_1_ID",
-   "samples": 57368
+   "samples": 57368,
+   "clubs": 1
   },
   "114577": {
    "set": "eng_us_dr_full",
@@ -4888,7 +5498,8 @@
    "segment": 632,
    "variation": 685199,
    "param": "home_ID",
-   "samples": 61620
+   "samples": 61620,
+   "clubs": 1
   },
   "114578": {
    "set": "eng_us_dr_full",
@@ -4896,7 +5507,8 @@
    "segment": 631,
    "variation": 685169,
    "param": "home_ID",
-   "samples": 44884
+   "samples": 44884,
+   "clubs": 1
   },
   "114581": {
    "set": "eng_us_dr_full",
@@ -4904,7 +5516,8 @@
    "segment": 589,
    "variation": 685171,
    "param": "home_ID",
-   "samples": 112919
+   "samples": 112919,
+   "clubs": 1
   },
   "114611": {
    "set": "eng_us_dr_full",
@@ -4912,7 +5525,8 @@
    "segment": 601,
    "variation": 685174,
    "param": "home_ID",
-   "samples": 111187
+   "samples": 111187,
+   "clubs": 1
   },
   "114640": {
    "set": "eng_us_dr_full",
@@ -4920,7 +5534,8 @@
    "segment": 253,
    "variation": 689313,
    "param": "lae_focus_team_1_ID",
-   "samples": 68360
+   "samples": 68360,
+   "clubs": 1
   },
   "114815": {
    "set": "eng_us_gm_full",
@@ -4928,7 +5543,8 @@
    "segment": 0,
    "variation": 1002678,
    "param": "home_ID",
-   "samples": 45552
+   "samples": 45552,
+   "clubs": 1
   },
   "115362": {
    "set": "eng_us_gm_full",
@@ -4936,7 +5552,8 @@
    "segment": 201,
    "variation": 1018541,
    "param": "asset_team_ID",
-   "samples": 79255
+   "samples": 79255,
+   "clubs": 1
   },
   "115682": {
    "set": "eng_us_dr_full",
@@ -4944,7 +5561,8 @@
    "segment": 653,
    "variation": 727137,
    "param": "home_ID",
-   "samples": 44855
+   "samples": 44855,
+   "clubs": 1
   },
   "115995": {
    "set": "eng_us_gm_full",
@@ -4952,7 +5570,8 @@
    "segment": 21,
    "variation": 1023962,
    "param": "lae_focus_team_2_ID",
-   "samples": 41483
+   "samples": 41483,
+   "clubs": 1
   },
   "115996": {
    "set": "eng_us_gm_full",
@@ -4960,7 +5579,8 @@
    "segment": 101,
    "variation": 1031345,
    "param": "lae_focus_team_1_ID",
-   "samples": 54680
+   "samples": 54680,
+   "clubs": 1
   },
   "115997": {
    "set": "eng_us_gm_full",
@@ -4968,7 +5588,8 @@
    "segment": 80,
    "variation": 1031324,
    "param": "lae_focus_team_1_ID",
-   "samples": 42527
+   "samples": 42527,
+   "clubs": 1
   },
   "115998": {
    "set": "eng_us_gm_full",
@@ -4976,7 +5597,8 @@
    "segment": 68,
    "variation": 1031312,
    "param": "lae_focus_team_1_ID",
-   "samples": 43543
+   "samples": 43543,
+   "clubs": 1
   },
   "115999": {
    "set": "eng_us_gm_full",
@@ -4984,7 +5606,8 @@
    "segment": 48,
    "variation": 1010342,
    "param": "home_ID",
-   "samples": 44559
+   "samples": 44559,
+   "clubs": 1
   },
   "116002": {
    "set": "eng_us_gm_full",
@@ -4992,7 +5615,8 @@
    "segment": 66,
    "variation": 1010366,
    "param": "home_ID",
-   "samples": 42313
+   "samples": 42313,
+   "clubs": 1
   },
   "116003": {
    "set": "eng_us_gm_full",
@@ -5000,7 +5624,8 @@
    "segment": 100,
    "variation": 1031344,
    "param": "lae_focus_team_1_ID",
-   "samples": 38363
+   "samples": 38363,
+   "clubs": 1
   },
   "116004": {
    "set": "eng_us_gm_full",
@@ -5008,7 +5633,8 @@
    "segment": 180,
    "variation": 1013484,
    "param": "home_ID",
-   "samples": 46276
+   "samples": 46276,
+   "clubs": 1
   },
   "116009": {
    "set": "eng_us_gm_full",
@@ -5016,7 +5642,8 @@
    "segment": 2,
    "variation": 1002683,
    "param": "home_ID",
-   "samples": 33792
+   "samples": 33792,
+   "clubs": 1
   },
   "116010": {
    "set": "eng_us_gm_full",
@@ -5024,7 +5651,8 @@
    "segment": 40,
    "variation": 1023981,
    "param": "lae_focus_team_2_ID",
-   "samples": 35869
+   "samples": 35869,
+   "clubs": 1
   },
   "116011": {
    "set": "eng_us_gm_full",
@@ -5032,7 +5660,8 @@
    "segment": 14,
    "variation": 1023955,
    "param": "lae_focus_team_2_ID",
-   "samples": 36612
+   "samples": 36612,
+   "clubs": 1
   },
   "116012": {
    "set": "eng_us_gm_full",
@@ -5040,7 +5669,8 @@
    "segment": 4,
    "variation": 1023945,
    "param": "lae_focus_team_2_ID",
-   "samples": 38213
+   "samples": 38213,
+   "clubs": 1
   },
   "116013": {
    "set": "eng_us_gm_full",
@@ -5048,7 +5678,8 @@
    "segment": 11,
    "variation": 1023952,
    "param": "lae_focus_team_2_ID",
-   "samples": 39569
+   "samples": 39569,
+   "clubs": 1
   },
   "116014": {
    "set": "eng_us_gm_full",
@@ -5056,7 +5687,8 @@
    "segment": 19,
    "variation": 1023960,
    "param": "lae_focus_team_2_ID",
-   "samples": 44718
+   "samples": 44718,
+   "clubs": 1
   },
   "116015": {
    "set": "eng_us_gm_full",
@@ -5064,7 +5696,8 @@
    "segment": 27,
    "variation": 1023968,
    "param": "lae_focus_team_2_ID",
-   "samples": 30437
+   "samples": 30437,
+   "clubs": 1
   },
   "116016": {
    "set": "eng_us_gm_full",
@@ -5072,7 +5705,8 @@
    "segment": 95,
    "variation": 1010488,
    "param": "home_ID",
-   "samples": 33864
+   "samples": 33864,
+   "clubs": 1
   },
   "116017": {
    "set": "eng_us_gm_full",
@@ -5080,7 +5714,8 @@
    "segment": 0,
    "variation": 1023941,
    "param": "lae_focus_team_2_ID",
-   "samples": 31332
+   "samples": 31332,
+   "clubs": 1
   },
   "116018": {
    "set": "eng_us_gm_full",
@@ -5088,7 +5723,8 @@
    "segment": 213,
    "variation": 1024113,
    "param": "home_ID",
-   "samples": 33661
+   "samples": 33661,
+   "clubs": 1
   },
   "116019": {
    "set": "eng_us_dr_full",
@@ -5096,7 +5732,8 @@
    "segment": 127,
    "variation": 684848,
    "param": "home_ID",
-   "samples": 58622
+   "samples": 58622,
+   "clubs": 1
   },
   "116020": {
    "set": "eng_us_gm_full",
@@ -5104,7 +5741,8 @@
    "segment": 136,
    "variation": 1031385,
    "param": "lae_focus_team_1_ID",
-   "samples": 37630
+   "samples": 37630,
+   "clubs": 1
   },
   "116021": {
    "set": "eng_us_gm_full",
@@ -5112,7 +5750,8 @@
    "segment": 84,
    "variation": 1010472,
    "param": "home_ID",
-   "samples": 39355
+   "samples": 39355,
+   "clubs": 1
   },
   "116033": {
    "set": "eng_us_gm_full",
@@ -5120,7 +5759,8 @@
    "segment": 123,
    "variation": 1031372,
    "param": "lae_focus_team_1_ID",
-   "samples": 34494
+   "samples": 34494,
+   "clubs": 1
   },
   "116034": {
    "set": "eng_us_gm_full",
@@ -5128,7 +5768,8 @@
    "segment": 129,
    "variation": 1031378,
    "param": "lae_focus_team_1_ID",
-   "samples": 47267
+   "samples": 47267,
+   "clubs": 1
   },
   "116035": {
    "set": "eng_us_gm_full",
@@ -5136,7 +5777,8 @@
    "segment": 226,
    "variation": 1024290,
    "param": "home_ID",
-   "samples": 62483
+   "samples": 62483,
+   "clubs": 1
   },
   "116037": {
    "set": "eng_us_gm_full",
@@ -5144,7 +5786,8 @@
    "segment": 187,
    "variation": 1013807,
    "param": "home_ID",
-   "samples": 50152
+   "samples": 50152,
+   "clubs": 1
   },
   "116040": {
    "set": "eng_us_gm_full",
@@ -5152,7 +5795,8 @@
    "segment": 106,
    "variation": 1031350,
    "param": "lae_focus_team_1_ID",
-   "samples": 35722
+   "samples": 35722,
+   "clubs": 1
   },
   "116042": {
    "set": "eng_us_dr_full",
@@ -5160,7 +5804,8 @@
    "segment": 35,
    "variation": 684712,
    "param": "home_ID",
-   "samples": 62860
+   "samples": 62860,
+   "clubs": 1
   },
   "116044": {
    "set": "eng_us_gm_full",
@@ -5168,7 +5813,8 @@
    "segment": 175,
    "variation": 1013479,
    "param": "home_ID",
-   "samples": 48681
+   "samples": 48681,
+   "clubs": 1
   },
   "116280": {
    "set": "eng_us_gm_full",
@@ -5176,7 +5822,8 @@
    "segment": 110,
    "variation": 1031356,
    "param": "lae_focus_team_1_ID",
-   "samples": 42885
+   "samples": 42885,
+   "clubs": 1
   },
   "116282": {
    "set": "eng_us_gm_demo",
@@ -5184,7 +5831,8 @@
    "segment": 22,
    "variation": 1039535,
    "param": "asset_team_ID",
-   "samples": 152500
+   "samples": 152500,
+   "clubs": 1
   },
   "116302": {
    "set": "eng_us_dr_full",
@@ -5192,7 +5840,8 @@
    "segment": 546,
    "variation": 703863,
    "param": "home_ID",
-   "samples": 72290
+   "samples": 72290,
+   "clubs": 1
   },
   "116303": {
    "set": "eng_us_dr_full",
@@ -5200,7 +5849,8 @@
    "segment": 547,
    "variation": 703864,
    "param": "home_ID",
-   "samples": 92872
+   "samples": 92872,
+   "clubs": 1
   },
   "116304": {
    "set": "eng_us_dr_full",
@@ -5208,7 +5858,8 @@
    "segment": 548,
    "variation": 703865,
    "param": "home_ID",
-   "samples": 74105
+   "samples": 74105,
+   "clubs": 1
   },
   "116305": {
    "set": "eng_us_dr_full",
@@ -5216,7 +5867,8 @@
    "segment": 153,
    "variation": 199,
    "param": "asset_team_ID",
-   "samples": 374905
+   "samples": 374905,
+   "clubs": 1
   },
   "116306": {
    "set": "eng_us_dr_full",
@@ -5224,7 +5876,8 @@
    "segment": 549,
    "variation": 703868,
    "param": "home_ID",
-   "samples": 71198
+   "samples": 71198,
+   "clubs": 1
   },
   "116307": {
    "set": "eng_us_dr_full",
@@ -5232,7 +5885,8 @@
    "segment": 550,
    "variation": 703869,
    "param": "home_ID",
-   "samples": 71958
+   "samples": 71958,
+   "clubs": 1
   },
   "116308": {
    "set": "eng_us_dr_full",
@@ -5240,7 +5894,8 @@
    "segment": 551,
    "variation": 703870,
    "param": "home_ID",
-   "samples": 69738
+   "samples": 69738,
+   "clubs": 1
   },
   "116309": {
    "set": "eng_us_dr_full",
@@ -5248,7 +5903,8 @@
    "segment": 552,
    "variation": 703871,
    "param": "home_ID",
-   "samples": 81931
+   "samples": 81931,
+   "clubs": 1
   },
   "116310": {
    "set": "eng_us_dr_full",
@@ -5256,7 +5912,8 @@
    "segment": 553,
    "variation": 703872,
    "param": "home_ID",
-   "samples": 63376
+   "samples": 63376,
+   "clubs": 1
   },
   "116311": {
    "set": "eng_us_dr_full",
@@ -5264,7 +5921,8 @@
    "segment": 555,
    "variation": 703874,
    "param": "home_ID",
-   "samples": 78988
+   "samples": 78988,
+   "clubs": 1
   },
   "116312": {
    "set": "eng_us_dr_full",
@@ -5272,7 +5930,8 @@
    "segment": 556,
    "variation": 703875,
    "param": "home_ID",
-   "samples": 83873
+   "samples": 83873,
+   "clubs": 1
   },
   "116325": {
    "set": "eng_us_gm_full",
@@ -5280,7 +5939,8 @@
    "segment": 3,
    "variation": 1002687,
    "param": "home_ID",
-   "samples": 47484
+   "samples": 47484,
+   "clubs": 1
   },
   "116326": {
    "set": "eng_us_gm_full",
@@ -5288,7 +5948,8 @@
    "segment": 26,
    "variation": 1023967,
    "param": "lae_focus_team_2_ID",
-   "samples": 33997
+   "samples": 33997,
+   "clubs": 1
   },
   "116327": {
    "set": "eng_us_gm_full",
@@ -5296,7 +5957,8 @@
    "segment": 24,
    "variation": 1023965,
    "param": "lae_focus_team_2_ID",
-   "samples": 45550
+   "samples": 45550,
+   "clubs": 1
   },
   "116328": {
    "set": "eng_us_gm_full",
@@ -5304,7 +5966,8 @@
    "segment": 28,
    "variation": 1023969,
    "param": "lae_focus_team_2_ID",
-   "samples": 40623
+   "samples": 40623,
+   "clubs": 1
   },
   "116329": {
    "set": "eng_us_gm_full",
@@ -5312,7 +5975,8 @@
    "segment": 34,
    "variation": 1023975,
    "param": "lae_focus_team_2_ID",
-   "samples": 37520
+   "samples": 37520,
+   "clubs": 1
   },
   "116330": {
    "set": "eng_us_gm_full",
@@ -5320,7 +5984,8 @@
    "segment": 29,
    "variation": 1023970,
    "param": "lae_focus_team_2_ID",
-   "samples": 38003
+   "samples": 38003,
+   "clubs": 1
   },
   "116333": {
    "set": "eng_us_gm_full",
@@ -5328,7 +5993,8 @@
    "segment": 56,
    "variation": 1010355,
    "param": "home_ID",
-   "samples": 45280
+   "samples": 45280,
+   "clubs": 1
   },
   "116336": {
    "set": "eng_us_gm_full",
@@ -5336,7 +6002,8 @@
    "segment": 45,
    "variation": 1009951,
    "param": "home_ID",
-   "samples": 59064
+   "samples": 59064,
+   "clubs": 1
   },
   "116337": {
    "set": "eng_us_gm_full",
@@ -5344,7 +6011,8 @@
    "segment": 38,
    "variation": 1023979,
    "param": "lae_focus_team_2_ID",
-   "samples": 35267
+   "samples": 35267,
+   "clubs": 1
   },
   "116339": {
    "set": "eng_us_gm_full",
@@ -5352,7 +6020,8 @@
    "segment": 46,
    "variation": 1009952,
    "param": "home_ID",
-   "samples": 44648
+   "samples": 44648,
+   "clubs": 1
   },
   "116340": {
    "set": "eng_us_gm_full",
@@ -5360,7 +6029,8 @@
    "segment": 94,
    "variation": 1010486,
    "param": "home_ID",
-   "samples": 49201
+   "samples": 49201,
+   "clubs": 1
   },
   "116343": {
    "set": "eng_us_gm_full",
@@ -5368,7 +6038,8 @@
    "segment": 351,
    "variation": 1002696,
    "param": "home_ID",
-   "samples": 38262
+   "samples": 38262,
+   "clubs": 1
   },
   "116386": {
    "set": "eng_us_gm_full",
@@ -5376,7 +6047,8 @@
    "segment": 170,
    "variation": 1022268,
    "param": "lb_against_team_ID",
-   "samples": 102700
+   "samples": 102700,
+   "clubs": 1
   },
   "116416": {
    "set": "eng_us_gm_full",
@@ -5384,7 +6056,8 @@
    "segment": 65,
    "variation": 1031309,
    "param": "lae_focus_team_1_ID",
-   "samples": 36859
+   "samples": 36859,
+   "clubs": 1
   },
   "116417": {
    "set": "eng_us_gm_full",
@@ -5392,7 +6065,8 @@
    "segment": 240,
    "variation": 1039635,
    "param": "asset_team_ID",
-   "samples": 69896
+   "samples": 69896,
+   "clubs": 1
   },
   "116428": {
    "set": "eng_us_gm_full",
@@ -5400,7 +6074,8 @@
    "segment": 296,
    "variation": 1025567,
    "param": "home_ID",
-   "samples": 38816
+   "samples": 38816,
+   "clubs": 1
   },
   "131106": {
    "set": "eng_us_gm_full",
@@ -5408,7 +6083,8 @@
    "segment": 309,
    "variation": 1025669,
    "param": "away_ID",
-   "samples": 71747
+   "samples": 71747,
+   "clubs": 1
   },
   "131110": {
    "set": "eng_us_gm_full",
@@ -5416,7 +6092,8 @@
    "segment": 90,
    "variation": 1022014,
    "param": "lb_against_team_ID",
-   "samples": 123576
+   "samples": 123576,
+   "clubs": 1
   },
   "131124": {
    "set": "eng_us_gm_full",
@@ -5424,7 +6101,8 @@
    "segment": 341,
    "variation": 1030332,
    "param": "home_ID",
-   "samples": 40936
+   "samples": 40936,
+   "clubs": 1
   },
   "131219": {
    "set": "eng_us_gm_full",
@@ -5432,7 +6110,8 @@
    "segment": 108,
    "variation": 1010702,
    "param": "home_ID",
-   "samples": 33638
+   "samples": 33638,
+   "clubs": 1
   },
   "131283": {
    "set": "eng_us_dr_full",
@@ -5440,7 +6119,8 @@
    "segment": 114,
    "variation": 684831,
    "param": "home_ID",
-   "samples": 53195
+   "samples": 53195,
+   "clubs": 1
   },
   "131358": {
    "set": "eng_us_gm_full",
@@ -5448,7 +6128,8 @@
    "segment": 39,
    "variation": 1009515,
    "param": "home_ID",
-   "samples": 41349
+   "samples": 41349,
+   "clubs": 1
   },
   "131359": {
    "set": "eng_us_gm_full",
@@ -5456,7 +6137,8 @@
    "segment": 92,
    "variation": 1010484,
    "param": "home_ID",
-   "samples": 36083
+   "samples": 36083,
+   "clubs": 1
   },
   "131360": {
    "set": "eng_us_dr_full",
@@ -5464,7 +6146,8 @@
    "segment": 369,
    "variation": 685469,
    "param": "home_ID",
-   "samples": 59855
+   "samples": 59855,
+   "clubs": 1
   },
   "131386": {
    "set": "eng_us_dr_full",
@@ -5472,7 +6155,8 @@
    "segment": 53,
    "variation": 688981,
    "param": "lae_focus_team_1_ID",
-   "samples": 54742
+   "samples": 54742,
+   "clubs": 1
   },
   "131391": {
    "set": "eng_us_gm_full",
@@ -5480,7 +6164,8 @@
    "segment": 52,
    "variation": 1010347,
    "param": "home_ID",
-   "samples": 43478
+   "samples": 43478,
+   "clubs": 1
   },
   "131412": {
    "set": "eng_us_gm_full",
@@ -5488,7 +6173,8 @@
    "segment": 204,
    "variation": 1017977,
    "param": "home_ID",
-   "samples": 75714
+   "samples": 75714,
+   "clubs": 1
   },
   "131447": {
    "set": "eng_us_dr_full",
@@ -5496,7 +6182,8 @@
    "segment": 609,
    "variation": 685750,
    "param": "home_ID",
-   "samples": 70277
+   "samples": 70277,
+   "clubs": 1
   },
   "131724": {
    "set": "eng_us_dr_full",
@@ -5504,7 +6191,8 @@
    "segment": 198,
    "variation": 693881,
    "param": "news_recap_team_ID",
-   "samples": 114760
+   "samples": 114760,
+   "clubs": 1
   },
   "131725": {
    "set": "eng_us_common_full",
@@ -5512,7 +6200,8 @@
    "segment": 18,
    "variation": 2034,
    "param": "asset_team_ID",
-   "samples": 67137
+   "samples": 67137,
+   "clubs": 1
   },
   "131733": {
    "set": "eng_us_common_full",
@@ -5520,7 +6209,8 @@
    "segment": 176,
    "variation": 2223,
    "param": "asset_team_ID",
-   "samples": 101777
+   "samples": 101777,
+   "clubs": 1
   },
   "131877": {
    "set": "eng_us_gm_full",
@@ -5528,7 +6218,8 @@
    "segment": 172,
    "variation": 1013475,
    "param": "home_ID",
-   "samples": 43562
+   "samples": 43562,
+   "clubs": 1
   },
   "132370": {
    "set": "eng_us_gm_full",
@@ -5536,7 +6227,8 @@
    "segment": 91,
    "variation": 1010483,
    "param": "home_ID",
-   "samples": 41066
+   "samples": 41066,
+   "clubs": 1
   },
   "132533": {
    "set": "eng_us_gm_full",
@@ -5544,7 +6236,8 @@
    "segment": 216,
    "variation": 1039611,
    "param": "asset_team_ID",
-   "samples": 68575
+   "samples": 68575,
+   "clubs": 1
   },
   "132611": {
    "set": "eng_us_gm_full",
@@ -5552,7 +6245,8 @@
    "segment": 164,
    "variation": 1039559,
    "param": "asset_team_ID",
-   "samples": 68497
+   "samples": 68497,
+   "clubs": 1
   },
   "132702": {
    "set": "eng_us_dr_demo",
@@ -5560,7 +6254,8 @@
    "segment": 32,
    "variation": 695392,
    "param": "asset_team_ID",
-   "samples": 75040
+   "samples": 75040,
+   "clubs": 1
   },
   "132703": {
    "set": "eng_us_gm_full",
@@ -5568,7 +6263,8 @@
    "segment": 351,
    "variation": 1002696,
    "param": "home_ID",
-   "samples": 38262
+   "samples": 38262,
+   "clubs": 1
   },
   "132704": {
    "set": "eng_us_gm_full",
@@ -5576,7 +6272,8 @@
    "segment": 26,
    "variation": 1023967,
    "param": "lae_focus_team_2_ID",
-   "samples": 33997
+   "samples": 33997,
+   "clubs": 1
   },
   "132705": {
    "set": "eng_us_gm_full",
@@ -5584,7 +6281,8 @@
    "segment": 21,
    "variation": 1023962,
    "param": "lae_focus_team_2_ID",
-   "samples": 41483
+   "samples": 41483,
+   "clubs": 1
   },
   "132706": {
    "set": "eng_us_gm_full",
@@ -5592,7 +6290,8 @@
    "segment": 40,
    "variation": 1023981,
    "param": "lae_focus_team_2_ID",
-   "samples": 35869
+   "samples": 35869,
+   "clubs": 1
   },
   "132823": {
    "set": "eng_us_gm_licensed",
@@ -5600,7 +6299,8 @@
    "segment": 0,
    "variation": 1040598,
    "param": "home_ID",
-   "samples": 78953
+   "samples": 78953,
+   "clubs": 1
   },
   "800001": {
    "set": "eng_us_dr_full",
@@ -5608,7 +6308,8 @@
    "segment": 141,
    "variation": 694610,
    "param": "asset_team_ID",
-   "samples": 62927
+   "samples": 62927,
+   "clubs": 1
   },
   "800002": {
    "set": "eng_us_dr_full",
@@ -5616,7 +6317,8 @@
    "segment": 148,
    "variation": 694622,
    "param": "asset_team_ID",
-   "samples": 57714
+   "samples": 57714,
+   "clubs": 1
   },
   "800003": {
    "set": "eng_us_gm_full",
@@ -5624,7 +6326,8 @@
    "segment": 5,
    "variation": 1005973,
    "param": "home_ID",
-   "samples": 56112
+   "samples": 56112,
+   "clubs": 1
   },
   "800004": {
    "set": "eng_us_gm_full",
@@ -5632,7 +6335,8 @@
    "segment": 6,
    "variation": 1005974,
    "param": "home_ID",
-   "samples": 44781
+   "samples": 44781,
+   "clubs": 1
   },
   "800005": {
    "set": "eng_us_gm_full",
@@ -5640,7 +6344,8 @@
    "segment": 7,
    "variation": 1005975,
    "param": "home_ID",
-   "samples": 49344
+   "samples": 49344,
+   "clubs": 1
   },
   "800006": {
    "set": "eng_us_gm_full",
@@ -5648,7 +6353,8 @@
    "segment": 8,
    "variation": 1005976,
    "param": "home_ID",
-   "samples": 44760
+   "samples": 44760,
+   "clubs": 1
   },
   "800007": {
    "set": "eng_us_gm_full",
@@ -5656,7 +6362,8 @@
    "segment": 111,
    "variation": 1011118,
    "param": "home_ID",
-   "samples": 73078
+   "samples": 73078,
+   "clubs": 1
   },
   "800008": {
    "set": "eng_us_gm_full",
@@ -5664,7 +6371,8 @@
    "segment": 9,
    "variation": 1005977,
    "param": "home_ID",
-   "samples": 50625
+   "samples": 50625,
+   "clubs": 1
   },
   "800011": {
    "set": "eng_us_dr_full",
@@ -5672,7 +6380,8 @@
    "segment": 390,
    "variation": 685515,
    "param": "home_ID",
-   "samples": 60461
+   "samples": 60461,
+   "clubs": 1
   },
   "800013": {
    "set": "eng_us_gm_full",
@@ -5680,7 +6389,8 @@
    "segment": 112,
    "variation": 1011119,
    "param": "home_ID",
-   "samples": 52029
+   "samples": 52029,
+   "clubs": 1
   },
   "800014": {
    "set": "eng_us_gm_full",
@@ -5688,7 +6398,8 @@
    "segment": 11,
    "variation": 1005979,
    "param": "home_ID",
-   "samples": 52246
+   "samples": 52246,
+   "clubs": 1
   },
   "800015": {
    "set": "eng_us_gm_full",
@@ -5696,7 +6407,8 @@
    "segment": 12,
    "variation": 1005980,
    "param": "home_ID",
-   "samples": 53632
+   "samples": 53632,
+   "clubs": 1
   },
   "800016": {
    "set": "eng_us_gm_full",
@@ -5704,7 +6416,8 @@
    "segment": 13,
    "variation": 1005981,
    "param": "home_ID",
-   "samples": 51703
+   "samples": 51703,
+   "clubs": 1
   },
   "800019": {
    "set": "eng_us_gm_full",
@@ -5712,7 +6425,8 @@
    "segment": 14,
    "variation": 1005982,
    "param": "home_ID",
-   "samples": 48594
+   "samples": 48594,
+   "clubs": 1
   },
   "800020": {
    "set": "eng_us_gm_full",
@@ -5720,7 +6434,8 @@
    "segment": 15,
    "variation": 1005983,
    "param": "home_ID",
-   "samples": 48402
+   "samples": 48402,
+   "clubs": 1
   },
   "800021": {
    "set": "eng_us_gm_full",
@@ -5728,7 +6443,8 @@
    "segment": 16,
    "variation": 1005984,
    "param": "home_ID",
-   "samples": 48709
+   "samples": 48709,
+   "clubs": 1
   },
   "800022": {
    "set": "eng_us_gm_full",
@@ -5736,7 +6452,8 @@
    "segment": 17,
    "variation": 1005985,
    "param": "home_ID",
-   "samples": 49490
+   "samples": 49490,
+   "clubs": 1
   },
   "800023": {
    "set": "eng_us_gm_full",
@@ -5744,7 +6461,8 @@
    "segment": 18,
    "variation": 1005986,
    "param": "home_ID",
-   "samples": 44638
+   "samples": 44638,
+   "clubs": 1
   },
   "800024": {
    "set": "eng_us_gm_full",
@@ -5752,7 +6470,8 @@
    "segment": 19,
    "variation": 1005987,
    "param": "home_ID",
-   "samples": 49906
+   "samples": 49906,
+   "clubs": 1
   },
   "800028": {
    "set": "eng_us_gm_full",
@@ -5760,7 +6479,8 @@
    "segment": 20,
    "variation": 1005988,
    "param": "home_ID",
-   "samples": 49584
+   "samples": 49584,
+   "clubs": 1
   },
   "800029": {
    "set": "eng_us_gm_full",
@@ -5768,7 +6488,8 @@
    "segment": 21,
    "variation": 1005989,
    "param": "home_ID",
-   "samples": 39572
+   "samples": 39572,
+   "clubs": 1
   },
   "800030": {
    "set": "eng_us_gm_full",
@@ -5776,7 +6497,8 @@
    "segment": 22,
    "variation": 1005990,
    "param": "home_ID",
-   "samples": 38257
+   "samples": 38257,
+   "clubs": 1
   },
   "800031": {
    "set": "eng_us_gm_full",
@@ -5784,7 +6506,8 @@
    "segment": 23,
    "variation": 1005991,
    "param": "home_ID",
-   "samples": 49527
+   "samples": 49527,
+   "clubs": 1
   },
   "800033": {
    "set": "eng_us_gm_full",
@@ -5792,7 +6515,8 @@
    "segment": 24,
    "variation": 1005992,
    "param": "home_ID",
-   "samples": 34802
+   "samples": 34802,
+   "clubs": 1
   },
   "800034": {
    "set": "eng_us_gm_full",
@@ -5800,7 +6524,8 @@
    "segment": 25,
    "variation": 1005993,
    "param": "home_ID",
-   "samples": 55991
+   "samples": 55991,
+   "clubs": 1
   },
   "800035": {
    "set": "eng_us_gm_full",
@@ -5808,7 +6533,8 @@
    "segment": 26,
    "variation": 1005994,
    "param": "home_ID",
-   "samples": 37374
+   "samples": 37374,
+   "clubs": 1
   },
   "800036": {
    "set": "eng_us_dr_full",
@@ -5816,7 +6542,8 @@
    "segment": 321,
    "variation": 685257,
    "param": "home_ID",
-   "samples": 42614
+   "samples": 42614,
+   "clubs": 1
   },
   "800037": {
    "set": "eng_us_gm_full",
@@ -5824,7 +6551,8 @@
    "segment": 28,
    "variation": 1005996,
    "param": "home_ID",
-   "samples": 48164
+   "samples": 48164,
+   "clubs": 1
   },
   "800038": {
    "set": "eng_us_dr_full",
@@ -5832,7 +6560,8 @@
    "segment": 400,
    "variation": 685530,
    "param": "home_ID",
-   "samples": 68846
+   "samples": 68846,
+   "clubs": 1
   },
   "800040": {
    "set": "eng_us_gm_full",
@@ -5840,7 +6569,8 @@
    "segment": 29,
    "variation": 1005997,
    "param": "home_ID",
-   "samples": 67395
+   "samples": 67395,
+   "clubs": 1
   },
   "800041": {
    "set": "eng_us_gm_full",
@@ -5848,7 +6578,8 @@
    "segment": 30,
    "variation": 1005998,
    "param": "home_ID",
-   "samples": 48277
+   "samples": 48277,
+   "clubs": 1
   },
   "800042": {
    "set": "eng_us_gm_full",
@@ -5856,7 +6587,8 @@
    "segment": 114,
    "variation": 1011121,
    "param": "home_ID",
-   "samples": 65386
+   "samples": 65386,
+   "clubs": 1
   },
   "800043": {
    "set": "eng_us_dr_full",
@@ -5864,7 +6596,8 @@
    "segment": 401,
    "variation": 685532,
    "param": "home_ID",
-   "samples": 54197
+   "samples": 54197,
+   "clubs": 1
   },
   "800047": {
    "set": "eng_us_gm_full",
@@ -5872,7 +6605,8 @@
    "segment": 31,
    "variation": 1005999,
    "param": "home_ID",
-   "samples": 43822
+   "samples": 43822,
+   "clubs": 1
   },
   "800048": {
    "set": "eng_us_gm_full",
@@ -5880,7 +6614,8 @@
    "segment": 32,
    "variation": 1006000,
    "param": "home_ID",
-   "samples": 40845
+   "samples": 40845,
+   "clubs": 1
   },
   "800049": {
    "set": "eng_us_gm_full",
@@ -5888,7 +6623,8 @@
    "segment": 33,
    "variation": 1006001,
    "param": "home_ID",
-   "samples": 41028
+   "samples": 41028,
+   "clubs": 1
   },
   "800050": {
    "set": "eng_us_dr_full",
@@ -5896,7 +6632,8 @@
    "segment": 221,
    "variation": 694739,
    "param": "asset_team_ID",
-   "samples": 62461
+   "samples": 62461,
+   "clubs": 1
   },
   "800051": {
    "set": "eng_us_gm_full",
@@ -5904,7 +6641,8 @@
    "segment": 117,
    "variation": 1011124,
    "param": "home_ID",
-   "samples": 40915
+   "samples": 40915,
+   "clubs": 1
   },
   "800053": {
    "set": "eng_us_gm_full",
@@ -5912,7 +6650,8 @@
    "segment": 118,
    "variation": 1011125,
    "param": "home_ID",
-   "samples": 42602
+   "samples": 42602,
+   "clubs": 1
   },
   "800054": {
    "set": "eng_us_gm_full",
@@ -5920,7 +6659,8 @@
    "segment": 119,
    "variation": 1011126,
    "param": "home_ID",
-   "samples": 43539
+   "samples": 43539,
+   "clubs": 1
   },
   "800055": {
    "set": "eng_us_gm_full",
@@ -5928,7 +6668,8 @@
    "segment": 120,
    "variation": 1011127,
    "param": "home_ID",
-   "samples": 44058
+   "samples": 44058,
+   "clubs": 1
   },
   "800056": {
    "set": "eng_us_gm_full",
@@ -5936,7 +6677,8 @@
    "segment": 121,
    "variation": 1011128,
    "param": "home_ID",
-   "samples": 43181
+   "samples": 43181,
+   "clubs": 1
   },
   "800057": {
    "set": "eng_us_gm_full",
@@ -5944,7 +6686,8 @@
    "segment": 122,
    "variation": 1011129,
    "param": "home_ID",
-   "samples": 44906
+   "samples": 44906,
+   "clubs": 1
   },
   "800058": {
    "set": "eng_us_gm_full",
@@ -5952,7 +6695,8 @@
    "segment": 123,
    "variation": 1011130,
    "param": "home_ID",
-   "samples": 56020
+   "samples": 56020,
+   "clubs": 1
   },
   "800059": {
    "set": "eng_us_gm_full",
@@ -5960,7 +6704,8 @@
    "segment": 223,
    "variation": 1019405,
    "param": "asset_team_ID",
-   "samples": 60472
+   "samples": 60472,
+   "clubs": 1
   },
   "800060": {
    "set": "eng_us_dr_full",
@@ -5968,7 +6713,8 @@
    "segment": 406,
    "variation": 685538,
    "param": "home_ID",
-   "samples": 54060
+   "samples": 54060,
+   "clubs": 1
   },
   "800062": {
    "set": "eng_us_gm_full",
@@ -5976,7 +6722,8 @@
    "segment": 126,
    "variation": 1011133,
    "param": "home_ID",
-   "samples": 49476
+   "samples": 49476,
+   "clubs": 1
   },
   "800063": {
    "set": "eng_us_gm_full",
@@ -5984,7 +6731,8 @@
    "segment": 127,
    "variation": 1011134,
    "param": "home_ID",
-   "samples": 52319
+   "samples": 52319,
+   "clubs": 1
   },
   "800065": {
    "set": "eng_us_gm_full",
@@ -5992,7 +6740,8 @@
    "segment": 128,
    "variation": 1011135,
    "param": "home_ID",
-   "samples": 50870
+   "samples": 50870,
+   "clubs": 1
   },
   "800066": {
    "set": "eng_us_gm_full",
@@ -6000,7 +6749,8 @@
    "segment": 129,
    "variation": 1011136,
    "param": "home_ID",
-   "samples": 43278
+   "samples": 43278,
+   "clubs": 1
   },
   "800067": {
    "set": "eng_us_gm_full",
@@ -6008,7 +6758,8 @@
    "segment": 130,
    "variation": 1011137,
    "param": "home_ID",
-   "samples": 56139
+   "samples": 56139,
+   "clubs": 1
   },
   "800068": {
    "set": "eng_us_gm_full",
@@ -6016,7 +6767,8 @@
    "segment": 131,
    "variation": 1011138,
    "param": "home_ID",
-   "samples": 66785
+   "samples": 66785,
+   "clubs": 1
   },
   "800069": {
    "set": "eng_us_gm_full",
@@ -6024,7 +6776,8 @@
    "segment": 132,
    "variation": 1011139,
    "param": "home_ID",
-   "samples": 52788
+   "samples": 52788,
+   "clubs": 1
   },
   "800070": {
    "set": "eng_us_dr_full",
@@ -6032,7 +6785,8 @@
    "segment": 414,
    "variation": 685548,
    "param": "home_ID",
-   "samples": 42304
+   "samples": 42304,
+   "clubs": 1
   },
   "800071": {
    "set": "eng_us_gm_full",
@@ -6040,7 +6794,8 @@
    "segment": 133,
    "variation": 1011140,
    "param": "home_ID",
-   "samples": 47054
+   "samples": 47054,
+   "clubs": 1
   },
   "800073": {
    "set": "eng_us_gm_full",
@@ -6048,7 +6803,8 @@
    "segment": 205,
    "variation": 1018291,
    "param": "home_ID",
-   "samples": 57675
+   "samples": 57675,
+   "clubs": 1
   },
   "800074": {
    "set": "eng_us_gm_full",
@@ -6056,7 +6812,8 @@
    "segment": 74,
    "variation": 1007691,
    "param": "asset_team_ID",
-   "samples": 48302
+   "samples": 48302,
+   "clubs": 1
   },
   "800075": {
    "set": "eng_us_dr_full",
@@ -6064,7 +6821,8 @@
    "segment": 418,
    "variation": 685553,
    "param": "home_ID",
-   "samples": 47168
+   "samples": 47168,
+   "clubs": 1
   },
   "800077": {
    "set": "eng_us_gm_full",
@@ -6072,7 +6830,8 @@
    "segment": 135,
    "variation": 1011143,
    "param": "home_ID",
-   "samples": 47687
+   "samples": 47687,
+   "clubs": 1
   },
   "800078": {
    "set": "eng_us_gm_full",
@@ -6080,7 +6839,8 @@
    "segment": 36,
    "variation": 1006004,
    "param": "home_ID",
-   "samples": 53376
+   "samples": 53376,
+   "clubs": 1
   },
   "800079": {
    "set": "eng_us_gm_full",
@@ -6088,7 +6848,8 @@
    "segment": 136,
    "variation": 1011144,
    "param": "home_ID",
-   "samples": 51334
+   "samples": 51334,
+   "clubs": 1
   },
   "800080": {
    "set": "eng_us_gm_full",
@@ -6096,7 +6857,8 @@
    "segment": 137,
    "variation": 1011502,
    "param": "home_ID",
-   "samples": 49081
+   "samples": 49081,
+   "clubs": 1
   },
   "800081": {
    "set": "eng_us_gm_full",
@@ -6104,7 +6866,8 @@
    "segment": 138,
    "variation": 1011503,
    "param": "home_ID",
-   "samples": 50958
+   "samples": 50958,
+   "clubs": 1
   },
   "800082": {
    "set": "eng_us_gm_full",
@@ -6112,7 +6875,8 @@
    "segment": 139,
    "variation": 1011504,
    "param": "home_ID",
-   "samples": 55384
+   "samples": 55384,
+   "clubs": 1
   },
   "800083": {
    "set": "eng_us_gm_full",
@@ -6120,7 +6884,8 @@
    "segment": 140,
    "variation": 1011505,
    "param": "home_ID",
-   "samples": 56680
+   "samples": 56680,
+   "clubs": 1
   },
   "800084": {
    "set": "eng_us_gm_full",
@@ -6128,7 +6893,8 @@
    "segment": 141,
    "variation": 1011506,
    "param": "home_ID",
-   "samples": 65325
+   "samples": 65325,
+   "clubs": 1
   },
   "800086": {
    "set": "eng_us_gm_full",
@@ -6136,7 +6902,8 @@
    "segment": 142,
    "variation": 1011507,
    "param": "home_ID",
-   "samples": 61149
+   "samples": 61149,
+   "clubs": 1
   },
   "800087": {
    "set": "eng_us_dr_full",
@@ -6144,7 +6911,8 @@
    "segment": 428,
    "variation": 685564,
    "param": "home_ID",
-   "samples": 71873
+   "samples": 71873,
+   "clubs": 1
   },
   "800088": {
    "set": "eng_us_gm_full",
@@ -6152,7 +6920,8 @@
    "segment": 144,
    "variation": 1011509,
    "param": "home_ID",
-   "samples": 53987
+   "samples": 53987,
+   "clubs": 1
   },
   "800091": {
    "set": "eng_us_dr_full",
@@ -6160,7 +6929,8 @@
    "segment": 430,
    "variation": 685567,
    "param": "home_ID",
-   "samples": 50816
+   "samples": 50816,
+   "clubs": 1
   },
   "800092": {
    "set": "eng_us_gm_full",
@@ -6168,7 +6938,8 @@
    "segment": 146,
    "variation": 1011511,
    "param": "home_ID",
-   "samples": 55203
+   "samples": 55203,
+   "clubs": 1
   },
   "800093": {
    "set": "eng_us_gm_full",
@@ -6176,7 +6947,8 @@
    "segment": 147,
    "variation": 1011512,
    "param": "home_ID",
-   "samples": 61835
+   "samples": 61835,
+   "clubs": 1
   },
   "800094": {
    "set": "eng_us_gm_full",
@@ -6184,7 +6956,8 @@
    "segment": 148,
    "variation": 1011513,
    "param": "home_ID",
-   "samples": 69196
+   "samples": 69196,
+   "clubs": 1
   },
   "800095": {
    "set": "eng_us_gm_full",
@@ -6192,7 +6965,8 @@
    "segment": 149,
    "variation": 1011514,
    "param": "home_ID",
-   "samples": 56752
+   "samples": 56752,
+   "clubs": 1
   },
   "800096": {
    "set": "eng_us_gm_full",
@@ -6200,7 +6974,8 @@
    "segment": 150,
    "variation": 1011515,
    "param": "home_ID",
-   "samples": 61431
+   "samples": 61431,
+   "clubs": 1
   },
   "800097": {
    "set": "eng_us_gm_full",
@@ -6208,7 +6983,8 @@
    "segment": 151,
    "variation": 1011516,
    "param": "home_ID",
-   "samples": 70012
+   "samples": 70012,
+   "clubs": 1
   },
   "800098": {
    "set": "eng_us_gm_full",
@@ -6216,7 +6992,8 @@
    "segment": 152,
    "variation": 1011517,
    "param": "home_ID",
-   "samples": 67921
+   "samples": 67921,
+   "clubs": 1
   },
   "800099": {
    "set": "eng_us_gm_full",
@@ -6224,7 +7001,8 @@
    "segment": 153,
    "variation": 1011518,
    "param": "home_ID",
-   "samples": 56276
+   "samples": 56276,
+   "clubs": 1
   },
   "800100": {
    "set": "eng_us_dr_full",
@@ -6232,7 +7010,8 @@
    "segment": 501,
    "variation": 685704,
    "param": "home_ID",
-   "samples": 57358
+   "samples": 57358,
+   "clubs": 1
   },
   "800101": {
    "set": "eng_us_gm_full",
@@ -6240,7 +7019,8 @@
    "segment": 363,
    "variation": 1021249,
    "param": "asset_team_ID",
-   "samples": 72127
+   "samples": 72127,
+   "clubs": 1
   },
   "800102": {
    "set": "eng_us_gm_full",
@@ -6248,7 +7028,8 @@
    "segment": 156,
    "variation": 1011521,
    "param": "home_ID",
-   "samples": 51924
+   "samples": 51924,
+   "clubs": 1
   },
   "800103": {
    "set": "eng_us_gm_full",
@@ -6256,7 +7037,8 @@
    "segment": 157,
    "variation": 1011522,
    "param": "home_ID",
-   "samples": 47152
+   "samples": 47152,
+   "clubs": 1
   },
   "800104": {
    "set": "eng_us_dr_full",
@@ -6264,7 +7046,8 @@
    "segment": 512,
    "variation": 685715,
    "param": "home_ID",
-   "samples": 62817
+   "samples": 62817,
+   "clubs": 1
   },
   "800105": {
    "set": "eng_us_gm_full",
@@ -6272,7 +7055,8 @@
    "segment": 159,
    "variation": 1011524,
    "param": "home_ID",
-   "samples": 62231
+   "samples": 62231,
+   "clubs": 1
   },
   "800106": {
    "set": "eng_us_gm_full",
@@ -6280,7 +7064,8 @@
    "segment": 160,
    "variation": 1011525,
    "param": "home_ID",
-   "samples": 66539
+   "samples": 66539,
+   "clubs": 1
   },
   "800107": {
    "set": "eng_us_gm_full",
@@ -6288,7 +7073,8 @@
    "segment": 161,
    "variation": 1011526,
    "param": "home_ID",
-   "samples": 58879
+   "samples": 58879,
+   "clubs": 1
   },
   "800108": {
    "set": "eng_us_dr_full",
@@ -6296,7 +7082,8 @@
    "segment": 510,
    "variation": 685713,
    "param": "home_ID",
-   "samples": 53824
+   "samples": 53824,
+   "clubs": 1
   },
   "800109": {
    "set": "eng_us_gm_full",
@@ -6304,7 +7091,8 @@
    "segment": 163,
    "variation": 1011528,
    "param": "home_ID",
-   "samples": 68912
+   "samples": 68912,
+   "clubs": 1
   },
   "800110": {
    "set": "eng_us_dr_full",
@@ -6312,7 +7100,8 @@
    "segment": 514,
    "variation": 685717,
    "param": "home_ID",
-   "samples": 62902
+   "samples": 62902,
+   "clubs": 1
   },
   "800111": {
    "set": "eng_us_dr_full",
@@ -6320,7 +7109,8 @@
    "segment": 508,
    "variation": 685711,
    "param": "home_ID",
-   "samples": 47576
+   "samples": 47576,
+   "clubs": 1
   },
   "800112": {
    "set": "eng_us_dr_full",
@@ -6328,7 +7118,8 @@
    "segment": 557,
    "variation": 709317,
    "param": "home_ID",
-   "samples": 51952
+   "samples": 51952,
+   "clubs": 1
   }
  }
 }

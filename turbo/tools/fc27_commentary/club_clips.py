@@ -3,13 +3,17 @@
 FC 27 has no club-name bank (club_ids.py). The commentator says a club's name inside team-keyed SoundWave families whose
 Selection rows are keyed by club parameters (CLUB_PARAMS, the set the Turbo voice-swap hook rewrites). For every club id
 this tool picks the SHORTEST segment of any such row (the clip most likely to be the name alone, brief E15 check g) and
-records it; the decode is done on demand, one id at a time, into a cache that is never overwritten.
+records it; the decode is done on demand, one id at a time, into a cache. A row keyed by two clubs (home + away) may say
+the other club too, so a row that names ONLY this club wins over a shorter two-club row; "clubs" in the index says which
+kind was picked (1 = only this club, 2 = the row also names another club). The cache keeps each wav with a sidecar
+<id>.json naming its (set, family, segment); a wav whose sidecar does not match the index row (or has none) is decoded
+again, so a rebuilt index never leaves a stale clip behind.
 
     python -I club_clips.py --lang eng_us --index --out ...\\turbo\\callnames\\clubs\\eng_us_clips.json
     python -I club_clips.py --lang eng_us --clips ...\\eng_us_clips.json --decode 95 --cache ...\\turbo_output\\cache\\teamaudio
     python -I club_clips.py --selftest
 
-Index json: {"lang", "game_build", "clips": {"<id>": {"set", "family", "segment", "variation", "param", "samples"}}}.
+Index json: {"lang", "game_build", "clips": {"<id>": {"set", "family", "segment", "variation", "param", "samples", "clubs"}}}.
 A decoded clip is <cache>\\<lang>\\<id>.wav (mono, 48 kHz, the bank's native rate); a silent decode (RMS < 1e-6) is
 refused and removed (eafc-voice-audio rule 3). Codec 0x0F (eng_us) decodes stream 1 only (fc27_commentary.speech_packets).
 One language per call; nothing in the game folder is written.
@@ -62,7 +66,8 @@ def _family(bank, set_name, family):
 
 
 def club_rows(sel, wanted=None):
-    """[(id, segment, variation, param)] of one Selection data set, over its club-parameter indexes."""
+    """[(id, segment, variation, param, clubs)] of one Selection data set, over its club-parameter indexes; clubs = how many
+    distinct club ids the row is keyed by (1 = only this club, 2 = home + away)."""
     seg = sel.fields.get(fc.H_SEGMENT)
     var = sel.fields.get(fc.djb2x("VariationId"))
     if seg is None:
@@ -77,10 +82,11 @@ def club_rows(sel, wanted=None):
         except fc.FormatError:
             continue
         for r, k in keys.items():
+            nclubs = len({k.get(p) for p in names if k.get(p) and k.get(p) > 0})
             for p in names:
                 i = k.get(p)
                 if i and i > 0 and (wanted is None or i in wanted):
-                    out.append((i, seg[r], var[r] if var is not None else 0, p))
+                    out.append((i, seg[r], var[r] if var is not None else 0, p, nclubs))
     return out
 
 
@@ -97,14 +103,18 @@ def segment_samples(bank, fam):
 
 
 def pick_shortest(cands):
-    """cands [(id, set, family, segment, variation, param, samples)] -> {id: the row with the fewest samples}.
-    Ties break on (set, family, segment) so the pick is stable across runs."""
+    """cands [(id, set, family, segment, variation, param, samples, clubs)] -> {id: the best row}: a row keyed by this club
+    alone (clubs == 1) before a row that also names another club, then the fewest samples. A candidate without the clubs
+    field counts as a two-club row. Ties break on (set, family, segment) so the pick is stable across runs."""
+    def rank(c):
+        clubs = c[7] if len(c) > 7 else 2
+        return (clubs > 1, c[6], c[1], c[2], c[3])
     best = {}
     for c in cands:
         i = c[0]
         if c[6] <= 0:
             continue
-        if i not in best or (c[6], c[1], c[2], c[3]) < (best[i][6], best[i][1], best[i][2], best[i][3]):
+        if i not in best or rank(c) < rank(best[i]):
             best[i] = c
     return best
 
@@ -126,30 +136,48 @@ def build_index(bank, wanted=None, log=print):
             except (fc.FormatError, KeyError, IndexError) as ex:
                 errors.append("%s/%s: %s" % (s, f, ex))
                 continue
-            for i, seg, var, p in rows:
-                cands.append((i, s, f, seg, var, p, lens.get(seg, 0)))
+            for i, seg, var, p, n in rows:
+                cands.append((i, s, f, seg, var, p, lens.get(seg, 0), n))
     best = pick_shortest(cands)
-    log("index: %d candidate rows, %d clubs with a clip, %d families skipped, %.1f s"
-        % (len(cands), len(best), len(errors), time.time() - t0))
+    log("index: %d candidate rows (%d keyed by two clubs), %d clubs with a clip (%d by a row naming only that club, "
+        "%d only by a two-club row), %d families skipped, %.1f s"
+        % (len(cands), sum(1 for c in cands if c[7] > 1), len(best), sum(1 for c in best.values() if c[7] == 1),
+           sum(1 for c in best.values() if c[7] != 1), len(errors), time.time() - t0))
     for e in errors[:20]:
         log("  skipped " + e)
-    return {str(i): {"set": c[1], "family": c[2], "segment": c[3], "variation": c[4], "param": c[5], "samples": c[6]}
-            for i, c in sorted(best.items())}
+    return {str(i): {"set": c[1], "family": c[2], "segment": c[3], "variation": c[4], "param": c[5], "samples": c[6],
+                     "clubs": c[7]} for i, c in sorted(best.items())}
 
 
 def clip_path(cache, lang, club_id):
     return os.path.join(cache, lang, "%d.wav" % int(club_id))
 
 
+def _source(row):
+    return {"set": row["set"], "family": row["family"], "segment": row["segment"]}
+
+
+def cache_matches(wav, row):
+    """True when <id>.wav exists and its sidecar <id>.json names the same (set, family, segment) as the index row."""
+    side = os.path.splitext(wav)[0] + ".json"
+    if not (os.path.exists(wav) and os.path.exists(side)):
+        return False
+    try:
+        with open(side, encoding="utf-8") as f:
+            return json.load(f) == _source(row)
+    except (OSError, ValueError):
+        return False
+
+
 def decode_clip(bank, clips, club_id, cache, ffmpeg, log=print):
-    """Decode one club's clip into <cache>/<lang>/<id>.wav. Returns (path, stats) or raises FormatError with the reason.
-    An existing file is never overwritten: it is returned as it is (the cache is write-once)."""
+    """Decode one club's clip into <cache>/<lang>/<id>.wav (+ sidecar <id>.json). Returns (path, stats) or raises FormatError
+    with the reason. A wav whose sidecar matches the index row is returned as it is; any other one is decoded again."""
     out = clip_path(cache, bank.lang, club_id)
-    if os.path.exists(out):
-        return out, wav_stats(out)
     row = clips.get(str(int(club_id)))
     if row is None:
         raise fc.FormatError("no clip: club %s has no club-parameter row in the %s bank" % (club_id, bank.lang))
+    if cache_matches(out, row):
+        return out, wav_stats(out)
     fam = _family(bank, row["set"], row["family"])
     tmp = tempfile.mkdtemp(prefix="e15clip_")
     try:
@@ -161,9 +189,13 @@ def decode_clip(bank, clips, club_id, cache, ffmpeg, log=print):
         if not (st[0] >= 1e-6 and math.isfinite(st[0])):
             raise fc.FormatError("silent decode refused (RMS %.3g)" % st[0])
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        if os.path.exists(out):          # raced with another caller: keep the first file
+        if cache_matches(out, row):      # raced with another caller: keep the first file
             return out, wav_stats(out)
+        if os.path.exists(out):          # a stale clip (sidecar missing or another segment)
+            os.remove(out)
         shutil.move(got, out)
+        with open(os.path.splitext(out)[0] + ".json", "w", encoding="utf-8") as f:
+            json.dump(_source(row), f)
         return out, st
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
