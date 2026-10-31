@@ -87,6 +87,9 @@ int& player_edit_tab();
 // player_edit_tab().
 int& player_edit_who();
 int& manager_edit_tab();
+// 5.0c E16 (two clicks): Home's "Manager miniface (3D)" asks the manager card's Miniface tab to open on its "The 3D model" source (one click from
+// Home instead of Home > Manager looks > Miniface > The 3D model). One-shot: ui_images.cpp selects the source tab and clears it.
+bool& miniface_3d_request();
 
 // 3.1 N1: the place the last navigation left (go(), a cross-link, a rail or page-strip click), so a page that was opened from another
 // one can offer "< Back to <page>". One level. Place{} (invalid) = nothing to go back to. App::back() goes there and clears it; the App

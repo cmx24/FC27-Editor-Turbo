@@ -28,6 +28,7 @@
 #include "ui_asset_browser.h"
 #include "ui_bodytypes.h"
 #include "ui_images.h"
+#include "ui_shell.h"
 #include "ui_visual_picker.h"
 
 namespace turbo {
@@ -1320,7 +1321,13 @@ void miniface_editor(App& app, const MinifaceTarget& t) {
                 ImGui::EndTabItem();
             }
         }
-        if (ImGui::BeginTabItem("The 3D model")) {
+        // 5.0c E16: Home's "Manager miniface (3D)" opens this source in one click (shell::miniface_3d_request, one-shot)
+        ImGuiTabItemFlags tab3d_flags = ImGuiTabItemFlags_None;
+        if (t.manager && shell::miniface_3d_request()) {
+            tab3d_flags = ImGuiTabItemFlags_SetSelected;
+            shell::miniface_3d_request() = false;
+        }
+        if (ImGui::BeginTabItem("The 3D model", nullptr, tab3d_flags)) {
             capture_tab(app, ed, t);
             ImGui::EndTabItem();
         }
