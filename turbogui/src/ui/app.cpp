@@ -2000,14 +2000,14 @@ void App::draw_pages() {
     ImGui::PopStyleColor();
     {
         const float bw = ImGui::GetContentRegionAvail().x;
-        // Turbo X: the product mark ("TURBO" in the semibold face, "X 1.0" muted) and the narrow/wide toggle on its right
+        // Turbo X: the product mark ("TURBO" in the semibold face, the version (kGuiVersion) muted) and the narrow/wide toggle on its right
         theme::push_title_font(theme::kFontMark);
         ImGui::TextColored(theme::accent(), narrow ? "X" : "TURBO");
         theme::pop_title_font();
         if (!narrow) {
             ImGui::SameLine(0.0f, S(6.0f));
             ImGui::AlignTextToFramePadding();
-            theme::muted_text("X 1.0");
+            theme::muted_text("%s", kGuiVersion);  // "X 1.0.1": the version, never a second literal
         }
         {
             const char* tl = narrow ? ">###railwiden" : "<###railnarrow";
