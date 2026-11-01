@@ -78,7 +78,7 @@ void draw_layout(App& app) {
     }
     ImGui::Spacing();
     // X 2.0: show / hide / resize / scale the menus and panels (ui_custom_layout.h; also Ctrl+L and the top bar's Layout button)
-    if (ImGui::Button("Customize layout...###layout_customize", ImVec2(0, bh))) custom_layout::window_open() = true;
+    if (ImGui::Button("Customize layout...###layout_customize", ImVec2(0, bh))) custom_layout::open();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show, hide, resize and scale the top bar, the left menu, the page tabs and the panels (Ctrl+L)");
     ImGui::Spacing();
     if (ImGui::Button("Restore window to default###layout_window", ImVec2(0, bh))) app.restore_window_default();

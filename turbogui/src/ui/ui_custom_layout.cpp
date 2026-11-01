@@ -21,6 +21,16 @@ bool& window_open() {
     return open;
 }
 
+static bool& focus_request() {
+    static bool f = false;
+    return f;
+}
+
+void open() {
+    window_open() = true;
+    focus_request() = true;  // in front of the main panel (a maximized panel the person clicked covers it otherwise)
+}
+
 RegionScale::RegionScale(float scale) {
     const float s = CustomLayout::clamp_scale(scale);
     if (s == 1.0f || ImGui::GetCurrentContext() == nullptr) return;
@@ -57,7 +67,10 @@ void reset(App& app) {
 void handle_shortcut(App& app) {
     if (!app.visible || app.hotkey_capture) return;
     const ImGuiIO& io = ImGui::GetIO();
-    if (io.KeyCtrl && !io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_L, false)) window_open() = !window_open();
+    if (io.KeyCtrl && !io.KeyAlt && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_L, false)) {
+        if (window_open()) window_open() = false;
+        else open();
+    }
 }
 
 namespace {
@@ -89,6 +102,10 @@ void draw_window(App& app) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(S(580.0f), S(680.0f)), ImGuiCond_FirstUseEver);
+    if (focus_request()) {
+        ImGui::SetNextWindowFocus();
+        focus_request() = false;
+    }
     if (!ImGui::Begin("Customize layout###custom_layout", &window_open(), ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -112,7 +129,7 @@ void draw_window(App& app) {
             app.prefs.rail_collapsed = narrow;
             save_now = true;
         }
-        ImGui::SameLine(S(240.0f) - S(24.0f));
+        ImGui::SameLine(S(240.0f));  // SameLine's x is from the window's start (the indent does not count): the Text sliders' column
         int w = static_cast<int>(std::lround(CustomLayout::clamp_rail(c.rail_width)));
         ImGui::SetNextItemWidth(S(220.0f));
         ImGui::BeginDisabled(narrow);

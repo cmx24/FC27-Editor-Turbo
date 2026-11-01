@@ -860,12 +860,16 @@ void card_profiles(App& app) {
             ImGui::SameLine();
             // X 2.0 review fix (11): Delete asks once ("Confirm delete" on the same button), it had no confirmation
             static std::string s_confirm_delete;
+            static double s_confirm_at = 0.0;
+            if (!s_confirm_delete.empty() && app.now - s_confirm_at > 5.0) s_confirm_delete.clear();  // the question lapses after 5 s
             const bool confirming = s_confirm_delete == s.slug;
-            const bool del_clicked = ImGui::SmallButton(confirming ? "Confirm delete###prof_btn_delete" : "Delete###prof_btn_delete");
+            const std::string del_lbl = std::string(confirming ? "Confirm delete" : "Delete") + "###prof_btn_delete";
+            const bool del_clicked = ImGui::SmallButton(del_lbl.c_str());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", confirming ? "Click again to delete this profile file" : "Delete this profile (asks once)");
             if (del_clicked && !confirming) {
                 s_confirm_delete = s.slug;
-            } else if (del_clicked) {
+                s_confirm_at = app.now;
+            } else if (del_clicked && app.now - s_confirm_at >= 0.4) {  // a double-click is not a confirmation
                 s_confirm_delete.clear();
                 s_slots_stale = true;
                 std::string err;

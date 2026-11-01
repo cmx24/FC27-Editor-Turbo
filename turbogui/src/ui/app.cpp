@@ -2111,7 +2111,7 @@ void App::draw_pages() {
     ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
     const auto& strip = pages_of(place_.area);
     if (!cl.top_bar && !cl.rail) {  // X 2.0: both main menus hidden: one small way back stays
-        if (ImGui::SmallButton("Menus###show_menus")) custom_layout::window_open() = true;
+        if (ImGui::SmallButton("Menus###show_menus")) custom_layout::open();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Customize layout: show the top bar and the left menu again (Ctrl+L)");
     }
     const bool tabs_on = cl.page_tabs;
@@ -2549,7 +2549,7 @@ void App::draw() {
         }
         // X 2.0: the way into Customize layout (never hidden)
         next_item();
-        if (ImGui::SmallButton("Layout###top_layout")) custom_layout::window_open() = !custom_layout::window_open();
+        if (ImGui::SmallButton("Layout###top_layout")) custom_layout::open();  // opens / brings it to the front (Close or Ctrl+L closes it)
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Customize layout: show, hide, resize and scale menus and panels (Ctrl+L)");
         {
             // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)

@@ -134,6 +134,7 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.find("###statusrefresh") == nullptr && ui.find("###changes") == nullptr && ui.find("###top_pause_gifs") != nullptr &&
                   ui.find("###top_layout") != nullptr,
               "Refresh and Changes gone, Pause animations and Layout stay");
+        CHECK(saved()["gui"]["custom_layout"]["hidden_top"] == nlohmann::json::array({"changes", "refresh"}), "saved: hidden_top");
         CHECK(ui.find("###cl_top_layout") == nullptr, "there is no switch for the Layout button");
         CHECK(ui.click("###cl_top_refresh", "Customize layout") && ui.click("###cl_top_changes", "Customize layout"), "tick them again");
         settle(3);
@@ -152,7 +153,9 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.find("Tactics", "##rail", "##shell") == nullptr && ui.find("Club", "##rail", "##shell") != nullptr, "Tactics left the left menu");
         ui.click(set, "Customize layout");  // its box is disabled: the click does nothing
         settle(3);
-        CHECK(app.prefs.custom.area_shown(CustomLayout::kSettingsArea) && ui.find("Turbo settings", "##rail", "##shell") != nullptr, "Turbo settings stays");
+        CHECK(app.prefs.custom.hidden_areas.count(CustomLayout::kSettingsArea) == 0 && ui.find("Turbo settings", "##rail", "##shell") != nullptr,
+              "Turbo settings stays (not in the hidden list, still in the left menu)");
+        CHECK(saved()["gui"]["custom_layout"]["hidden_areas"] == nlohmann::json::array({"Tactics"}), "saved: hidden_areas = [Tactics]");
         app.go(default_page(Area::Tactics));
         settle(3);
         CHECK(app.place().area == Area::Tactics, "a hidden area still opens through go() (links, search)");
@@ -175,6 +178,7 @@ static void ui_cases(App& app, Ui& ui) {
         app.prefs.custom.hidden_pages.clear();
         CHECK(ui.click("###cl_page_tabs", "Customize layout"), "untick Page tabs");
         settle(3);
+        CHECK(saved()["gui"]["custom_layout"]["page_tabs"] == false, "saved: page_tabs false");
         CHECK(ui.find("Staff", "##content", "##pages") == nullptr && ui.find("Player", "##content", "##pages") == nullptr, "no page tabs");
         CHECK(app.place() == place_of(Page::PlayerEdit), "the page itself still draws");
         CHECK(ui.click("###cl_page_tabs", "Customize layout"), "tick Page tabs");
@@ -290,7 +294,7 @@ static void ui_cases(App& app, Ui& ui) {
         settle(2);
     });
 
-    run_case("customize layout UI: the list pane folds to a strip and comes back (right-click menu, strip, window)", [&] {
+    run_case("customize layout UI: the list pane folds to a strip and comes back (the > strip, the window)", [&] {
         app.go(Page::PlayerEdit);
         settle(3);
         CHECK(ui.find("###unfold##select") == nullptr, "not folded");

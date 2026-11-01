@@ -13,11 +13,12 @@
 #pragma once
 
 namespace turbo {
-struct App;
+class App;
 
 namespace custom_layout {
 
 bool& window_open();                 // the Customize layout window (Ctrl+L, the top bar's Layout button, Turbo settings > Layout)
+void open();                         // open it AND bring it in front of the main panel (every button that opens it calls this)
 void handle_shortcut(App& app);      // Ctrl+L: open / close the window (called every frame while Turbo is shown)
 void draw_window(App& app);          // the window itself (called once per frame, outside the main panel)
 void reset(App& app);                // every layout choice of this module back to the default (and saved)

@@ -179,6 +179,7 @@ void draw_home(App& app) {
         const float below = line * 3.0f + (ImGui::GetTextLineHeight() * 2.0f + S(24.0f)) * 2.0f + line * 4.0f + S(24.0f);
         float sh = ImGui::GetContentRegionAvail().y - below;
         sh = sh < S(140.0f) ? S(140.0f) : (sh > S(300.0f) ? S(300.0f) : sh);
+        if (x2::state().squad_pitch_home) sh = S(400.0f);  // X 2.0 review fix: the pitch (S(380) tall) is shown whole, the page scrolls instead
         ImGui::BeginChild("##home_squad", ImVec2(0.0f, sh), ImGuiChildFlags_Borders);
         if (x2::state().squad_pitch_home) {
             draw_pitch_squad_view(app, st.user_team);  // X 2.0 review fix (14): the toggle drew the table in both views

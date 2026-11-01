@@ -37,6 +37,12 @@ static bool write_whole(const fs::path& path, const std::string& text) {
         if (!f) return false;
     }
     fs::rename(tmp, path, ec);
+    if (ec) {  // a C runtime whose rename does not replace an existing file: remove it, then rename (as save_profile does)
+        std::error_code ec2;
+        fs::remove(path, ec2);
+        ec.clear();
+        fs::rename(tmp, path, ec);
+    }
     if (ec) {
         fs::remove(tmp, ec);
         return false;

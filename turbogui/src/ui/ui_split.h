@@ -199,6 +199,7 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     rt.have_rect = true;
     rt.applied_panel = panel;
     const double now = ImGui::GetTime();
+    (void)open;  // X 2.0: true unless folded (above); a pane BeginChild clipped still runs its caller's content, as before 2.0
     if (changed || force) {
         rt.applied_key = key;
         rt.applied_scale = sc;
@@ -206,7 +207,7 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
         rt.seen = cur;
         rt.pending = false;
         rt.dragging = false;
-        return open;
+        return true;
     }
     // R2-R(a): only a size the person dragged is stored. ImGui's own clamps (SetNextWindowSizeConstraints: the 70 % of a panel that got
     // narrower) change the size too; the base stored ANY change once the mouse was up, so shrinking the main window overwrote the width.
@@ -228,7 +229,7 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
         rt.pending = false;
         rt.dragging = false;
     }
-    return open;
+    return true;
 }
 }  // namespace detail
 
