@@ -654,8 +654,11 @@ const Override* Engine::built_for(size_t row, const std::string& stock, const st
         const Row& rw = rows_[row];
         if (md5 != rw.md5) {
             b.error = "the game's player_kit.lua (md5 " + md5 + ") is not the one Turbo knows (" + rw.md5 + "): game update?";
-        } else if (build_.empty() || rw.build != build_) {
-            b.error = "game build " + (build_.empty() ? std::string("unknown") : build_) + " is not " + rw.build;
+        } else if (build_.empty()) {
+            // Turbo X: the build key only names where the chunkname was first seen (6AC07E31). The stock file itself is checked
+            // above by md5 and every anchor line again by the generator, so a later build with the SAME player_kit.lua (6AD922D1:
+            // md5 9399e39a, unchanged by the 10-27 update) gets the in-memory build; a changed file still serves stock.
+            b.error = "game build unknown";
         } else if (!env_.build_override) {
             b.error = "no builder";
         } else {
