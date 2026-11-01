@@ -42,6 +42,11 @@ struct Index {
     bool has(const std::string& field) const;
     std::string picture(const std::string& field, int64_t id) const;
     std::string capture_picture(const std::string& field, int64_t id) const;  // "" when the game never drew this id for Turbo
+    // Turbo X 1.0.3 RF: the game's renders of a hair / beard on a REAL (scanned) head, <pack>\realface\<field>\<id>.png (the gear
+    // generator's real_face runs, gear_thumbs::realface_file; id = the generic id, 0 = Bald / No beard). ONLY the real-face chooser
+    // reads them; they are never a capture_fields picture of the generic pickers.
+    std::map<std::string, std::unordered_map<int64_t, std::string>> realface_fields;
+    std::string realface_picture(const std::string& field, int64_t id) const;  // "" when no real-face render exists
 };
 // pack (Turbo X): <turbo_output>\pictures (same layout: assets\<field>\<id>.png), listed BEFORE every FC Editor folder; its pictures
 // are Turbo's own (FC Editor's FC 27 webp renders converted, the game's outfit / accessory previews, the in-game captures of the
@@ -60,6 +65,8 @@ const Index& index(App& app);
 std::string picture(App& app, const std::string& field, int64_t id);
 // TX-102 R2-P: Turbo's in-game capture of `id` (rendered by the FC 27 game: Index::capture_fields), "" otherwise
 std::string capture_picture(App& app, const std::string& field, int64_t id);
+// Turbo X 1.0.3 RF: the game's render of `id` on a real (scanned) head (Index::realface_fields), "" otherwise
+std::string realface_picture(App& app, const std::string& field, int64_t id);
 // Has the index any picture of this field? (vp::has_picture: the row shows a picture instead of a combo)
 bool has_field(App& app, const std::string& field);
 // Forget the index: the folder setting changed (built again on the next ask)
