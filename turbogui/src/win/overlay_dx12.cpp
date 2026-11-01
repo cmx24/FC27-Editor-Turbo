@@ -147,15 +147,23 @@ static std::string g_ini_path;
 // ---------------------------------------------------------------- SRV descriptors for ImGui textures
 static UINT g_srv_inc = 0;
 static std::vector<int> g_srv_free;
-static const int kSrvCount = 512;  // font + the picture cache (ui/textures.cpp keeps at most 320)
+// font + the picture cache (ui/textures.cpp keeps at most 320); Turbo X 1.0.1: 2048, room for the planned ball/stadium/gear sets
+static const int kSrvCount = 2048;
+// one more descriptor after the allocatable ones, never on the free list: handed out when the heap is exhausted, so an
+// overflow can never overwrite slot 0 (the font atlas, allocated first); textures sharing it may show the wrong picture
+static const int kSrvFallback = kSrvCount;
+static const int kSrvHeapSize = kSrvCount + 1;
+static bool g_srv_exhausted_logged = false;
 
 static void srv_alloc(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu) {
-    int idx = 0;
+    int idx = kSrvFallback;
     if (!g_srv_free.empty()) {
         idx = g_srv_free.back();
         g_srv_free.pop_back();
-    } else {
-        log("ImGui asked for more than %d texture descriptors; reusing slot 0", kSrvCount);
+    } else if (!g_srv_exhausted_logged) {
+        g_srv_exhausted_logged = true;
+        log("ImGui asked for more than %d texture descriptors; using the reserved fallback descriptor %d (logged once)",
+            kSrvCount, kSrvFallback);
     }
     D3D12_CPU_DESCRIPTOR_HANDLE c = g_srv_heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_GPU_DESCRIPTOR_HANDLE g = g_srv_heap->GetGPUDescriptorHandleForHeapStart();
@@ -167,7 +175,7 @@ static void srv_alloc(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* cpu
 
 static void srv_free(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE) {
     int idx = static_cast<int>((cpu.ptr - g_srv_heap->GetCPUDescriptorHandleForHeapStart().ptr) / g_srv_inc);
-    if (idx >= 0 && idx < kSrvCount) g_srv_free.push_back(idx);
+    if (idx >= 0 && idx < kSrvCount) g_srv_free.push_back(idx);  // the fallback (kSrvFallback) never goes back on the list
 }
 
 // ---------------------------------------------------------------- helpers
@@ -616,7 +624,7 @@ static Init init_imgui(IDXGISwapChain3* sc) {
 
     D3D12_DESCRIPTOR_HEAP_DESC sd{};
     sd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    sd.NumDescriptors = kSrvCount;
+    sd.NumDescriptors = kSrvHeapSize;  // kSrvCount allocatable + the fallback
     sd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if (FAILED(g_device->CreateDescriptorHeap(&sd, IID_PPV_ARGS(&g_srv_heap)))) return Init::Fail;
     g_srv_inc = g_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
