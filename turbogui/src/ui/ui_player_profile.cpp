@@ -24,7 +24,6 @@
 #include "ui_setpiece_card.h"
 #include "ui_shell.h"
 #include "ui_split.h"
-#include "ui_team_page40.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -173,7 +172,6 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
         }
     }
     if (const Field* jf = t.field("playerjointeamdate")) date_field_editor(app, t, p.rec, *jf, "Joined his club");
-    draw_player_contract_actions(app);  // Turbo X 1.0.1 L2a: his contract fields, extension and move controls (ui_team_players.cpp; the player is app.sel_player = p)
     theme::muted_text("Contract, morale, growth and squad role are edited under Team > Players.");
     if (ImGui::Button("Open Team > Players###pf_team")) app.go(g_team_page);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contract, morale, growth and squad role of the players of one club");
