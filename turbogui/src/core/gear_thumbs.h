@@ -163,6 +163,7 @@ public:
         Cam cam = Cam::Body;
         std::string state = "todo";  // todo, pending (in a round), done, failed, crashed
         int attempts = 0;
+        int stale = 0;  // captures refused as stale (the same pixels as the player's previous capture, another look)
         std::string error;
         std::string file;
         int w = 0, h = 0;
@@ -212,6 +213,7 @@ private:
     double t_phase_ = 0.0;
     std::map<int32_t, std::map<std::string, int64_t>> own_;  // player -> field -> his own value
     std::map<int32_t, std::set<std::string>> dirty_;         // player -> fields that carry a test value now
+    std::map<int32_t, std::pair<uint64_t, size_t>> last_capture_;  // player -> pixel hash + item of his last SAVED capture this run
     std::string last_status_;
     std::string end_message_;
 };

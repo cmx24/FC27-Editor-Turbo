@@ -23,6 +23,14 @@ struct GtFake : gtc::CaptureService {
     int max_batch = 6;
     bool answer = true;
     std::set<int32_t> silent;  // ids that never get a picture
+    // Turbo X 1.0.1 stale guard: the picture shows the player's look as the database has it now (vals, set by GtWorld), so two
+    // looks give two pictures. frozen: ids whose picture never changes; replay_at: id -> his n-th pictures (1-based) that repeat
+    // his previous picture (the game drew the previous look)
+    std::map<int32_t, std::map<std::string, int64_t>>* look = nullptr;
+    std::set<int32_t> frozen;
+    std::map<int32_t, std::set<int>> replay_at;
+    std::map<int32_t, int> drawn;
+    std::map<int32_t, std::vector<uint8_t>> last_px;
     gtc::Status status() override {
         gtc::Status s;
         s.installed = true;
@@ -41,6 +49,18 @@ struct GtFake : gtc::CaptureService {
             a.format = "PNG 64x64";
             a.image.w = a.image.h = 64;
             a.image.px.assign(64 * 64 * 4, 200);
+            const int n = ++drawn[e.id];
+            if (replay_at[e.id].count(n) && last_px.count(e.id)) {
+                a.image.px = last_px[e.id];
+            } else if (!frozen.count(e.id) && look) {
+                uint64_t h = 1469598103934665603ull ^ static_cast<uint32_t>(e.id);
+                for (const auto& kv : (*look)[e.id]) {
+                    for (char c : kv.first) h = (h ^ static_cast<uint8_t>(c)) * 1099511628211ull;
+                    h = (h ^ static_cast<uint64_t>(kv.second)) * 1099511628211ull;
+                }
+                for (int k = 0; k < 8; ++k) a.image.px[static_cast<size_t>(k)] = static_cast<uint8_t>(h >> (8 * k));
+            }
+            last_px[e.id] = a.image.px;
             a.bytes = 100;
             answers.push_back(a);
         }
@@ -63,7 +83,10 @@ struct GtWorld {
     double now = 1000.0;
     GtWorld() {
         for (int32_t p : {2002, 2003, 2004}) vals[p] = {{"hairtypecode", 25}, {"shoetypecode", 40}, {"accessorycode1", 0}, {"tattooleftarm", 0}, {"bodytypecode", 2}};
+        svc.look = &vals;
     }
+    GtWorld(const GtWorld&) = delete;
+    GtWorld& operator=(const GtWorld&) = delete;
     gtt::GeneratorEnv env() {
         gtt::GeneratorEnv e;
         e.turbo_output = out;
@@ -217,6 +240,55 @@ inline void cases() {
         CHECK(!g2.start(rq, {gt_ref(2002, 0)}, &err), "only hair, only a scanned head: nothing to draw: " + err);
         gtt::parse_request(R"({"steps":[{"field":"gkglovetypecode","id":3}]})", rq, &err);
         CHECK(!g2.start(rq, {gt_ref()}, &err) && err.find("could not be read") != std::string::npos, "no such column: refused: " + err);
+    });
+
+    run_case("Turbo X gear pictures: a stale capture (the previous look's pixels) is not saved, retried once, kept when the game catches up", [&] {
+        GtWorld w;
+        w.out = fresh_dir("gtt_stale_once");
+        w.svc.replay_at[2002] = {2};  // his 2nd picture repeats his 1st
+        gtt::Generator g(w.env());
+        gtt::Request rq;
+        std::string err;
+        gtt::parse_request(R"({"steps":[{"field":"shoetypecode","id":1},{"field":"shoetypecode","id":2},{"field":"shoetypecode","id":3}]})", rq, &err);
+        CHECK(g.start(rq, {gt_ref()}, &err), "started: " + err);
+        w.run(g, 2000);
+        const auto& boots = *gtt::find_field("shoetypecode");
+        CHECK(!g.running() && g.done() == 3 && g.failed() == 0, "3 pictures, none failed: " + g.status());
+        CHECK(w.svc.requests.size() == 4, "4 requests (boots 2 drawn again): " + std::to_string(w.svc.requests.size()));
+        CHECK(slurp(gtt::picture_file(w.out, boots, 1)) != slurp(gtt::picture_file(w.out, boots, 2)), "boots 2's picture is not boots 1's");
+        const std::string log = slurp(gtt::log_file(w.out));
+        CHECK(log.find("retry (stale capture (same as previous look)") != std::string::npos, "run.log names the stale capture and the retry");
+        CHECK(own_back(w), "own values back");
+    });
+
+    run_case("Turbo X gear pictures: a player whose picture never changes: the repeat fails as stale in the manifest; other players are not compared", [&] {
+        GtWorld w;
+        w.out = fresh_dir("gtt_stale_frozen");
+        w.svc.frozen = {2002};
+        gtt::Generator g(w.env());
+        gtt::Request rq;
+        std::string err;
+        gtt::parse_request(R"({"steps":[{"field":"shoetypecode","id":1},{"field":"shoetypecode","id":2}]})", rq, &err);
+        CHECK(g.start(rq, {gt_ref()}, &err), "started: " + err);
+        w.run(g, 2000);
+        const auto& boots = *gtt::find_field("shoetypecode");
+        CHECK(!g.running() && g.done() == 1 && g.items().size() == 2, "boots 1 saved, the run ended: " + g.status());
+        CHECK(g.items()[1].state == "failed" && g.items()[1].error == "stale capture (same as previous look)", "boots 2 failed as stale: " + g.items()[1].state + " / " + g.items()[1].error);
+        CHECK(!fs::exists(gtt::picture_file(w.out, boots, 2)), "boots 2 has no (stale) picture");
+        CHECK(w.svc.requests.size() == 3, "boots 2 tried twice: " + std::to_string(w.svc.requests.size()) + " requests");
+        const std::string man = slurp(gtt::manifest_file(w.out));
+        CHECK(man.find("\"error\": \"stale capture (same as previous look)\"") != std::string::npos && man.find("\"state\": \"failed\"") != std::string::npos,
+              "manifest.json: failed, \"stale capture (same as previous look)\"");
+        CHECK(slurp(gtt::log_file(w.out)).find("rounds in a row without a picture") == std::string::npos, "stale answers are answers: the run was not stopped as silent");
+        CHECK(own_back(w), "own values back");
+
+        GtWorld w2;  // two players whose pictures are the same pixels: one look each in one round, both kept
+        w2.out = fresh_dir("gtt_stale_two");
+        w2.svc.frozen = {2002, 2003};
+        gtt::Generator g2(w2.env());
+        CHECK(g2.start(rq, {gt_ref(2002), gt_ref(2003)}, &err), "started: " + err);
+        w2.run(g2, 2000);
+        CHECK(!g2.running() && g2.done() == 2 && w2.svc.requests.size() == 1, "one round, both kept (only a player's own captures are compared): " + g2.status());
     });
 }
 

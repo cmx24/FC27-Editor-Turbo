@@ -34,6 +34,21 @@ bool read_text(const fs::path& p, std::string& out) {
 
 const char* cam_word(Cam c) { return c == Cam::Head ? "head" : "body"; }
 
+// FNV-1a 64 over the decoded picture (size + pixels): the stale-picture guard compares a player's captures by it
+uint64_t pixel_hash(const Rgba& img) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint8_t b) {
+        h ^= b;
+        h *= 1099511628211ull;
+    };
+    for (int v : {img.w, img.h})
+        for (int k = 0; k < 4; ++k) mix(static_cast<uint8_t>(static_cast<uint32_t>(v) >> (8 * k)));
+    for (uint8_t b : img.px) mix(b);
+    return h;
+}
+
+const char* const kStaleCapture = "stale capture (same as previous look)";
+
 }  // namespace
 
 const std::vector<FieldSpec>& fields() {
@@ -418,6 +433,25 @@ void Generator::poll_round() {
             item_failed(sl->item, r.error.empty() ? std::string("the game gave no picture") : r.error, true);
             continue;
         }
+        // Turbo X 1.0.1 stale-picture guard: the same pixels as this player's previous capture in this run, for another look = the
+        // game drew the previous look (not saved; retried once in a later round, then failed). The previous capture stays the one
+        // that was saved, so a retry is compared with it again.
+        const int32_t pid = refs_[sl->ref].player;
+        const uint64_t hash = pixel_hash(r.image);
+        const auto prev = last_capture_.find(pid);
+        if (prev != last_capture_.end() && prev->second.first == hash && prev->second.second != sl->item &&
+            (items_[prev->second.second].field_index != it.field_index || items_[prev->second.second].id != it.id)) {
+            ++round_pictures_;  // the game answered (an empty round means it stopped answering)
+            it.error = kStaleCapture;
+            if (it.stale++ < 1) {
+                it.state = "todo";
+                note(where(sl->item) + " -> retry (" + kStaleCapture + ", like " + where(prev->second.second) + ")");
+            } else {
+                it.state = "failed";
+                note(where(sl->item) + " -> failed: " + kStaleCapture + ", like " + where(prev->second.second));
+            }
+            continue;
+        }
         const FieldSpec& f = fields()[static_cast<size_t>(it.field_index)];
         const fs::path p = real_face_ ? pictures_root(env_.turbo_output) / "realface_test" / (std::string(f.folder) + "_" + std::to_string(it.id) + ".png")
                                       : picture_file(env_.turbo_output, f, it.id);
@@ -435,6 +469,7 @@ void Generator::poll_round() {
         it.h = r.image.h;
         it.error.clear();
         ++round_pictures_;
+        last_capture_[pid] = {hash, sl->item};
         ++g_generation;
         if (f.cam == Cam::Head) hairbeard_thumbs::invalidate();
         note(where(sl->item) + " -> saved " + it.file + " " + std::to_string(r.image.w) + "x" + std::to_string(r.image.h));
@@ -634,6 +669,7 @@ bool Generator::start(const Request& rq, const std::vector<Reference>& refs, std
     cancelled_ = aborted_ = restored_ = false;
     requests_ = 0;
     empty_rounds_ = 0;
+    last_capture_.clear();
     end_message_.clear();
     cam_ = Cam::Head;
     size_t nh = 0;
