@@ -6196,6 +6196,9 @@ static void test_ui() {
             std::string err;
             CHECK(load_image_file(out, img, &err), "written file reads back: " + err);
             CHECK(img.w == 256 && img.h == 256, fmt("256 x 256 (%dx%d)", img.w, img.h));
+            // 2026-11-01 (tx-102-int): the failures above are already recorded; an unread or wrong-sized picture must end this case,
+            // not crash the whole suite (img.at on an empty image = SIGSEGV, which hid every later case on 1.0 too)
+            if (img.w != 256 || img.h != 256) return;
             CHECK(img.at(64, 128)[0] > 200 && img.at(64, 128)[3] == 255, "left: opaque red");
             CHECK(img.at(192, 128)[2] > 200 && std::abs(int(img.at(192, 128)[3]) - 128) <= 8, "right: blue, half transparent");
             CHECK(ui.toast_contains("miniface written"), "toast");
