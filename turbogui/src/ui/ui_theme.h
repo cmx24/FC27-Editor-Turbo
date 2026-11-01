@@ -239,6 +239,13 @@ inline ImVec2 number_pill(ImDrawList* dl, const ImVec2& p, const char* text, boo
 // is never on screen. Selected = accent bar at the left + accent wash. `draw_picture()` is called with the cursor at the
 // picture slot (`picture` px square, vertically centred); it draws an item of that size. Returns true when clicked; *hovered
 // (optional) says whether the row is under the mouse (the caller's tooltip; the picture item is the last item, not the row).
+// Put the cursor back at `p` (screen space) the way ImGui accepts: through a zero-size item one item-spacing above, so a
+// cursor move is always followed by an item (ImGui 1.92 shows an error box for a bare SetCursorPos that grows the window).
+inline void cursor_back_to(ImVec2 p) {
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y - ImGui::GetStyle().ItemSpacing.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+}
+
 template <class DrawPicture>
 inline bool person_row(const char* id, const char* name, const char* line, int ovr, bool selected, float height, float picture,
                        DrawPicture draw_picture, bool* hovered = nullptr) {

@@ -25,6 +25,7 @@
 #include "core/look_pickers.h"
 #include "core/rdbm_resources.h"
 #include "imgui.h"
+#include "ui_theme.h"
 #include "ui_bodytypes.h"
 #include "ui_body_figure.h"
 #include "ui_faces.h"
@@ -876,7 +877,7 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             const ImVec2 saved = ImGui::GetCursorScreenPos();
             ImGui::SetCursorScreenPos(ImVec2(a.x + (box.x - std::min(box.x, box.y)) * 0.5f, a.y));
             draw_legacy_picture(app, src.game[k], std::min(box.x, box.y), true);
-            ImGui::SetCursorScreenPos(saved);
+            theme::cursor_back_to(saved);
             return true;
         }
         case kSrcFigure: {
@@ -958,9 +959,9 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
         // the band's generic ids only (plus 0 = his own); the 3D section writes the band code, so the list is the gate
         std::vector<int64_t> keep = s.choice.ids;
         keep.push_back(0);
-        s.src = subset_source(s.src, keep, "His own");
+        s.src = subset_source(s.src, keep, field == "hairtypecode" ? "His scanned hair (not bald)" : "His scanned beard");
         s.src.title = (field == "hairtypecode" ? std::string("Hair") : std::string("Beard")) + " (3D, real face)";
-        s.src.note = "The 3D models that fit real faces, with the game's own previews. \"His own\" = his scanned hair or beard.";
+        s.src.note = "Real face: his scanned head keeps its own hairline and stubble in its skin, so a new style sits on top of it. 0 = his scanned hair, not bald.";
     }
     // step 7: a tattoo picker opens on the tattoos made for its body area (the combo lists the others too)
     if (tattoo_area_index(field) >= 0)

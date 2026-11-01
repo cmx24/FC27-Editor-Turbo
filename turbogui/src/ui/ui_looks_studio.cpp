@@ -352,6 +352,7 @@ public:
         ImGui::SetCursorPos(ImVec2(start.x + S(12.0f), start.y + h * 0.4f));
         centred_text("Draw him asks the game for his picture in the view chosen above, as the game draws him now.", w - S(24.0f));
         ImGui::SetCursorPos(ImVec2(start.x, start.y + h));
+        theme::cursor_back_to(ImGui::GetCursorScreenPos());
     }
 };
 
@@ -609,6 +610,7 @@ bool person_row(App& app, const std::string& label, const std::string& name, con
     theme::pop_title_font();
     dl->AddText(ImVec2(tx, ty + fs * 1.15f), ImGui::ColorConvertFloat4ToU32(theme::kMuted), line.c_str());
     ImGui::SetCursorPos(after);
+    theme::cursor_back_to(ImGui::GetCursorScreenPos());
     return hit;
 }
 
