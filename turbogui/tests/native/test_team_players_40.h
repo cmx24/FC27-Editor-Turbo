@@ -18,6 +18,7 @@
 #pragma once
 #include "core/team_preset.h"
 #include "ui/ui_page.h"
+#include "ui/ui_player_profile.h"
 #include "ui/ui_team_pages.h"
 
 namespace turbo {
@@ -233,6 +234,86 @@ static void s8_cases(App& app, Ui& ui, SimMemory& mem, uint64_t kMb, int64_t min
         }
         in = TeamMoveInputs{};
         hide(ui);
+    });
+
+    // Turbo X 1.0.1 R2-A: the player Profile's Club and contract section hosts draw_player_contract_actions. Its question must open in
+    // the Profile's window, and a Team page drawn in the same frame (in another window) must keep its own question and status: the earlier
+    // wiring (cb4b987) let the Profile's confirm_popup open the Team page's question in the wrong window, where it closed at once.
+    run_case("R2-A: the player Profile shows the contract actions; its question and a Team page's question each open where they were asked", [&] {
+        app.sel_team = mine;
+        app.sel_player = 1005;
+        TeamMoveInputs& in = team_move_inputs();
+        in = TeamMoveInputs{};
+        in.player = 1005;
+        in.to_team = 7;
+        in.extend_pick = 0;  // 1 year
+        page::reset_for_tests();
+        app.mailbox->cancel();
+        const ImVec2 ds = ImGui::GetIO().DisplaySize;
+        auto other_window = [&ui, &app, ds](void (*fn)(App&)) {  // a second host, drawn before the test window and under it
+            ui.extra_draw = [&app, ds, fn]() {
+                ImGui::SetNextWindowPos(ImVec2(0, 0));
+                ImGui::SetNextWindowSize(ds);
+                if (ImGui::Begin("##r2a_other", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) fn(app);
+                ImGui::End();
+            };
+        };
+
+        // A. the Profile alone: the contract actions are in its Club and contract section
+        show(ui, draw_player_profile);
+        CHECK(has_item(ui, "Club and contract###pf_club", "##teampage_test"), "the Profile draws its Club and contract section");
+        for (const char* l : {"Extend###tpext1005", "Transfer###tpmvtransfer", "Loan###tpmvloan", "Release###tpmvrelease"})
+            CHECK(ui.find(l, "##teampage_test") || ui.find_scrolling(l, "##teampage_test", ""), std::string("the Profile shows ") + l);
+        CHECK(ui.click("Release###tpmvrelease", "##teampage_test"), "Release can be clicked on the Profile");
+        ui.frames(3);
+        CHECK(ui.find("Cancel", "###teamask") != nullptr, "Release on the Profile asks first");
+        ui.click("Cancel", "###teamask");
+        ui.frames(3);
+        CHECK(!ui.find("Cancel", "###teamask") && !app.mailbox->pending(), "Cancel closes the question and sends nothing");
+        const Table* pt = app.db.table("players");
+        const PlayerRow* ten = app.model.player(1005);
+        if (pt && ten) {
+            const int64_t before = app.db.get_int(*pt, ten->rec, "contractvaliduntil", 0);
+            CHECK(ui.click("Extend###tpext1005", "##teampage_test"), "Extend, 1 year, on the Profile");
+            ui.frames(3);
+            const std::string st = page::status_text("player_profile");
+            CHECK(st.rfind("Done: Extended ", 0) == 0 && st.find(std::to_string(before + 1)) != std::string::npos,
+                  "the Profile's status line says the extension: " + st);
+            CHECK(page::status_text("team_players").empty() && page::status_text("team_transfers").empty(), "no Team page status line took it");
+            app.mailbox->cancel();
+            CHECK(app.undo(1005), "the Undo button has a step for him");
+            ui.frames(2);
+            CHECK(app.db.get_int(*pt, ten->rec, "contractvaliduntil", 0) == before, "Undo brought the end year back");
+        } else {
+            CHECK(false, "the world has player 1005");
+        }
+        hide(ui);
+
+        // B. the Profile drawn first in another window, Team > Players in the test window: the preset still asks (the cb4b987 regression)
+        other_window(draw_player_profile);
+        show(ui, draw_team_players);
+        CHECK(ui.find("Release###tpmvrelease", "##r2a_other") != nullptr, "the Profile in the other window draws the contract actions");
+        CHECK(ui.click(kPreset, "##teampage_test"), "the preset button on Team > Players");
+        ui.frames(3);
+        CHECK(ui.find("Cancel", "###teamask") != nullptr, "the preset asks first while the Profile is drawn in the same frame");
+        ui.click("Cancel", "###teamask");
+        ui.frames(3);
+        CHECK(!app.mailbox->pending(), "Cancel sends nothing");
+        hide(ui);
+
+        // C. Team > Players drawn first in another window, the Profile in the test window: the Profile's question stays open
+        other_window(draw_team_players);
+        show(ui, draw_player_profile);
+        CHECK(ui.click("Release###tpmvrelease", "##teampage_test"), "Release on the Profile");
+        ui.frames(6);
+        CHECK(ui.find("Cancel", "###teamask") != nullptr, "the Profile's question stays open while Team > Players is drawn in the same frame");
+        ui.click("Cancel", "###teamask");
+        ui.frames(3);
+        CHECK(!app.mailbox->pending(), "Cancel sends nothing");
+        ui.extra_draw = nullptr;
+        hide(ui);
+        in = TeamMoveInputs{};
+        page::reset_for_tests();
     });
 
     (void)mem;
