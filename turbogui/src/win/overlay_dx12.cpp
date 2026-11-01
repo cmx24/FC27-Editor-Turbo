@@ -141,8 +141,8 @@ static std::atomic<int> g_toggle_presses{0};  // first key-down messages of the 
 
 static ProcessMemory* g_mem = nullptr;
 static turbo::App* g_app = nullptr;
+static double g_qpc_start = 0.0;  // qpc_seconds() at start_overlay: now_seconds() counts from there
 static std::string g_ini_path;
-static LARGE_INTEGER g_qpf{}, g_qpc0{};
 
 // ---------------------------------------------------------------- SRV descriptors for ImGui textures
 static UINT g_srv_inc = 0;
@@ -212,11 +212,10 @@ static bool ensure_frames(IDXGISwapChain3* sc, DXGI_SWAP_CHAIN_DESC& desc) {
     return true;
 }
 
-static double now_seconds() {
-    LARGE_INTEGER c;
-    QueryPerformanceCounter(&c);
-    return static_cast<double>(c.QuadPart - g_qpc0.QuadPart) / static_cast<double>(g_qpf.QuadPart);
-}
+// App::now and the GUI's timers: QueryPerformanceCounter seconds since start, i.e. the game's clock, which Live Editor's speedhack
+// scales (3x in menus by default, 50x after its numpad 9 "Menu Speed +"). Kept as it was on purpose (every timer the owner sees);
+// the frame cost lines and the dev service measure in real time instead (host.h real_seconds / qpc_speed)
+static double now_seconds() { return qpc_seconds() - g_qpc_start; }
 
 // ---------------------------------------------------------------- input
 // Ctrl / Alt / Shift held right now (Turbo's own read: the input shield passes the real state)
@@ -736,9 +735,13 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
     try {
         TurboInputScope own_input;  // Turbo's own key / mouse reads see the real state (the input shield is for the game)
         const bool was_visible = g_app->visible;
-        const double t_start = now_seconds();
-        g_app->tick(t_start);
-        const double t_ticked = now_seconds();
+        // durations from QueryPerformanceCounter (fine resolution) divided by its measured speed against real time (host.h)
+        qpc_speed_update();
+        const double speed = qpc_speed();
+        g_app->clock_speed = speed;
+        const double q_start = qpc_seconds();
+        g_app->tick(now_seconds());  // App::now stays the game's clock (see now_seconds)
+        const double q_ticked = qpc_seconds();
         // a mailbox command is waiting, or pictures for the background loading (ui/preload.h) while Turbo is shown: the
         // game tick nudges Live Editor's Lua (game_hooks.cpp)
         want_lua_pump(g_app->busy() || g_app->lua_images_wanted());
@@ -757,10 +760,13 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
         // the same page, when the page changes, every 10 minutes while hidden, and at once for a frame over 50 ms
         {
             static turbo::FrameCost cost;
-            const double t_end = now_seconds();
+            const double q_end = qpc_seconds();
             const std::string page = was_visible ? turbo::shell::page_label(g_app->place().page) : "hidden";
-            for (const auto& line : cost.add(page, t_end, (t_ticked - t_start) * 1000.0, (t_end - t_ticked) * 1000.0))
-                log("%s", line.c_str());
+            // real time for its cadence and real milliseconds per frame; a scaled game clock is named on the line
+            char clock_note[48] = "";
+            if (speed > 1.1 || speed < 0.9) std::snprintf(clock_note, sizeof(clock_note), " (game clock x%.1f)", speed);
+            for (const auto& line : cost.add(page, real_seconds(), (q_ticked - q_start) * 1000.0 / speed, (q_end - q_ticked) * 1000.0 / speed))
+                log("%s%s", line.c_str(), clock_note);
         }
         if (!g_start_proven && ++g_frames_run >= kStartFrames) {
             g_start_proven = true;
@@ -1181,9 +1187,7 @@ static bool game_ships_own_d3d12core() {
 }
 
 bool start_overlay(HMODULE) {
-    QueryPerformanceFrequency(&g_qpf);
-    QueryPerformanceCounter(&g_qpc0);
-
+    g_qpc_start = qpc_seconds();
     // Mailbox for commands to Turbo's Lua side
     void* mailbox = VirtualAlloc(nullptr, turbo::kMailboxSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!mailbox) log("cannot allocate the command mailbox; Turbo Tools disabled");

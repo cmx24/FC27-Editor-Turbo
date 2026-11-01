@@ -563,9 +563,14 @@ json DevService::op(const json& req, int depth) {
             s.answered = false;
             s.answer = json();
         }
-        const double t0 = now();
+        // The wait: kDevPageWait for the overlay to take the request, then kDevPageWait again from the take for its answer (the
+        // answer comes at the start of the frame after the one that opened the page, so a slow first frame of a big page must not
+        // eat the time the take left: the Players > Player timeout of 2026-10-31 20:04:29 was taken ~0.1 s before it gave up)
+        double t0 = now();
         const int step_ms = 16;
         const int max_steps = static_cast<int>(kDevPageWait * 1000.0 / step_ms) + 1;  // when there is no clock
+        bool seen_taken = false;
+        int step0 = 0;
         for (int step = 0;; ++step) {
             {
                 std::lock_guard<std::mutex> lock(s.m);
@@ -578,7 +583,12 @@ json DevService::op(const json& req, int depth) {
                     a["ok"] = a.value("ok", false);
                     return a;
                 }
-                if ((env_.clock && now() - t0 > kDevPageWait) || (!env_.clock && step >= max_steps)) {
+                if (!seen_taken && !s.posted) {
+                    seen_taken = true;
+                    t0 = now();
+                    step0 = step;
+                }
+                if ((env_.clock && now() - t0 > kDevPageWait) || (!env_.clock && step - step0 >= max_steps)) {
                     // dev_page_take clears posted: taken = the overlay already has the request (shown: go() ran in that frame; hidden:
                     // App::go_to_ keeps it until Turbo is shown), only its confirmation did not come in time
                     const bool taken = !s.posted;

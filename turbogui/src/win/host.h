@@ -35,6 +35,20 @@ public:
 void guard_hold(const char* why);
 void guard_release();
 
+// Real seconds since the first call (real_clock_win.cpp), for the dev service's waits and the frame cost lines (App::now stays
+// the game's clock). Live Editor's speedhack scales the game's QueryPerformanceCounter and GetTickCount64 (menu speed 3 by
+// default; its "Menu Speed +" hotkey, numpad 9, sets 50): in the driver runs of 2026-10-31 every frame-time line read 50x and
+// the dev service's "5 s" open_page wait lasted about 0.1 s. This clock reads the system time (GetSystemTimeAsFileTime,
+// what GetLocalTime and the log's stamps read; those stayed real in the same runs). Monotonic: when the system time is set back
+// it stands still. Resolution: the system timer tick (1 ms while the game holds a 1 ms timer, 15.6 ms at most). Thread-safe.
+double real_seconds();
+// QueryPerformanceCounter seconds (scaled by the speedhack; high resolution): for short durations, divided by qpc_speed()
+double qpc_seconds();
+// How fast QueryPerformanceCounter runs against real_seconds(), measured over windows of at least 1 real second (1 = not
+// scaled). qpc_speed_update() once per frame (overlay thread); qpc_speed() is the last measurement (any thread).
+void qpc_speed_update();
+double qpc_speed();
+
 // Time the DLL was loaded: bridge files older than this minus 2 minutes belong to an earlier game session
 std::filesystem::file_time_type load_time();
 

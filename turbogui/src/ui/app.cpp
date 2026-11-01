@@ -961,6 +961,9 @@ bool App::refresh() {
 
 // Turbo X (2026-10-31): where a slow tick goes. Every driver run today showed App::tick at 100-300 ms per frame while the owner's own
 // sessions ran at 1 ms; this names the section. Costs nothing measurable; one log line at most every 2 s, only when a tick is over 50 ms.
+// Its answer (same day, from these lines): the driver's numpad 9 is Live Editor's "Menu Speed +" (speedhack x50), and steady_clock
+// is QueryPerformanceCounter, which the speedhack scales: the ticks were ~2-6 real ms, read 50x (and t ran 50x, so the 2 s gate let a
+// line out every frame). Times and the gate are now divided by clock_speed.
 namespace {
 struct TickProbe {
     std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
@@ -1190,15 +1193,18 @@ void App::tick(double t) {
     }
     probe.mark("tail");
     {
-        const double total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_t0).count();
-        static double last_report = -10.0;
-        if (total > 50.0 && t - last_report > 2.0) {
+        // steady_clock is QueryPerformanceCounter: scaled by Live Editor's speedhack (clock_speed), so the times are divided by it
+        const double speed = clock_speed > 0.01 ? clock_speed : 1.0;
+        const double total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_t0).count() / speed;
+        static double last_report = -1e9;
+        if (total > 50.0 && (t - last_report) / speed > 2.0) {  // at most one line per 2 real seconds
             last_report = t;
             std::sort(probe.parts.begin(), probe.parts.begin() + probe.n, [](const auto& a, const auto& b) { return a.second > b.second; });
             char buf[240];
             int off = std::snprintf(buf, sizeof(buf), "slow tick %.0f ms:", total);
             for (int i = 0; i < probe.n && i < 4 && off < static_cast<int>(sizeof(buf)) - 40; ++i)
-                off += std::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), " %s %.0f", probe.parts[static_cast<size_t>(i)].first, probe.parts[static_cast<size_t>(i)].second);
+                off += std::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), " %s %.0f", probe.parts[static_cast<size_t>(i)].first, probe.parts[static_cast<size_t>(i)].second / speed);
+            if (speed > 1.1 || speed < 0.9) std::snprintf(buf + off, sizeof(buf) - static_cast<size_t>(off), " (game clock x%.1f)", speed);
             log(buf);
             if (log_hook) log_hook(buf);  // the file log too (App::log is the in-window list only)
         }

@@ -166,7 +166,10 @@ public:
         double save_at = 0.0; // gui_settings.json is written then (once the wheel rests); 0 = nothing to save
         bool by_host = false; // the host feeds wheel / reset: Dear ImGui's own Ctrl state is not used (can be stale in game)
     } zoom;
-    double now = 0.0;
+    double now = 0.0;  // seconds of the game's clock (QueryPerformanceCounter: scaled by Live Editor's speedhack, see clock_speed)
+    // how fast the game's QueryPerformanceCounter runs against real time (host: Live Editor's speedhack, 3 in menus by default, 50
+    // after its numpad 9 "Menu Speed +"); steady_clock durations measured here are divided by it
+    double clock_speed = 1.0;
     double next_poll = 0.0;
     double next_retry = 0.0;  // next automatic connection attempt while not connected
     double next_publish = 0.0;  // next refresh of the bridge_dll.json time stamp
