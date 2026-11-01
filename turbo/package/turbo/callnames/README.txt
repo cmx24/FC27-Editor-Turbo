@@ -46,3 +46,11 @@ It prints, per bank, the game's set (wav + selection row), Turbo's set and both 
 misses one). Add --write-spoken spoken_<lang>.txt and --write-master <lang>.json to rebuild both from the game's data.
 spoken_eng_us.txt (4,844 ids) was rebuilt that way on 2026-10-31 from the FC 27 eng_us wavs + selection tables; its
 17 generic names above 965000 (980001..980034) are known from the master list.
+
+Without the FIFA Editor Tool exports (every language other than English): the bank json + wav folder that
+turbo\tools\fc27_commentary extracted (turbo_dev\masters\fc27_audio\<lang>_bank.json and <lang>\) replace the xlsx:
+
+    python turbo/tools/callname_coverage.py "<wav folder>" --bank "<lang>_bank.json" "<Live Editor>\turbo\callnames\masters\<lang>.json" --spoken ... --write-master ... --write-spoken ...
+
+Players only a demo set records get their Preview after fc27_commentary.py --lang <lang> --set <lang>_demo --wav <the same
+wav folder> --out <lang>_demo_bank.json and a second --bank <lang>_demo_bank.json.

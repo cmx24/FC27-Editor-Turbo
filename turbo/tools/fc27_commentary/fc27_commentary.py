@@ -32,8 +32,13 @@ so rows of different sets are never mixed. Every set is also read for its ids:
   * "teams": {team: the same five id lists, the union of the team's sets} ("" = a language without teams);
   * "union": the same five id lists over every set; "primary_set": the set the rows come from.
 
+Another set's recordings (--set, e.g. ita_it_demo: the players only a demo / licensed set records): its rows become the
+output rows and its wavs go to the same folders under encoded segment numbers, set index * 100000 + segment (SET_INDEX:
+full 0, licensed 1, demo 2, +3 for team gm; --seg-offset overrides), so they can sit beside the full set's wavs;
+the json says "segment_offset" (turbo/tools/callname_coverage.py --bank adds it to the rows' segments).
+
 usage: python fc27_commentary.py --lang ita_it [--game DIR] [--out FILE.json] [--wav DIR] [--ffmpeg EXE] [--list]
-                                 [--team dr]
+                                 [--team dr] [--set ita_it_demo [--seg-offset N]]
        python fc27_commentary.py --languages [--game DIR]
        python fc27_commentary.py --self-test [--game DIR]
 
@@ -686,6 +691,18 @@ def parse_sble(d, with_fields=True, only=None):
 
 # ---------------------------------------------------------------------------------------------------- the bank
 DEFAULT_TEAM = "dr"     # eng_us: Derek Rae, the team proved in game on 2026-10-08 (docs/callnames.md)
+# set index of the encoded segment numbers (index * SET_STRIDE + segment), as turbo/tools/callname_coverage.py SET_INDEX:
+# dr / no team: full 0, licensed 1, demo 2; gm: full 3, licensed 4, demo 5
+SET_KIND_INDEX = {"full": 0, "licensed": 1, "demo": 2}
+SET_TEAM_BASE = {"": 0, "dr": 0, "gm": 3}
+SET_STRIDE = 100000
+
+
+def set_index(team, kind):
+    """The encoded-segment index of a set (team "" = a language without teams), None when not in the table"""
+    if team not in SET_TEAM_BASE or kind not in SET_KIND_INDEX:
+        return None
+    return SET_TEAM_BASE[team] + SET_KIND_INDEX[kind]
 
 
 class Bank:
@@ -1246,7 +1263,7 @@ def collect_sets(bank, log=print):
 
 
 def run(a, log=print):
-    bank = Bank(a.game, a.lang, team=getattr(a, "team", None))
+    bank = Bank(a.game, a.lang, team=getattr(a, "team", None), primary=getattr(a, "set", None))
     try:
         if a.list:
             if bank.data_source:                # stderr, so the family list on stdout is unchanged
@@ -1262,6 +1279,20 @@ def run(a, log=print):
             for n in ds["notes"]:
                 log("note: " + n)
         log("sets: %s; primary: %s" % (", ".join(sorted(bank.sets)), bank.primary))
+        offset = getattr(a, "seg_offset", None)
+        if offset is None:
+            offset = 0
+            if getattr(a, "set", None):
+                info = bank.sets[bank.primary]
+                idx = set_index(info["team"], info["kind"])
+                if idx is None:
+                    raise FormatError("set %s (team %r, kind %r): no set index, give --seg-offset" % (
+                        bank.primary, info["team"], info["kind"]))
+                offset = idx * SET_STRIDE
+        result["segment_offset"] = offset
+        if offset:
+            log("segment offset: %d (the wavs are named <prefix>_<segment + %d>_<segment + %d>.wav; the rows keep the "
+                "set's own segment numbers)" % (offset, offset, offset))
         notes, raw = [], {}
         for key, (family, selector, _prefix) in FAMILIES.items():
             if family not in bank.families():      # e.g. eng_us gm: no surname family
@@ -1331,7 +1362,7 @@ def run(a, log=print):
                     continue
                 prefix = FAMILIES[key][2] if key in FAMILIES else HIGH[key][1]
                 folder = os.path.join(a.wav, key)
-                problems += write_wavs(bank, fam, prefix, folder, ffmpeg, {r["segment"] for r in rows}, log)
+                problems += write_wavs(bank, fam, prefix, folder, ffmpeg, {r["segment"] for r in rows}, log, seg_offset=offset)
             result["wav_dir"] = os.path.abspath(a.wav)
             notes.append("audio: EA SNS streams, codec %s, decoded with %s; %d problems%s" % (
                 "EA Opus (0x0C / 0x0E mono; 0x0F multistream, speech stream decoded; 48 kHz)", ffmpeg or "nothing (Ogg Opus files)", len(problems),
@@ -1532,6 +1563,10 @@ def main(argv=None):
                          "the bytes would be read from (backup store first), and stop")
     ap.add_argument("--team", help="the commentary team of the primary set when the language has teams "
                                    "(eng_us: dr = Derek Rae, gm = Guy Mowbray; default %s)" % DEFAULT_TEAM)
+    ap.add_argument("--set", help="read this set's rows and recordings instead of the full set's, e.g. ita_it_demo "
+                                  "(wavs under encoded segment numbers: set index * 100000 + segment)")
+    ap.add_argument("--seg-offset", type=int, help="the number added to the segment in the wav names (default: the set's "
+                                                   "index * 100000 with --set, else 0)")
     ap.add_argument("--self-test", action="store_true", help="run the built-in checks (and the ita_it ones on disk)")
     a = ap.parse_args(argv)
     if a.self_test:
