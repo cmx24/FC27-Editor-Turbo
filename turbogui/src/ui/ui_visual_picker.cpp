@@ -57,6 +57,10 @@ constexpr uint8_t kSrcRdbm = static_cast<uint8_t>(TileSource::Rdbm), kSrcSwatch 
 // Turbo X: the tooltip word of a tile whose picture is FC Editor's asset picture (ui_fcedit_pictures.h)
 constexpr const char* kFcEditorPictureTip = "FC Editor picture";
 constexpr const char* kTurboPackPictureTip = "Turbo's in-game picture (rendered by FC 27)";  // TX-102 R2-P: fcedit::capture_picture
+// TX tattoo lane: a tattoo's design picture, drawn from the game's own decal texture content/character/tattoo/tattoo_<id>_color by
+// turbo/tools/tattoo/tattoo_designs.py into <turbo_output>\pictures\assets\tattoo_design\<id>.png (one folder for all seven areas)
+constexpr const char* kTattooDesignField = "tattoo_design";
+constexpr const char* kTattooDesignTip = "The tattoo's design (from the FC 27 game's tattoo texture)";
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -477,6 +481,11 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             // Code 0 (Bald / No beard) keeps its old chain.
             const bool hair_or_beard = field == "hairtypecode" || field == "facialhairtypecode";
             const bool hb = hair_or_beard && code > 0;
+            // TX tattoo lane: a tattoo (code > 0) has ONE picture order: (1) its design (kTattooDesignField, the game's own decal texture),
+            // (2) the game's catalogue preview, (3) none. The gear generator's full-body renders (pictures\assets\tattoo<area>: the
+            // tattoo barely shows under the kit), its captures, FC Editor's and RDBM26's (FC 26) pictures are never a tattoo tile.
+            // Code 0 ("No tattoo") keeps its old chain.
+            const bool tattoo_tile = tattoo_area >= 0 && code > 0;
             // the game's own preview (catalog gallery)
             std::string gp;
             if (gal && code > 0) {
@@ -485,7 +494,9 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             std::string hb_pic;  // (1) or (3)
             bool from_capture = false;
-            if (hb) {
+            if (tattoo_tile) {
+                hb_pic = fcedit::picture(app, kTattooDesignField, code);
+            } else if (hb) {
                 hb_pic = fcedit::capture_picture(app, field, code);
                 from_capture = !hb_pic.empty();
                 if (hb_pic.empty() && gp.empty() && fe_field) hb_pic = fcedit::picture(app, field, code);
@@ -493,7 +504,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             // RDBM26: the set's picture (per file, then the fallback folder), the accessory in the slot's colour, a colour's file.
             // Not looked at for a hair / beard that has a picture above (also saves the palette probe of review E10-12).
             fs::path file;
-            if (have_res && d && !(hb && (!hb_pic.empty() || !gp.empty()))) {
+            if (have_res && d && !tattoo_tile && !(hb && (!hb_pic.empty() || !gp.empty()))) {
                 if (is_acc_colour_field(field)) {
                     if (accessory > 0) file = vis::accessory_picture(res, code, accessory, &s.index);
                 } else {
@@ -512,7 +523,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             bool from_fcedit = false, fc_picture = false;
             if (!hb_pic.empty()) {
                 file = fs::u8path(hb_pic);
-                if (from_capture) gp.clear();  // the capture beats the preview: the tile, the large preview and the tooltip all show it
+                if (from_capture || tattoo_tile) gp.clear();  // the capture / the design beats the preview: the tile, the large preview and the tooltip all show it
                 fc_picture = true;
             } else if (hair_or_beard && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
                 file.clear();
@@ -522,7 +533,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             // Turbo X: no game preview, no RDBM26 picture, no swatch -> FC Editor's own asset picture (read where it is, ui_fcedit_pictures.h),
             // then (5.0c E10-fcedit-previews) the lit render converted into the local cache (if any)
-            if (file.empty() && gp.empty() && !out.swatch[k] && fe_field) {
+            if (file.empty() && gp.empty() && !out.swatch[k] && fe_field && !tattoo_tile) {
                 const std::string fe = fcedit::picture(app, field, code);
                 if (!fe.empty()) {
                     file = fs::u8path(fe);
@@ -530,7 +541,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
                     palette_only = false;
                 }
             }
-            if (file.empty() && gp.empty() && !out.swatch[k]) {
+            if (file.empty() && gp.empty() && !out.swatch[k] && !tattoo_tile) {
                 const fs::path fe = fcedit_picture(app, field, code, !light && !fe_listed);
                 fe_listed = true;
                 if (!fe.empty()) {
@@ -547,7 +558,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             if (fc_picture) {
                 out.src[k] = kSrcFcEditor;
-                out.tip[k] = from_capture ? kTurboPackPictureTip : kFcEditorPictureTip;
+                out.tip[k] = tattoo_tile ? kTattooDesignTip : from_capture ? kTurboPackPictureTip : kFcEditorPictureTip;
                 out.fcedit_any = true;
             } else if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
