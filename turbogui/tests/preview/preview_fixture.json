@@ -1,0 +1,300 @@
+{
+ "note": "FAKE data for the GUI preview host (tools/gui-preview). Invented names; no real person, club database or game memory is behind it. LEICESTER-like: 25 players, user club teamid 1.",
+ "date": "2027-01-15",
+ "club": {
+  "teamid": 1,
+  "name": "Leicester City",
+  "overall": 77
+ },
+ "teams": [
+  {
+   "teamid": 7,
+   "name": "Brookfield United",
+   "overall": 75,
+   "league": 13
+  },
+  {
+   "teamid": 241,
+   "name": "Napoli Azzurra",
+   "overall": 83,
+   "league": 31
+  }
+ ],
+ "players": [
+  {
+   "id": 1001,
+   "first": "Oliver",
+   "last": "Fenwick",
+   "common": null,
+   "pos": "GK",
+   "ovr": 79,
+   "pot": 81,
+   "born": "1996-04-11",
+   "team": 1
+  },
+  {
+   "id": 1002,
+   "first": "Tomas",
+   "last": "Brandt",
+   "common": null,
+   "pos": "GK",
+   "ovr": 72,
+   "pot": 74,
+   "born": "1999-09-02",
+   "team": 1
+  },
+  {
+   "id": 1003,
+   "first": "Jamie",
+   "last": "Corrigan",
+   "common": null,
+   "pos": "GK",
+   "ovr": 64,
+   "pot": 72,
+   "born": "2006-01-19",
+   "team": 1
+  },
+  {
+   "id": 1004,
+   "first": "Callum",
+   "last": "Ridley",
+   "common": null,
+   "pos": "RB",
+   "ovr": 76,
+   "pot": 78,
+   "born": "1998-06-23",
+   "team": 1
+  },
+  {
+   "id": 1005,
+   "first": "Sven",
+   "last": "Aldous",
+   "common": null,
+   "pos": "CB",
+   "ovr": 81,
+   "pot": 82,
+   "born": "1995-02-14",
+   "team": 1
+  },
+  {
+   "id": 1006,
+   "first": "Marco",
+   "last": "Venturi",
+   "common": null,
+   "pos": "CB",
+   "ovr": 78,
+   "pot": 80,
+   "born": "1997-11-30",
+   "team": 1
+  },
+  {
+   "id": 1007,
+   "first": "Dara",
+   "last": "Okonkwo",
+   "common": null,
+   "pos": "CB",
+   "ovr": 74,
+   "pot": 79,
+   "born": "2002-03-08",
+   "team": 1
+  },
+  {
+   "id": 1008,
+   "first": "Ewan",
+   "last": "Harlow",
+   "common": null,
+   "pos": "LB",
+   "ovr": 75,
+   "pot": 77,
+   "born": "1999-08-17",
+   "team": 1
+  },
+  {
+   "id": 1009,
+   "first": "Rui",
+   "last": "Pacheco",
+   "common": null,
+   "pos": "LWB",
+   "ovr": 72,
+   "pot": 76,
+   "born": "2001-05-05",
+   "team": 1
+  },
+  {
+   "id": 1010,
+   "first": "Nico",
+   "last": "Sandoval",
+   "common": null,
+   "pos": "RWB",
+   "ovr": 70,
+   "pot": 75,
+   "born": "2003-12-01",
+   "team": 1
+  },
+  {
+   "id": 1011,
+   "first": "Luca",
+   "last": "Moretti",
+   "common": null,
+   "pos": "CDM",
+   "ovr": 80,
+   "pot": 81,
+   "born": "1996-07-21",
+   "team": 1
+  },
+  {
+   "id": 1012,
+   "first": "Kofi",
+   "last": "Mensah",
+   "common": null,
+   "pos": "CM",
+   "ovr": 78,
+   "pot": 83,
+   "born": "2000-10-13",
+   "team": 1
+  },
+  {
+   "id": 1013,
+   "first": "Harvey",
+   "last": "Lockwood",
+   "common": null,
+   "pos": "CM",
+   "ovr": 77,
+   "pot": 77,
+   "born": "1994-01-26",
+   "team": 1
+  },
+  {
+   "id": 1014,
+   "first": "Idris",
+   "last": "Bellamy",
+   "common": null,
+   "pos": "CAM",
+   "ovr": 82,
+   "pot": 85,
+   "born": "2001-02-09",
+   "team": 1
+  },
+  {
+   "id": 1015,
+   "first": "Pavel",
+   "last": "Novak",
+   "common": null,
+   "pos": "CM",
+   "ovr": 73,
+   "pot": 73,
+   "born": "1992-04-18",
+   "team": 1
+  },
+  {
+   "id": 1016,
+   "first": "Theo",
+   "last": "Ashworth",
+   "common": null,
+   "pos": "LM",
+   "ovr": 71,
+   "pot": 74,
+   "born": "2000-09-27",
+   "team": 1
+  },
+  {
+   "id": 1017,
+   "first": "Joao",
+   "last": "Carvalho",
+   "common": null,
+   "pos": "RM",
+   "ovr": 74,
+   "pot": 77,
+   "born": "2000-03-03",
+   "team": 1
+  },
+  {
+   "id": 1018,
+   "first": "Finn",
+   "last": "Gallagher",
+   "common": null,
+   "pos": "CDM",
+   "ovr": 66,
+   "pot": 79,
+   "born": "2007-06-15",
+   "team": 1
+  },
+  {
+   "id": 1019,
+   "first": "Mateo",
+   "last": "Ibarra",
+   "common": null,
+   "pos": "RW",
+   "ovr": 79,
+   "pot": 82,
+   "born": "2000-12-22",
+   "team": 1
+  },
+  {
+   "id": 1020,
+   "first": "Elias",
+   "last": "Holm",
+   "common": null,
+   "pos": "LW",
+   "ovr": 76,
+   "pot": 80,
+   "born": "2001-08-04",
+   "team": 1
+  },
+  {
+   "id": 1021,
+   "first": "Jack",
+   "last": "Thornbury",
+   "common": null,
+   "pos": "ST",
+   "ovr": 83,
+   "pot": 84,
+   "born": "1997-05-29",
+   "team": 1
+  },
+  {
+   "id": 1022,
+   "first": "Yusuf",
+   "last": "Demir",
+   "common": null,
+   "pos": "ST",
+   "ovr": 77,
+   "pot": 81,
+   "born": "2002-01-17",
+   "team": 1
+  },
+  {
+   "id": 1023,
+   "first": "Rory",
+   "last": "McAllister",
+   "common": null,
+   "pos": "CF",
+   "ovr": 72,
+   "pot": 72,
+   "born": "1991-10-10",
+   "team": 1
+  },
+  {
+   "id": 1024,
+   "first": "Abel",
+   "last": "Teklu",
+   "common": null,
+   "pos": "ST",
+   "ovr": 65,
+   "pot": 78,
+   "born": "2007-03-25",
+   "team": 1
+  },
+  {
+   "id": 1025,
+   "first": "Dominic",
+   "last": "Vance",
+   "common": "Vance",
+   "pos": "LW",
+   "ovr": 69,
+   "pot": 71,
+   "born": "1993-07-07",
+   "team": 1
+  }
+ ]
+}

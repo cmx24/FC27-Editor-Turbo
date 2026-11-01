@@ -65,7 +65,7 @@ for s in third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp third_part
          src/ui/pitch_view.cpp src/ui/ui_tactics.cpp src/ui/ui_live_tactic.cpp src/ui/ui_tactic_presets.cpp src/core/tactic_presets.cpp src/core/team_sheet.cpp src/core/bench_probe.cpp src/win/team_sheet_win.cpp src/core/sliders.cpp src/core/tactic_profiles.cpp src/core/tactics.cpp src/core/tactics_db.cpp src/core/opp_rules.cpp src/core/opposition.cpp src/core/teamname_override.cpp src/win/teamname_override_win.cpp \
          src/core/tuning.cpp src/ui/ui_tuning.cpp src/win/tuning_win.cpp \
          src/ui/ui_changes.cpp src/ui/ui_page.cpp \
-         src/core/game_settings.cpp src/ui/ui_game_settings.cpp src/core/compdata_profile.cpp \
+         src/core/game_settings.cpp src/ui/ui_game_settings.cpp src/core/compdata_profile.cpp src/core/edit_profiles.cpp \
          src/win/http_win.cpp src/win/dllmain.cpp src/win/overlay_dx12.cpp src/win/lazy_imports.cpp src/win/input_shield.cpp src/win/memmap_win.cpp src/win/devtools_win.cpp src/win/real_clock_win.cpp src/win/game_hooks.cpp src/win/player_capture_win.cpp src/win/game_calls_win.cpp src/win/standings_refresh_win.cpp src/win/transfer_list_win.cpp src/win/player_move_win.cpp src/win/player_create_win.cpp src/win/player_morale_win.cpp src/win/commentary_audio_win.cpp src/win/reveal_win.cpp src/win/manager_rules_win.cpp src/win/match_setup_win.cpp src/core/crest_serve.cpp src/win/crest_serve_win.cpp; do
   compile_cxx "$s"
 done

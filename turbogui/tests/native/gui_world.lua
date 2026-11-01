@@ -101,6 +101,12 @@ local MANAGERS = {   -- managerid, first, surname, teamid, headclasscode, headty
 local function build_world(sim)
     sim.user_team = 1   -- Live Editor's GetUserTeamID (the user-manager memory walk needs the GUI's memory map)
     DATE = require 'imports/core/date'
+    -- tools/gui-preview: TURBO_PREVIEW_FIXTURE=<json> swaps the club, players, teams and names for the preview host's fake squad (tests/preview/preview_fixture.lua). Unset (every native test): nothing changes.
+    local preview = os.getenv('TURBO_PREVIEW_FIXTURE')
+    if preview then
+        package.path = HERE .. '../preview/?.lua;' .. package.path
+        require('preview_fixture').apply(preview, { NAMES = NAMES, PLAYERS = PLAYERS, TEAMS = TEAMS, MANAGERS = MANAGERS, gdays = gdays })
+    end
     -- teams
     local trows = {}
     for _, t in ipairs(TEAMS) do
@@ -229,10 +235,10 @@ local function build_world(sim)
                  { tattooid = 13, tattooleftarm = 1, tattoohead = 0 } },
     })
     local nrows = {}
-    for id = 1, 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
+    for id = 1, preview and #NAMES or 20 do nrows[#nrows + 1] = { nameid = id, name = NAMES[id], commentaryid = 900000 + id } end
     -- commentary names (text compressed in FC 27, decoded by Live Editor for bridge_commentary.txt)
     local crows = {}
-    for id = 1, 19 do crows[#crows + 1] = { commentaryid = 900000 + id, commentarystring = NAMES[id], commentarystartingletter = 1, commentarypreview = 1 } end
+    for id = 1, preview and #NAMES or 19 do crows[#crows + 1] = { commentaryid = 900000 + id, commentarystring = NAMES[id], commentarystartingletter = 1, commentarypreview = 1 } end
     sim:add_table({
         name = "commentarynames", short = "cmnm",
         fields = {

@@ -960,15 +960,6 @@ static void kit_swap_controls(App& app, int64_t teamid, Slot s, bool staged) {
     }
     const kitswap::Status st = rt->status();
     if (active) {
-        int in_table = 0, left = 0, watch = 0;
-        uint64_t seen = 0;
-        for (const auto& it : st.items)
-            if (it.team == teamid && it.slot == slot) {
-                if (it.probe) ++watch;
-                else if (it.swap) ++in_table;
-                else ++left;
-                if (!it.probe) seen += it.hits;
-            }
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(st.state == "error" ? kWarn : kGood, "%s%s", st.state.c_str(), st.killed ? " (3D kits are switched off: nothing is swapped)" : "");
         ImGui::SameLine();
