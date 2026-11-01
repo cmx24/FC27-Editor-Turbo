@@ -15,6 +15,7 @@
 #include "core/hub_customise.h"
 #include "core/hotkey.h"
 #include "core/overall.h"
+#include "core/player_move.h"
 #include "core/teamnames.h"
 #include "core/user_text.h"
 #include "file_picker.h"
@@ -165,6 +166,41 @@ GameDate App::today() const {
     d.day = tmv.tm_mday;
     return d;
 }
+
+namespace {
+// The game's runtime loan list for the model (Team > Transfers "Loans in and out", the Players list Loans filter): playerloans rows of
+// loans the game has already ended, or of players since transferred, are then not shown as loans. Read only; nullptr when unreadable.
+void feed_runtime_loans(App& app) {
+    const BridgeState& st = app.bridge.state();
+    if (!st.in_cm || !st.comm_service) {
+        app.model.set_runtime_loans(nullptr);
+        return;
+    }
+    std::vector<std::pair<int32_t, int32_t>> v;
+    const std::string err = pm::runtime_loans(app.mem, st.comm_service, v);
+    static std::string last_err;
+    if (!err.empty()) {
+        if (err != last_err) app.log("loans: the game's runtime loan list is not readable (" + err + "); the playerloans table alone decides");
+        last_err = err;
+        app.model.set_runtime_loans(nullptr);
+        return;
+    }
+    last_err.clear();
+    auto m = std::make_shared<std::unordered_map<int64_t, int64_t>>();
+    for (const auto& [pid, club] : v) (*m)[pid] = club;
+    app.model.set_runtime_loans(std::move(m));
+}
+
+void log_loans(App& app) {
+    static std::string last;
+    size_t on = 0;
+    for (const PlayerRow& p : app.model.players()) on += p.on_loan ? 1 : 0;
+    const std::string line = "loans: " + std::to_string(on) + " players on loan, " + std::to_string(app.model.stale_loan_rows()) +
+                             " stale playerloans rows not shown as loans";
+    if (line != last) app.log(line);
+    last = line;
+}
+}  // namespace
 
 void App::log(const std::string& text) {
     log_lines.push_back(text);
@@ -947,7 +983,9 @@ bool App::refresh() {
     model.set_extra_names(seen_names_);
     // clubs stored as an unresolved key ("*TeamName_Abbr15_<id>") show Live Editor's custom team name, else "Team <id>"
     model.set_team_name_fallback(load_readable_team_names(bridge.root()));
+    feed_runtime_loans(*this);
     model.rebuild(today());
+    log_loans(*this);
     ++gen;
     char buf[160];
     std::snprintf(buf, sizeof(buf), "database connected: %d tables, %zu players, %zu teams", n, model.players().size(),
@@ -1121,7 +1159,9 @@ void App::tick(double t) {
     if (!db.ready() && bridge.meta_loaded() && bridge.state().loaded && t >= next_retry) refresh();
     if (visible && model_stale && db.ready()) {
         model_stale = false;
+        feed_runtime_loans(*this);
         model.rebuild(today());
+        log_loans(*this);
         ++gen;
     }
     ovr_pin_tick();  // Turbo X Shown OVR pin: the masked players' stored overall, every few seconds (ui_reapply.cpp)

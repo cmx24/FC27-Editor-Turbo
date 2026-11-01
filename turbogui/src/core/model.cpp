@@ -276,6 +276,7 @@ void Model::build_players(const GameDate& today) {
     // playerloans (one row per player on loan, a few hundred): read once here for the Players list Loans filter
     std::unordered_map<int64_t, int64_t> loan_from;
     loans_known_ = false;
+    stale_loan_rows_ = 0;
     if (const Table* lt = db_.table("playerloans"); lt && lt->has("playerid")) {
         Snapshot ls;
         if (ls.load(db_.memory(), *lt)) {
@@ -325,8 +326,16 @@ void Model::build_players(const GameDate& today) {
         if (fbirth && today.valid()) r.age = age_on(date_from_gregorian_days(s.get_int(i, *fbirth)), today);
         fill_filter_fields(*t, r, [&](const Field& f) { return s.get_int(i, f); });
         if (auto lf = loan_from.find(r.playerid); lf != loan_from.end()) {
-            r.on_loan = true;
-            r.loaned_from = lf->second;
+            // a row naming his current club as the lender is no loan (he is at his parent club); with the game's runtime list known, a
+            // row the game has no loan for is an ended loan / a permanent move whose row stayed behind
+            bool loan = lf->second > 0 && lf->second != r.club;
+            if (loan && runtime_loans_ && !runtime_loans_->empty()) loan = runtime_loans_->count(r.playerid) > 0;
+            if (loan) {
+                r.on_loan = true;
+                r.loaned_from = lf->second;
+            } else {
+                ++stale_loan_rows_;
+            }
         }
         player_index_[r.playerid] = players_.size();
         players_.push_back(r);

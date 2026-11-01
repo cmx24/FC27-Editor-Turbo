@@ -68,6 +68,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "game_calls.h"
 #include "mem.h"
@@ -200,6 +202,9 @@ struct Result {
 std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out);
 // Is the pid in the LoansManager's runtime loan list (his team in the record's +4 is reported)? "" = fine, else the reason.
 std::string loan_state(Memory& mem, uint64_t loans, int pid, bool& loaned, int& club);
+// Every loan in the LoansManager's runtime list (pid, returning club), read only: comm -> owner -> manager table -> LoansManager.
+// The game's own loan state (the playerloans table can keep rows of loans the game has already ended). "" = fine, else the reason.
+std::string runtime_loans(Memory& mem, uint64_t comm, std::vector<std::pair<int32_t, int32_t>>& out);
 // The whole call (see the file comment). Never throws.
 Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req);
 // Free Agents or a club of this career (never a national team, a pseudo team or another free-agent pool): the check every move

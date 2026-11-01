@@ -23,10 +23,12 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "app.h"
 #include "imgui.h"
+#include "core/player_move.h"
 #include "move_rules.h"
 #include "table_registry.h"
 #include "ui_page.h"
@@ -131,16 +133,27 @@ struct LoanCache {
     uint64_t version = ~0ull;
     int64_t club = -1;
     std::vector<int64_t> in, out;
+    double next_check = 0.0;
 };
 LoanCache g_loans;
 
+// The model's loans (playerloans rows, minus the stale ones, model.cpp), re-checked every 2 s against the game's runtime loan list: a
+// loan the game ends, or a loaned player moved for good in the game, leaves this card at once instead of at the next model rebuild.
 void refresh_loans(App& app, int64_t club) {
-    if (g_loans.version == app.model.version() && g_loans.club == club) return;
+    const double now = ImGui::GetTime();
+    if (g_loans.version == app.model.version() && g_loans.club == club && now < g_loans.next_check) return;
     g_loans = LoanCache{};
     g_loans.version = app.model.version();
     g_loans.club = club;
+    g_loans.next_check = now + 2.0;
+    std::vector<std::pair<int32_t, int32_t>> rt;
+    const BridgeState& st = app.bridge.state();
+    const bool rt_ok = st.in_cm && st.comm_service && pm::runtime_loans(app.mem, st.comm_service, rt).empty() && !rt.empty();
+    std::unordered_set<int64_t> live;
+    for (const auto& [pid, back] : rt) live.insert(pid);
     for (const PlayerRow& p : app.model.players()) {
         if (!p.on_loan) continue;
+        if (rt_ok && !live.count(p.playerid)) continue;
         if (p.club == club) g_loans.in.push_back(p.playerid);
         else if (p.loaned_from == club) g_loans.out.push_back(p.playerid);
     }

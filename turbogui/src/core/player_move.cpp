@@ -137,6 +137,29 @@ std::string loan_state(Memory& mem, uint64_t loans, int pid, bool& loaned, int& 
     return "";
 }
 
+std::string runtime_loans(Memory& mem, uint64_t comm, std::vector<std::pair<int32_t, int32_t>>& out) {
+    out.clear();
+    if (!is_ptr(comm, 8)) return "the career's comm service is not known";
+    const uint64_t owner = mem.ptr(comm + tl::kCommOwner);
+    if (!owner) return "no career-mode owner (is a career loaded?)";
+    const uint64_t managers = mem.ptr(owner + tl::kOwnerManagers);
+    if (!managers) return "no manager table";
+    uint64_t loans = 0;
+    std::string err = manager_at(mem, managers, kTypeLoans, loans, "LoansManager", false);
+    if (!err.empty()) return err;
+    if (!is_ptr(loans, 8) || !mem.ptr(loans)) return "the LoansManager has no vtable";
+    std::vector<uint8_t> data;
+    err = read_vec(mem, loans, kLoansBegin, kLoansEnd, kLoanRecord, kMaxLoanRecords, "the LoansManager's loan list (+0x40)", data);
+    if (!err.empty()) return err;
+    for (size_t off = 0; off + kLoanRecord <= data.size(); off += kLoanRecord) {
+        int32_t id = 0, team = 0;
+        std::memcpy(&id, data.data() + off, sizeof(id));
+        std::memcpy(&team, data.data() + off + 4, sizeof(team));
+        if (id > 0) out.emplace_back(id, team);
+    }
+    return "";
+}
+
 std::string locate(Memory& mem, const Request& req, const Fns& fns, Located& out) {
     out = Located();
     if (const char* m = fns.missing(req.action)) return std::string("game function ") + m + " is not resolved on this game build";

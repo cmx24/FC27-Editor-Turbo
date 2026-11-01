@@ -150,3 +150,15 @@ Question: the owner's workbook counts 16,694 spoken names (generic surnames + re
 - turbo\callnames\clubs\{dut_nl,ger_de,ita_it,por_br}{.json,_clips.json} placed (they were only in turbox_langs_out).
 - Demo-set masters placed for dut_nl, fre_fr, ita_it, por_br (backups *.bak_20261101_before_demo): more HIGH names,
   0 players without a Preview (was 5–7 each). In-game Preview of these: NOT yet seen.
+
+## 2026-11-01 — stale loans on Team > Transfers (final12, Turbo.dll 3caad80f)
+
+- Report: players transferred in the game still listed under "On loan at this club" (8 Newcastle players "from Newcastle United"
+  while AT Newcastle, user team 13) and "Lent out" (Vlachodimos, Woltemade); End loan did not clear them.
+- Cause: the model counted every playerloans row as a loan. Rows outlive the loan (a row naming his own current club as the
+  lender; permanent moves done in the game). End loan on such a row is wrong (it would send a sold player back).
+- Fix: (1) model.cpp: a row whose lender is his current club is not a loan; (2) the game's runtime loan list (LoansManager +0x40,
+  new pm::runtime_loans, read only) is fed to every rebuild: a row the game has no loan for is not a loan (the list is only trusted
+  when non-empty); (3) Transfers > Loans re-checks that list every 2 s. turbo_gui.log line "loans: N players on loan, K stale
+  playerloans rows not shown as loans" on each rebuild.
+- Built (MinGW, rc 0) and packaged (126 files). NOT seen in game yet.

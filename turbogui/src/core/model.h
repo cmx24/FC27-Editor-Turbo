@@ -131,6 +131,12 @@ public:
     bool built() const { return built_; }
     // false when this database has no playerloans table (the Loans filter is then off)
     bool loans_known() const { return loans_known_; }
+    // The game's runtime loan list (pid -> returning club, core/player_move.h runtime_loans), read before a rebuild. When set (non-empty), a
+    // playerloans row counts as a loan only while the game still has that loan: ended loans and permanent moves can leave their row
+    // behind. Takes effect on the next rebuild; nullptr = the table alone decides.
+    void set_runtime_loans(std::shared_ptr<const std::unordered_map<int64_t, int64_t>> loans) { runtime_loans_ = std::move(loans); }
+    // playerloans rows the last rebuild did not count as loans (stale: his own club as the lender, or no loan in the game's list)
+    size_t stale_loan_rows() const { return stale_loan_rows_; }
     // Changes on every rebuild: views holding PlayerRow/TeamRow pointers must re-collect them
     uint64_t version() const { return version_; }
 
@@ -188,6 +194,8 @@ private:
     Database& db_;
     bool built_ = false;
     bool loans_known_ = false;
+    std::shared_ptr<const std::unordered_map<int64_t, int64_t>> runtime_loans_;
+    size_t stale_loan_rows_ = 0;
     uint64_t version_ = 0;
     std::vector<PlayerRow> players_;
     std::vector<TeamRow> teams_;
