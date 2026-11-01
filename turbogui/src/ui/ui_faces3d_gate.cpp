@@ -132,8 +132,8 @@ bool band_chooser(App& app, const Table& t, uint64_t rec, bool manager, const ch
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(title);
     ImGui::SameLine();
-    if (value > 0) {
-        vp::draw_code_picture(app, t, rec, field, manager, value, thumb);
+    if (value > 0 || value == faces3d::kLookNone) {  // 1.0.3 RF: the game's render on a real head, or "not rendered"
+        vp::draw_realface_picture(app, field, value > 0 ? value : 0, thumb);
     } else {  // Bald / No beard, or his own scanned hair or beard: no generic model picture stands for it
         const char* word = value == faces3d::kLookNone ? none_word : "his own";
         const ImVec2 a = ImGui::GetCursorScreenPos();

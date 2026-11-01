@@ -718,6 +718,93 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         fcedit::refresh();
     });
 
+    // ---------------------------------------------------------------- TX-103 RF: the real-face chooser shows real-face renders only
+    // Owner 11-01: "the real face picker showed a lot of pictures and few rendered heads. I just need the real 3d heads rendered - no use
+    // rendering generic heads." The real-face chooser (vp::open_choice, the faces gate of a headclasscode-0 player) now shows, per tile, the
+    // game's render on a scanned head (pictures\realface\<field>\<id>.png, the gear generator's real_face runs) or a "not rendered"
+    // placeholder (still a choice), never a generic-head capture (raw), a FC 27 preview, a FC Editor / RDBM26 2D picture or a drawn icon.
+    // The generic pickers keep the R2-P order and never show a real-face render (nor a real_face run's manifest items).
+    run_case("UI: TX-103 RF real-face chooser: real-face renders first, else a not-rendered placeholder; generic pickers keep R2-P and never show them", [&] {
+        if (!p || !rec || !p->has("hairtypecode")) {
+            CHECK(false, "the test world has hairtypecode");
+            return;
+        }
+        catalogue_on();  // hair models 1 2 3 4, previews 1 2 5
+        const fs::path root = test_tmp_dir("rf_rdbm");
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        for (int64_t c : {0, 1, 2, 3, 4}) put_picture(root, "hairstyle", c, png_header(2));
+        visual_pictures_override((root / "Resources").u8string());
+        visual_pictures_refresh(app);
+        const fs::path pics = app.turbo_output() / "pictures";
+        fs::remove_all(pics, ec);
+        const std::vector<uint8_t> png = png_header(2);
+        // generic-head capture of hair 2 (and its legacy real-face render realface_test\hairtypecode_2.png), FC Editor conversion of
+        // hair 3, real-face renders of hair 1 and Bald (0) in the store; a real_face run's
+        // manifest naming hair 4 done (file outside the store's id names): never a generic capture
+        for (const char* f : {"raw/hairtypecode/2.png", "assets/hairtypecode/3.png", "realface/hairtypecode/1.png", "realface/hairtypecode/0.png",
+                              "realface/hairtypecode/4x.png", "realface_test/hairtypecode_2.png"})
+            visual_picker_test::write_bytes(pics / fs::u8path(f), png);
+        {
+            json m;
+            m["real_face"] = true;
+            m["items"] = json::array({json{{"field", "hairtypecode"}, {"id", 4}, {"state", "done"}, {"file", (pics / "realface" / "hairtypecode" / "4x.png").u8string()}}});
+            const std::string t = m.dump();
+            visual_picker_test::write_bytes(pics / "gear_thumbs" / "manifest.json", std::vector<uint8_t>(t.begin(), t.end()));
+        }
+        fcedit::override_dir("");
+        fcedit::refresh();
+        auto same_file = [](const std::string& got, const fs::path& want) {
+            std::error_code e;
+            return !got.empty() && fs::equivalent(fs::u8path(got), want, e);
+        };
+        const fs::path rf = pics / "realface" / "hairtypecode";
+        vp::open_choice(app, *p, rec, "hairtypecode", false, {1, 2, 3, 4}, faces3d::kHairOwnCode);
+        CHECK(visual_picker_ui().choice, "opened as the real-face chooser");
+        for (int64_t c : {int64_t(1), int64_t(0)})
+            CHECK(visual_picker_tile_source(c) == TileSource::FcEditor && same_file(visual_picker_tile_picture(c), rf / (std::to_string(c) + ".png")) &&
+                      has_word(visual_picker_tile_tip(c), "real"),
+                  "tile " + std::to_string(c) + " shows its real-face render: src " + std::to_string(static_cast<int>(visual_picker_tile_source(c))) + " " +
+                      visual_picker_tile_picture(c) + " tip " + visual_picker_tile_tip(c));
+        CHECK(visual_picker_tile_source(2) == TileSource::FcEditor && same_file(visual_picker_tile_picture(2), pics / "realface_test" / "hairtypecode_2.png"),
+              "tile 2: the legacy real-face render (realface_test\\hairtypecode_2.png) beats its generic-head capture: " + visual_picker_tile_picture(2));
+        for (int64_t c : {3, 4}) {
+            const std::string why = visual_picker_tile_reason(c);
+            CHECK(visual_picker_tile_source(c) == TileSource::Placeholder && visual_picker_tile_picture(c).empty() && !visual_picker_tile_drawn(c) &&
+                      has_word(why, "real head") && visual_picker_tile_writable(c),
+                  "tile " + std::to_string(c) + " (generic capture / FC Editor / preview only): a not-rendered placeholder, still a choice: src " +
+                      std::to_string(static_cast<int>(visual_picker_tile_source(c))) + " picture '" + visual_picker_tile_picture(c) + "' why " + why);
+        }
+        CHECK(visual_picker_tile_name(faces3d::kHairOwnCode) == "His scanned hair", "his scanned hair tile kept");
+        visual_picker_close();
+        // the current pick's thumbnail draws (a real-face render and a placeholder) without trouble
+        ui.extra_draw = [&]() {
+            ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+            if (ImGui::Begin("rf thumb")) {
+                vp::draw_realface_picture(app, "hairtypecode", 1, 56.0f);
+                vp::draw_realface_picture(app, "hairtypecode", 3, 56.0f);
+            }
+            ImGui::End();
+        };
+        ui.frames(3);
+        // the generic picker: R2-P as before, no real-face render, no real_face manifest item
+        ui.extra_draw = draw_section;
+        app.request_tab = 0;
+        ui.frames(2);
+        visual_picker_request("hairtypecode");
+        ui.frames(3);
+        CHECK(visual_picker_ui().open && !visual_picker_ui().choice, "the generic hair grid is open");
+        CHECK(visual_picker_tile_source(2) == TileSource::FcEditor && same_file(visual_picker_tile_picture(2), pics / "raw" / "hairtypecode" / "2.png"),
+              "generic: hair 2 keeps the in-game capture (R2-P): " + visual_picker_tile_picture(2));
+        bool none = true;
+        for (int64_t c : visual_picker_codes()) none = none && visual_picker_tile_picture(c).find("realface") == std::string::npos;
+        CHECK(none, "generic: no tile shows a real-face render or a real_face manifest item");
+        CHECK(visual_picker_tile_source(1) == TileSource::Game, "generic: hair 1 keeps the FC 27 preview: " + std::to_string(static_cast<int>(visual_picker_tile_source(1))));
+        fs::remove_all(pics, ec);
+        wind_down();
+        fcedit::refresh();
+    });
+
     // ---------------------------------------------------------------- TX tattoo lane: one picture order for the seven tattoo areas
     // Owner: "fix the tattoos". The gear generator's 286 full-body renders (pictures\assets\tattoo<area>\<id>.png: the tattoo barely
     // shows under the kit) were tattoo tiles. Order now (code > 0, every area alike): (1) the design drawn from the game's decal texture

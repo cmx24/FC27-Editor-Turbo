@@ -114,6 +114,13 @@ std::string Index::capture_picture(const std::string& field, int64_t id) const {
     return p == f->second.end() ? std::string() : p->second;
 }
 
+std::string Index::realface_picture(const std::string& field, int64_t id) const {
+    const auto f = realface_fields.find(folder_field(field));
+    if (f == realface_fields.end()) return {};
+    const auto p = f->second.find(id);
+    return p == f->second.end() ? std::string() : p->second;
+}
+
 Index build_index(const fs::path& root, const fs::path& pack) {
     const auto t0 = std::chrono::steady_clock::now();
     Index ix;
@@ -149,14 +156,43 @@ Index build_index(const fs::path& root, const fs::path& pack) {
                 for (auto& e : best) ix.capture_fields[field].emplace(e.first, std::move(e.second.path));
             }
         }
+        // 1.0.3 RF: the real-face store (renders on a scanned head): its own list, never a generic capture
+        const fs::path rf = pack / "realface";
+        if (fs::is_directory(rf, ec)) {
+            for (const std::string& field : field_folders(rf)) {
+                std::unordered_map<int64_t, Best> best;
+                list_folder(rf / field, 0, best);
+                for (auto& e : best) ix.realface_fields[field].emplace(e.first, std::move(e.second.path));
+            }
+        }
+        // ... then the legacy test folder of the same renders, <pack>\realface_test\<field>_<id>.png (1.0.2's real_face runs): a store
+        // picture of the same id wins
+        const fs::path rft = pack / "realface_test";
+        if (fs::is_directory(rft, ec)) {
+            for (fs::directory_iterator it(rft, ec), end; !ec && it != end; it.increment(ec)) {
+                std::error_code e2;
+                if (!it->is_regular_file(e2)) continue;
+                const fs::path fp = it->path();
+                std::string ext = fp.extension().u8string();
+                for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (ext != ".png") continue;
+                const std::string stem = fp.stem().u8string();
+                const size_t us = stem.rfind('_');
+                if (us == std::string::npos || us == 0) continue;
+                const int64_t id = id_of_name(stem.substr(us + 1));
+                if (id < 0) continue;
+                ix.realface_fields[folder_field(stem.substr(0, us))].emplace(id, fp.u8string());  // emplace: the store's file wins
+            }
+        }
         std::ifstream mf(pack / "gear_thumbs" / "manifest.json", std::ios::binary);
         if (mf) {
             const nlohmann::json j = nlohmann::json::parse(mf, nullptr, false);
-            if (j.is_object() && j.contains("items") && j["items"].is_array())
+            // a real_face run's manifest lists renders on scanned heads: never a generic tile (1.0.3 RF)
+            if (j.is_object() && !j.value("real_face", false) && j.contains("items") && j["items"].is_array())
                 for (const auto& it : j["items"]) {
                     if (!it.is_object() || it.value("state", std::string()) != "done" || !it.contains("id") || !it["id"].is_number_integer()) continue;
                     const std::string field = it.value("field", std::string()), file = it.value("file", std::string());
-                    if (field.empty() || file.empty() || file.find("realface_test") != std::string::npos || !fs::is_regular_file(fs::u8path(file), ec)) continue;
+                    if (field.empty() || file.empty() || file.find("realface") != std::string::npos || !fs::is_regular_file(fs::u8path(file), ec)) continue;
                     ix.capture_fields[folder_field(field)].emplace(it["id"].get<int64_t>(), file);  // the raw copy, when listed, wins
                 }
         }
@@ -226,6 +262,8 @@ const Index& index(App& app) {
 std::string picture(App& app, const std::string& field, int64_t id) { return index(app).picture(field, id); }
 
 std::string capture_picture(App& app, const std::string& field, int64_t id) { return index(app).capture_picture(field, id); }
+
+std::string realface_picture(App& app, const std::string& field, int64_t id) { return index(app).realface_picture(field, id); }
 
 bool has_field(App& app, const std::string& field) { return index(app).has(field); }
 

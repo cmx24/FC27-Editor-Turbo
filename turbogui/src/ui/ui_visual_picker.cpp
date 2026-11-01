@@ -61,6 +61,12 @@ constexpr const char* kTurboPackPictureTip = "Turbo's in-game picture (rendered 
 // turbo/tools/tattoo/tattoo_designs.py into <turbo_output>\pictures\assets\tattoo_design\<id>.png (one folder for all seven areas)
 constexpr const char* kTattooDesignField = "tattoo_design";
 constexpr const char* kTattooDesignTip = "The tattoo's design (from the FC 27 game's tattoo texture)";
+// Turbo X 1.0.3 RF (owner 11-01: "I just need the real 3d heads rendered - no use rendering generic heads"): the real-face chooser's
+// ONLY picture is the game's render of that hair / beard on a real (scanned) head (fcedit::realface_picture: pictures/realface/<field>/
+// <id>.png, then the legacy pictures/realface_test/<field>_<id>.png; the gear generator's real_face runs). A tile without one is a plain "not rendered" placeholder, still a choice: never a
+// generic-head capture, a FC 27 catalogue / FC Editor / RDBM26 2D picture or a drawn class icon.
+constexpr const char* kRealFacePictureTip = "Rendered by FC 27 on a real (scanned) head";
+constexpr const char* kRealFaceMissingCap = "not rendered";
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -700,6 +706,39 @@ Source subset_source(const Source& in, const std::vector<int64_t>& keep, const c
     return o;
 }
 
+// 1.0.3 RF: every tile of the real-face chooser (but his own scan) takes the real-face render or the "not rendered" placeholder.
+// Returns how many tiles have a render.
+size_t realface_tiles(App& app, Source& o, int64_t own_code) {
+    size_t have = 0;
+    const bool hair = o.field == "hairtypecode";
+    for (size_t k = 0; k < o.codes.size(); ++k) {
+        const int64_t code = o.codes[k];
+        if (code == own_code) continue;
+        const std::string rf = fcedit::realface_picture(app, o.field, code);
+        o.game[k].clear();
+        o.icon[k] = 0;
+        o.fcedit[k] = 0;
+        o.swatch[k] = 0;
+        if (!rf.empty()) {
+            o.src[k] = kSrcFcEditor;
+            o.files[k] = fs::u8path(rf);
+            o.tip[k] = kRealFacePictureTip;
+            o.cap[k].clear();
+            o.reason[k].clear();
+            ++have;
+        } else {
+            o.src[k] = kSrcBlank;
+            o.files[k].clear();
+            o.tip[k].clear();
+            o.cap[k] = kRealFaceMissingCap;
+            o.reason[k] = std::string("Not rendered on a real head yet: the game has not drawn this ") + (code == 0 ? (hair ? "bald look" : "clean shave") : hair ? "hair" : "beard") +
+                          " on a scanned face (pictures\\realface). Generic-head and 2D pictures are not shown here. It can still be chosen.";
+        }
+    }
+    o.fcedit_any = have > 0;
+    return have;
+}
+
 void new_frame(App& app) {
     State& s = st();
     const int fc = ImGui::GetFrameCount();
@@ -1072,6 +1111,11 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
         s.src.title = (hair ? std::string("Hair") : std::string("Beard")) + " (3D, real face)";
         s.src.note = hair ? "Real face: a new style replaces the hair painted into his scan. 0 = Bald; \"His scanned hair\" keeps the hair of his scan."
                           : "Real face: a new beard replaces the stubble painted into his scan. 0 = No beard; \"His scanned beard\" keeps the beard of his scan.";
+        // 1.0.3 RF: the pictures are the game's renders on a real head only (realface_tiles above)
+        const size_t rendered = realface_tiles(app, s.src, hair ? faces3d::kHairOwnCode : faces3d::kBeardOwnCode);
+        const size_t listed = s.src.codes.size() >= 1 ? s.src.codes.size() - 1 : 0;  // all but his own scan
+        s.src.note += " Pictures: " + std::to_string(rendered) + " of " + std::to_string(listed) + " rendered by FC 27 on a real head; the rest say \"" +
+                      kRealFaceMissingCap + "\".";
     }
     // step 7: a tattoo picker opens on the tattoos made for its body area (the combo lists the others too)
     if (tattoo_area_index(field) >= 0)
@@ -1922,6 +1966,22 @@ void draw_code_picture(App& app, const Table& t, uint64_t rec, const char* field
         rc.manager = manager;
     }
     row_picture(app, rc.src, code, side);
+}
+
+void draw_realface_picture(App& app, const char* field, int64_t code, float side) {
+    new_frame(app);
+    const ImVec2 a = ImGui::GetCursorScreenPos();
+    const ImVec2 box(side, side);
+    ImGui::Dummy(box);
+    const std::string rf = fcedit::realface_picture(app, field, code);
+    if (!rf.empty() && draw_still(app, fs::u8path(rf), 128, a, box, true)) {
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kRealFacePictureTip);
+        return;
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(a, ImVec2(a.x + side, a.y + side), IM_COL32(58, 58, 64, 255), 4.0f);
+    box_text(dl, a, box, rf.empty() ? kRealFaceMissingCap : "loading");
+    if (rf.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("Not rendered on a real head yet (pictures\\realface).");
 }
 
 int look_rows(App& app, const Table& t, uint64_t rec, bool manager, bool skip_band_rows) {

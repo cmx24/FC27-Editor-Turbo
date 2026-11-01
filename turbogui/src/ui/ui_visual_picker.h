@@ -71,6 +71,9 @@ bool take_choice(const std::string& field, int64_t* code);
 // Step 7: the picture of one code of a field (not the record's value: the 3D section shows the generic id picked), side x side, from the
 // same sources as the tiles (game preview, RDBM26, FC Editor preview, lit capture, class icon). Draws a grey box when there is none.
 void draw_code_picture(App& app, const Table& t, uint64_t rec, const char* field, bool manager, int64_t code, float side);
+// Turbo X 1.0.3 RF: the real-face section's thumbnail of `code` (a generic hair / beard id, 0 = Bald / No beard): the game's render on a
+// real head (fcedit::realface_picture) or a "not rendered" box, never a generic-head or 2D picture
+void draw_realface_picture(App& app, const char* field, int64_t code, float side);
 // An INLINE grid of the field (not a window): tiles in the page, animated where RDBM26 has a GIF, a grey "no animation" /
 // "no picture" tile where it has none, the current value marked, a click picks, "Apply" writes through visual_apply. `height`: the
 // grid's height in pixels (it scrolls). true on the frame it wrote. The Set pieces card (ui_setpiece_card.cpp) is made of these.

@@ -99,6 +99,9 @@ fs::path manifest_file(const fs::path& t) { return run_dir(t) / "manifest.json";
 fs::path own_file(const fs::path& t) { return run_dir(t) / "own.json"; }
 fs::path log_file(const fs::path& t) { return run_dir(t) / "run.log"; }
 fs::path status_file(const fs::path& t) { return run_dir(t) / "status.txt"; }
+fs::path realface_dir(const fs::path& t) { return pictures_root(t) / "realface"; }
+fs::path realface_file(const fs::path& t, const FieldSpec& f, int64_t id) { return realface_dir(t) / f.folder / (std::to_string(id) + ".png"); }
+fs::path realface_manifest_file(const fs::path& t) { return realface_dir(t) / "manifest.json"; }
 
 uint64_t generation() { return g_generation.load(); }
 
@@ -228,7 +231,14 @@ Plan make_plan(const fs::path& t, const Request& rq, const std::function<bool(co
         }
         const int64_t code = step_code(fi, s.id);
         if (!seen.insert(code).second) continue;
-        if (!rq.fresh && fs::exists(picture_file(t, *f, s.id), ec)) {
+        // 1.0.3 RF: a real-face hair / beard item is judged against the real-face store (a generic-head picture of the same id is
+        // not a real-face render), and an id off Turbo's band list is refused here (the game could not be asked for it)
+        const bool rf_item = rq.real_face && (std::string(f->db) == "hairtypecode" || std::string(f->db) == "facialhairtypecode");
+        if (rf_item && s.id != 0 && (std::string(f->db) == "hairtypecode" ? faces3d::hair_band_code(s.id) : faces3d::beard_band_code(s.id)) <= 0) {
+            p.rejected.push_back(what + ": not on Turbo's real-face list (faces3d band)");
+            continue;
+        }
+        if (!rq.fresh && fs::exists(rf_item ? realface_file(t, *f, s.id) : picture_file(t, *f, s.id), ec)) {
             ++p.skipped_existing;
             continue;
         }
@@ -453,8 +463,8 @@ void Generator::poll_round() {
             continue;
         }
         const FieldSpec& f = fields()[static_cast<size_t>(it.field_index)];
-        const fs::path p = real_face_ ? pictures_root(env_.turbo_output) / "realface_test" / (std::string(f.folder) + "_" + std::to_string(it.id) + ".png")
-                                      : picture_file(env_.turbo_output, f, it.id);
+        const bool rf_item = real_face_ && (std::string(f.db) == "hairtypecode" || std::string(f.db) == "facialhairtypecode");
+        const fs::path p = rf_item ? realface_file(env_.turbo_output, f, it.id) : picture_file(env_.turbo_output, f, it.id);
         const std::vector<uint8_t> png = bodytype_thumbs::encode_png(r.image);
         std::string e;
         std::error_code ec;
@@ -470,6 +480,15 @@ void Generator::poll_round() {
         it.error.clear();
         ++round_pictures_;
         last_capture_[pid] = {hash, sl->item};
+        if (rf_item) {  // 1.0.3 RF: the real-face store's own manifest (merged across runs; written with the run's manifest)
+            json m = rf_manifest_.empty() ? json::object() : json::parse(rf_manifest_, nullptr, false);
+            if (!m.is_object()) m = json::object();
+            if (!m.contains("items") || !m["items"].is_object()) m["items"] = json::object();
+            m["items"][f.db][std::to_string(it.id)] = {{"file", it.file}, {"w", it.w}, {"h", it.h}, {"player", pid},
+                                                       {"at", env_.stamp ? env_.stamp() : std::string()}};
+            rf_manifest_ = m.dump(1);
+            rf_dirty_ = true;
+        }
         ++g_generation;
         if (f.cam == Cam::Head) hairbeard_thumbs::invalidate();
         note(where(sl->item) + " -> saved " + it.file + " " + std::to_string(r.image.w) + "x" + std::to_string(r.image.h));
@@ -530,13 +549,19 @@ void Generator::finish() {
 }
 
 void Generator::save_manifest() {
-    json j{{"players", json::array()}, {"items", json::array()}};
+    json j{{"players", json::array()}, {"items", json::array()}, {"real_face", real_face_}};
     for (const Reference& r : refs_) j["players"].push_back(r.player);
     for (const Item& it : items_)
         j["items"].push_back({{"field", fields()[static_cast<size_t>(it.field_index)].db}, {"id", it.id}, {"camera", cam_word(it.cam)}, {"state", it.state},
                               {"attempts", it.attempts}, {"error", it.error}, {"file", it.file}, {"w", it.w}, {"h", it.h}});
     std::string e;
     if (!bodytype_thumbs::write_file_atomic(manifest_file(env_.turbo_output), j.dump(1), &e)) note("the manifest could not be written: " + e);
+    if (rf_dirty_) {
+        std::error_code ec;
+        fs::create_directories(realface_dir(env_.turbo_output), ec);
+        if (bodytype_thumbs::write_file_atomic(realface_manifest_file(env_.turbo_output), rf_manifest_, &e)) rf_dirty_ = false;
+        else note("the real-face manifest could not be written: " + e);
+    }
 }
 
 // an earlier run's manifest (same players): items that were being drawn when Turbo died count an attempt ("crashed" at the
@@ -552,6 +577,7 @@ void Generator::load_manifest() {
             for (const json& v : j["players"])
                 if (v.is_number_integer()) theirs.insert(v.get<int32_t>());
         if (mine != theirs || !j.contains("items") || !j["items"].is_array()) return;
+        if (j.value("real_face", false) != real_face_) return;  // 1.0.3 RF: a generic run's states say nothing of a real-face run
         for (const json& m : j["items"]) {
             if (!m.is_object()) continue;
             const std::string field = m.value("field", std::string());
@@ -665,6 +691,9 @@ bool Generator::start(const Request& rq, const std::vector<Reference>& refs, std
     fresh_ = rq.fresh;
     real_face_ = rq.real_face;
     body_mode_ = rq.body_mode;
+    rf_manifest_.clear();
+    rf_dirty_ = false;
+    if (real_face_) read_text(realface_manifest_file(env_.turbo_output), rf_manifest_);
     if (!fresh_) load_manifest();
     cancelled_ = aborted_ = restored_ = false;
     requests_ = 0;
