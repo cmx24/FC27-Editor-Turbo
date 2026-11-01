@@ -717,6 +717,105 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         wind_down();
         fcedit::refresh();
     });
+
+    // ---------------------------------------------------------------- TX tattoo lane: one picture order for the seven tattoo areas
+    // Owner: "fix the tattoos". The gear generator's 286 full-body renders (pictures\assets\tattoo<area>\<id>.png: the tattoo barely
+    // shows under the kit) were tattoo tiles. Order now (code > 0, every area alike): (1) the design drawn from the game's decal texture
+    // (pictures\assets\tattoo_design\<id>.png, turbo/tools/tattoo/tattoo_designs.py), (2) the FC 27 catalogue preview, (3) none.
+    // Never the full-body render, an in-game capture, FC Editor's or RDBM26's (FC 26) picture.
+    run_case("UI: TX tattoo tiles: design picture > FC 27 preview > none, every area; full-body renders, captures and RDBM26 never a tattoo tile", [&] {
+        if (!p || !rec || !p->has("tattooleftarm") || !p->has("tattoohead")) {
+            CHECK(false, "the test world has tattooleftarm and tattoohead");
+            return;
+        }
+        std::vector<std::string> areas;  // every tattoo area the test world's players table has (an arm and the head at least)
+        for (const char* f : {"tattoohead", "tattoofront", "tattooback", "tattooleftarm", "tattoorightarm", "tattooleftleg", "tattoorightleg"})
+            if (p->has(f)) areas.push_back(f);
+        // tattoo models 74 75 105 (as FC 27: 74 has a game preview, 75 and 105 are model only); RDBM26 has a picture of all three
+        const fs::path root = test_tmp_dir("tattoo_tiles");
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        {
+            std::string cat_text = read_file("tests/fixtures/asset_catalog_v1_small.json");
+            const std::string old_line = "\"tattoo\": { \"model\": [30, 31], \"preview\": { \"30\": \"data/ui/imgAssets/tattoo/item_30_0.dds\" } },";
+            const size_t at = cat_text.find(old_line);
+            CHECK(at != std::string::npos, "the fixture's tattoo line is where the test expects it");
+            if (at == std::string::npos) return;
+            cat_text.replace(at, old_line.size(), "\"tattoo\": { \"model\": [74, 75, 105], \"preview\": { \"74\": \"data/ui/imgAssets/tattoo/item_74_0.dds\" } },");
+            const fs::path catfile = root / "asset_catalog_tattoo.json";
+            visual_picker_test::write_bytes(catfile, std::vector<uint8_t>(cat_text.begin(), cat_text.end()));
+            auto cat = std::make_shared<assets::Catalog>();
+            std::string cerr;
+            CHECK(cat->load_file(catfile.u8string(), "0000AAAA-0000BBBB", &cerr) && cat->current(), "tattoo catalog loaded: " + cerr);
+            set_gear_catalog(cat);
+        }
+        for (int64_t c : {74, 75, 105}) CHECK(!put_picture(root, "tattoo", c, png_header(2)).empty(), "RDBM26 tattoo " + std::to_string(c));
+        visual_pictures_override((root / "Resources").u8string());
+        visual_pictures_refresh(app);
+        const fs::path pics = app.turbo_output() / "pictures";
+        fs::remove_all(pics, ec);
+        // the generator's full-body renders and captures of every area, for all three tattoos
+        const std::vector<uint8_t> png = png_header(2);
+        for (const std::string& f : areas)
+            for (int64_t c : {74, 75, 105}) {
+                visual_picker_test::write_bytes(pics / "assets" / f / (std::to_string(c) + ".png"), png);
+                visual_picker_test::write_bytes(pics / "raw" / f / (std::to_string(c) + ".png"), png);
+            }
+        fcedit::override_dir("");
+        fcedit::refresh();
+        ui.extra_draw = draw_section;
+        struct Tile {
+            TileSource src = TileSource::Placeholder;
+            std::string pic, tip;
+        };
+        using Seen = std::map<std::string, Tile>;  // "tattooleftarm 74"...
+        auto look = [&]() {
+            Seen s;
+            for (const std::string& f : areas) {
+                app.request_tab = 0;
+                ui.frames(2);
+                visual_picker_request(f);
+                ui.frames(3);
+                CHECK(visual_picker_ui().open && visual_picker_ui().field == f, "the grid is open: " + f);
+                for (int64_t c : {74, 75, 105}) s[f + " " + std::to_string(c)] = Tile{visual_picker_tile_source(c), visual_picker_tile_picture(c), visual_picker_tile_tip(c)};
+                visual_picker_close();
+                ui.frames(2);
+            }
+            return s;
+        };
+        auto src = [](TileSource t) { return std::to_string(static_cast<int>(t)); };
+        auto same_file = [](const std::string& got, const fs::path& want) {
+            std::error_code e;
+            return !got.empty() && fs::equivalent(fs::u8path(got), want, e);
+        };
+        // 1. no design pictures yet: 74 shows the game preview; 75 and 105 show nothing (not the render, the capture or RDBM26)
+        Seen a = look();
+        for (const std::string& f : areas) {
+            const Tile& t74 = a[f + " 74"];
+            CHECK(t74.src == TileSource::Game, f + " 74: the FC 27 preview, not RDBM26 or the full-body render (src " + src(t74.src) + " picture " + t74.pic + ")");
+            for (int64_t c : {75, 105}) {
+                const Tile& t = a[f + " " + std::to_string(c)];
+                CHECK(t.src == TileSource::Placeholder && t.pic.empty(),
+                      f + " " + std::to_string(c) + ": no tile picture without a design or preview (src " + src(t.src) + " picture " + t.pic + ")");
+            }
+        }
+        // 2. the design pictures of 74 and 105 (one folder for every area): they win over the preview; 75 stays without a picture
+        for (int64_t c : {74, 105}) visual_picker_test::write_bytes(pics / "assets" / "tattoo_design" / (std::to_string(c) + ".png"), png);
+        fcedit::refresh();
+        Seen b = look();
+        for (const std::string& f : areas) {
+            for (int64_t c : {74, 105}) {
+                const Tile& t = b[f + " " + std::to_string(c)];
+                CHECK(t.src == TileSource::FcEditor && same_file(t.pic, pics / "assets" / "tattoo_design" / (std::to_string(c) + ".png")) && has_word(t.tip, "design"),
+                      f + " " + std::to_string(c) + ": the design picture (src " + src(t.src) + " picture " + t.pic + " tip " + t.tip + ")");
+            }
+            const Tile& t75 = b[f + " 75"];
+            CHECK(t75.src == TileSource::Placeholder && t75.pic.empty(), f + " 75: still no picture (src " + src(t75.src) + " picture " + t75.pic + ")");
+        }
+        fs::remove_all(pics, ec);
+        wind_down();
+        fcedit::refresh();
+    });
 }
 
 }  // namespace hairbeard_test
