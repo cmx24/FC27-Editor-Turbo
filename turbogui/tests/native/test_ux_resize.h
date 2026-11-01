@@ -642,7 +642,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player at its stored 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
         CHECK(ui.open_page("Players", "Create & clone"), "Player creation opens");
         ui.frames(4);
-        CHECK(select_pane() && near(select_pane()->Size.x, 300.0f * g_ui_scale), fmt("another page starts at its own default 300: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));
+        // R2-R(b) (owner's request): a page never dragged opens at the width last dragged on any page (gui.splits "last/##select", the
+        // under-drag above), no longer at the 300 default (that reset on every page not yet dragged is what the owner asked to remove)
+        const float last_w = split::store().get("last/##select", -1.0f);
+        CHECK(last_w > 0.0f && select_pane() && near(select_pane()->Size.x, last_w * g_ui_scale),
+              fmt("another page (never dragged) opens at the last dragged %.0f: %.0f", last_w * g_ui_scale, select_pane() ? select_pane()->Size.x : -1.0f));
         CHECK(ui.open_page("Players", "Player"), "back to Edit a player");
         ui.frames(4);
         CHECK(select_pane() && near(select_pane()->Size.x, 520.0f * g_ui_scale), fmt("Edit a player is back at 520: %.0f", select_pane() ? select_pane()->Size.x : -1.0f));

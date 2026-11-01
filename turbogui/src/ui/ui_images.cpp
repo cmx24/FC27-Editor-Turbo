@@ -29,6 +29,7 @@
 #include "core/look_pickers.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "modal_size.h"  // R2-R(c): the dialog reopens at the size the person gave it
 #include "ui_gear_thumbs.h"
 #include "ui_asset_browser.h"
 #include "ui_bodytypes.h"
@@ -1468,8 +1469,9 @@ void tattoo_editor(App& app, const Table& t, uint64_t rec) {
                 ImGui::OpenPopup("##tattoopick");
             }
             if (open_area == static_cast<int>(a)) {
-                ImGui::SetNextWindowSize(ImVec2(S(760.0f), S(560.0f)), ImGuiCond_Appearing);
+                modal_size::set_next("tattoopick", ImVec2(760.0f, 560.0f));
                 if (ImGui::BeginPopupModal("##tattoopick", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+                    modal_size::track("tattoopick", ImVec2(760.0f, 560.0f));
                     ImGui::Text("%s tattoo", kTattooAreas[a][1]);
                     ImGui::SameLine();
                     ImGui::Checkbox("Show tattoos made for other areas too", &all_areas);
@@ -2312,8 +2314,9 @@ void item_galleries(App& app, const Table& t, uint64_t rec, bool manager) {
                 ImGui::TextDisabled("%zu in the game", ids.size());
             }
             if (open_gal == static_cast<int>(gi)) {
-                ImGui::SetNextWindowSize(ImVec2(S(760.0f), S(560.0f)), ImGuiCond_Appearing);
+                modal_size::set_next("gallerypick", ImVec2(760.0f, 560.0f));
                 if (ImGui::BeginPopupModal("##gallerypick", nullptr, ImGuiWindowFlags_NoSavedSettings)) {
+                    modal_size::track("gallerypick", ImVec2(760.0f, 560.0f));
                     ImGui::Text("%s (%s)", g.title, g.field);
                     ImGui::SameLine();
                     ImGui::Checkbox("Favourites only", &fav_only);

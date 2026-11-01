@@ -22,6 +22,7 @@
 #include "core/season_pack.h"
 #include "file_picker.h"
 #include "imgui.h"
+#include "modal_size.h"  // R2-R(c): the dialog reopens at the size the person gave it
 #include "move_rules.h"
 #include "table_registry.h"
 #include "ui_career_page.h"
@@ -340,6 +341,13 @@ void cmt_create(App& app) {
 
 }  // namespace
 
+// R2-R(c): a dialog's first-use size in unscaled px (modal_size.h): w x h, never more than the given share of the game screen
+static ImVec2 cmt_dialog_default(float w, float h, float fx, float fy) {
+    const ImVec2 disp = ImGui::GetIO().DisplaySize;
+    const float sc = g_ui_scale > 0.0f ? g_ui_scale : 1.0f;
+    return ImVec2(std::min(w, disp.x * fx / sc), std::min(h, disp.y * fy / sc));
+}
+
 void cmtracker_dialog(App& app) {
     cmt_poll_job(app);
 
@@ -347,9 +355,10 @@ void cmtracker_dialog(App& app) {
     {
         const ImVec2 disp = ImGui::GetIO().DisplaySize;
         ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(std::min(S(640.0f), disp.x * 0.92f), std::min(S(690.0f), disp.y * 0.9f)), ImGuiCond_Appearing);
+        modal_size::set_next("cmtracker", cmt_dialog_default(640.0f, 690.0f, 0.92f, 0.9f));
     }
     if (ImGui::BeginPopupModal("##pcmt", nullptr)) {
+        modal_size::track("cmtracker", cmt_dialog_default(640.0f, 690.0f, 0.92f, 0.9f));
         const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + S(4.0f);
         ImGui::BeginChild("##cmtbody", ImVec2(0, -footer_h));
         cmt_body(app);
@@ -457,9 +466,10 @@ void player_file_dialog(App& app) {
     {
         const ImVec2 disp = ImGui::GetIO().DisplaySize;
         ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(std::min(S(600.0f), disp.x * 0.92f), std::min(S(560.0f), disp.y * 0.9f)), ImGuiCond_Appearing);
+        modal_size::set_next("playerfile", cmt_dialog_default(600.0f, 560.0f, 0.92f, 0.9f));
     }
     if (!ImGui::BeginPopupModal("##pplayerfile", nullptr)) return;
+    modal_size::track("playerfile", cmt_dialog_default(600.0f, 560.0f, 0.92f, 0.9f));
     PlayerFileUi& u = pf_ui();
     const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + S(4.0f);
     ImGui::BeginChild("##pfbody", ImVec2(0, -footer_h));

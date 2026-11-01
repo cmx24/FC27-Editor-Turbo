@@ -3360,6 +3360,8 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_gui50_window_rect.h"  // 5.0 T7: Cassio's gui.window replayed (resize kept, Restore fits the screen, stored choice kept, window log lines)
 #include "test_layout_store.h"  // 5.0b-B: the layout store (ImGui ini owned by Turbo), converted panes, Settings > Layout
 #include "test_layout_flush.h"  // 5.0c E6-layout: pane width committed at release, ini width wins over the default, release/hide flushes (fail-old on 5.0b/integration)
+#include "test_r2r_split.h"   // Turbo X R2-R(a)/(b): a clamp is not stored; an undragged page takes the last dragged width
+#include "test_r2r_dialog.h"  // Turbo X R2-R(c): dialogs reopen at the size the person gave them
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
 #include "test_gui_labels.h"  // 2.16 GUI revamp step 0: the id manifest of src/ui (R10) and the developer-word gate (R9), read from the source text
 #include "test_gear_pictures.h"  // 1.1.4: gear preview pictures from the hash list
@@ -15884,6 +15886,9 @@ int main(int argc, char** argv) {
     gui50_window_rect_test::run();  // test_gui50_window_rect.h (pure cases, D3)
     layout_store_test::run();  // test_layout_store.h (5.0b-B: own-context cases, file sink, source scans)
     layout_flush_test::run();  // test_layout_flush.h (5.0c E6-layout: own-context cases)
+    r2r_split_test::run_a();     // test_r2r_split.h (R2-R(a))
+    r2r_split_test::run_b();     // test_r2r_split.h (R2-R(b))
+    r2r_dialog_test::run();      // test_r2r_dialog.h (R2-R(c))
     test_shell();  // test_shell.h: shell contract (pure cases)
     nav220_test::run();  // test_nav_220.h: placeholders gone, the new label, every page registered once (2.20)
     gui_labels_test::run();  // test_gui_labels.h: widget id manifest + developer-word gate (src/ui text, no frame)
