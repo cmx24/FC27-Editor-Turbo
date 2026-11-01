@@ -156,15 +156,13 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         shell::player_edit_tab() = 0;
         app.sel_player = 1001;
         app.go(Page::PlayerEdit);
-        ui.extra_draw = draw_clubs;
+        ui.extra_draw = nullptr;  // the clubs window comes after the clicks on the Players list (it would cover the list)
         ui.frames(4);
         nlohmann::json pf = classic_player_list_filters();
         CHECK(pf["my_club"] == false && pf["group"] == -1 && pf["sort"] == 0 && pf["position"] == -1 && pf["free_agent"] == false && pf["club"] == 0 &&
                   pf["nationality"] == -1 && pf["loan"] == 0 && pf["age"] == nlohmann::json::array({0, 0}),
               "Players list, first run: the defaults (no chip, Sort Name, no filter): " + pf.dump());
-        nlohmann::json cf = club_list_filters();
-        CHECK(cf["country"] == -1 && cf["league"] == -1, "Clubs list, first run: any country, any league: " + cf.dump());
-        CHECK(!stored("players") && !stored("clubs"), "drawing both lists wrote nothing to list_filters");
+        CHECK(!stored("players"), "drawing the Players list wrote nothing to list_filters");
 
         // the person's clicks: Free agents, DEF, Sort OVR; and the form's position / age / nationality (as the form sets them)
         CHECK(ui.click("Free agents###pl_chip_free", "##select"), "click the Free agents chip");
@@ -176,6 +174,11 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         pf = classic_player_list_filters();
         CHECK(pf["free_agent"] == true && pf["group"] == 1 && pf["sort"] == 1, "the clicks took: " + pf.dump());
         CHECK(stored("players") && app.gui_settings["list_filters"]["players"] == pf, "the clicked chips and sort went into list_filters.players");
+        ui.extra_draw = draw_clubs;
+        ui.frames(4);
+        nlohmann::json cf = club_list_filters();
+        CHECK(cf["country"] == -1 && cf["league"] == -1, "Clubs list, first run: any country, any league: " + cf.dump());
+        CHECK(!stored("clubs"), "drawing the Clubs list wrote nothing to list_filters");
         pf["position"] = 5;
         pf["age"] = nlohmann::json::array({20, 30});
         pf["nationality"] = 14;
