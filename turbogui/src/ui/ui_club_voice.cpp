@@ -125,6 +125,10 @@ void club_voice_section(App& app) {
     else if (lang.empty()) says = "its own name, if the commentary has one (commentary language not known yet)";
     else if (own) says = "its own recorded name";
     else says = "no club name: the " + lang + " commentary has no recording for this club";
+    // Turbo X 1.0.1 L1: Play the current club's own clip in the loaded language (the same button and wav as the list's rows: ui_callname_play.cpp,
+    // turbo_output, cache, teamaudio, <lang>, <club id>.wav). Disabled, with the reason in its tooltip, when no clip was made for it.
+    callname_play_button(app, CallnameAudioKind::Club, teamid);
+    ImGui::SameLine();
     ImGui::TextWrapped("Commentary says: %s", says.c_str());
     const std::string cur_scope = cur ? cur->scope : std::string();
     if (cur) ImGui::TextDisabled("Applies: %s", app.reapply.scope_label(cur_scope).c_str());
