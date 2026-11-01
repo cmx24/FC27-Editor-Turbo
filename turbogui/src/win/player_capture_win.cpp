@@ -80,12 +80,18 @@ struct Job {
     std::string error;                  // the whole request failed (refused, timeout)
     BatchBook book;                     // per head: picture / error / handed out (under g_mutex)
     std::chrono::steady_clock::time_point t_request, t_ran;
+    bool held = false;                  // 1.0.3 lane CG: accepted but not submitted yet (SubmitGate closed; under g_mutex)
 };
 
 std::deque<std::unique_ptr<Job>> g_jobs;  // never freed: the game keeps a copy of our delegates' storage (= Job*)
 Job* g_current = nullptr;                  // the request in flight (owned by g_jobs)
 uint64_t g_serial = 0;
 std::string g_dispatch;
+// 1.0.3 lane CG (core/player_capture.h SubmitGate): no new request goes to the game while the display re-initialises (under g_mutex).
+// Real time (host::real_seconds): Live Editor's speedhack scales QueryPerformanceCounter / steady_clock (the "game clock x3.0" of
+// turbo_gui.log), so a 2 s settle on steady_clock would be 0.67 s.
+SubmitGate g_gate;
+void run_request(Job* job);
 
 fs::path capture_log_path() { return le_root() / "turbo_output" / "player_capture.log"; }
 
@@ -384,6 +390,25 @@ void on_done_invoker(const void* storage) {
     });
 }
 
+// (under g_mutex) Hands a held request to the game thread once the gate opens (1.0.3 lane CG). A cancelled one is no longer
+// g_current, so it is never sent.
+void dispatch_locked(Job* raw) {
+    raw->held = false;
+    g_dispatch = run_on_game_thread([raw]() { run_request(raw); });
+    capture_log("request " + raw->label + " queued (" + (g_dispatch.empty() ? "no game-thread dispatcher yet" : g_dispatch) + ")");
+}
+std::string gate_reason_locked() {
+    std::string why;
+    if (g_gate.may_submit(real_seconds(), 2, &why)) return "waiting for its turn";
+    return why;
+}
+void pump_held_locked() {
+    Job* j = g_current;
+    if (!j || !j->held || j->cancelled) return;
+    if (!g_gate.may_submit(real_seconds(), j->book.size(), nullptr)) return;
+    dispatch_locked(j);
+}
+
 // ---------------------------------------------------------------- the service the editor uses
 class GameCapture : public CaptureService {
 public:
@@ -403,13 +428,23 @@ public:
             s.reason = g_install_note;
             return s;
         }
+        pump_held_locked();
         if (g_current) {
             s.busy = true;
             s.busy_label = g_current->label;
             auto now = std::chrono::steady_clock::now();
             s.busy_for = std::chrono::duration<double>(now - g_current->t_request).count();
-            s.reason = g_current->ran ? "rendering..." : (g_dispatch == "hook" ? "queued" : "queued: runs on the next career-mode event (advance the calendar / open a screen)");
+            s.reason = g_current->held ? "held: " + gate_reason_locked()
+                                       : g_current->ran ? "rendering..." : (g_dispatch == "hook" ? "queued" : "queued: runs on the next career-mode event (advance the calendar / open a screen)");
             return s;
+        }
+        // 1.0.3 lane CG: nothing new while the display settles after a re-init (callers wait for `available`, nothing fails)
+        {
+            std::string why;
+            if (!g_gate.may_submit(real_seconds(), 1, &why)) {
+                s.reason = why;
+                return s;
+            }
         }
         ProcessMemory mem;
         uint64_t settings = 0, renderer = 0, hub = 0;
@@ -484,8 +519,15 @@ public:
         for (auto& old : g_jobs)
             if (old.get() != raw && (old->finished || old->cancelled)) old->book.drop_pictures();
         g_current = raw;
-        g_dispatch = run_on_game_thread([raw]() { run_request(raw); });
-        capture_log("request " + raw->label + " queued (" + (g_dispatch.empty() ? "no game-thread dispatcher yet" : g_dispatch) + ")");
+        // 1.0.3 lane CG: while the gate is closed the request is accepted but HELD (not submitted); status() / poll() / the
+        // overlay's frame hand it to the game thread once the gate opens. No caller sees a failure for it.
+        std::string why;
+        if (!g_gate.may_submit(real_seconds(), raw->book.size(), &why)) {
+            raw->held = true;
+            capture_log("request " + raw->label + " held: " + why);
+            return true;
+        }
+        dispatch_locked(raw);
         return true;
     }
 
@@ -500,8 +542,10 @@ public:
         bool job_failed = false;
         {
             std::lock_guard<std::mutex> lock(g_mutex);
+            pump_held_locked();
             if (!g_current) return false;
             Job* j = g_current;
+            if (j->held) return false;  // not submitted yet: nothing to hand out, no watchdog (it has not run)
             const auto now = std::chrono::steady_clock::now();
             const double since = seconds_since_ran(j->ran, j->t_ran, now);
             bool timeout = answer_overdue(since, j->finished, kAnswerTimeout);
@@ -580,6 +624,26 @@ public:
 
     const Template* learned() override { return g_template.learned ? &g_template : nullptr; }
 };
+
+// 1.0.3 lane CG: the overlay (overlay_dx12.cpp) reports display re-inits and presented frames
+void player_capture_display_reinit(const char* what) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const double now = real_seconds();
+    if (g_gate.display_reinit(now))
+        capture_log(std::string("paused (display re-init: ") + (what ? what : "?") + "): no new request for " + std::to_string(g_gate.config().settle_frames) +
+                    " frames and " + std::to_string(static_cast<int>(g_gate.config().settle_s)) + " s" +
+                    (g_current ? " (the request in flight, " + g_current->label + ", is left to finish)" : ""));
+}
+void player_capture_frame() {
+    if (!g_installed) return;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_gate.paused()) return;
+    if (g_gate.frame(real_seconds())) {
+        capture_log("resumed (display stable for " + std::to_string(g_gate.frames_since_reinit()) + " frames after " + std::to_string(g_gate.reinits()) +
+                    " re-init(s) this session)");
+        pump_held_locked();
+    }
+}
 
 void install_player_capture(turbo::App& app) {
     app.capture = std::make_shared<GameCapture>();

@@ -722,6 +722,7 @@ static bool retarget(IDXGISwapChain3* sc) {
     }
     g_swapchain = sc;
     log("overlay follows the game's new swap chain");
+    player_capture_display_reinit("new swap chain");  // 1.0.3 lane CG: no new capture request until the display settles
     return true;
 }
 
@@ -848,6 +849,7 @@ static void render_frame_impl(IDXGISwapChain3* sc) {
 static void render_frame(IDXGISwapChain3* sc) {
     try {
         render_frame_impl(sc);
+        player_capture_frame();  // 1.0.3 lane CG: counts the frames the display has been stable after a re-init
     } catch (const std::exception& e) {
         g_failed = true;
         g_visible = false;
@@ -878,7 +880,9 @@ static HRESULT STDMETHODCALLTYPE hk_present1(IDXGISwapChain3* sc, UINT sync, UIN
 
 // Our last command list may still use the old back buffers: let it finish before a resize.
 // The lock is not held across the real call (DXGI may talk to the window thread while resizing).
-template <class Fn> static HRESULT around_resize(IDXGISwapChain3* sc, Fn call) {
+template <class Fn> static HRESULT around_resize(IDXGISwapChain3* sc, Fn call, const char* what) {
+    // 1.0.3 lane CG: the game re-initialises its display: player capture submits nothing new until it settled (player_capture_win.cpp)
+    if (!g_in_resize) player_capture_display_reinit(what);
     if (!g_in_resize && g_ready) {
         std::lock_guard<std::recursive_mutex> lock(g_ui_mutex);
         if (sc == g_swapchain) wait_gpu_idle();
@@ -891,12 +895,12 @@ template <class Fn> static HRESULT around_resize(IDXGISwapChain3* sc, Fn call) {
 }
 
 static HRESULT STDMETHODCALLTYPE hk_resize(IDXGISwapChain3* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags) {
-    return around_resize(sc, [&] { return o_resize(sc, count, w, h, fmt, flags); });
+    return around_resize(sc, [&] { return o_resize(sc, count, w, h, fmt, flags); }, "ResizeBuffers");
 }
 
 static HRESULT STDMETHODCALLTYPE hk_resize1(IDXGISwapChain3* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt, UINT flags,
                                             const UINT* masks, IUnknown* const* queues) {
-    return around_resize(sc, [&] { return o_resize1(sc, count, w, h, fmt, flags, masks, queues); });
+    return around_resize(sc, [&] { return o_resize1(sc, count, w, h, fmt, flags, masks, queues); }, "ResizeBuffers1");
 }
 
 // Remembers the last direct queue that submitted work (fallback for picking the overlay queue).

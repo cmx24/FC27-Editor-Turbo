@@ -88,5 +88,10 @@ void start_devtools();
 // Miniface from the game's 3D model (player_capture_win.cpp, core/player_capture.h): resolves the game's capture entry
 // points, installs the learning hooks and gives the App its capture service. Call after install_game_hooks().
 void install_player_capture(turbo::App& app);
+// Turbo X 1.0.3 lane CG (core/player_capture.h SubmitGate): the overlay's ResizeBuffers / ResizeBuffers1 hooks and a replaced swap
+// chain call player_capture_display_reinit; every presented frame calls player_capture_frame. While the display settles no new
+// capture request is submitted to the game (logged "player capture: paused (display re-init: ...)" / "resumed ...").
+void player_capture_display_reinit(const char* what);
+void player_capture_frame();
 
 }  // namespace host

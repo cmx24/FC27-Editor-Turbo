@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <memory>
 #include <string>
@@ -220,6 +221,64 @@ inline double seconds_since_ran(const std::atomic<bool>& ran, const std::chrono:
 }
 // The watchdog's verdict: the request ran more than timeout_s ago (seconds_since_ran) and the game has not finished it
 inline bool answer_overdue(double since_ran_s, bool finished, double timeout_s) { return since_ran_s >= 0.0 && !finished && since_ran_s > timeout_s; }
+
+// Turbo X 1.0.3 lane CG: when the host may SUBMIT a request to the game. On 2026-11-01 the game crashed 47 s after Live Editor's
+// display re-initialised twice (Logs\live_editor_01-11-2026.log "DirectX12 - Initialize attempt" 21:04:09 / 21:04:39 UTC) while a
+// "Render all filtered heads" sweep sent a batch every ~0.7 s (turbo_gui.log 15:58:53 .. 16:05:26). The overlay calls
+// display_reinit() from its ResizeBuffers / ResizeBuffers1 hooks and when the game replaces its swap chain, frame() once per
+// presented frame; nothing new is submitted until settle_frames frames AND settle_s seconds (whichever ends later) passed since
+// the LAST re-init. A request already in flight is left to finish or time out as before. Not thread-safe: the host guards it.
+struct GateConfig {
+    int settle_frames = 120;  // ~2 s at 60 fps
+    double settle_s = 2.0;
+};
+class SubmitGate {
+public:
+    explicit SubmitGate(GateConfig c = GateConfig()) : cfg_(c) {}
+    // true when this re-init starts a pause (the host logs "paused (display re-init)"); a re-init during a pause restarts the count
+    bool display_reinit(double now) {
+        const bool was = paused_;
+        paused_ = true;
+        frames_ = 0;
+        t_reinit_ = now;
+        ++reinits_;
+        return !was;
+    }
+    // one presented frame; true when this frame ends the pause (the host logs "resumed")
+    bool frame(double now) {
+        if (!paused_) return false;
+        ++frames_;
+        if (frames_ >= cfg_.settle_frames && now - t_reinit_ >= cfg_.settle_s) {
+            paused_ = false;
+            return true;
+        }
+        return false;
+    }
+    bool paused() const { return paused_; }
+    // may a request of `heads` heads be submitted now? why = the reason when not
+    bool may_submit(double now, size_t heads, std::string* why) const {
+        (void)heads;
+        if (paused_) {
+            if (why) {
+                char b[160];
+                std::snprintf(b, sizeof(b), "paused (display re-init): %d of %d frames, %.1f of %.1f s", frames_, cfg_.settle_frames, now - t_reinit_,
+                              cfg_.settle_s);
+                *why = b;
+            }
+            return false;
+        }
+        return true;
+    }
+    int reinits() const { return reinits_; }
+    int frames_since_reinit() const { return frames_; }
+    const GateConfig& config() const { return cfg_; }
+
+private:
+    GateConfig cfg_;
+    bool paused_ = false;
+    int frames_ = 0, reinits_ = 0;
+    double t_reinit_ = 0.0;
+};
 
 // ---------------------------------------------------------------- the game's callback object
 // eastl::function-shaped: 16 bytes of functor storage, a manager called as mgr(to, from, op) with op 0 = destruct,
