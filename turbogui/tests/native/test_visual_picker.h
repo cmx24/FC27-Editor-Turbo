@@ -902,6 +902,130 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         set_gear_catalog(nullptr);
     });
 
+    // ---- 1.0.1 R2-F (owner: filter permanence): each picker's filters are kept PER FIELD in gui_settings.json (picker_filters.<field>,
+    // the store of asset_scope and favourites) and come back after a restart; the search text starts empty at every open.
+    auto r2f_open = [&](const char* field) {
+        ui.extra_draw = draw_section;
+        ui.frames(1);
+        visual_picker_request(field);
+        ui.frames(3);
+        return visual_picker_ui().open && visual_picker_ui().field == field;
+    };
+    auto r2f_close = [&] {
+        visual_picker_close();
+        ui.frames(2);
+    };
+    auto r2f_reset_store = [&] {  // no picker_filters at all: a first run
+        if (app.gui_settings.is_object()) app.gui_settings.erase("picker_filters");
+        app.save_gui_settings();
+        app.load_gui_settings();
+    };
+    auto r2f_stored = [&](const char* key) {
+        const auto& g = app.gui_settings;
+        return g.is_object() && g.contains("picker_filters") && g["picker_filters"].is_object() && g["picker_filters"].contains(key);
+    };
+    auto r2f_has = [](const std::vector<std::string>& v, const char* name) { return std::find(v.begin(), v.end(), std::string(name)) != v.end(); };
+
+    run_case("UI: 1.0.1 R2-F picker filters, first run: nothing stored = the defaults (tattoo on 'Made for this area'), opening writes nothing", [&] {
+        if (!p || !rec || !p->has("hairtypecode") || !p->has("tattooleftarm")) {
+            CHECK(false, "the test world has hairtypecode, tattooleftarm and player 2002");
+            return;
+        }
+        r2f_reset_store();
+        CHECK(r2f_open("hairtypecode"), "the hair picker opened");
+        VisualPickerFilters f = visual_picker_filters();
+        CHECK(!f.show_blank && !f.fav_only && f.group.empty() && f.hair_length == -1 && f.hair_type == -1 && f.hair_accessory == -1 && f.search.empty(),
+              "hair, first run: no blank tiles, not favourites only, all groups, any length / type / accessory, empty search");
+        ui.frames(2);
+        CHECK(!r2f_stored("hairtypecode"), "opening (and drawing) the picker wrote nothing to picker_filters");
+        r2f_close();
+        CHECK(r2f_open("tattooleftarm"), "the left-arm tattoo picker opened");
+        f = visual_picker_filters();
+        CHECK(r2f_has(f.groups, "Made for this area"), fmt("the tattoo picker has the 'Made for this area' group (%zu groups)", f.groups.size()));
+        CHECK(f.group == "Made for this area" && !f.show_blank && !f.fav_only, "tattoo, first run: on 'Made for this area' (the step 7 default), blank tiles hidden");
+        ui.frames(2);
+        CHECK(!r2f_stored("tattooleftarm"), "opening the tattoo picker wrote nothing either");
+        r2f_close();
+        ui.extra_draw = nullptr;
+    });
+
+    run_case("UI: 1.0.1 R2-F picker filters persist per field: set, saved, settings reloaded (restart), restored; the search starts empty", [&] {
+        if (!p || !rec || !p->has("hairtypecode") || !p->has("tattooleftarm") || !p->has("eyebrowcode")) {
+            CHECK(false, "the test world has hairtypecode, tattooleftarm, eyebrowcode and player 2002");
+            return;
+        }
+        r2f_reset_store();
+        // hair: Show N without picture, Favourites only, the three facets; a search typed too (it is not kept)
+        CHECK(r2f_open("hairtypecode"), "the hair picker opened");
+        VisualPickerFilters h;
+        h.show_blank = true;
+        h.fav_only = true;
+        h.hair_length = 2;
+        h.hair_type = 1;
+        h.hair_accessory = 0;
+        h.search = "zz";
+        visual_picker_set_filters(h);
+        ui.frames(3);
+        CHECK(r2f_stored("hairtypecode"), "the changed hair filters went into gui_settings picker_filters.hairtypecode");
+        r2f_close();
+        // tattoo: the person picks All tattoos over the default 'Made for this area'
+        CHECK(r2f_open("tattooleftarm"), "the tattoo picker opened");
+        VisualPickerFilters t = visual_picker_filters();
+        t.group = "";
+        visual_picker_set_filters(t);
+        ui.frames(3);
+        r2f_close();
+        // eyebrows: a named group (style)
+        CHECK(r2f_open("eyebrowcode"), "the eyebrow picker opened");
+        VisualPickerFilters e = visual_picker_filters();
+        CHECK(!e.groups.empty(), fmt("the eyebrow picker has groups (%zu)", e.groups.size()));
+        const std::string eg = e.groups.empty() ? std::string() : e.groups.back();
+        e.group = eg;
+        e.show_blank = true;
+        visual_picker_set_filters(e);
+        ui.frames(3);
+        r2f_close();
+
+        // a restart: the settings file read again, the picker state forgotten
+        const std::string before = app.gui_settings.contains("picker_filters") ? app.gui_settings["picker_filters"].dump() : std::string("(none)");
+        app.gui_settings = nlohmann::json::object();
+        app.load_gui_settings();
+        CHECK(r2f_stored("hairtypecode") && r2f_stored("tattooleftarm") && r2f_stored("eyebrowcode"), "picker_filters read back from gui_settings.json: " + before);
+
+        CHECK(r2f_open("hairtypecode"), "the hair picker opened again");
+        VisualPickerFilters f = visual_picker_filters();
+        CHECK(f.show_blank && f.fav_only, "hair: Show without picture and Favourites only came back");
+        CHECK(f.hair_length == 2 && f.hair_type == 1 && f.hair_accessory == 0, fmt("hair: the facets came back (%d %d %d)", f.hair_length, f.hair_type, f.hair_accessory));
+        CHECK(f.search.empty(), "hair: the search box starts empty (not kept)");
+        CHECK(visual_picker_ui().show_without_picture, "hair: the grid draws with the restored Show without picture");
+        r2f_close();
+        CHECK(r2f_open("tattooleftarm"), "the tattoo picker opened again");
+        f = visual_picker_filters();
+        CHECK(f.group.empty() && !f.show_blank && !f.fav_only, "tattoo: the stored All tattoos beats the 'Made for this area' default; its own blank / favourites untouched by hair's");
+        r2f_close();
+        CHECK(r2f_open("eyebrowcode"), "the eyebrow picker opened again");
+        f = visual_picker_filters();
+        CHECK(!eg.empty() && f.group == eg && f.show_blank, "eyebrows: the group '" + eg + "' and Show without picture came back");
+        r2f_close();
+        CHECK(r2f_open("facialhairtypecode"), "a field never touched (beard) opened");
+        f = visual_picker_filters();
+        CHECK(!f.show_blank && !f.fav_only && f.group.empty() && f.hair_length == -1, "beard: nothing stored for it = its defaults (filters are per field)");
+        r2f_close();
+
+        // cleared filters are kept too
+        CHECK(r2f_open("hairtypecode"), "hair picker for clearing");
+        visual_picker_set_filters(VisualPickerFilters());
+        ui.frames(3);
+        r2f_close();
+        app.load_gui_settings();
+        CHECK(r2f_open("hairtypecode"), "hair picker after clearing and a reload");
+        f = visual_picker_filters();
+        CHECK(!f.show_blank && !f.fav_only && f.hair_length == -1 && f.hair_type == -1 && f.hair_accessory == -1, "hair: the cleared filters stayed cleared");
+        r2f_close();
+        r2f_reset_store();
+        ui.extra_draw = nullptr;
+    });
+
     run_case("UI: 2.22 set-pieces card: an inline grid per field, writes only the field of the clicked tile, nothing without a click", [&] {
         if (!p || !rec || !p->has("runstylecode")) {
             CHECK(false, "the test world has runstylecode");

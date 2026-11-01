@@ -10,6 +10,8 @@
 #include "core/overall.h"
 #include "ui/ui_team_pages.h"
 #include "ui/ui_shell.h"
+#include "ui/ui_player_profile.h"
+#include "ui/ui_team_filter.h"
 
 namespace calc_ovr_test {
 
@@ -125,6 +127,82 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         // leave the list on a plain sort for the cases after this one
         CHECK(ui.click("##psort", "##select") && ui.click("Name", "##Combo"), "Sort: Name");
         ui.frames(3);
+    });
+
+    // 1.0.1 R2-F (owner: filter permanence): the Players list's chips, filter form and sort, and the Clubs list's country / league, are kept in
+    // gui_settings.json list_filters (the store of asset_scope) and come back after a restart; nothing stored = the defaults, nothing written.
+    run_case("UI: 1.0.1 R2-F list filters: Players chips / filters / sort and Clubs country / league kept over a restart; first run = defaults", [&] {
+        auto stored = [&](const char* list) {
+            const auto& g = app.gui_settings;
+            return g.is_object() && g.contains("list_filters") && g["list_filters"].is_object() && g["list_filters"].contains(list);
+        };
+        auto restart = [&] {  // the settings file read again and both lists' memory wiped: what a new process sees
+            app.load_gui_settings();
+            classic_player_list_set_filters(nlohmann::json::object());
+            classic_player_list_reload_filters();
+            club_list_set_filters(nlohmann::json::object());
+            club_list_reload_filters();
+        };
+        auto draw_clubs = [&app]() {
+            ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(900.0f, 500.0f), ImGuiCond_Always);
+            if (ImGui::Begin("R2F clubs")) draw_teams(app);
+            ImGui::End();
+        };
+        // first run: nothing stored
+        if (app.gui_settings.is_object()) app.gui_settings.erase("list_filters");
+        app.save_gui_settings();
+        restart();
+        shell::player_edit_tab() = 0;
+        app.sel_player = 1001;
+        app.go(Page::PlayerEdit);
+        ui.extra_draw = draw_clubs;
+        ui.frames(4);
+        nlohmann::json pf = classic_player_list_filters();
+        CHECK(pf["my_club"] == false && pf["group"] == -1 && pf["sort"] == 0 && pf["position"] == -1 && pf["free_agent"] == false && pf["club"] == 0 &&
+                  pf["nationality"] == -1 && pf["loan"] == 0 && pf["age"] == nlohmann::json::array({0, 0}),
+              "Players list, first run: the defaults (no chip, Sort Name, no filter): " + pf.dump());
+        nlohmann::json cf = club_list_filters();
+        CHECK(cf["country"] == -1 && cf["league"] == -1, "Clubs list, first run: any country, any league: " + cf.dump());
+        CHECK(!stored("players") && !stored("clubs"), "drawing both lists wrote nothing to list_filters");
+
+        // the person's clicks: Free agents, DEF, Sort OVR; and the form's position / age / nationality (as the form sets them)
+        CHECK(ui.click("Free agents###pl_chip_free", "##select"), "click the Free agents chip");
+        ui.frames(2);
+        CHECK(ui.click("DEF###pl_chip_def", "##select"), "click the DEF chip");
+        ui.frames(2);
+        CHECK(ui.click("##psort", "##select") && ui.click("OVR", "##Combo"), "Sort: OVR");
+        ui.frames(3);
+        pf = classic_player_list_filters();
+        CHECK(pf["free_agent"] == true && pf["group"] == 1 && pf["sort"] == 1, "the clicks took: " + pf.dump());
+        CHECK(stored("players") && app.gui_settings["list_filters"]["players"] == pf, "the clicked chips and sort went into list_filters.players");
+        pf["position"] = 5;
+        pf["age"] = nlohmann::json::array({20, 30});
+        pf["nationality"] = 14;
+        classic_player_list_set_filters(pf);
+        club_list_set_filters({{"country", 14}, {"league", 13}});
+        ui.frames(3);
+        const nlohmann::json want_p = classic_player_list_filters(), want_c = club_list_filters();
+        CHECK(want_p["position"] == 5 && want_c["country"] == 14 && want_c["league"] == 13, "the form / combo values took");
+        CHECK(stored("players") && stored("clubs") && app.gui_settings["list_filters"]["players"] == want_p && app.gui_settings["list_filters"]["clubs"] == want_c,
+              "both lists' filters are in gui_settings list_filters");
+
+        restart();
+        ui.frames(4);
+        CHECK(classic_player_list_filters() == want_p, "Players list after a restart: chips, form and sort came back: " + classic_player_list_filters().dump());
+        CHECK(club_list_filters() == want_c, "Clubs list after a restart: country and league came back: " + club_list_filters().dump());
+        CHECK(ui.find("##psort", "##select") != nullptr, "the list still draws");
+
+        // put both back to the defaults (kept too), then remove the entry for the cases after this one
+        classic_player_list_set_filters(nlohmann::json::object());
+        club_list_set_filters(nlohmann::json::object());
+        ui.frames(3);
+        CHECK(stored("players") && app.gui_settings["list_filters"]["players"]["sort"] == 0 && app.gui_settings["list_filters"]["clubs"]["league"] == -1,
+              "the cleared filters are kept as cleared");
+        app.gui_settings.erase("list_filters");
+        app.save_gui_settings();
+        ui.extra_draw = nullptr;
+        ui.frames(2);
     });
 
     run_case("Calc OVR: the squad table has a sortable Calc OVR header and sorts by it", [&] {

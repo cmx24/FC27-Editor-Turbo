@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 
+#include "nlohmann/json.hpp"
 #include "ui_shell.h"
 
 namespace turbo {
@@ -39,6 +40,11 @@ void draw_classic_player_list(App& app);
 size_t classic_player_list_rows();
 // Turbo X: the empty state's asks of the list, taken at its next draw: focus the search box once, tick the My club chip
 void classic_player_list_request(bool focus_search, bool my_club);
+// R2-F: the list's chips, filter form and sort are kept in gui_settings.json list_filters.players (the search is not). Tests: the kept
+// filters as that json, set them as the clicks do, read the store again at the next draw (what a start does).
+nlohmann::json classic_player_list_filters();
+void classic_player_list_set_filters(const nlohmann::json& j);
+void classic_player_list_reload_filters();
 
 // The player-type editor (Overall +1/-1, role, wanted overall, preview, Apply, Undo) is archetype_bar() in ui_players.cpp, which is `static`
 // there, so a new file cannot link to it. The Integrator sets this pointer ONCE, from ui_players.cpp, with one line at the end of that file:
