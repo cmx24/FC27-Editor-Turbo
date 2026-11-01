@@ -113,7 +113,7 @@ static DWORD WINAPI dev_thread(LPVOID) {
     env.key = dev_key;
     env.modules = dev_modules;
     env.sleep = [](int ms) { Sleep(static_cast<DWORD>(ms)); };
-    env.clock = []() { return static_cast<double>(GetTickCount64()) / 1000.0; };
+    env.clock = []() { return real_seconds(); };  // not GetTickCount64: Live Editor's speedhack scales it (host.h real_seconds)
     env.out_dir = out;
     turbo::DevService svc(env);
     // A request left by an earlier game session is not run again
