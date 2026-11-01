@@ -24,7 +24,6 @@
 #include "ui_setpiece_card.h"
 #include "ui_shell.h"
 #include "ui_split.h"
-#include "ui_team_page40.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -173,18 +172,6 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
         }
     }
     if (const Field* jf = t.field("playerjointeamdate")) date_field_editor(app, t, p.rec, *jf, "Joined his club");
-    {
-        // Turbo X 1.0.1 R2-A: his contract fields, extension and move controls and their question (ui_team_players.cpp; the player is
-        // app.sel_player = p). The Profile carries only the status ITS controls wrote this frame into its own line: a Team page drawn in the
-        // same frame keeps its own status (g_status is set aside around the call and put back).
-        std::string others;
-        others.swap(g_status);
-        draw_player_contract_actions(app);
-        teampage::carry_status("player_profile");
-        g_status.swap(others);
-        const std::string& st = page::status_text("player_profile");
-        if (!st.empty()) theme::ok_text("%s", st.c_str());
-    }
     theme::muted_text("Contract, morale, growth and squad role are edited under Team > Players.");
     if (ImGui::Button("Open Team > Players###pf_team")) app.go(g_team_page);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contract, morale, growth and squad role of the players of one club");

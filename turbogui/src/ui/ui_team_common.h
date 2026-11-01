@@ -12,7 +12,6 @@
 
 #include "app.h"
 #include "imgui.h"
-#include "imgui_internal.h"  // ImGuiWindow::RootWindowPopupTree: the window a question belongs to (Turbo X 1.0.1 R2-A)
 #include "ui_club_page.h"
 #include "ui_club_search.h"
 #include "ui_team_pages.h"
@@ -91,17 +90,8 @@ struct Pending {
     json cmd;  // the whole request: {"op":"run","module":...,"overrides":...}
     std::function<bool(App&)> action;  // instead of `cmd`: a page action that sends its own request (true = sent)
     std::string label, status;
-    ImGuiID host = 0;  // R2-A: the top-level window the question was asked from (0 = asked outside a window: any host draws it)
 };
 inline Pending g_pend;
-
-// R2-A: the top-level window being drawn (a child window, or a menu opened from it, counts as that window). Two hosts of confirm_popup
-// can be drawn in one frame (the player Profile hosts draw_player_contract_actions; a Team page has its PageTail): each host draws only
-// the questions asked from its own window, so one host never opens, or closes, the question of the other.
-inline ImGuiID ask_host() {
-    const ImGuiWindow* w = ImGui::GetCurrentContext() ? ImGui::GetCurrentWindowRead() : nullptr;
-    return w && w->RootWindowPopupTree ? w->RootWindowPopupTree->ID : 0;
-}
 inline std::string g_status;  // the last request a Team card sent, in plain words (the one status line of a page)
 
 inline void ask(const std::string& title, const std::string& body, const std::string& ok, const json& cmd, const std::string& label,
@@ -114,7 +104,6 @@ inline void ask(const std::string& title, const std::string& body, const std::st
     g_pend.cmd = cmd;
     g_pend.label = label;
     g_pend.status = status;
-    g_pend.host = ask_host();
 }
 inline void ask_do(const std::string& title, const std::string& body, const std::string& ok, std::function<bool(App&)> action,
                    const std::string& status) {
@@ -125,13 +114,11 @@ inline void ask_do(const std::string& title, const std::string& body, const std:
     g_pend.ok = ok;
     g_pend.action = std::move(action);
     g_pend.status = status;
-    g_pend.host = ask_host();
 }
 inline json run_cmd(const char* module, const json& overrides) { return {{"op", "run"}, {"module", module}, {"overrides", overrides}}; }
 
 inline void confirm_popup(App& app) {
     constexpr const char* kAskId = "###teamask";
-    if (g_pend.host != 0 && g_pend.host != ask_host()) return;  // R2-A: asked from another window; that window's host draws it
     if (g_pend.want_open) {
         ImGui::OpenPopup(kAskId);
         g_pend.want_open = false;
