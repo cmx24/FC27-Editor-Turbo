@@ -26,6 +26,7 @@
 #pragma once
 #include <cfloat>
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -125,10 +126,15 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     if (foldable(id) && store().is_folded(id)) {
         rt.have_rect = false;
         const std::string sid = std::string(id) + "_folded";
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * sc, 4.0f * sc));  // the strip is all button (it was 10 px of button)
         ImGui::BeginChild(sid.c_str(), along_x ? ImVec2(kFoldedStripW * sc, cross) : ImVec2(cross, kFoldedStripW * sc),
                           ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleVar();
         const std::string bl = std::string(along_x ? ">" : "v") + "###unfold" + id;
-        if (ImGui::Button(bl.c_str(), ImVec2(-FLT_MIN, 0.0f))) store().set_folded(id, false);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, ImGui::GetStyle().FramePadding.y));
+        const float tall = std::min(ImGui::GetContentRegionAvail().y, 120.0f * sc);  // a tall, easy target at the top of the strip
+        if (ImGui::Button(bl.c_str(), along_x ? ImVec2(-FLT_MIN, tall > 1.0f ? tall : 0.0f) : ImVec2(120.0f * sc, -FLT_MIN))) store().set_folded(id, false);
+        ImGui::PopStyleVar();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the %s", fold_label(id));
         return false;
     }

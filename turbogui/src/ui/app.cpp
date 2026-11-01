@@ -1968,15 +1968,16 @@ static void draw_global_search(App& app) {
 
 // 3.0 shell: one button of the left rail (an area). Full width, the selected one filled with the accent; `label` is what the button shows
 // (the area name, or its first letter in the narrow rail). True when clicked.
-static bool rail_button(const char* label, bool selected, float width) {
+static bool rail_button(const char* label, bool selected, float width, bool narrow = false) {
     // Turbo X (2026-10-31): a selected area is an accent bar at the left, a faint accent wash and accent text; the others are
     // transparent with a hover wash. The whole button keeps its id, so the test ids (###rail_<Area>) are unchanged.
     ImGui::PushStyleColor(ImGuiCol_Button, selected ? theme::accent_alpha(0.14f) : ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? theme::accent_alpha(0.20f) : theme::kRailHover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, selected ? theme::accent_alpha(0.26f) : theme::kRailActive);
     ImGui::PushStyleColor(ImGuiCol_Text, selected ? theme::accent() : ImGui::GetStyleColorVec4(ImGuiCol_Text));
-    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(14.0f), ImGui::GetStyle().FramePadding.y));
+    // X 2.0: the narrow menu centres its letter with a small side padding (the 14 px of the wide menu pushed it against the edge)
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(narrow ? 0.5f : 0.0f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(narrow ? S(2.0f) : S(14.0f), ImGui::GetStyle().FramePadding.y));
     const bool hit = ImGui::Button(label, ImVec2(width, ImGui::GetFrameHeight() + S(10.0f)));
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
@@ -2038,7 +2039,8 @@ void App::draw_pages() {
         {
             const char* tl = narrow ? ">###railwiden" : "<###railnarrow";
             const float tw = ImGui::CalcTextSize(tl, nullptr, true).x + ImGui::GetStyle().FramePadding.x;
-            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - tw));
+            // X 2.0: in the narrow menu the ">" goes under the mark (beside it, it covered the "X")
+            if (!narrow) ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - tw));
             if (ImGui::SmallButton(tl)) {
                 prefs.rail_collapsed = !prefs.rail_collapsed;
                 if (!save_gui_settings()) notify("cannot save the settings", true);
@@ -2053,7 +2055,7 @@ void App::draw_pages() {
             const char* name = area_label(a);
             char small[48];
             std::snprintf(small, sizeof(small), "%c###rail_%s", name[0], name);  // narrow rail: the first letter, a stable id per area
-            if (rail_button(narrow ? small : name, place_.area == a, bw) && place_.area != a) {
+            if (rail_button(narrow ? small : name, place_.area == a, bw, narrow) && place_.area != a) {
                 const Page remembered = area_page_[ai];
                 place_ = Place{a, (remembered != Page::None && page_visible(remembered)) ? remembered : default_page(a)};
                 area_page_[ai] = place_.page;

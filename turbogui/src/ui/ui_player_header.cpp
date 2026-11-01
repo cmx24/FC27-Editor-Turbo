@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - Players > Player: the header card above the tabs (ui_player_header.h; brief 3.0-shell, track B).
 #include "ui_player_header.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -231,7 +232,15 @@ bool draw_player_header(App& app) {
     const ImVec4 key = theme::accent();
     char num[16];
     std::snprintf(num, sizeof num, "%d", st.overall);
-    theme::stat_tile_begin("##hdr_ovr", "OVR", num, S(kShowOvrMaskField ? 176.0f : 96.0f), tile_h, &key);
+    // X 2.0 (renders): the OVR tile is as wide as its "shown as" line needs (box, Set, Clear): at 176 px Clear was cut off
+    float ovr_w = S(96.0f);
+    if (kShowOvrMaskField) {
+        const ImGuiStyle& ps = ImGui::GetStyle();
+        const float need = ImGui::CalcTextSize("shown as").x * theme::kFontSmall + S(40.0f) + ImGui::CalcTextSize("Set").x +
+                           ImGui::CalcTextSize("Clear").x + ps.FramePadding.x * 4.0f + ps.ItemSpacing.x * 3.0f + ps.WindowPadding.x * 2.0f + S(12.0f);
+        ovr_w = std::max(S(176.0f), need);
+    }
+    theme::stat_tile_begin("##hdr_ovr", "OVR", num, ovr_w, tile_h, &key);
     if (kShowOvrMaskField) draw_shown_ovr(app, st);  // on since 10-31 (tx-ovr), see kShowOvrMaskField in the header
     else tile_foot("");
     theme::stat_tile_end();
