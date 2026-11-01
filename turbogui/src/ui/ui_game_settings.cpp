@@ -5,6 +5,10 @@
 // 5.0 sliders: a verified Custom slider is a real ImGui slider; releasing it writes that ONE value into the running game through the
 // same live path as Load (live_write below). This tab no longer stages anything for the offline apply tool (the tactics pages still do
 // through game_settings_stage / _unstage). NOT proven in game.
+// Turbo X sliders (2026-11-01): a FILE-MAPPED Custom slider (Entry::file_mapped: proven by Settings files, not yet seen on the EA screen of
+// this build) is a slider too, but releasing it never touches the game: the value is queued in turbo_output\settings_pending.json
+// (queue_file_values, preset kFileQueueName) and turbo_settings_apply.exe --apply writes it to the Settings file with FC 27 closed (CRC,
+// backup, --undo). "Discard queued" removes the queue.
 #include "ui_game_settings.h"
 
 #include <algorithm>
@@ -266,11 +270,28 @@ void apply_one(App& app, const Entry& e, int value) {
     }
 }
 
+// Turbo X sliders: one file-mapped slider released -> queued for the Settings file (never the running game)
+void queue_one(App& app, const Entry& e, int value) {
+    std::map<std::string, int> one;
+    one[e.id] = std::min(std::max(value, e.min), e.max);
+    std::string msg;
+    if (queue_file_values(out_dir(app), g.map, one, stamp("%Y-%m-%dT%H:%M:%S"), &msg))
+        g.live_line = e.label + " = " + std::to_string(one[e.id]) + " queued for the Settings file (" + msg + ")";
+    else
+        g.live_line = msg;
+    log_line(app, "game settings: " + e.id + " " + g.live_line);
+    read_pending(app);
+}
+
 // Load = the preset's verified sliders into the running game, nothing else (no staging, no apply tool)
 void load_preset(App& app) {
     if (g.preset_sel < 0 || g.preset_sel >= int(g.presets.size())) return;
     const Preset& p = g.presets[size_t(g.preset_sel)];
-    const Plan plan = plan_preset(p, g.map);
+    Plan plan = plan_preset(p, g.map);
+    for (const std::string& id : plan.unverified) {  // Turbo X sliders: table- / file-mapped ids are never written into the running game
+        plan.values.erase(id);
+        plan.skipped.push_back(id + ": not verified, not live");
+    }
     std::string why;
     if (!g.map_ok) {
         why = "no slider map";
@@ -386,6 +407,21 @@ void delete_preset(App& app) {
 bool mapped(const Entry& e) { return e.index >= 0 || e.custom_index >= 0; }
 // 5.0 sliders: only a Custom byte can be written live (write_block skips the u32 service view); verified + Custom index = a slider
 bool slider_row(const Entry& e) { return e.verified && e.custom_index >= 0; }
+// Turbo X sliders: a file-mapped Custom byte is a slider that queues for the Settings file (queue_one)
+bool file_row(const Entry& e) { return e.file_mapped(); }
+bool any_slider(const Entry& e) { return slider_row(e) || file_row(e); }
+// the value queued for the Settings file (the page's own queue only); -1 = none
+int queued_value(const Entry& e) {
+    if (!g.have_pending || g.pending.preset != kFileQueueName) return -1;
+    auto it = g.pending.values.find(e.id);
+    return it == g.pending.values.end() ? -1 : it->second;
+}
+int file_mapped_count() {
+    int n = 0;
+    for (const Entry& e : g.map.entries)
+        if (e.file_mapped()) ++n;
+    return n;
+}
 // The value shown: the block Turbo wrote last while it is known (the file lags until the game saves), else the newest Settings file; -1 = none
 int current_value(const Entry& e) {
     if (e.custom_index >= 0 && size_t(e.custom_index) < g.live_bytes.size() && g.live_bytes.size() == size_t(g.map.custom_count))
@@ -395,13 +431,29 @@ int current_value(const Entry& e) {
 }
 
 void draw_values(App& app) {
+    // Turbo X sliders: the one-line note for the file-mapped rows, and the queue (if any) with its Discard
+    if (file_mapped_count() > 0) {
+        ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), "File-mapped rows write the Settings file, not the game: close FC 27, run turbo_settings_apply --apply.");
+        g_state.file_note = true;
+    }
+    if (g.have_pending && g.pending.preset == kFileQueueName) {
+        g_state.queued = int(g.pending.values.size());
+        ImGui::TextDisabled("Queued for the Settings file: %d value(s)", g_state.queued);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Discard queued##gsfdiscard")) {
+            std::string msg;
+            game_settings_unstage(app, kFileQueueName, msg);
+            g.live_line = msg;
+        }
+    }
     for (const std::string& grp : groups()) {
         std::vector<const Entry*> es;
         for (const Entry& e : g.map.entries)
             if (e.group == grp) es.push_back(&e);
-        // sliders first, then the read-only rows, each half in map order; a group with a slider opens by default so a slider is on screen
+        // verified sliders first, then the file-mapped sliders, then the read-only rows, each in map order; a group with a slider opens by default
+        std::stable_partition(es.begin(), es.end(), [](const Entry* e) { return any_slider(*e); });
         std::stable_partition(es.begin(), es.end(), [](const Entry* e) { return slider_row(*e); });
-        const size_t n_sliders = size_t(std::count_if(es.begin(), es.end(), [](const Entry* e) { return slider_row(*e); }));
+        const size_t n_sliders = size_t(std::count_if(es.begin(), es.end(), [](const Entry* e) { return any_slider(*e); }));
         for (const Entry* e : es) {
             GameSettingsViewState::Row r;
             r.id = e->id;
@@ -409,7 +461,7 @@ void draw_values(App& app) {
             r.group = grp;
             const int cur = current_value(*e);
             r.value = !mapped(*e) ? "-" : cur >= 0 ? std::to_string(cur) : "-";
-            r.state = !mapped(*e) ? "not mapped" : e->verified ? "verified" : "read-only";
+            r.state = !mapped(*e) ? "not mapped" : e->verified ? "verified" : e->file_mapped() ? "file-mapped" : "read-only";
             g_state.rows.push_back(r);
         }
         const std::string head = std::string(group_label(grp)) + " (" + std::to_string(es.size()) +
@@ -453,14 +505,34 @@ void draw_values(App& app) {
                     } else {
                         g.edit.erase(e->id);
                     }
+                } else if (file_row(*e)) {
+                    // Turbo X sliders: shows the queued value, else the file's; releasing it queues the value for the Settings file only
+                    const int cur = current_value(*e), q = queued_value(*e);
+                    const int shown = q >= 0 ? q : cur;
+                    auto ed = g.edit.find(e->id);
+                    int v = ed != g.edit.end() ? ed->second : shown >= 0 ? shown : e->min;
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt(("##gsf_" + e->id).c_str(), &v, e->min, e->max, q >= 0 ? "%d (queued)" : "%d", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemActive()) {
+                        g.edit[e->id] = v;
+                    } else if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        g.edit.erase(e->id);
+                        if (v != shown) queue_one(app, *e, v);
+                    } else {
+                        g.edit.erase(e->id);
+                    }
                 } else {
                     ImGui::TextUnformatted(r->value.c_str());
                     if (e->verified && ImGui::IsItemHovered()) ImGui::SetTooltip("No Custom index: not writable live");
                 }
                 ImGui::TableNextColumn();
                 if (e->verified) ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", r->state.c_str());
+                else if (e->file_mapped()) ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), "%s", r->state.c_str());
                 else ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", r->state.c_str());  // 2.10: an unverified row is visible, not greyed out
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", e->verified ? ("Proof: " + e->proof).c_str() : "Not proven in game: read-only");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", e->verified        ? ("Proof: " + e->proof).c_str()
+                                            : e->file_mapped() ? ("Settings file only, game closed. Proof: " + e->proof).c_str()
+                                                               : "Not proven in game: read-only");
             }
             ImGui::EndTable();
         }
@@ -468,7 +540,7 @@ void draw_values(App& app) {
     }
     g_state.live_line = g.live_line;
     if (!g.live_line.empty()) {
-        const bool bad = g.live_line.rfind("Not applied", 0) == 0;
+        const bool bad = g.live_line.rfind("Not applied", 0) == 0 || g.live_line.rfind("Not queued", 0) == 0;
         ImGui::TextColored(bad ? ImVec4(1.0f, 0.5f, 0.4f, 1.0f) : ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s", g.live_line.c_str());
     }
     g_state.slots = int(g.snap.slots.size());
@@ -737,7 +809,9 @@ void draw_game_settings(App& app) {
         g_state.map_line = g.map_ok ? std::string(map_file()) + ": " + std::to_string(g.map.entries.size()) + " sliders, " + std::to_string(verified_count()) +
                                           " verified in game"
                                     : "No slider map: " + g.map_err;
-        if (g.map_ok) g_state.map_line += ", " + std::to_string(int(g.map.entries.size()) - verified_count()) + " read-only";
+        if (g.map_ok)
+            g_state.map_line += ", " + std::to_string(file_mapped_count()) + " file-mapped, " +
+                                std::to_string(int(g.map.entries.size()) - verified_count() - file_mapped_count()) + " read-only";
         // Turbo X (2026-10-31): the file name carries a map id, not the running build; name the build the verification applies to
         if (g.map_ok && !game_build(app).empty()) g_state.map_line += " (verified on build " + game_build(app) + ")";
         ImGui::TextDisabled("%s", g_state.map_line.c_str());

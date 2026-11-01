@@ -790,7 +790,13 @@ static void run_custom() {
         refuse(before, -1, "outside", "negative index");
         {
             auto f = before;
-            f[kPayloadOff + 0xB8976 - 1] = 0;
+            f[kPayloadOff + 0xB8976 - 1] = 2;  // Turbo X sliders: 00 and 01 are the two forms the game writes; anything else = refused
+            fix_crc(f);
+            refuse(f, 0x50, "layout moved", "flag byte 02");
+        }
+        {
+            auto f = before;
+            f[kPayloadOff + 0xB8976 - 5] = 0;
             fix_crc(f);
             refuse(f, 0x50, "layout moved", "prefix changed");
         }
@@ -827,9 +833,9 @@ static void run_custom() {
         CHECK(b[kPayloadOff + 0xB8976 + 0x50] == 12 && b[kPayloadOff + 0xB8976 + 0x25] == 50, "verified written, unverified (cpu.acceleration) not");
     });
 
-    run_case("game settings 3.0.1 (GUI30J): a refused --apply says the sliders were NOT applied, names the bytes, writes nothing, keeps the staging", [] {
-        // 8F10EEB9 (Cassio's file, GUI30J) holds 01 00 00 00 00 before the Custom block; --apply refused it with a message that did not say
-        // the sliders were not applied. The fixture gets the same prefix.
+    run_case("game settings Turbo X sliders: --apply writes a flag-00 file (Cassio's files since 10-24) and keeps the byte; a foreign prefix is refused, says so, writes nothing", [] {
+        // 8F10EEB9 (GUI30J) and every game-written file since 10-24 hold 01 00 00 00 00 before the Custom block; the body is byte-identical to the
+        // flag-01 descendants except that byte (evidence\2026-10-24\GUI30J\settings_flag_table.md). 3.0.1 refused those files; Turbo X accepts them.
         auto f = fixture();
         f[kPayloadOff + 0xB8976 - 1] = 0;
         fix_crc(f);
@@ -843,23 +849,37 @@ static void run_custom() {
         std::string msg;
         CHECK(stage_pending(r.out, p, m, "20261024-170000-000", &msg), msg);
         CHECK(msg.find("Not proven in game yet") != std::string::npos, "the staging line says the apply is not proven in game: " + msg);
-        const std::string md5 = md5_of(r.settings / kName);
-        const std::string others = r.others();
-        const Outcome o = apply_pending(r.env, m);
-        std::error_code ec;
-        CHECK(!o.ok, "refused: " + o.message);
-        CHECK(o.message.rfind("The sliders were NOT applied", 0) == 0, "the text starts by saying the sliders were not applied: " + o.message);
-        CHECK(o.message.find("01 00 00 00 00") != std::string::npos && o.message.find("layout moved") != std::string::npos &&
-                  o.message.find("nothing was written") != std::string::npos,
-              "it names the bytes found and why: " + o.message);
-        CHECK(md5_of(r.settings / kName) == md5 && r.bytes() == f && r.others() == others, "the settings folder is unchanged");
-        CHECK(fs::exists(r.out / pending_file(), ec), "the staging stays for a later apply");
-        // --status shows the same thing before anyone runs --apply
         const auto snap = read_current(r.settings, m);
         CHECK(snap.ok, snap.why);
-        bool refuses = false;
+        bool accepts = false;
         for (const std::string& l : status_lines(snap, m))
-            refuses = refuses || (l.find("01 00 00 00 00") != std::string::npos && l.find("REFUSES") != std::string::npos);
+            accepts = accepts || (l.find("01 00 00 00 00") != std::string::npos && l.find("accepts") != std::string::npos);
+        CHECK(accepts, "--status names the prefix bytes and says --apply accepts the file");
+        const Outcome o = apply_pending(r.env, m);
+        CHECK(o.ok, "written: " + o.message);
+        const auto b = r.bytes();
+        CHECK(b[kPayloadOff + 0xB8976 + 0x50] == 33 && b[kPayloadOff + 0xB8976 + 0x51] == 46 && b[kPayloadOff + 0xB8976 + 0x24] == 34, "the 3 bytes written");
+        CHECK(b[kPayloadOff + 0xB8976 - 1] == 0 && validate(b).ok, "the flag byte stays 00, the CRC is valid");
+        // a prefix the game never wrote (flag 02): refused, the text says the sliders were NOT applied, nothing changes, the staging stays
+        auto g2 = fixture();
+        g2[kPayloadOff + 0xB8976 - 1] = 2;
+        fix_crc(g2);
+        Rig q("custom_prefix02", g2);
+        CHECK(stage_pending(q.out, p, m, "20261024-170000-000", &msg), msg);
+        const std::string md5 = md5_of(q.settings / kName);
+        const std::string others = q.others();
+        const Outcome o2 = apply_pending(q.env, m);
+        std::error_code ec;
+        CHECK(!o2.ok && o2.message.rfind("The sliders were NOT applied", 0) == 0, "refused, and says so first: " + o2.message);
+        CHECK(o2.message.find("01 00 00 00 02") != std::string::npos && o2.message.find("layout moved") != std::string::npos &&
+                  o2.message.find("nothing was written") != std::string::npos,
+              "it names the bytes found and why: " + o2.message);
+        CHECK(md5_of(q.settings / kName) == md5 && q.bytes() == g2 && q.others() == others, "the settings folder is unchanged");
+        CHECK(fs::exists(q.out / pending_file(), ec), "the staging stays for a later apply");
+        const auto snap2 = read_current(q.settings, m);
+        bool refuses = false;
+        for (const std::string& l : status_lines(snap2, m))
+            refuses = refuses || (l.find("01 00 00 00 02") != std::string::npos && l.find("REFUSES") != std::string::npos);
         CHECK(refuses, "--status names the prefix bytes and says --apply refuses the file");
     });
 
@@ -970,13 +990,13 @@ static void run_custom() {
     });
 
     // ---------------------------------------------------------------- 2.12.1: all 125 Custom bytes, named from the game's own slider table
-    run_case("game settings 2.12.1: the shipped map names all 125 Custom bytes from the game's table; only 3 are screen-proven", [] {
+    run_case("game settings Turbo X sliders: the shipped map names all 125 Custom bytes; 3 screen-proven on 6AD922D1, 122 file-mapped, 125 on 6AC07E31", [] {
         SliderMap m;
         std::string err;
         CHECK(load_map(fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file(), m, &err), err);
         std::set<int> used;
         std::set<std::string> names;
-        int screen = 0, table = 0;
+        int screen = 0, file = 0;
         for (const Entry& e : m.entries) {
             if (e.custom_index < 0) continue;
             CHECK(used.insert(e.custom_index).second, e.id + ": custom index used twice");
@@ -985,12 +1005,21 @@ static void run_custom() {
                 ++screen;
                 CHECK(e.evidence == "screen" && !e.inferred() && e.writable(), e.id + ": screen-proven");
             } else {
-                ++table;
-                CHECK(e.evidence == "table" && e.inferred() && !e.writable(), e.id + ": table-mapped, not writable without include_unverified");
+                ++file;
+                CHECK(e.evidence == "file" && e.file_mapped() && !e.inferred() && !e.writable() && !e.proof.empty(), e.id + ": file-mapped, never live");
             }
         }
         CHECK(used.size() == 125 && *used.begin() == 0 && *used.rbegin() == 124, fmt("%zu distinct bytes 0..124", used.size()));
-        CHECK(screen == 3 && table == 122, fmt("%d screen-proven, %d table-mapped", screen, table));
+        CHECK(screen == 3 && file == 122, fmt("%d screen-proven, %d file-mapped", screen, file));
+        {   // per build: 6AD922D1 = Cassio's 3 markers; 6AC07E31 = all 125 (P2121 / L7b / L7c screens)
+            SliderMap a = m, b = m;
+            CHECK(a.apply_build("6AD922D1-221A8000") == 0, "6AD922D1: its 3 are the entries' own verified ones (nothing added)");
+            CHECK(b.apply_build("6AC07E31") == 122, "6AC07E31: the 122 others become screen-proven");
+            int fa = 0, vb = 0;
+            for (const Entry& e : a.entries) fa += e.file_mapped() ? 1 : 0;
+            for (const Entry& e : b.entries) vb += (e.custom_index >= 0 && e.writable()) ? 1 : 0;
+            CHECK(fa == 122 && vb == 125, fmt("6AD922D1 file-mapped %d, 6AC07E31 verified %d", fa, vb));
+        }
         auto at = [&](const char* id) {
             const Entry* e = m.entry(id);
             return e ? e->custom_index : -99;
@@ -1008,7 +1037,7 @@ static void run_custom() {
         CHECK(at("user.dribble_error") == -1 && at("cpu.pass_angle_error") == -1 && !m.entry("user.dribble_error")->inferred(), "dribble error / pass angle error have no slot");
     });
 
-    run_case("game settings 2.12.1: include_unverified stages the table-mapped sliders; the flag is saved; apply writes only the listed bytes", [] {
+    run_case("game settings 2.12.1: include_unverified stages the file-mapped sliders; the flag is saved; apply writes only the listed bytes", [] {
         Rig r("full_map");
         std::string err;
         const fs::path shipped = fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file();
@@ -1020,7 +1049,7 @@ static void run_custom() {
         CHECK(p.values.size() == 125 && !p.include_unverified, "125 mapped values, the flag is off by default");
         const Plan off = plan_preset(p, r.map);
         CHECK(off.values.size() == 3 && off.unverified.empty() && off.skipped.size() == 122, fmt("flag off: %zu staged, %zu skipped", off.values.size(), off.skipped.size()));
-        CHECK(off.skipped.front().find("table-mapped only, read-only") != std::string::npos, "the skip reason names the table mapping (5.0 copy): " + off.skipped.front());
+        CHECK(off.skipped.front().find("file-mapped, not live") != std::string::npos, "the skip reason names the file mapping: " + off.skipped.front());
         p.include_unverified = true;
         const Plan on = plan_preset(p, r.map);
         CHECK(on.values.size() == 125 && on.unverified.size() == 122 && on.skipped.empty(), fmt("flag on: %zu staged, %zu unverified", on.values.size(), on.unverified.size()));
@@ -1067,10 +1096,42 @@ static void run_custom() {
         CHECK(o3.ok && b3[kPayloadOff + 0xB8976 + 80] == 44, "the verified byte is written: " + o3.message);
         bool skipped = false;
         for (const std::string& l : o3.lines) skipped = skipped || l.find("match.half_length") != std::string::npos;
-        CHECK(skipped, "match.half_length (not a table-mapped Custom byte) is skipped");
+        CHECK(skipped, "match.half_length (not a table- or file-mapped Custom byte) is skipped");
         const std::string badlist = "{\"turbo_settings_pending\": 1, \"preset\": \"x\", \"values\": {\"user.sprint_speed\": 44}, \"unverified\": [\"not.staged\"]}";
         Pending px;
         CHECK(!Pending::parse(badlist, px, &err) && err.find("unverified") != std::string::npos, "an unverified id that is not staged is refused: " + err);
+    });
+
+    run_case("game settings Turbo X sliders: queue_file_values queues file-mapped ids only, merges, refuses another preset's staging; --apply writes them", [] {
+        Rig r("file_queue");
+        std::string err, msg;
+        const fs::path shipped = fs::path("..") / "turbo" / "package" / "turbo" / "settings" / map_file();
+        CHECK(load_map(shipped, r.map, &err), err);
+        CHECK(!queue_file_values(r.out, r.map, {{"user.sprint_speed", 40}}, "s1", &msg) && msg.find("not a file-mapped") != std::string::npos,
+              "a verified slider is not queued (it writes live): " + msg);
+        CHECK(!queue_file_values(r.out, r.map, {{"match.half_length", 7}}, "s1", &msg), "an unmapped id is refused: " + msg);
+        std::error_code ec;
+        CHECK(!fs::exists(r.out / pending_file(), ec), "nothing written by a refusal");
+        CHECK(queue_file_values(r.out, r.map, {{"cpu.acceleration", 61}}, "s1", &msg), msg);
+        CHECK(queue_file_values(r.out, r.map, {{"user.pos_marking", 120}}, "s2", &msg) && msg.find("2 value(s)") != std::string::npos, "merged and clamped: " + msg);
+        std::vector<uint8_t> pb;
+        Pending pd;
+        CHECK(read_bytes(r.out / pending_file(), pb) && Pending::parse(std::string(pb.begin(), pb.end()), pd, &err), err);
+        CHECK(pd.preset == kFileQueueName && pd.values.size() == 2 && pd.values["user.pos_marking"] == 100 && pd.unverified.size() == 2, "the queue file");
+        const Outcome o = apply_pending(r.env, r.map);
+        CHECK(o.ok, o.message);
+        const auto b = r.bytes();
+        CHECK(b[kPayloadOff + 0xB8976 + 37] == 61 && b[kPayloadOff + 0xB8976 + 117] == 100 && b[kPayloadOff + 0xB8976 + 80] == 50 && validate(b).ok,
+              "--apply wrote the 2 queued bytes, nothing else; CRC valid");
+        CHECK(!fs::exists(r.out / pending_file(), ec), "the queue was renamed after the apply");
+        // another preset staged (the tactics page): refused, its file untouched
+        Preset t;
+        t.name = "tactic x";
+        t.values = {{"user.sprint_speed", 44}};
+        CHECK(stage_pending(r.out, t, r.map, "s3", &msg), msg);
+        const std::string before = md5_of(r.out / pending_file());
+        CHECK(!queue_file_values(r.out, r.map, {{"cpu.acceleration", 62}}, "s4", &msg) && msg.find("tactic x") != std::string::npos, msg);
+        CHECK(md5_of(r.out / pending_file()) == before, "the tactics staging is untouched");
     });
 }
 

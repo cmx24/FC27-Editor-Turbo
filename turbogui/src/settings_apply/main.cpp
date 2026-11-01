@@ -239,9 +239,12 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::printf("%s: %s, layout %s, CRC ok, md5 %s\n", s.name.c_str(), s.profile.c_str(), s.layout.c_str(), s.md5.c_str());
         for (const std::string& l : status_lines(s, m)) std::printf("%s\n", l.c_str());  // 3.0.1: the Custom block too (GUI30H)
-        int verified = 0;
-        for (const Entry& e : m.entries) verified += e.writable() ? 1 : 0;
-        std::printf("slider map: %zu entries, %d verified in game\n", m.entries.size(), verified);
+        int verified = 0, file_mapped = 0;
+        for (const Entry& e : m.entries) {
+            verified += e.writable() ? 1 : 0;
+            file_mapped += e.file_mapped() ? 1 : 0;
+        }
+        std::printf("slider map: %zu entries, %d verified in game, %d file-mapped (written here, game closed)\n", m.entries.size(), verified, file_mapped);
         return 0;
     }
     if (cmd == "apply") o = apply_pending(env, m);

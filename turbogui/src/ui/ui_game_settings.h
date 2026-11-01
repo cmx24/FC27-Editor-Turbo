@@ -4,7 +4,9 @@
 // The overlay runs inside FC 27, and the game keeps its settings in memory and saves them to a NEW file name: so this tab never writes
 // the settings file. It reads the one Settings<timestamp> file (first look and Refresh only) and lists every slider of the slider map
 // with its value now. 5.0 sliders: a VERIFIED slider with a Custom index is a real slider; releasing it writes that one value into the
-// running game's Custom block (gsettings::live, the same path as Load; NOT proven in game). Other rows are "read-only" / "not mapped".
+// running game's Custom block (gsettings::live, the same path as Load; NOT proven in game). Turbo X sliders (2026-11-01): a FILE-MAPPED
+// Custom slider (proven by Settings files, not yet seen on the EA screen of this build) is a slider whose release only queues the value in
+// turbo_output\settings_pending.json for turbo_settings_apply --apply (game closed: CRC, backup, --undo). Other rows: "read-only" / "not mapped".
 // Presets live in turbo_output\settings_presets (Save current, Load = the live write of the preset, Rename, Delete, Duplicate, Import,
 // Export). This tab stages nothing for the apply tool any more; game_settings_stage / _unstage below stay for the tactics pages.
 // It never touches CmMgrC* (careers), Squads* or ProfileOptions*.
@@ -25,7 +27,7 @@ struct GameSettingsViewState {
     std::string map_line;    // "slider_map_6AC07E31.json: 85 sliders, 0 verified" / why not
     bool closed_note = false;  // the "close and relaunch, never CmMgrC*" note was drawn
     struct Row {
-        std::string id, label, group, value, state;  // value: "50" / "-" (none, or not mapped); state: "verified" / "read-only" / "not mapped"
+        std::string id, label, group, value, state;  // value: "50" / "-" (none, or not mapped); state: "verified" / "file-mapped" / "read-only" / "not mapped"
     };
     std::vector<Row> rows;
     int slots = 0;                     // candidate slots listed (read-only)
@@ -35,6 +37,8 @@ struct GameSettingsViewState {
     std::string pending_line;          // always "" since Turbo X (2026-10-31): this page shows no staging; kept for the tests that read it
     std::vector<std::string> preset_errors;
     int file_reads = 0;                // how often the settings file was read (first look, Refresh, after Save)
+    bool file_note = false;            // Turbo X sliders: the one-line "file-mapped rows write the Settings file" note was drawn
+    int queued = 0;                    // Turbo X sliders: values queued for the Settings file by this page (preset kFileQueueName)
 };
 const GameSettingsViewState& game_settings_view_state();
 
