@@ -4250,6 +4250,9 @@ static void test_ui() {
     {
         App app(mem, le, kMb, "uitest");
         Ui ui(app);
+        // 2026-11-01 (tx-102-int): no real FC Editor install in the UI world. Its default folder (fcedit::kDefaultDir = C:\FC_Tools\FC Editor)
+        // exists on the owner's PC and leaked FC Editor pictures into the picker cases there; a folder that does not exist = "FC Editor absent".
+        app.prefs.fc_editor_dir = (g_out / "tmp" / "fcedit_none" / "nowhere").string();
         {   // 2.22: the shipped player type list where the screens look for it, from the first frame (Edit a player's Positions tab and the Create dialog
             // draw Populate now; a first draw without the list would hold its 2 s retry over the later cases)
             std::error_code ec_at;
