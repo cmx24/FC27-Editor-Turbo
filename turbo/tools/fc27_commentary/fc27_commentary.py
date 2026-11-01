@@ -1095,10 +1095,23 @@ def ogg_opus(head, packets, serial=0x54524230):
     """Wrap the stream's Opus packets in an Ogg Opus file (RFC 7845). The first block's sample count is the packet's
     length minus the encoder delay, which becomes the pre-skip; the last page's granule trims the end. A multistream
     codec (0x0F) is reduced to its speech stream first (speech_packets)."""
-    packets = speech_packets(head, packets)
+    try:
+        packets = speech_packets(head, packets)
+        opus_head_tail, ch_out = b"", 1
+    except FormatError:
+        # codec 0x0F with audio in a stream past the first (10 eng_us club calls): keep the multistream blocks as they
+        # are and describe them in OpusHead (RFC 7845 5.1.1, mapping family 1: N uncoupled mono streams, channel k =
+        # stream k); decode_wav's "-ac 1" mixes the streams to mono, so no stream is dropped.
+        if head.get("codec") != CODEC_EAOPUSMU or not 2 <= head.get("channels", 0) <= 8:
+            raise
+        for _n, pkt in packets:
+            split_streams(pkt, head["channels"])  # same framing checks as the single-stream path
+        ch_out = head["channels"]
+        opus_head_tail = bytes([ch_out, 0]) + bytes(range(ch_out))
     pre_skip = opus_packet_samples(packets[0][1]) - packets[0][0]
     total = sum(s for s, _ in packets)
-    opus_head = struct.pack("<8sBBHIhB", b"OpusHead", 1, 1, pre_skip, head["rate"], 0, 0)
+    opus_head = struct.pack("<8sBBHIhB", b"OpusHead", 1, ch_out, pre_skip, head["rate"], 0,
+                            1 if opus_head_tail else 0) + opus_head_tail
     vendor = b"fc27_commentary"
     tags = struct.pack("<8sI", b"OpusTags", len(vendor)) + vendor + struct.pack("<I", 0)
     pages = [_ogg_page(serial, 0, 0, 0x02, [opus_head]), _ogg_page(serial, 1, 0, 0x00, [tags])]
@@ -1480,11 +1493,16 @@ def self_test(game, log=print):
     check("codec 15: pre-skip 312, total 1608, only the speech stream is wrapped (no f8 ff fe tail in the Ogg)",
           total == 1608 and ogg.count(b"OggS") == 3 and struct.unpack_from("<H", ogg, 28 + 10)[0] == 312
           and SILENT_STREAM not in ogg)
+    loud = b"\x78\x02ab\xf8\xff\xff"
+    ogg2, total2 = ogg_opus(head15, [(648, loud)])
+    check("codec 15: audio in stream 2 is kept, not dropped (2-stream OpusHead, family 1, raw block wrapped)",
+          total2 == 648 and ogg2[28 + 9] == 2 and ogg2[28 + 18] == 1 and ogg2[28 + 19:28 + 23] == b"\x02\x00\x00\x01"
+          and loud in ogg2)
     try:
-        ogg_opus(head15, [(648, b"\x78\x02ab\xf8\xff\xff")])
-        check("codec 15: audio in stream 2 is refused, not dropped", False)
+        ogg_opus(head15, [(648, b"\x79\x02ab\xf8\xff\xff")])
+        check("codec 15: a bad block is still refused", False)
     except FormatError:
-        check("codec 15: audio in stream 2 is refused, not dropped", True)
+        check("codec 15: a bad block is still refused", True)
 
     if game and is_installed(game, "ita_it"):
         log("on disk (ita_it, %s):" % game)

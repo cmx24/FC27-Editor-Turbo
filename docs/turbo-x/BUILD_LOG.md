@@ -133,3 +133,20 @@ Question: the owner's workbook counts 16,694 spoken names (generic surnames + re
 - **Loader**: read in code. `callnames.cpp` takes the master and spoken list by the detected language (`master_list_path` / `spoken_list_path`). `callname_audio.cpp` builds wav paths from the master's `wav_dir` + segment, `callnames_catalog.h` labels from an fc27 master's `generic_names`, and `club_voice.cpp` reads `clubs\<lang>.json`. Nothing there is specific to English; the dr/gm team code only runs for packs with more than one team. No C++ change, no build.
 - **Clubs**: `club_ids.py` / `club_clips.py` read the game's bank (cas + Oodle). The extracted bank json carries no team-keyed rows, so the club lists for dut_nl, ger_de, ita_it and por_br, and every language's clips, need `_TURBOX_LANGS.cmd clubs` on the PC.
 - **Unproven**: Preview and the pickers in game for any non-English language; `fc27_commentary --set` against the real game files (synthetic tests only); the PC runner (not executed here).
+
+## 2026-11-01 — final11 installed, club Preview clips for all 7 languages
+
+- final11 installed on the owner's "install now": INSTALL PASS, 120 files, Turbo.dll 88171DA63D7B000E97DC9BD331FA1DDB,
+  70597 user files unchanged, exit=0. Undo: turbo_backups\install_20261031_234315\Undo-Turbo.cmd.
+- _TURBOX_LANGS.cmd: first run exit=127 (msys2 bash has no python). The PC copy now uses Windows `py -3` (or `python`)
+  and logs which one it used. Second run: club clips made for all 7 languages; 1 step failed (eng_us, 10 clubs).
+- The 10 eng_us failures were codec 0x0F blocks whose 2nd Opus stream carries audio (the decoder refused them rather than
+  drop audio). Fix in fc27_commentary.ogg_opus: those blocks are kept whole with a mapping-family-1 OpusHead (2 uncoupled
+  mono streams); ffmpeg "-ac 1" mixes them. Verified: synthetic 2-stream test (440 Hz in stream 1 + 1500 Hz in stream 2
+  both present after decode, sample count exact), self-test 0 fails, then _TURBOX_ENGCLUBS10.cmd made all 10 clips (exit=0).
+  test_fc27_commentary: the same 3 Windows-path resolver failures as before the change (Linux only), no new ones.
+- Result (counted on the PC): every club in each recorded list has a clip — eng_us 791/791, fre_fr 736/736,
+  spa_es 687/687, dut_nl 648/648, ger_de 661/661, ita_it 735/735, por_br 628/628.
+- turbo\callnames\clubs\{dut_nl,ger_de,ita_it,por_br}{.json,_clips.json} placed (they were only in turbox_langs_out).
+- Demo-set masters placed for dut_nl, fre_fr, ita_it, por_br (backups *.bak_20261101_before_demo): more HIGH names,
+  0 players without a Preview (was 5–7 each). In-game Preview of these: NOT yet seen.
