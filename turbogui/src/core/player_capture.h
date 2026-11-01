@@ -8,6 +8,8 @@
 //   * decode_slice: the picture bytes a capture delivers (DDS / PNG / raw RGBA) -> Rgba;
 //   * CaptureService: the interface the Miniface editor talks to (the host implements it; tests use a fake).
 #pragma once
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -202,6 +204,22 @@ private:
 // the 3D model tab showed "rendering... (52 s)" until Cancel (W2202, mode 1). status() and request() settle it with this.
 enum class Settle { Running, Over, TimedOut };
 Settle settle_request(bool all_handed, bool finished, bool failed, bool ran, double since_ran_s, double timeout_s);
+
+// The request watchdog (the host's poll()): the game-thread part of a request records WHEN it ran, then publishes `ran` (release);
+// the watchdog reads `ran` (acquire) before it reads that time, so a watchdog that sees `ran` also sees its start time. Until
+// Turbo X 1.0.1 `ran` was published first: a poll between the two writes read the default start time (the clock's epoch, i.e. the
+// machine's uptime) and reported "did not finish the capture in 75 s" 1.4 s after the request (turbo_gui.log, 2026-10-31).
+inline void mark_ran(std::atomic<bool>& ran, std::chrono::steady_clock::time_point& t_ran, std::chrono::steady_clock::time_point now) {
+    t_ran = now;
+    ran.store(true, std::memory_order_release);
+}
+// Seconds since the request ran; -1 while it has not run (t_ran is not read then)
+inline double seconds_since_ran(const std::atomic<bool>& ran, const std::chrono::steady_clock::time_point& t_ran, std::chrono::steady_clock::time_point now) {
+    if (!ran.load(std::memory_order_acquire)) return -1.0;
+    return std::chrono::duration<double>(now - t_ran).count();
+}
+// The watchdog's verdict: the request ran more than timeout_s ago (seconds_since_ran) and the game has not finished it
+inline bool answer_overdue(double since_ran_s, bool finished, double timeout_s) { return since_ran_s >= 0.0 && !finished && since_ran_s > timeout_s; }
 
 // ---------------------------------------------------------------- the game's callback object
 // eastl::function-shaped: 16 bytes of functor storage, a manager called as mgr(to, from, op) with op 0 = destruct,

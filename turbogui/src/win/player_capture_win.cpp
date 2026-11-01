@@ -167,8 +167,7 @@ std::string read_game_string(uint64_t addr) {
 
 // What the game-thread job does: ask the game for the picture
 void run_request(Job* job) {
-    job->ran = true;
-    job->t_ran = std::chrono::steady_clock::now();
+    mark_ran(job->ran, job->t_ran, std::chrono::steady_clock::now());  // the start time first, then `ran` (core/player_capture.h)
     if (job->cancelled) return;
     ProcessMemory mem;
     auto fail = [&](const std::string& why) {
@@ -504,10 +503,14 @@ public:
             if (!g_current) return false;
             Job* j = g_current;
             const auto now = std::chrono::steady_clock::now();
-            bool timeout = j->ran && !j->finished && std::chrono::duration<double>(now - j->t_ran).count() > kAnswerTimeout;
+            const double since = seconds_since_ran(j->ran, j->t_ran, now);
+            bool timeout = answer_overdue(since, j->finished, kAnswerTimeout);
             if (timeout && !j->failed) {
+                char t[32];
+                std::snprintf(t, sizeof(t), "%.1f", since);
                 j->failed = true;
-                j->error = j->submitted ? "the game did not finish the capture in 75 s (is a menu screen open?)" : "the request did not run";
+                j->error = j->submitted ? "the game did not finish the capture: no answer " + std::string(t) + " s after the request ran (limit 75 s; is a menu screen open?)"
+                                        : "the request did not run (" + std::string(t) + " s)";
                 j->cancelled = true;
                 capture_log("request " + j->label + ": " + j->error);
             }
