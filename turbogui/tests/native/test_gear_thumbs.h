@@ -290,6 +290,54 @@ inline void cases() {
         w2.run(g2, 2000);
         CHECK(!g2.running() && g2.done() == 2 && w2.svc.requests.size() == 1, "one round, both kept (only a player's own captures are compared): " + g2.status());
     });
+    // Turbo X 1.0.3 RF (owner 11-01: "I just need the real 3d heads rendered - no use rendering generic heads"): a real_face run keeps each
+    // hair / beard render on the scanned head in the real-face store pictures\realface\<field>\<id>.png (id = the generic id the real-face
+    // chooser lists, 0 = Bald / No beard) + realface\manifest.json; a GENERIC picture of the same id does not count as done; an id off the
+    // band list is refused at the plan; the generic store is never written. (On 1e82165 the pictures went to realface_test\<field>_<id>.png and
+    // a generic pictures\assets picture skipped the item.)
+    run_case("TX-103 RF gear pictures: real_face run fills the real-face store (realface\\<field>\\<id>.png + manifest), generic pictures do not count", [&] {
+        namespace f3 = turbo::faces3d;
+        GtWorld w;
+        w.out = fresh_dir("gtt_realface");
+        w.vals[2003]["facialhairtypecode"] = 3;
+        const int64_t h1 = f3::band_hair_ids()[0], h2 = f3::band_hair_ids()[1], b1 = f3::band_beard_ids()[0];
+        // a generic-head render of h1 exists already (today's 1,309 generic pictures): it must not stop the real-face render
+        spit(gtt::picture_file(w.out, *gtt::find_field("hairtypecode"), h1), "generic");
+        gtt::Generator g(w.env());
+        gtt::Request rq;
+        std::string err;
+        const std::string req = "{\"real_face\":true,\"player\":2003,\"steps\":[{\"field\":\"hairtypecode\",\"id\":" + std::to_string(h1) +
+                                "},{\"field\":\"hairtypecode\",\"id\":" + std::to_string(h2) + "},{\"field\":\"hairtypecode\",\"id\":0},{\"field\":\"hairtypecode\",\"id\":300}," +
+                                "{\"field\":\"facialhairtypecode\",\"id\":" + std::to_string(b1) + "},{\"field\":\"facialhairtypecode\",\"id\":0}]}";
+        CHECK(gtt::parse_request(req, rq, &err) && rq.real_face, "request parsed: " + err);
+        const gtt::Plan plan = gtt::make_plan(w.out, rq, nullptr);
+        CHECK(plan.head.size() == 5 && plan.skipped_existing == 0, "plan: 5 head items, the generic picture of hair " + std::to_string(h1) +
+                                                                   " skips nothing (" + std::to_string(plan.head.size()) + " planned, " +
+                                                                   std::to_string(plan.skipped_existing) + " skipped)");
+        CHECK(plan.rejected.size() == 1 && plan.rejected[0].find("300") != std::string::npos && plan.rejected[0].find("real-face list") != std::string::npos,
+              "hair 300 (off the band list) refused at the plan: " + (plan.rejected.empty() ? std::string("none") : plan.rejected[0]));
+        CHECK(g.start(rq, {gt_ref(2003, 0)}, &err), "started on one scanned head: " + err);
+        w.run(g, 3000);
+        CHECK(!g.running() && g.done() == 5, "5 real-face pictures: " + g.status());
+        const gtt::FieldSpec& fh = *gtt::find_field("hairtypecode");
+        const gtt::FieldSpec& fb = *gtt::find_field("facialhairtypecode");
+        bool all = true;
+        for (int64_t id : {h1, h2, int64_t(0)}) all = all && fs::exists(gtt::realface_file(w.out, fh, id));
+        for (int64_t id : {b1, int64_t(0)}) all = all && fs::exists(gtt::realface_file(w.out, fb, id));
+        CHECK(all, "every render is in pictures\\realface\\<field>\\<id>.png");
+        CHECK(gtt::realface_file(w.out, fh, h1) == w.out / "pictures" / "realface" / "hairtypecode" / (std::to_string(h1) + ".png"), "the store's path");
+        CHECK(slurp(gtt::picture_file(w.out, fh, h1)) == "generic" && !fs::exists(gtt::picture_file(w.out, fh, h2)), "the generic store is untouched");
+        CHECK(!fs::exists(w.out / "pictures" / "realface_test"), "no realface_test folder any more");
+        const nlohmann::json m = nlohmann::json::parse(slurp(gtt::realface_manifest_file(w.out)), nullptr, false);
+        CHECK(m.is_object() && m.contains("items") && m["items"]["hairtypecode"].contains(std::to_string(h2)) && m["items"]["hairtypecode"].contains("0") &&
+                  m["items"]["facialhairtypecode"].contains(std::to_string(b1)) && m["items"]["hairtypecode"][std::to_string(h2)].value("player", 0) == 2003,
+              "realface\\manifest.json lists the done items with their player");
+        CHECK(w.vals[2003]["hairtypecode"] == 25 && w.vals[2003]["facialhairtypecode"] == 3, "his own codes are back");
+        // a second run: the store's pictures are done (skipped), the manifest keeps the first run's items
+        gtt::Generator g2(w.env());
+        CHECK(!g2.start(rq, {gt_ref(2003, 0)}, &err) && err.find("nothing to draw") != std::string::npos, "again: every item already has its real-face render: " + err);
+        CHECK(nlohmann::json::parse(slurp(gtt::realface_manifest_file(w.out)), nullptr, false)["items"]["hairtypecode"].size() == 3, "the manifest is kept");
+    });
 }
 
 }  // namespace gearthumbs_test

@@ -72,6 +72,13 @@ fs::path manifest_file(const fs::path& turbo_output);
 fs::path own_file(const fs::path& turbo_output);
 fs::path log_file(const fs::path& turbo_output);
 fs::path status_file(const fs::path& turbo_output);
+// Turbo X 1.0.3 RF: the REAL-FACE tile store. A real_face run keeps each hair / beard picture drawn by the game on a scanned head
+// (headclasscode 0) under <turbo_output>/pictures/realface/<folder>/<id>.png, id = the GENERIC hair / beard id the real-face chooser
+// lists (0 = Bald / No beard), and records it in pictures/realface/manifest.json ({"items":{"<field>":{"<id>":{file,w,h,player,at}}}},
+// merged across runs). The real-face chooser (ui_visual_picker.cpp, vp::open_choice) shows these first; the generic pickers never do.
+fs::path realface_dir(const fs::path& turbo_output);
+fs::path realface_file(const fs::path& turbo_output, const FieldSpec& f, int64_t id);
+fs::path realface_manifest_file(const fs::path& turbo_output);
 
 // Pictures saved by any run of this process: the picture index refreshes when it changes
 uint64_t generation();
@@ -88,8 +95,9 @@ struct Request {
     std::vector<int32_t> players;  // up to kMaxPlayersPerRequest, each > 0, no repeats; empty = {player}
     bool fresh = false;
     // Turbo X: "real_face": true = the hair / beard steps go on SCANNED heads (headclasscode 0) through Turbo's live band codes
-    // (faces3d: kHairBandBase + i / kBeardBandBase + i, the path the Looks picker writes for a real face) and the pictures are kept in
-    // pictures\realface_test\<field>_<id>.png (never in the picture pack).
+    // (faces3d: kHairBandBase + i / kBeardBandBase + i, the path the Looks picker writes for a real face; id 0 = Bald / No beard) and
+    // the pictures are kept in the real-face store pictures\realface\<field>\<id>.png (1.0.3 RF; was realface_test), never in the
+    // picture pack. "Already has a picture" is judged against that store, not against the generic pictures\assets.
     bool real_face = false;
     // Turbo X: "body_mode": the capture mode of the full-body pictures (-1 = the proven 0 = 256x256; 1 = the big 1024 slices, unproven)
     int body_mode = -1;
@@ -213,7 +221,9 @@ private:
     double t_phase_ = 0.0;
     std::map<int32_t, std::map<std::string, int64_t>> own_;  // player -> field -> his own value
     std::map<int32_t, std::set<std::string>> dirty_;         // player -> fields that carry a test value now
-    std::map<int32_t, std::pair<uint64_t, size_t>> last_capture_;  // player -> pixel hash + item of his last SAVED capture this run
+    std::map<int32_t, std::pair<uint64_t, size_t>> last_capture_;
+    std::string rf_manifest_;  // 1.0.3 RF: pictures/realface/manifest.json as json text (real_face runs; "" = nothing to write)
+    bool rf_dirty_ = false;  // player -> pixel hash + item of his last SAVED capture this run
     std::string last_status_;
     std::string end_message_;
 };
