@@ -235,27 +235,31 @@ int64_t beard_from_code(int64_t code) {
     return (i >= 1 && i <= static_cast<int64_t>(band_beard_ids().size())) ? band_beard_ids()[static_cast<size_t>(i - 1)] : 0;
 }
 const char* const kLookFields[2] = {"hairtypecode", "facialhairtypecode"};
-bool is_turbo_hair_code(int64_t v) { return hair_from_code(v) != 0 || v == kHairOwnCode; }
-bool is_turbo_beard_code(int64_t v) { return beard_from_code(v) != 0 || v == kBeardOwnCode; }
+bool is_turbo_hair_code(int64_t v) { return hair_from_code(v) != 0 || v == kHairOwnCode || v == kHairBaldCode; }
+bool is_turbo_beard_code(int64_t v) { return beard_from_code(v) != 0 || v == kBeardOwnCode || v == kBeardNoneCode; }
+int64_t hair_look_code(int64_t look) { return look == kLookNone ? kHairBaldCode : look > 0 ? hair_band_code(look) : 0; }
+int64_t beard_look_code(int64_t look) { return look == kLookNone ? kBeardNoneCode : look > 0 ? beard_band_code(look) : 0; }
+int64_t hair_look_of(int64_t code) { return code == kHairBaldCode ? kLookNone : hair_from_code(code); }
+int64_t beard_look_of(int64_t code) { return code == kBeardNoneCode ? kLookNone : beard_from_code(code); }
 
 std::map<std::string, int64_t> look_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& cur,
                                            const std::map<std::string, int64_t>& original) {
     std::map<std::string, int64_t> w;
-    auto part = [&](const char* f, int64_t id, int64_t (*code_of)(int64_t), int64_t (*from)(int64_t), int64_t own) {
+    auto part = [&](const char* f, int64_t id, int64_t (*code_of)(int64_t), bool (*turbo)(int64_t)) {
         const auto c = cur.find(f);
         if (c == cur.end()) return;  // the table has no such field
         int64_t want = c->second;
-        if (id > 0) {
+        if (id > 0 || id == kLookNone) {
             want = code_of(id);
             if (!want) return;  // not a listed id: nothing written for this part
-        } else if (from(c->second) || c->second == own) {
+        } else if (turbo(c->second)) {
             const auto o = original.find(f);
-            want = (o != original.end() && o->second >= 0 && !from(o->second) && o->second != own) ? o->second : 0;
+            want = (o != original.end() && o->second >= 0 && !turbo(o->second)) ? o->second : 0;
         }
         if (want != c->second) w[f] = want;
     };
-    part("hairtypecode", hair, hair_band_code, hair_from_code, kHairOwnCode);
-    part("facialhairtypecode", beard, beard_band_code, beard_from_code, kBeardOwnCode);
+    part("hairtypecode", hair, hair_look_code, is_turbo_hair_code);
+    part("facialhairtypecode", beard, beard_look_code, is_turbo_beard_code);
     return w;
 }
 

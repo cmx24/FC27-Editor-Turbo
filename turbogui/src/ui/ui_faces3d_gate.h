@@ -24,7 +24,7 @@ void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m);
 const faces3d::Entry* faces3d_draft_entry(int64_t playerid);
 // Every frame (App::draw): collect the picture, give up after a timeout. Never waits.
 void tick_faces3d_preview(App& app);
-// The pickers' choice for the person shown (generic ids, 0 = his own); for tests and scripted checks
+// The pickers' choice for the person shown (generic ids, faces3d::kLookNone = bald / no beard, 0 = his own); for tests and scripted checks
 void faces3d_set_choice(bool manager, int64_t id, int64_t hair, int64_t beard);
 // 2.17, at every career connect (App::refresh): a player who got the "his own, live" marker (9999 / 511) while he was on the saved
 // list and is off it since this game start gets his recorded own codes back, when that is safe (no baked look of this game start

@@ -69,7 +69,7 @@ GateUi g;
 constexpr int64_t kMgrKey = faces3d::kManagerBackupKey;
 const char* const kAutoRestoreSwitch = "faces3d_auto_restore_on.txt";  // turbo_output: the marker restore writes (else LOG-ONLY)  // preview_backup.json key of a manager: kMgrKey + managerid
 
-// A Turbo code of a look field (a band code or the "his own, live" code): never recorded as his own
+// A Turbo code of a look field (a band code, the "his own, live" code or the bald / no-beard code): never recorded as his own
 bool turbo_code(const std::string& f, int64_t v) {
     if (f == "hairtypecode") return faces3d::is_turbo_hair_code(v);
     if (f == "facialhairtypecode") return faces3d::is_turbo_beard_code(v);
@@ -117,42 +117,52 @@ std::string beard_label(int id) {
 
 // Step 7 (2026-10-31): the chooser of this section is the ONE picker (ui_visual_picker.cpp, vp::open_choice): the same window, tiles,
 // names and pictures as the Hair / Beard rows, listing only the band's generic ids. A thumbnail of the id chosen now (from the picker's
-// own sources), its label, "Choose...", "None". The pick comes back through vp::take_choice; nothing is written here: "Apply hair &
+// own sources), its label, "Choose...", "His own". The pick comes back through vp::take_choice; nothing is written here: "Apply hair &
 // beard" below writes the band codes through raw_write, as before (the proven path, CHANGELOG.md:115).
+// Turbo X bald: `value` is a look value (generic id > 0, faces3d::kLookNone = Bald / No beard, 0 = his scanned hair / beard). The
+// chooser's tiles are 0 = Bald / No beard and the own code (kHairOwnCode / kBeardOwnCode) = his scanned one: mapped here both ways.
 bool band_chooser(App& app, const Table& t, uint64_t rec, bool manager, const char* title, const char* field, int64_t& value,
                   const std::vector<int>& ids, std::string (*name)(int)) {
     bool changed = false;
     ImGui::PushID(field);
+    const bool hair = std::strcmp(field, "hairtypecode") == 0;
+    const int64_t own_tile = hair ? faces3d::kHairOwnCode : faces3d::kBeardOwnCode;
+    const char* none_word = hair ? "Bald" : "No beard";
     const float thumb = S(56.0f);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(title);
     ImGui::SameLine();
     if (value > 0) {
         vp::draw_code_picture(app, t, rec, field, manager, value, thumb);
-    } else {  // his own scanned hair or beard: no generic model stands for it
+    } else {  // Bald / No beard, or his own scanned hair or beard: no generic model picture stands for it
+        const char* word = value == faces3d::kLookNone ? none_word : "his own";
         const ImVec2 a = ImGui::GetCursorScreenPos();
         ImGui::Dummy(ImVec2(thumb, thumb));
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(a, ImVec2(a.x + thumb, a.y + thumb), IM_COL32(58, 58, 64, 255), 4.0f);
-        const ImVec2 ts = ImGui::CalcTextSize("his own");
-        dl->AddText(ImVec2(a.x + (thumb - ts.x) * 0.5f, a.y + (thumb - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), "his own");
+        const ImVec2 ts = ImGui::CalcTextSize(word);
+        dl->AddText(ImVec2(a.x + (thumb - ts.x) * 0.5f, a.y + (thumb - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), word);
     }
     ImGui::SameLine();
     ImGui::BeginGroup();
-    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : "his own");
-    if (ImGui::Button("Choose...##pick")) vp::open_choice(app, t, rec, field, manager, ids, value);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 3D models that fit real faces, with their pictures. Nothing is written until Apply hair & beard.");
-    if (value > 0) {
+    ImGui::TextUnformatted(value > 0 ? name(static_cast<int>(value)).c_str() : value == faces3d::kLookNone ? none_word : hair ? "his scanned hair" : "his scanned beard");
+    const int64_t tile = value > 0 ? value : value == faces3d::kLookNone ? 0 : own_tile;
+    if (ImGui::Button("Choose...##pick")) vp::open_choice(app, t, rec, field, manager, ids, tile);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The 3D models that fit real faces, with their pictures, plus %s and his scanned %s. Nothing is written until Apply hair & beard.",
+                          none_word, hair ? "hair" : "beard");
+    if (value != 0) {
         ImGui::SameLine();
-        if (ImGui::Button("None##pickclear")) {
+        if (ImGui::Button("His own##pickclear")) {
             value = 0;
             changed = true;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to his scanned %s (no generic part).", hair ? "hair" : "beard");
     }
     ImGui::EndGroup();
     int64_t picked = 0;
     if (vp::take_choice(field, &picked)) {
-        value = picked;
+        value = picked == 0 ? faces3d::kLookNone : picked == own_tile ? 0 : picked;
         changed = true;
     }
     vp::window(app, t, rec);  // the picker window, in this button's id scope
@@ -414,7 +424,7 @@ void leftover_banner(App& app, const Table& t, int64_t current) {
         bool still = true, band = false;
         for (const auto& [f, v] : r.written) {
             still = still && cur.count(f) && cur.at(f) == v;
-            band = band || (f == "hairtypecode" && faces3d::hair_from_code(v)) || (f == "facialhairtypecode" && faces3d::beard_from_code(v));
+            band = band || (f == "hairtypecode" && faces3d::hair_look_of(v)) || (f == "facialhairtypecode" && faces3d::beard_look_of(v));
         }
         if (!still || band) continue;
         const std::string name = r.name.empty() ? p->name : r.name;
@@ -434,12 +444,12 @@ void leftover_banner(App& app, const Table& t, int64_t current) {
 }
 
 struct Look {
-    int64_t hair = 0, beard = 0;  // generic ids his codes select now (0 = his own)
+    int64_t hair = 0, beard = 0;  // look values his codes select now (generic id, faces3d::kLookNone = bald / no beard, 0 = his own)
 };
 Look look_of(const std::map<std::string, int64_t>& codes) {
     Look l;
-    if (const auto it = codes.find("hairtypecode"); it != codes.end()) l.hair = faces3d::hair_from_code(it->second);
-    if (const auto it = codes.find("facialhairtypecode"); it != codes.end()) l.beard = faces3d::beard_from_code(it->second);
+    if (const auto it = codes.find("hairtypecode"); it != codes.end()) l.hair = faces3d::hair_look_of(it->second);
+    if (const auto it = codes.find("facialhairtypecode"); it != codes.end()) l.beard = faces3d::beard_look_of(it->second);
     return l;
 }
 
@@ -704,7 +714,7 @@ void faces3d_gate_section(App& app, const Table& t, const PlayerRow& p) {
     };
     const bool own_h = at("hairtypecode", 0) == faces3d::kHairOwnCode, own_b = at("facialhairtypecode", 0) == faces3d::kBeardOwnCode;
     // on the saved list: until both "his own, live" codes are written; off it: an own code left there puts his originals back
-    const bool has_look = now.hair > 0 || now.beard > 0 || (on_list && (!own_h || !own_b)) || (!on_list && (own_h || own_b));
+    const bool has_look = now.hair != 0 || now.beard != 0 || (on_list && (!own_h || !own_b)) || (!on_list && (own_h || own_b));
     if (!has_look) ImGui::BeginDisabled();
     if (ImGui::Button("His own hair & beard")) {
         std::string err;
@@ -815,7 +825,7 @@ void faces3d_manager_section(App& app, const Table& t, const ManagerRow& m) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("Kept in this career's database (saved with the career). Other careers are not changed.");
     ImGui::SameLine();
-    const bool has_look = now.hair > 0 || now.beard > 0;
+    const bool has_look = now.hair != 0 || now.beard != 0;
     if (!has_look) ImGui::BeginDisabled();
     if (ImGui::Button("His own hair & beard")) {
         std::string err;

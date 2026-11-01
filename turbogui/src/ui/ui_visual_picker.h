@@ -61,8 +61,9 @@ bool draw_field_picture(App& app, const Table& t, uint64_t rec, const char* fiel
 // item_galleries (ui_images.cpp) draw this instead. Returns the rows drawn.
 int rows(App& app, const Table& t, uint64_t rec, const std::vector<std::string>& fields, bool manager = false);
 // Step 7: the chooser of the "Hair & beard (3D)" section (ui_faces3d_gate.cpp) is this same window. It lists only the generic ids a
-// real face can take through the Turbo band (`ids`, faces3d::band_hair_ids / band_beard_ids) plus 0 = "His own"; `current` is the generic
-// id his band code selects now. Apply does NOT write the field: it hands the pick back through take_choice (true once, with the code), and
+// real face can take through the Turbo band (`ids`, faces3d::band_hair_ids / band_beard_ids) plus two tiles of its own (Turbo X bald):
+// 0 = "Bald" / "No beard" (the game's generic none part) and faces3d::kHairOwnCode / kBeardOwnCode = "His scanned hair" / "His scanned
+// beard" (no generic part); `current` is the tile code his codes select now (a generic id, 0, or the own code). Apply does NOT write the field: it hands the pick back through take_choice (true once, with the code), and
 // the section's own "Apply hair & beard" writes the band codes through its proven path (raw write + preview backup, no undo step).
 void open_choice(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager, const std::vector<int>& ids, int64_t current);
 bool take_choice(const std::string& field, int64_t* code);
