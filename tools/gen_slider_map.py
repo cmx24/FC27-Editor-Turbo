@@ -5,7 +5,11 @@ Source of the order (Turbo 2.12.1, research_20261016/SLIDER_MAP_FULL.md): the se
 (rows {name, index, id}, the ids start at 0x8D = byte 0 of the 125-byte Custom block; the three bytes seen on the EA Custom screen
 (TEST_31 G-S1: CPU sprint 36, user sprint 80, user acceleration 81) sit where this table puts them, and the 125 rows fill the
 block exactly: 16 CPU-AI opponent + 16 CPU-AI teammates + 4 group sliders + 37 CPU + 7 CPU positioning + 37 user + 7 user
-positioning + 1 power bar). Everything except the three screen-proven bytes is therefore "table" evidence: not yet seen on the screen.
+positioning + 1 power bar). Everything except the three screen-proven bytes was "table" evidence until 2.12.1's one-launch proof.
+Turbo X sliders (2026-11-01): the 122 others are "file" evidence (FILE-MAPPED): the P2121 marker file (2 + byte*13 mod 97, never 50) was kept
+by the game and every value was seen at its label on the EA Custom screen on build 6AC07E31 (evidence/2026-10-16/P2121/SLIDERS.md 125/125,
+again 10-19 L7b/L7c); on the running build 6AD922D1 only the 3 anchors were seen (SLIDERS_READ/marker_2041), so there they are file-mapped:
+written to the Settings file with the game closed (turbo_settings_apply --apply), never live. verified_by_build 6AC07E31 lists all 125.
 Usage: python tools/gen_slider_map.py [--check]   (rewrites the JSON; --check only compares)
        python tools/gen_slider_map.py --proof PRESET.json PENDING.json   (the 2.12.1 one-launch proof files)
 """
@@ -59,6 +63,14 @@ META = [("all_pass_speed", "All pass speed (group)", "ALL_PASS_SPEED_SLIDERS"), 
         ("all_shot_speed", "All shot speed (group)", "ALL_SHOT_SPEED_SLIDERS"), ("all_shot_error", "All shot error (group)", "ALL_SHOT_ERROR_SLIDERS")]
 PROVEN = {"user.sprint_speed": 80, "user.acceleration": 81, "cpu.sprint_speed": 36}
 PROOF = "evidence/2026-10-15/TEST_31.md"
+# the per-byte file evidence of the 122 others (Turbo X sliders, 2026-11-01; see the docstring)
+FILE_PROOF = ("evidence/2026-10-16/P2121: the marker block 2+(byte*13 mod 97) applied to the Settings file was kept by the game "
+              "(P2121run/post Settings20261016151900674, md5 00d17694; again 10-19 L6b/L7a, block 53968757) and the EA Custom screen showed "
+              "this byte's value at this label (P2121/SLIDERS.md 125/125, mosaic/*.jpg; 10-19 L7b/L7c 125/125) on build 6AC07E31. "
+              "6AD922D1: same layout, anchors 0x24/0x50/0x51 = Cassio's 42/41/43 (evidence/2026-10-28/SLIDERS_READ/marker_2041); "
+              "this byte not yet seen on the 6AD922D1 screen")
+BUILD_PROOF_6AC07E31 = ("evidence/2026-10-16/P2121/SLIDERS.md: 125 of 125 Custom bytes = the marker values on the EA Custom screen "
+                        "(screenshots P2121/drive*/, mosaic/*.jpg), repeated 10-19 L7b/L7c (play_G3_L7b/RESULTS.md, play_G3_L7c/RESULTS.md)")
 TABLE = "game slider table (FC27.exe 6AB9813C, rows {name,index,id}): byte = id - 0x8D"
 
 
@@ -86,8 +98,9 @@ def build_entries():
             e.update(verified=True, proof=PROOF, evidence="screen",
                      note="Custom block byte 0x%02X (file 0x%X). OBSERVED on the EA Custom screen (TEST_31 G-S1); engine use in a match not proven." % (ci, 0xB8DDC + ci))
         else:
-            e.update(verified=False, proof="", evidence="table",
-                     note="byte 0x%02X (file 0x%X) from the %s; not yet seen on the EA Custom screen (2.12.1 one-launch proof)" % (ci, 0xB8DDC + ci, TABLE))
+            e.update(verified=False, proof=FILE_PROOF, evidence="file",
+                     note="Custom block byte 0x%02X (file 0x%X), order from the %s. FILE-MAPPED: seen on the EA screen on 6AC07E31 (P2121), not yet "
+                          "on 6AD922D1; Turbo writes it to the Settings file with the game closed, never live." % (ci, 0xB8DDC + ci, TABLE))
         out.append(e)
     # the two old names with no slot in the 125-byte block (the builder never reads index 9 and forces index 10 to 50)
     for side in ("user", "cpu"):
@@ -112,7 +125,7 @@ def write_proof(preset_path, pending_path):
     preset = {"turbo_tactic_preset": 1, "name": "P2121 proof", "note": "every Custom slider = 2 + (byte*13) mod 97 (never 50)",
               "created": "2026-10-16T00:00", "game_build": "6AC07E31-2145C000",
               "settings": {"layout": "fbchunks-454-bc650", "slider_map_build": "6AC07E31", "values": vals, "include_unverified": True}}
-    unver = [e["id"] for e in j["entries"] if e.get("evidence") == "table"]
+    unver = [e["id"] for e in j["entries"] if e.get("evidence") in ("table", "file")]
     pending = {"turbo_settings_pending": 1, "preset": "P2121 proof", "staged": "2026-10-16T00:00:00", "source_md5": "", "values": vals, "unverified": unver}
     for path, obj in ((preset_path, preset), (pending_path, pending)):
         with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -128,11 +141,17 @@ def main():
     j = json.load(open(PATH, encoding="utf-8"))
     keep = [e for e in j["entries"] if e["group"] in ("match", "player")]
     j["entries"] = keep + build_entries()
-    j["note"] = ("FC 27 Settings<timestamp> slider map. 2.12.1: ALL 125 bytes of the Custom block (GameplayTypeCustomData, payload 0xB8976 = file 0xB8DDC) are named from the game's "
-                 "own slider table (FC27.exe 6AB9813C: rows {name, index, id}, id - 0x8D = byte; 16+16 CPU-AI, 4 group sliders, 37+7 CPU, 37+7 user, power bar), see "
-                 "turbo_dev/research_20261016/SLIDER_MAP_FULL.md. SCREEN-PROVEN (EA Custom screen, TEST_31 G-S1): only user.sprint_speed 0x50, user.acceleration 0x51, "
-                 "cpu.sprint_speed 0x24. Every other slider has evidence \"table\" (mapped, not yet seen on the screen): a preset stages it only with include_unverified. "
-                 "That the engine READS this block in a match is NOT proven (G-S3 FAIL, sprint 0 had no effect). The u32 array (array_base) is NOT what the Custom screen shows.")
+    vb = j.setdefault("verified_by_build", {})
+    vb["6AC07E31"] = {"note": "Turbo X sliders (2026-11-01): every Custom byte seen on the EA Custom screen on this build (marker values, P2121 10-16 and L7b/L7c 10-19).",
+                      "proof": BUILD_PROOF_6AC07E31,
+                      "ids": [e["id"] for e in j["entries"] if e.get("custom_index") is not None]}
+    j["note"] = ("FC 27 Settings<timestamp> slider map. ALL 125 bytes of the Custom block (GameplayTypeCustomData, payload 0xB8976 = file 0xB8DDC) are named from the game's "
+                 "own slider table (16+16 CPU-AI, 4 group sliders, 37+7 CPU, 37+7 user, power bar), see turbo_dev/research_20261016/SLIDER_MAP_FULL.md. "
+                 "Build 6AC07E31: all 125 seen on the EA Custom screen with marker values (P2121 10-16, L7b/L7c 10-19; verified_by_build). "
+                 "Build 6AD922D1 (title update 10-27): only cpu.sprint_speed 0x24, user.sprint_speed 0x50, user.acceleration 0x51 seen on the screen "
+                 "(verified, written live); the other 122 are evidence \"file\" (FILE-MAPPED: same layout, anchors hold; written to the Settings file "
+                 "with the game closed by turbo_settings_apply --apply, never live). That the engine READS this block in a match is NOT proven "
+                 "(G-S3 FAIL). The u32 array (array_base) is NOT what the Custom screen shows: no known UI change ever moved it.")
     text = json.dumps(j, indent=1, ensure_ascii=False) + "\n"
     if "--check" in sys.argv:
         print("up to date" if open(PATH, encoding="utf-8").read() == text else "DIFFERS")

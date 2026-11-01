@@ -18,9 +18,10 @@
 //   * size, header, tag, CRC'd length or the constant words differ, or the stored CRC does not match;
 //   * FC 27 is running (the host's game_running callback);
 //   * a write outside the map's regions, or onto a slot whose value now is not 0..100 (the layout moved);
-//   * a preset writes only VERIFIED entries (verified: true, an index): in 2.8 every entry is verified: false until the marker launch
-//     proves it, so a preset writes nothing yet. The marker-test mode (write_markers / install_markers) is the one writer of unverified
-//     slots, and only into a copy or with the same backup and Undo.
+//   * a preset writes only VERIFIED entries (verified: true, an index), plus the FILE-MAPPED ones the staging file lists (Turbo X
+//     sliders: Entry::file_mapped, written here only, never live). The marker-test mode (write_markers / install_markers) is the one
+//     writer of the other unverified slots, and only into a copy or with the same backup and Undo.
+//   * the Custom block's 5 prefix bytes must be 01 00 00 00 then 00 or 01 (custom_prefix_ok; the last byte is left as the file holds it).
 // THE WRITE (patch, never replace): only the given u32s change, the CRC is computed again, a temp file (~turbo_settings_write.tmp, never
 // named Settings*) is written and read back, the original is backed up to turbo_output\settings_backup\<stamp>\ with md5s
 // (backup.json), then the temp replaces the original under the SAME name. Undo puts the backup back when the file is still Turbo's (name
@@ -46,7 +47,12 @@ constexpr size_t kPayloadOff = kHeaderSize + kMetaSize;  // 0x466
 constexpr size_t kFileSize = kPayloadOff + kPayloadSize;  // 772790
 constexpr size_t kCrcAt = 16, kCrcFrom = 48;              // payload offsets
 constexpr size_t kCrcLenAt = 0x30, kConstAt = 0x74;
-constexpr uint8_t kCustomPrefix[5] = {1, 0, 0, 0, 1};  // the bytes right before the Custom block
+constexpr uint8_t kCustomPrefix[5] = {1, 0, 0, 0, 1};  // the bytes right before the Custom block (the form of every file before 10-24)
+// Turbo X sliders (2026-11-01): the last prefix byte (file 0xB8DDB) is 00 in every Settings file the game wrote since 10-24 (Cassio's own
+// play, 6AD922D1 included) and 01 before; against its flag-01 descendants such a file is byte-identical except that byte
+// (evidence\2026-10-24\GUI30J\settings_flag_table.md), and it does not decide whether the game keeps the block (2026-10-25\SLIDERS T5r).
+// So 01 00 00 00 00 is accepted too; the writer never changes the byte.
+bool custom_prefix_ok(const uint8_t* p);
 constexpr uint32_t kConstWords[4] = {0x38943, 0x537, 0x2EE77, 0xF3};
 inline const char* layout_name() { return "fbchunks-454-bc650"; }
 // 3.0.1 (GUI30H): every slider value Turbo shows is read from the newest Settings FILE (read_current), never from the running game; the
@@ -101,11 +107,16 @@ struct Entry {
     int min = 0, max = 100;
     bool verified = false;               // proven in game (the marker launch); only then a preset writes it
     std::string proof;                   // where the proof is ("" = none)
-    std::string evidence;                // "screen" (seen on the EA Custom screen) / "table" (named by the game's own slider table, not seen on the screen) / ""
+    // "screen" (seen on the EA Custom screen) / "file" (FILE-MAPPED: proven by Settings files - a marker value or a known UI change - not
+    // yet seen on the screen of the running build; `proof` names the files) / "table" (named by the game's own slider table only) / ""
+    std::string evidence;
     std::string game_name;               // the game's name of the slider ("SPRINT_SPEED_USER"); display only
     bool writable() const { return verified && (custom_index >= 0 || index >= 0); }
     // 2.12.1: a Custom block byte named by the game's table but not yet seen on the screen. Staged only when the preset asks (include_unverified)
     bool inferred() const { return !verified && custom_index >= 0 && evidence == "table"; }
+    // Turbo X sliders (2026-11-01): a Custom byte proven by Settings files but not yet seen on the EA screen of the running build. Turbo writes it
+    // to the Settings FILE only (queue_file_values -> turbo_settings_apply --apply, game closed: CRC, backup, --undo), never into the game.
+    bool file_mapped() const { return !verified && custom_index >= 0 && evidence == "file"; }
 };
 struct SliderMap {
     std::string build, layout, note;
@@ -191,12 +202,19 @@ Plan plan_preset(const Preset& p, const SliderMap& m);
 struct Pending {
     std::string preset, staged, src_md5;
     std::map<std::string, int> values;  // verified ids, plus the `unverified` ones
-    std::vector<std::string> unverified;  // ids of `values` that are only table-mapped: the tool writes such an id only when it is listed here
+    std::vector<std::string> unverified;  // ids of `values` that are table- or file-mapped (not verified): the tool writes such an id only when it is listed here
     std::string to_json() const;
     static bool parse(const std::string& text, Pending& out, std::string* err);
 };
 // Writes turbo_output\settings_pending.json from the preset (the verified entries only); refused when none of its values is writable
 bool stage_pending(const std::filesystem::path& out_dir, const Preset& p, const SliderMap& m, const std::string& stamp, std::string* msg);
+// Turbo X sliders (2026-11-01): the Game settings page's FILE-MAPPED sliders. Merges `values` (file-mapped ids only, clamped) into
+// turbo_output\settings_pending.json under the preset name kFileQueueName, every id listed in `unverified`; turbo_settings_apply --apply
+// writes them with FC 27 closed (patch: CRC, backup, --undo). Refused (nothing written): an id that is not file-mapped, or a staging file of
+// another preset (the tactics page's) is there. The game is never touched.
+inline constexpr const char* kFileQueueName = "Game settings sliders (file)";
+bool queue_file_values(const std::filesystem::path& out_dir, const SliderMap& m, const std::map<std::string, int>& values, const std::string& stamp,
+                       std::string* msg);
 
 // ------------------------------------------------------------------------------------------------ the writes (the tool, game closed)
 struct Env {

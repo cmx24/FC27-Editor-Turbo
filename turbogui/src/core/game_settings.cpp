@@ -169,6 +169,10 @@ Check validate(const std::vector<uint8_t>& b) {
     return c;
 }
 
+bool custom_prefix_ok(const uint8_t* p) {
+    return p && std::memcmp(p, kCustomPrefix, sizeof(kCustomPrefix) - 1) == 0 && (p[sizeof(kCustomPrefix) - 1] == 0 || p[sizeof(kCustomPrefix) - 1] == 1);
+}
+
 void fix_crc(std::vector<uint8_t>& b) {
     if (b.size() != kFileSize) return;
     wr32(b, kPayloadOff + kCrcAt, crc32(b.data() + kPayloadOff + kCrcFrom, kPayloadSize - kCrcFrom));
@@ -407,8 +411,12 @@ bool SliderMap::parse(const std::string& text, SliderMap& out, std::string* err)
         e.proof = str_of(x, "proof");
         e.evidence = str_of(x, "evidence");
         e.game_name = str_of(x, "game_name");
-        if (!e.evidence.empty() && e.evidence != "screen" && e.evidence != "table") return fail(e.id + ": evidence must be \"screen\" or \"table\"");
+        if (!e.evidence.empty() && e.evidence != "screen" && e.evidence != "file" && e.evidence != "table")
+            return fail(e.id + ": evidence must be \"screen\", \"file\" or \"table\"");
         if (e.verified && e.evidence == "table") return fail(e.id + ": verified needs screen evidence, not the table");
+        if (e.verified && e.evidence == "file") return fail(e.id + ": verified needs screen evidence, not a file");
+        if (e.evidence == "file" && e.custom_index < 0) return fail(e.id + ": file evidence needs a custom_index");
+        if (e.evidence == "file" && e.proof.empty()) return fail(e.id + ": file evidence needs its proof (which Settings files)");
         if (e.verified && e.index < 0 && e.custom_index < 0) return fail(e.id + ": verified without an index");
         if (e.verified && e.proof.empty()) return fail(e.id + ": verified needs its proof (where the in-game check is)");
         m.entries.push_back(e);
@@ -549,16 +557,16 @@ std::vector<std::string> status_lines(const Snapshot& s, const SliderMap& m) {
         v.push_back("custom block: not in the slider map");
         return v;
     }
-    const bool pre_ok = std::memcmp(s.custom_prefix.data(), kCustomPrefix, sizeof(kCustomPrefix)) == 0;
+    const bool pre_ok = custom_prefix_ok(s.custom_prefix.data());
     v.push_back("custom block (" + std::to_string(m.custom_count) + " bytes at payload " + hexs(m.custom_base) + "), the 5 bytes before it: " +
                 hex_bytes(s.custom_prefix.data(), s.custom_prefix.size()) +
                 (pre_ok ? std::string(" (--apply accepts this file)")
-                        : " (--apply REFUSES this file: it needs " + hex_bytes(kCustomPrefix, sizeof(kCustomPrefix)) + "; nothing will be written)"));
+                        : std::string(" (--apply REFUSES this file: it needs 01 00 00 00 00 or 01 00 00 00 01; nothing will be written)")));
     for (const Entry& e : m.entries) {
         if (e.custom_index < 0) continue;
         const auto it = s.values.find(e.id);
         v.push_back("custom " + e.id + " (" + hexs(uint64_t(e.custom_index)) + "): " + (it == s.values.end() ? std::string("?") : std::to_string(it->second)) +
-                    (e.writable() ? std::string() : " (not verified in game)"));
+                    (e.writable() ? std::string() : e.file_mapped() ? std::string(" (file-mapped: not yet seen on the EA screen)") : std::string(" (not verified in game)")));
     }
     std::string all = "custom bytes:";
     for (const auto& x : s.custom_slots) all += " " + std::to_string(x.second);
@@ -733,10 +741,10 @@ Plan plan_preset(const Preset& p, const SliderMap& m) {
             out.skipped.push_back(e->label + ": not mapped");
             continue;
         }
-        const bool table_only = !e->verified && e->inferred() && p.include_unverified;
+        const bool table_only = !e->verified && (e->inferred() || e->file_mapped()) && p.include_unverified;
         if (!e->verified && !table_only) {
             // 5.0 copy: a reason is at most 6 words ("<label>: <reason>")
-            out.skipped.push_back(e->label + (e->inferred() ? ": table-mapped only, read-only" : ": not verified, read-only"));
+            out.skipped.push_back(e->label + (e->inferred() ? ": table-mapped only, read-only" : e->file_mapped() ? ": file-mapped, not live" : ": not verified, read-only"));
             continue;
         }
         int v = kv.second;
@@ -823,12 +831,46 @@ bool stage_pending(const fs::path& out_dir, const Preset& p, const SliderMap& m,
     }
     if (msg) {
         *msg = "Staged \"" + p.name + "\": " + std::to_string(plan.values.size()) + " slider(s)" +
-               (plan.unverified.empty() ? std::string() : " (" + std::to_string(plan.unverified.size()) + " of them mapped from the game's table, not yet seen on the EA screen)") +
+               (plan.unverified.empty() ? std::string() : " (" + std::to_string(plan.unverified.size()) + " of them table- or file-mapped, not yet seen on the EA screen)") +
                " in turbo_output\\" + pending_file() + ". Close FC 27, run turbo\\turbo_settings_apply.exe --apply, then start the game." +
-               " Not proven in game yet: on 10-24 the game showed 50 after an apply, and --apply refuses a Settings file whose bytes before the" +
-               " Custom block are not 01 00 00 00 01.";
+               " Not proven in game yet: on 10-24 the game showed 50 after an apply (starts since 10-21 reset the block), and --apply refuses a" +
+               " Settings file whose bytes before the Custom block are not 01 00 00 00 00 / 01.";
         if (!plan.skipped.empty()) *msg += " Not staged: " + std::to_string(plan.skipped.size()) + " (not verified / not mapped).";
     }
+    return true;
+}
+
+bool queue_file_values(const fs::path& out_dir, const SliderMap& m, const std::map<std::string, int>& values, const std::string& stamp, std::string* msg) {
+    auto refuse = [&](const std::string& w) {
+        if (msg) *msg = "Not queued: " + w;
+        return false;
+    };
+    if (values.empty()) return refuse("nothing to queue");
+    Pending pd;
+    const fs::path pf = out_dir / pending_file();
+    std::error_code ec;
+    if (fs::exists(pf, ec)) {
+        std::vector<uint8_t> b;
+        std::string err;
+        if (!read_bytes(pf, b, 1u << 20) || !Pending::parse(std::string(b.begin(), b.end()), pd, &err))
+            return refuse(std::string(pending_file()) + " does not parse (" + err + ")");
+        if (pd.preset != kFileQueueName) return refuse("preset \"" + pd.preset + "\" is staged; apply or discard it first");
+    }
+    for (const auto& kv : values) {
+        const Entry* e = m.entry(kv.first);
+        if (!e || !e->file_mapped()) return refuse(kv.first + " is not a file-mapped slider");
+    }
+    for (const auto& kv : values) {
+        const Entry* e = m.entry(kv.first);
+        pd.values[e->id] = std::min(std::max(kv.second, e->min), e->max);
+        if (std::find(pd.unverified.begin(), pd.unverified.end(), e->id) == pd.unverified.end()) pd.unverified.push_back(e->id);
+    }
+    pd.preset = kFileQueueName;
+    pd.staged = stamp;
+    std::string err;
+    if (!write_text(pf, pd.to_json(), &err)) return refuse(err);
+    if (msg)
+        *msg = std::to_string(pd.values.size()) + " value(s) queued for the Settings file: close FC 27, then run turbo\\turbo_settings_apply.exe --apply";
     return true;
 }
 
@@ -960,9 +1002,9 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
                 return o;
             }
             const size_t pre = kPayloadOff + m.custom_base - sizeof(kCustomPrefix);
-            if (std::memcmp(after.data() + pre, kCustomPrefix, sizeof(kCustomPrefix)) != 0) {
+            if (!custom_prefix_ok(after.data() + pre)) {
                 o.message = "Refused: " + w.what + ": the bytes before the custom block are " + hex_bytes(after.data() + pre, sizeof(kCustomPrefix)) +
-                            ", not 01 00 00 00 01 (the layout moved, or the game keeps this file in a state Turbo does not know yet):" +
+                            ", not 01 00 00 00 00 / 01 00 00 00 01 (the layout moved, or the game keeps this file in a state Turbo does not know yet):" +
                             " the sliders were NOT applied, nothing was written";
                 return o;
             }
@@ -1029,7 +1071,8 @@ Outcome patch(const Env& env, const SliderMap& m, const std::vector<Write>& writ
     rec["writes"] = list;
     if (!commit(env, o, file, before, after, rec)) return o;
     o.message = "Written: " + std::to_string(changed) + " value(s) in " + file.filename().u8string() + " (CRC checked; backup " + o.backup.u8string() +
-                "). The values are in the Settings file; the in-game settings screen (only 3 sliders seen so far) and the on-pitch effect are NOT yet confirmed. Undo: turbo_settings_apply.exe --undo";
+                "). The values are in the Settings file; that the game keeps them at its next start (it reset them to 50 at starts since 10-21)," +
+                " the EA screen on this build (3 sliders seen so far) and the on-pitch effect are NOT yet confirmed. Undo: turbo_settings_apply.exe --undo";
     return o;
 }
 
@@ -1052,7 +1095,7 @@ Outcome apply_pending(const Env& env, const SliderMap& m) {
     for (const auto& kv : pd.values) {
         const Entry* e = m.entry(kv.first);
         const bool listed = std::find(pd.unverified.begin(), pd.unverified.end(), kv.first) != pd.unverified.end();
-        if (!e || !(e->writable() || (listed && e->inferred()))) {
+        if (!e || !(e->writable() || (listed && (e->inferred() || e->file_mapped())))) {
             skipped.push_back(kv.first);
             continue;
         }
