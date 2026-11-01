@@ -56,7 +56,7 @@ constexpr uint8_t kSrcRdbm = static_cast<uint8_t>(TileSource::Rdbm), kSrcSwatch 
                   kSrcFcEditor = static_cast<uint8_t>(TileSource::FcEditor);
 // Turbo X: the tooltip word of a tile whose picture is FC Editor's asset picture (ui_fcedit_pictures.h)
 constexpr const char* kFcEditorPictureTip = "FC Editor picture";
-constexpr const char* kTurboPackPictureTip = "Turbo's in-game picture (rendered by FC 27)";  // TX-102 R2-P: pictures\assets pack
+constexpr const char* kTurboPackPictureTip = "Turbo's in-game picture (rendered by FC 27)";  // TX-102 R2-P: fcedit::capture_picture
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -471,14 +471,29 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             push_tile(out, code, name);
             const size_t k = out.codes.size() - 1;
-            // TX-102 R2-P: for hair and beard, Turbo's own picture pack (pictures\assets\<field>\<id>.png, rendered by the FC 27 game
-            // through the gear generator) wins first, then the game's catalogue preview, then RDBM26 (FC 26), then the rest of the chain.
-            // Code 0 (Bald / No beard) keeps its old tile.
+            // TX-102 R2-P (revised): for hair and beard (code > 0) the order is (1) Turbo's in-game capture (the FC 27 game's own render,
+            // fcedit::capture_picture: pictures\raw\<field> + the generator's manifest), (2) the game's catalogue preview, (3) FC Editor's FC 27
+            // render (fcedit::picture: pictures\assets conversions + the FC Editor folder), (4) RDBM26 (FC 26), (5) the rest of the chain below.
+            // Code 0 (Bald / No beard) keeps its old chain.
             const bool hair_or_beard = field == "hairtypecode" || field == "facialhairtypecode";
-            const std::string pack_pic = hair_or_beard && code > 0 && fe_field ? fcedit::pack_picture(app, field, code) : std::string();
-            // 1. RDBM26: the set's picture (per file, then the fallback folder), the accessory in the slot's colour, a colour's file
+            const bool hb = hair_or_beard && code > 0;
+            // the game's own preview (catalog gallery)
+            std::string gp;
+            if (gal && code > 0) {
+                const auto gi = gpos.find(code);
+                gp = gi != gpos.end() ? ge[gi->second].preview : (light ? gallery_picture_path(app, field, code) : std::string());
+            }
+            std::string hb_pic;  // (1) or (3)
+            bool from_capture = false;
+            if (hb) {
+                hb_pic = fcedit::capture_picture(app, field, code);
+                from_capture = !hb_pic.empty();
+                if (hb_pic.empty() && gp.empty() && fe_field) hb_pic = fcedit::picture(app, field, code);
+            }
+            // RDBM26: the set's picture (per file, then the fallback folder), the accessory in the slot's colour, a colour's file.
+            // Not looked at for a hair / beard that has a picture above (also saves the palette probe of review E10-12).
             fs::path file;
-            if (have_res && d && pack_pic.empty()) {
+            if (have_res && d && !(hb && (!hb_pic.empty() || !gp.empty()))) {
                 if (is_acc_colour_field(field)) {
                     if (accessory > 0) file = vis::accessory_picture(res, code, accessory, &s.index);
                 } else {
@@ -491,24 +506,14 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             vis::Rgb8 rgb;
             if (is_acc_colour_field(field) && vis::accessory_colour_swatch(code, rgb)) out.swatch[k] = swatch_of(rgb);
-            // 2. the game's own preview (catalog gallery), 3. a grey tile
-            std::string gp;
-            if (gal && code > 0) {
-                const auto gi = gpos.find(code);
-                gp = gi != gpos.end() ? ge[gi->second].preview : (light ? gallery_picture_path(app, field, code) : std::string());
-            }
             // 5.0c E11 (D1): for hair and beard an RDBM26 palette PNG is a strand map, never the tile's picture: the game's lit preview
             // wins, else the grey tile (it still writes: the code is the game's). Other sets' type-3 PNGs (boots, gloves...) are real pictures.
-            // Review E10-12 (brief D1): for hair the game's preview wins outright, so only the files with NO game preview are probed
-            // (about 78 of 788 with Cassio's catalogue): probing all 788 cost ~30 ms in one frame on the first open (16 ms rule,
-            // test_visual_picker.h "PERF: opening the merged hair grid"). Beards keep their order (78 files, probed).
-            // TX-102 R2-P: the beard's FC 27 game preview now beats its FC 26 RDBM26 picture too (it was kept for beards before).
             bool palette_only = false;
-            bool from_fcedit = false, fc_picture = false, from_pack = false;
-            if (!pack_pic.empty()) {
-                file = fs::u8path(pack_pic);
-                gp.clear();
-                fc_picture = from_pack = true;
+            bool from_fcedit = false, fc_picture = false;
+            if (!hb_pic.empty()) {
+                file = fs::u8path(hb_pic);
+                if (from_capture) gp.clear();  // the capture beats the preview: the tile, the large preview and the tooltip all show it
+                fc_picture = true;
             } else if (hair_or_beard && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
                 file.clear();
             } else if (hair_or_beard && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
@@ -542,7 +547,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             if (fc_picture) {
                 out.src[k] = kSrcFcEditor;
-                out.tip[k] = from_pack ? kTurboPackPictureTip : kFcEditorPictureTip;
+                out.tip[k] = from_capture ? kTurboPackPictureTip : kFcEditorPictureTip;
                 out.fcedit_any = true;
             } else if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;

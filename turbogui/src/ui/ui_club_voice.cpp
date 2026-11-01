@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - Club & crest > Identity > Commentary name: in matches only, a club is spoken with another club's
 // recorded name, or with none (core/club_voice.h; turbo_dev/PITWALL/briefs/4.0-club-callnames.md). Also the App's club
 // commentary store (load, keep, forget), published with the voice swaps (App::voice_publish, ui_callnames.cpp).
+#include <cstdio>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -127,7 +128,19 @@ void club_voice_section(App& app) {
     else says = "no club name: the " + lang + " commentary has no recording for this club";
     // Turbo X 1.0.1 L1: Play the current club's own clip in the loaded language (the same button and wav as the list's rows: ui_callname_play.cpp,
     // turbo_output, cache, teamaudio, <lang>, <club id>.wav). Disabled, with the reason in its tooltip, when no clip was made for it.
-    callname_play_button(app, CallnameAudioKind::Club, teamid);
+    // TX-102 R2-O2: the button plays the clip IN EFFECT: the donor's when a donor voice is set (cur->voice_of), else the club's own;
+    // "no club name" in effect: the button stays, disabled, saying why.
+    if (cur && cur->voice_of == 0) {
+        const float h = ImGui::GetTextLineHeight();
+        char label[48];
+        std::snprintf(label, sizeof(label), "##play_c%lld", static_cast<long long>(teamid));
+        ImGui::BeginDisabled();
+        ImGui::Button(label, ImVec2(h, h));
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("No club name is in effect: there is no clip to play.");
+    } else {
+        callname_play_button(app, CallnameAudioKind::Club, cur && cur->voice_of > 0 ? cur->voice_of : teamid);
+    }
     ImGui::SameLine();
     ImGui::TextWrapped("Commentary says: %s", says.c_str());
     const std::string cur_scope = cur ? cur->scope : std::string();

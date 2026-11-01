@@ -86,6 +86,59 @@ static void ui_cases(App& app, Ui& ui, const fs::path& /*le*/) {
         club_40_test::hide(ui);
     });
 
+    // TX-102 R2-O2: the button plays the clip IN EFFECT (Fable's 1.0.1 review note): a donor voice set -> the donor's clip; "no club name" -> disabled
+    run_case("TX-102 R2-O2 club voice play c: a donor voice in effect (7 says 1001's name): the button plays the donor's clip, not the club's own", [&] {
+        for (const char* n : {"7.wav", "1001.wav"}) {
+            std::ofstream w((dir / n).string(), std::ios::binary);
+            w << "RIFF....WAVEfmt ";
+        }
+        clubvoice::Entry e;
+        e.teamid = 7;
+        e.voice_of = 1001;
+        e.scope = "";  // not assigned: in effect in every career
+        app.club_voice.upsert(e);
+        CHECK(app.club_voice.find_in_effect(7, app.reapply.career) && app.club_voice.find_in_effect(7, app.reapply.career)->voice_of == 1001, "the donor entry is in effect");
+        ui.frames(310);  // the 5 s re-check of the club audio folder
+        app.sel_team = 7;
+        app.callnames.lang = kLang;
+        club_40_test::show(ui, draw_club_identity_page);
+        for (int k = 0; k < 4; ++k) {
+            app.callnames.lang = kLang;
+            ui.frames(2);
+        }
+        CHECK(e15_test::reveal(ui, "##play_c1001"), "the card's play button is the donor's (##play_c1001)");
+        fake->played.clear();
+        CHECK(ui.click("##play_c1001"), "play pressed");
+        ui.frames(2);
+        CHECK(fake->played.size() == 1, fmt("one wav started (%zu)", fake->played.size()));
+        if (!fake->played.empty()) {
+            const std::string p = fake->played.front();
+            const bool is1001 = p.size() >= 9 && p.compare(p.size() - 8, 8, "1001.wav") == 0;
+            CHECK(is1001 && p.find(kLang) != std::string::npos, "the wav is the donor's (1001), in the loaded language's folder: " + p);
+        }
+        app.callname_player.stop();
+        ui.frames(2);
+        club_40_test::hide(ui);
+        app.club_voice.forget(7, "");
+    });
+
+    run_case("TX-102 R2-O2 club voice play d: \"no club name\" in effect: the button is there, disabled, a click plays nothing", [&] {
+        clubvoice::Entry e;
+        e.teamid = 7;
+        e.voice_of = 0;
+        e.scope = "";
+        app.club_voice.upsert(e);
+        CHECK(open_card(), "the current club (7) has its play button (disabled)");
+        fake->played.clear();
+        ui.click("##play_c7");
+        ui.frames(2);
+        CHECK(fake->played.empty(), fmt("no club name: nothing played (%zu)", fake->played.size()));
+        club_40_test::hide(ui);
+        app.club_voice.forget(7, "");
+        fs::remove(dir / "7.wav", ec);
+        fs::remove(dir / "1001.wav", ec);
+    });
+
     app.callname_player.set_player(nullptr);
     fs::remove_all(dir, ec);
 }

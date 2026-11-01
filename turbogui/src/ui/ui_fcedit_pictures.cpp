@@ -4,12 +4,14 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <system_error>
 #include <vector>
 
 #include "app.h"
 #include "core/gear_thumbs.h"
+#include "nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
 
@@ -105,9 +107,9 @@ std::string Index::picture(const std::string& field, int64_t id) const {
     const auto p = f->second.find(id);
     return p == f->second.end() ? std::string() : p->second;
 }
-std::string Index::pack_picture(const std::string& field, int64_t id) const {
-    const auto f = pack_fields.find(folder_field(field));
-    if (f == pack_fields.end()) return {};
+std::string Index::capture_picture(const std::string& field, int64_t id) const {
+    const auto f = capture_fields.find(folder_field(field));
+    if (f == capture_fields.end()) return {};
     const auto p = f->second.find(id);
     return p == f->second.end() ? std::string() : p->second;
 }
@@ -134,11 +136,29 @@ Index build_index(const fs::path& root, const fs::path& pack) {
         for (auto& kv : best) {
             if (kv.second.empty()) continue;
             std::unordered_map<int64_t, std::string>& m = ix.fields[kv.first];
-            for (auto& e : kv.second) {
-                if (have_pack && e.second.rank / 2 == 0) ix.pack_fields[kv.first].emplace(e.first, e.second.path);  // level 0 = the pack
-                m.emplace(e.first, std::move(e.second.path));
-            }
+            for (auto& e : kv.second) m.emplace(e.first, std::move(e.second.path));
             ix.pictures += m.size();
+        }
+    }
+    if (!pack.empty()) {  // TX-102 R2-P: the in-game captures (raw folder first, then the generator's manifest)
+        const fs::path raw = pack / "raw";
+        if (fs::is_directory(raw, ec)) {
+            for (const std::string& field : field_folders(raw)) {
+                std::unordered_map<int64_t, Best> best;
+                list_folder(raw / field, 0, best);
+                for (auto& e : best) ix.capture_fields[field].emplace(e.first, std::move(e.second.path));
+            }
+        }
+        std::ifstream mf(pack / "gear_thumbs" / "manifest.json", std::ios::binary);
+        if (mf) {
+            const nlohmann::json j = nlohmann::json::parse(mf, nullptr, false);
+            if (j.is_object() && j.contains("items") && j["items"].is_array())
+                for (const auto& it : j["items"]) {
+                    if (!it.is_object() || it.value("state", std::string()) != "done" || !it.contains("id") || !it["id"].is_number_integer()) continue;
+                    const std::string field = it.value("field", std::string()), file = it.value("file", std::string());
+                    if (field.empty() || file.empty() || file.find("realface_test") != std::string::npos || !fs::is_regular_file(fs::u8path(file), ec)) continue;
+                    ix.capture_fields[folder_field(field)].emplace(it["id"].get<int64_t>(), file);  // the raw copy, when listed, wins
+                }
         }
     }
     ix.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -205,7 +225,7 @@ const Index& index(App& app) {
 
 std::string picture(App& app, const std::string& field, int64_t id) { return index(app).picture(field, id); }
 
-std::string pack_picture(App& app, const std::string& field, int64_t id) { return index(app).pack_picture(field, id); }
+std::string capture_picture(App& app, const std::string& field, int64_t id) { return index(app).capture_picture(field, id); }
 
 bool has_field(App& app, const std::string& field) { return index(app).has(field); }
 
