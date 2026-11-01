@@ -117,25 +117,97 @@ static void row_picture(App& app, int64_t pid, float side) {
     ImGui::Dummy(ImVec2(side, side));
 }
 
+// R2-F (owner: filter permanence): the list's chips, filter form and sort are kept in gui_settings.json (list_filters.players, the store
+// of asset_scope and the pickers' filters) and come back after a restart; the search box starts empty. Nothing is stored (a first run) =
+// the defaults below; nothing is written until one changes. My club: the kept choice (g_pl_my_club_pref) is applied once a career is open.
+namespace {
+struct PlayerListFilters {
+    bool my_club = false;
+    int f_group = -1, sort_by = 0, f_pos = -1, f_style = -1;
+    IntRange f_age, f_ovr, f_pot;
+    bool f_plus = false, f_retiring = false, f_free = false;
+    int64_t f_team = 0, f_nat = -1, f_cont = -1;
+    int f_gender = -1, f_loan = LoanAny;
+};
+PlayerListFilters g_pl;
+bool g_pl_load = true;            // read the store on the next draw (the process start; tests after reloading the settings)
+bool g_pl_my_club_pref = false;   // the kept My club choice
+bool g_pl_had_club = false;       // a career was open on the last draw
+std::string g_pl_seen, g_pl_last_key;
+
+nlohmann::json pl_filters_json() {
+    const PlayerListFilters& f = g_pl;
+    return {{"my_club", g_pl_my_club_pref}, {"group", f.f_group},     {"sort", f.sort_by},
+            {"position", f.f_pos},          {"style", f.f_style},     {"age", {f.f_age.from, f.f_age.to}},
+            {"ovr", {f.f_ovr.from, f.f_ovr.to}}, {"pot", {f.f_pot.from, f.f_pot.to}}, {"playstyle_plus", f.f_plus},
+            {"retiring", f.f_retiring},     {"free_agent", f.f_free}, {"club", f.f_team},
+            {"nationality", f.f_nat},       {"continent", f.f_cont},  {"gender", f.f_gender},
+            {"loan", f.f_loan}};
+}
+
+// over the defaults: a missing or out-of-range value keeps its default
+void pl_filters_apply(const nlohmann::json& j) {
+    g_pl = PlayerListFilters();
+    g_pl_my_club_pref = false;
+    if (!j.is_object()) return;
+    auto b = [&j](const char* k, bool& v) { if (j.contains(k) && j[k].is_boolean()) v = j[k].get<bool>(); };
+    auto i = [&j](const char* k, int& v, int lo, int hi) {
+        if (j.contains(k) && j[k].is_number_integer()) { const int64_t x = j[k].get<int64_t>(); if (x >= lo && x <= hi) v = static_cast<int>(x); }
+    };
+    auto i64 = [&j](const char* k, int64_t& v, int64_t lo) {
+        if (j.contains(k) && j[k].is_number_integer()) { const int64_t x = j[k].get<int64_t>(); if (x >= lo) v = x; }
+    };
+    auto range = [&j](const char* k, IntRange& r, int hi) {
+        if (j.contains(k) && j[k].is_array() && j[k].size() == 2 && j[k][0].is_number_integer() && j[k][1].is_number_integer()) {
+            const int a = j[k][0].get<int>(), z = j[k][1].get<int>();
+            if (a >= 0 && a <= hi && z >= 0 && z <= hi) { r.from = a; r.to = z; }
+        }
+    };
+    b("my_club", g_pl_my_club_pref);
+    g_pl.my_club = g_pl_my_club_pref;
+    i("group", g_pl.f_group, -1, 3);
+    i("sort", g_pl.sort_by, 0, 7);
+    i("position", g_pl.f_pos, -1, position_count() - 1);
+    i("style", g_pl.f_style, -1, static_cast<int>(playstyle1_names().size()) - 1);
+    range("age", g_pl.f_age, 99);
+    range("ovr", g_pl.f_ovr, 99);
+    range("pot", g_pl.f_pot, 99);
+    b("playstyle_plus", g_pl.f_plus);
+    b("retiring", g_pl.f_retiring);
+    b("free_agent", g_pl.f_free);
+    i64("club", g_pl.f_team, 0);
+    i64("nationality", g_pl.f_nat, -1);
+    i64("continent", g_pl.f_cont, -1);
+    i("gender", g_pl.f_gender, -1, 1);
+    i("loan", g_pl.f_loan, LoanAny, LoanOut);
+}
+}  // namespace
+
+// R2-F tests: the list's kept filters (as the json the store holds); set = what the clicks do; reload = read the store at the next draw
+nlohmann::json classic_player_list_filters() { return pl_filters_json(); }
+void classic_player_list_set_filters(const nlohmann::json& j) { pl_filters_apply(j); g_pl_had_club = false; }
+void classic_player_list_reload_filters() { g_pl_load = true; }
+
 // 2.22: the one player list of Edit a player (its Profile and Positions tabs draw it too: one selection, one set of filters).
 // Turbo X (DESIGN_SPEC_X.md): search, chips, the form behind a "Filters (n)" fold, then rows that are people (theme::person_row).
 void draw_classic_player_list(App& app) {
     static char search[64] = "";
-    static bool my_club = false;
-    static int f_group = -1;  // chips GK / DEF / MID / ATT (position_group), -1 = any
-    static int sort_by = 0;   // the Sort combo: kSorts below
+    // R2-F: the chips, the filter form and the sort live in g_pl (kept in gui_settings.json list_filters.players); the search does not
+    bool& my_club = g_pl.my_club;
+    int& f_group = g_pl.f_group;  // chips GK / DEF / MID / ATT (position_group), -1 = any
+    int& sort_by = g_pl.sort_by;  // the Sort combo: kSorts below
     // Filters, in four blocks (widgets.cpp form rows: label left, control right). Who: club, nationality, continent (gender: the search line). Position &
     // style: any of the 7 preferred positions (core/model.h player_passes_position: a stored internal code counts as the visible
     // position it plays as, RCB as CB, unless the combo's "Show all internal positions" is on; then the code must match exactly),
     // PlayStyle / PlayStyle+. Numbers: age, overall and potential as two-sided ranges (core/range_filter.h: 0 = no bound).
     // Status: my club, retiring, free agent.
-    static int f_pos = -1, f_style = -1;
-    static IntRange f_age, f_ovr, f_pot;
-    static bool f_plus = false, f_retiring = false, f_free = false;
-    static int64_t f_team = 0;  // club filter (0 = any)
-    static int64_t f_nat = -1, f_cont = -1;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
-    static int f_gender = -1;                 // players.gender: -1 any, 0 men, 1 women
-    static int f_loan = LoanAny;              // playerloans (core/model.h player_passes_loan): any, on loan, loaned in, loaned out
+    int &f_pos = g_pl.f_pos, &f_style = g_pl.f_style;
+    IntRange &f_age = g_pl.f_age, &f_ovr = g_pl.f_ovr, &f_pot = g_pl.f_pot;
+    bool &f_plus = g_pl.f_plus, &f_retiring = g_pl.f_retiring, &f_free = g_pl.f_free;
+    int64_t& f_team = g_pl.f_team;                    // club filter (0 = any)
+    int64_t &f_nat = g_pl.f_nat, &f_cont = g_pl.f_cont;  // nationality (nations.nationid) and continent (nations.confederation) filters, -1 = any
+    int& f_gender = g_pl.f_gender;                    // players.gender: -1 any, 0 men, 1 women
+    int& f_loan = g_pl.f_loan;                        // playerloans (core/model.h player_passes_loan): any, on loan, loaned in, loaned out
     static char f_team_search[64] = "";
     static std::unordered_set<int64_t> team_players;  // players linked to f_team (rebuilt with the rows)
     static std::vector<const PlayerRow*> rows;
@@ -144,6 +216,18 @@ void draw_classic_player_list(App& app) {
     static bool need_sort = true;
 
     const bool can_my_club = app.bridge.state().user_team > 0;
+    if (g_pl_load) {  // R2-F: a start: the stored filters (none stored = the defaults)
+        g_pl_load = false;
+        pl_filters_apply(app.gui_settings.is_object() && app.gui_settings.contains("list_filters") && app.gui_settings["list_filters"].is_object() &&
+                                 app.gui_settings["list_filters"].contains("players")
+                             ? app.gui_settings["list_filters"]["players"]
+                             : nlohmann::json::object());
+        g_pl_seen = pl_filters_json().dump();
+        g_pl_had_club = false;
+    }
+    // My club needs a career: without one the chip is off (the kept choice is not), and it comes back when the career is open
+    if (can_my_club && !g_pl_had_club) my_club = g_pl_my_club_pref;
+    g_pl_had_club = can_my_club;
     if (g_want_my_club) {
         g_want_my_club = false;
         if (can_my_club) {
@@ -327,6 +411,23 @@ void draw_classic_player_list(App& app) {
                   f_plus ? 1 : 0, f_retiring ? 1 : 0, f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to,
                   static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender, f_loan, f_group, sort_by);
     std::string key = fold_search(search) + (my_club ? "|1" : "|0") + fkey;
+    if (can_my_club) g_pl_my_club_pref = my_club;
+    {  // R2-F: a changed filter or sort is kept (gui_settings.json list_filters.players)
+        const std::string pkey = std::string(g_pl_my_club_pref ? "1" : "0") + fkey;
+        if (pkey != g_pl_last_key) {
+            g_pl_last_key = pkey;
+            const nlohmann::json j = pl_filters_json();
+            const std::string d = j.dump();
+            if (d != g_pl_seen) {
+                g_pl_seen = d;
+                if (!app.gui_settings.is_object()) app.gui_settings = nlohmann::json::object();
+                nlohmann::json& lf = app.gui_settings["list_filters"];
+                if (!lf.is_object()) lf = nlohmann::json::object();
+                lf["players"] = j;
+                if (!app.save_gui_settings()) app.notify("The list filters could not be saved", true);
+            }
+        }
+    }
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
         last_version = app.model.version();

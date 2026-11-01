@@ -969,6 +969,67 @@ int64_t who_id(App& app, const Table& t, uint64_t rec) {
     return t.has("playerid") ? app.db.get_int(t, rec, "playerid", -1) : app.db.get_int(t, rec, "managerid", -1);
 }
 
+// R2-F (owner: filter permanence): the grid's filters are kept PER FIELD in gui_settings.json (picker_filters.<field>, the store that
+// keeps asset_scope and favourites): "Show N without picture", "Favourites only", the group combo (by its name) and the hair facets.
+// The search text, the hover and the selection still start fresh at every open. Nothing is written until the person changes a filter;
+// with nothing stored for the field the defaults stand (a tattoo picker on "Made for this area"). The 3D chooser keeps its own entry.
+std::string g_filters_key;   // picker_filters.<key> of the open picker
+std::string g_filters_seen;  // its filters as opened or last saved (json dump): filter() saves a change from it
+
+std::string filters_store_key(const std::string& field, bool choice) { return choice ? field + "@3d" : field; }
+
+nlohmann::json filters_json(const State& s) {
+    nlohmann::json j = nlohmann::json::object();
+    j["show_blank"] = s.show_blank;
+    j["fav_only"] = s.fav_only;
+    j["group"] = s.group_sel >= 0 && static_cast<size_t>(s.group_sel) < s.src.groups.size() ? s.src.groups[static_cast<size_t>(s.group_sel)] : std::string();
+    j["hair"] = {{"length", s.hair.length}, {"type", s.hair.type}, {"accessory", s.hair.accessory}};
+    return j;
+}
+
+// the stored filters of `key` over the defaults already in `s` (a missing or malformed entry keeps its default)
+void restore_filters(const App& app, State& s, const std::string& key) {
+    const nlohmann::json& g = app.gui_settings;
+    if (!g.is_object() || !g.contains("picker_filters") || !g["picker_filters"].is_object()) return;
+    const nlohmann::json& all = g["picker_filters"];
+    if (!all.contains(key) || !all[key].is_object()) return;
+    const nlohmann::json& j = all[key];
+    if (j.contains("show_blank") && j["show_blank"].is_boolean()) s.show_blank = j["show_blank"].get<bool>();
+    if (j.contains("fav_only") && j["fav_only"].is_boolean()) s.fav_only = j["fav_only"].get<bool>();
+    if (j.contains("group") && j["group"].is_string()) {
+        const std::string name = j["group"].get<std::string>();
+        if (name.empty()) s.group_sel = -1;
+        for (size_t g2 = 0; g2 < s.src.groups.size(); ++g2)
+            if (!name.empty() && s.src.groups[g2] == name) s.group_sel = static_cast<int>(g2);
+    }
+    if (j.contains("hair") && j["hair"].is_object()) {
+        const nlohmann::json& h = j["hair"];
+        auto facet = [&h](const char* k, int& v, int n) {
+            if (h.contains(k) && h[k].is_number_integer()) {
+                const int x = h[k].get<int>();
+                if (x >= -1 && x < n) v = x;
+            }
+        };
+        facet("length", s.hair.length, hair::kLengthCount);
+        facet("type", s.hair.type, hair::kTypeCount);
+        facet("accessory", s.hair.accessory, hair::kAccessoryCount);
+    }
+}
+
+// filter(): a filter of the open picker changed (not the search): keep it for the field
+void persist_filters(App& app, const State& s) {
+    if (!s.ui.open || g_filters_key.empty()) return;
+    const nlohmann::json j = filters_json(s);
+    const std::string d = j.dump();
+    if (d == g_filters_seen) return;
+    g_filters_seen = d;
+    if (!app.gui_settings.is_object()) app.gui_settings = nlohmann::json::object();
+    nlohmann::json& all = app.gui_settings["picker_filters"];
+    if (!all.is_object()) all = nlohmann::json::object();
+    all[g_filters_key] = j;
+    if (!app.save_gui_settings()) vlog(app, "visual picker: the filters could not be saved");
+}
+
 // `choice` (step 7): the 3D section's chooser (vp::open_choice); nullptr = the field's own picker, Apply writes through visual_apply
 void open_picker(App& app, const Table& t, uint64_t rec, const std::string& field, bool manager, const State::Choice* choice = nullptr) {
     State& s = st();
@@ -1005,6 +1066,10 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     if (tattoo_area_index(field) >= 0)
         for (size_t g = 0; g < s.src.groups.size(); ++g)
             if (s.src.groups[g] == "Made for this area") s.group_sel = static_cast<int>(g);
+    // R2-F: the field's kept filters over those defaults (search, hover and selection stay fresh)
+    g_filters_key = filters_store_key(field, s.choice.on);
+    restore_filters(app, s, g_filters_key);
+    g_filters_seen = filters_json(s).dump();
     s.ui = VisualPickerUi();
     s.ui.open = true;
     s.ui.choice = s.choice.on;
@@ -1152,6 +1217,7 @@ void filter(App& app, State& s) {
     const std::string key = filter_key(s);
     if (s.shown_key == key) return;
     s.shown_key = key;
+    persist_filters(app, s);  // R2-F
     s.shown.clear();
     s.blank_count = 0;
     const std::string q = fold_search(s.search);
@@ -1589,6 +1655,32 @@ std::vector<int64_t> visual_picker_shown_codes() {
     std::vector<int64_t> out;
     for (int i : s.shown) out.push_back(s.src.codes[static_cast<size_t>(i)]);
     return out;
+}
+
+VisualPickerFilters visual_picker_filters() {
+    const State& s = st();
+    VisualPickerFilters f;
+    f.show_blank = s.show_blank;
+    f.fav_only = s.fav_only;
+    if (s.group_sel >= 0 && static_cast<size_t>(s.group_sel) < s.src.groups.size()) f.group = s.src.groups[static_cast<size_t>(s.group_sel)];
+    f.hair_length = s.hair.length;
+    f.hair_type = s.hair.type;
+    f.hair_accessory = s.hair.accessory;
+    f.search = s.search;
+    f.groups = s.src.groups;
+    return f;
+}
+void visual_picker_set_filters(const VisualPickerFilters& f) {
+    State& s = st();
+    s.show_blank = f.show_blank;
+    s.fav_only = f.fav_only;
+    s.group_sel = -1;
+    for (size_t g = 0; g < s.src.groups.size(); ++g)
+        if (!f.group.empty() && s.src.groups[g] == f.group) s.group_sel = static_cast<int>(g);
+    s.hair.length = f.hair_length;
+    s.hair.type = f.hair_type;
+    s.hair.accessory = f.hair_accessory;
+    std::snprintf(s.search, sizeof(s.search), "%s", f.search.c_str());
 }
 
 void visual_picker_close() { close_picker(); }

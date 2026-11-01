@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "nlohmann/json.hpp"
+
 namespace turbo {
 
 class App;
@@ -37,5 +39,11 @@ bool league_filter_combo(App& app, const char* id, int64_t& league, int64_t nati
 bool continent_filter_combo(App& app, const char* id, int64_t& conf, float width);
 // The club passes the country / league filters (-1 = any)
 bool team_in_geo(App& app, const TeamRow& t, int64_t nation, int64_t league);
+
+// R2-F (ui_teams.cpp): the club list's country / league filters, kept in gui_settings.json list_filters.clubs. Tests: the kept filters
+// as that json ({"country", "league"}, -1 = any), set them as the combos do, read the store again at the next draw (what a start does).
+nlohmann::json club_list_filters();
+void club_list_set_filters(const nlohmann::json& j);
+void club_list_reload_filters();
 
 }  // namespace turbo

@@ -9,6 +9,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "core/t3db.h"
 
@@ -125,6 +126,17 @@ size_t visual_picker_png_probes();         // tests: PNG headers read so far by 
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters
 std::vector<int64_t> visual_picker_shown_codes();  // 5.0c E8: the codes left after the search and the group / favourite filters, in order
 std::vector<int64_t> visual_picker_codes();  // those codes themselves (tests: 3.2 one picker, one catalogue per field)
+// R2-F (tests): the open picker's filters, kept per field in gui_settings.json picker_filters (group = the group's name, "" = all;
+// hair facets -1 = any). set = what the person's clicks do; the next frame keeps it.
+struct VisualPickerFilters {
+    bool show_blank = false, fav_only = false;
+    std::string group;
+    int hair_length = -1, hair_type = -1, hair_accessory = -1;
+    std::string search;
+    std::vector<std::string> groups;  // visual_picker_filters only: the group combo's entries
+};
+VisualPickerFilters visual_picker_filters();
+void visual_picker_set_filters(const VisualPickerFilters& f);
 bool visual_picker_apply(App& app);        // what Apply does (on the record the picker was opened for)
 void visual_picker_close();
 // Look for the pictures folder again (after the setting changed); tests point it at a folder of their own

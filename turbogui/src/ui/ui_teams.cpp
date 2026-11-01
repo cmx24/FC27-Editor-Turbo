@@ -35,8 +35,33 @@ static const std::vector<std::string>& team_overview_fields() {
     return f;
 }
 
+// R2-F (owner: filter permanence): the club list's country and league filters are kept in gui_settings.json (list_filters.clubs, the
+// store of asset_scope and the pickers' filters) and come back after a restart; the search box starts empty. Nothing stored = any / any;
+// nothing is written until one changes.
+static int64_t g_cl_nation = -1, g_cl_league = -1;
+static bool g_cl_load = true;  // read the store on the next draw (the process start; tests after reloading the settings)
+static std::string g_cl_seen;
+static nlohmann::json cl_filters_json() { return {{"country", g_cl_nation}, {"league", g_cl_league}}; }
+static void cl_filters_apply(const nlohmann::json& j) {
+    g_cl_nation = g_cl_league = -1;
+    if (!j.is_object()) return;
+    if (j.contains("country") && j["country"].is_number_integer() && j["country"].get<int64_t>() >= -1) g_cl_nation = j["country"].get<int64_t>();
+    if (j.contains("league") && j["league"].is_number_integer() && j["league"].get<int64_t>() >= -1) g_cl_league = j["league"].get<int64_t>();
+}
+nlohmann::json club_list_filters() { return cl_filters_json(); }
+void club_list_set_filters(const nlohmann::json& j) { cl_filters_apply(j); }
+void club_list_reload_filters() { g_cl_load = true; }
+
 static void team_list(App& app) {
     static char search[64] = "";
+    if (g_cl_load) {
+        g_cl_load = false;
+        const nlohmann::json& g = app.gui_settings;
+        cl_filters_apply(g.is_object() && g.contains("list_filters") && g["list_filters"].is_object() && g["list_filters"].contains("clubs")
+                             ? g["list_filters"]["clubs"]
+                             : nlohmann::json::object());
+        g_cl_seen = cl_filters_json().dump();
+    }
     ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputTextWithHint("##tsearch", "team name or ID", search, sizeof(search));
     if (app.bridge.state().user_team > 0) {
@@ -44,7 +69,7 @@ static void team_list(App& app) {
         if (ImGui::Button("My club")) app.sel_team = app.bridge.state().user_team;
     }
     // country / league filters (searchable; the league list narrows to the country), combined with the text search
-    static int64_t f_nation = -1, f_league = -1;
+    int64_t &f_nation = g_cl_nation, &f_league = g_cl_league;
     const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
     if (country_filter_combo(app, "##tcountry", f_nation, half)) {
         const auto lg = geo(app).leagues.find(f_league);
@@ -52,6 +77,17 @@ static void team_list(App& app) {
     }
     ImGui::SameLine();
     league_filter_combo(app, "##tleague", f_league, f_nation, half);
+    {  // R2-F: a changed country / league is kept
+        const std::string d = cl_filters_json().dump();
+        if (d != g_cl_seen) {
+            g_cl_seen = d;
+            if (!app.gui_settings.is_object()) app.gui_settings = nlohmann::json::object();
+            nlohmann::json& lf = app.gui_settings["list_filters"];
+            if (!lf.is_object()) lf = nlohmann::json::object();
+            lf["clubs"] = cl_filters_json();
+            if (!app.save_gui_settings()) app.notify("The list filters could not be saved", true);
+        }
+    }
     transfer_columns_controls(app);  // ui_parity.h: In / Out / Spent / Received / Net columns (read only)
     const bool xf = transfer_columns_on();
     std::string q = fold_search(search);
