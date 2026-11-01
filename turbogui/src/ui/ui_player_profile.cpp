@@ -178,10 +178,10 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
         // app.sel_player = p). The Profile carries only the status ITS controls wrote this frame into its own line: a Team page drawn in the
         // same frame keeps its own status (g_status is set aside around the call and put back).
         std::string others;
-        others.swap(g_status);
+        others.swap(teampage::g_status);
         draw_player_contract_actions(app);
         teampage::carry_status("player_profile");
-        g_status.swap(others);
+        teampage::g_status.swap(others);
         const std::string& st = page::status_text("player_profile");
         if (!st.empty()) theme::ok_text("%s", st.c_str());
     }
