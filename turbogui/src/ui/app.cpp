@@ -1,3 +1,4 @@
+#include <optional>
 #include "app.h"
 #include "ui_theme.h"
 
@@ -41,6 +42,7 @@
 #include "ui_club_page.h"
 #include "ui_career_page.h"
 #include "ui_changes.h"
+#include "ui_custom_layout.h"
 #include "ui_tuning.h"
 #include "ui_style.h"
 #include "ui_game_settings.h"
@@ -1916,6 +1918,10 @@ static void draw_global_search(App& app) {
     }
     ImGui::SetNextItemWidth(S(240.0f));
     const bool enter = ImGui::InputTextWithHint("##gsearch", "Search players and clubs", g.buf, sizeof(g.buf), ImGuiInputTextFlags_EnterReturnsTrue);
+    // X 2.0 review fix: the list's place and the box's state are read from the BOX, before the clear button is drawn after it
+    // (W-B read them from the button whenever the box held text: the list hung under the button, Escape and re-focus stopped working)
+    const ImVec2 under(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + S(2.0f));
+    const bool box_active = ImGui::IsItemActive();
     if (g.buf[0] != '\0') {
         ImGui::SameLine(0.0f, S(4.0f));
         if (ImGui::SmallButton("x###gsearch_clear")) {
@@ -1926,8 +1932,6 @@ static void draw_global_search(App& app) {
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear search text");
     }
-    const ImVec2 under(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + S(2.0f));
-    const bool box_active = ImGui::IsItemActive();
     if (box_active) g.open = true;
     global_search_refresh(app, g);
     if (enter && !g.hits.empty()) {
@@ -2011,13 +2015,16 @@ void App::draw_pages() {
 
     split::bind(&prefs.splits);  // ui_split.h (2.22 resize): the pane widths live in gui_settings.json gui.splits
     split::set_page(page_key(place_.page));
-    // ---- the rail
+    // ---- the rail (X 2.0 Customize layout: shown / hidden, its width dragged at its right edge, its own text size, areas hidden one by one)
+    CustomLayout& cl = prefs.custom;
     const bool narrow = prefs.rail_collapsed;
-    const float rail_w = narrow ? S(48.0f) : S(176.0f);
+    if (cl.rail) {
+    const float rail_w = narrow ? S(48.0f) : S(CustomLayout::clamp_rail(cl.rail_width));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, theme::kRailBg);  // Turbo X: the rail is one step below the window
     ImGui::BeginChild("##rail", ImVec2(rail_w, 0.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleColor();
     {
+        custom_layout::RegionScale rail_scale(cl.scale_rail);
         const float bw = ImGui::GetContentRegionAvail().x;
         // Turbo X: the product mark ("TURBO" in the semibold face, the version (kGuiVersion) muted) and the narrow/wide toggle on its right
         theme::push_title_font(theme::kFontMark);
@@ -2055,7 +2062,7 @@ void App::draw_pages() {
         };
         for (int ai = 0; ai < kAreaCount; ++ai) {
             const Area a = static_cast<Area>(ai);
-            if (a == Area::Settings || !area_visible(a)) continue;
+            if (a == Area::Settings || !area_visible(a) || !cl.area_shown(area_label(a))) continue;
             area_button(a);
         }
         // Settings at the bottom
@@ -2068,7 +2075,27 @@ void App::draw_pages() {
         ImGui::PopID();
     }
     ImGui::EndChild();
-    ImGui::SameLine();
+    if (!narrow) {
+        // X 2.0: the rail's width handle (a strip at its right edge): drag to widen / narrow, saved when the mouse is released
+        const float grip_h = ImGui::GetItemRectSize().y;
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::InvisibleButton("##railgrip", ImVec2(S(6.0f), grip_h > 1.0f ? grip_h : 1.0f));
+        const bool g_hover = ImGui::IsItemHovered(), g_active = ImGui::IsItemActive();
+        if (g_hover || g_active) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (g_hover && !g_active) ImGui::SetTooltip("Drag to make the menu wider or narrower (Ctrl+L: Customize layout)");
+        if (g_active && ImGui::GetIO().MouseDelta.x != 0.0f)
+            cl.rail_width = CustomLayout::clamp_rail(cl.rail_width + ImGui::GetIO().MouseDelta.x / (g_ui_scale > 0.0f ? g_ui_scale : 1.0f));
+        if (ImGui::IsItemDeactivated() && !save_gui_settings()) notify("cannot save the menu width", true);
+        if (g_hover || g_active) {
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            const float cx = (a.x + b.x) * 0.5f;
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(cx, a.y), ImVec2(cx, b.y), ImGui::GetColorU32(g_active ? ImGuiCol_SeparatorActive : ImGuiCol_SeparatorHovered), S(2.0f));
+        }
+        ImGui::SameLine(0.0f, S(2.0f));
+    } else {
+        ImGui::SameLine();
+    }
+    }  // cl.rail
 
     // 3.1 N1: keep the place a go() / cross-link / rail click just left (a page strip click is noted below, after the strip)
     auto note_leave = [&](const Place& from) {
@@ -2083,13 +2110,20 @@ void App::draw_pages() {
     // ---- the content: back button + page strip + page
     ImGui::BeginChild("##content", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
     const auto& strip = pages_of(place_.area);
+    if (!cl.top_bar && !cl.rail) {  // X 2.0: both main menus hidden: one small way back stays
+        if (ImGui::SmallButton("Menus###show_menus")) custom_layout::window_open() = true;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Customize layout: show the top bar and the left menu again (Ctrl+L)");
+    }
+    const bool tabs_on = cl.page_tabs;
+    std::optional<custom_layout::RegionScale> tabs_scale;
+    if (tabs_on) tabs_scale.emplace(cl.scale_tabs);
     // 3.1 N1: "< Back to <page>" at the left of the strip row (or on its own row on a page without a strip) while a place to go back to exists
     bool back_drawn = false;
     {
         const Place bp = back_place();
         // 4.0 S3: a page with page::Frame draws the frame's own Back (shell::page_has_frame); the shell's must not stand above it.
         const bool framed = page_has_frame(place_.page);
-        if (bp.valid() && bp.page != place_.page && page_visible(bp.page) && !framed) {
+        if (tabs_on && bp.valid() && bp.page != place_.page && page_visible(bp.page) && !framed) {
             const std::string label = std::string("< Back to ") + page_label(bp.page) + "###nav_back";
             ImGui::PushID("##shell");
             if (ImGui::Button(label.c_str())) back();
@@ -2098,13 +2132,14 @@ void App::draw_pages() {
             back_drawn = true;
         }
     }
-    if (strip.size() > 1) {  // an area with one page (Home, Looks, Settings) has no strip
+    if (tabs_on && strip.size() > 1) {  // an area with one page (Home, Looks, Settings) has no strip
         ImGui::PushID("##shell");
         ImGui::PushID("##pages");
         bool pfirst = !back_drawn;
         const Place before_strip = place_;
         for (Page p : strip) {
             if (p == Page::GameplayPresets) continue;  // 3.0.1 GUI30K: no slider staging on the Tactics strip
+            if (p != place_.page && !cl.page_shown(page_key(p))) continue;  // X 2.0: a tab the person hid (the current page's tab stays)
             if (strip_button(page_label(p), place_.page == p, pfirst)) {
                 place_.page = p;
                 area_page_[static_cast<int>(place_.area)] = p;
@@ -2118,10 +2153,17 @@ void App::draw_pages() {
     } else if (back_drawn) {
         ImGui::Separator();
     }
+    tabs_scale.reset();
+    // X 2.0 review fix (17): a left-menu or page-tab click sets place_ directly (not through go()), so Back / Forward recorded only cross-links;
+    // every page the person lands on is recorded now (history_record keeps one entry per place in a row)
+    if (!(place_ == frame_start)) turbo::x2::history_record(place_, sel_player, sel_team);
 
     const Page page = place_.page;
-    // 2.16 wiring: the new page of this id first (ui_pages_216.cpp); then the page registered before 2.16; then the legacy panel
-    if (!draw_new_page(*this, page) && !draw_page(*this, page)) draw_legacy_page(*this, page);
+    {
+        custom_layout::RegionScale content_scale(cl.scale_content);  // X 2.0: the page's own text size
+        // 2.16 wiring: the new page of this id first (ui_pages_216.cpp); then the page registered before 2.16; then the legacy panel
+        if (!draw_new_page(*this, page) && !draw_page(*this, page)) draw_legacy_page(*this, page);
+    }
     ImGui::EndChild();
     // a pane divider that has rested (ui_split.h) is written once, never per frame
     if (prefs.splits.take_dirty() && !save_gui_settings()) notify("cannot save the panel size", true);
@@ -2132,6 +2174,7 @@ void App::draw() {
     shell::dev_page_pump(*this);  // 4.0 S0a: the dev-service open_page op (ui_shell.h), first thing in the frame, hidden or not
     textures.new_frame(now);
     zoom_input(*this);  // Ctrl + mouse wheel / Ctrl + 0 (ui_zoom.h); the style follows on the next tick
+    custom_layout::handle_shortcut(*this);  // X 2.0: Ctrl+L opens / closes Customize layout
     if (texture_test && visible) {
         ++texture_test_frames;
         uint64_t version = static_cast<uint64_t>(texture_test_frames / 5);
@@ -2372,80 +2415,19 @@ void App::draw() {
     }
 
     // Status line (2.16 step 2): the link in a word and your club; the version, Refresh and the show/hide key are
-    // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load
+    // on the Settings page; the Changes button opens the list of what Turbo puts back at every career load.
+    // X 2.0 Customize layout (Cassio 11-01): the whole top bar can be hidden, each item on it too, and it has its own text size. The waiting
+    // line (a command queued for the game, with Cancel) stays even when the bar is hidden; the Layout button is never hidden.
     const auto& st = bridge.state();
-    // Turbo X (2026-10-31): the link as a chip (green = connected, amber = waiting), then the club in plain text
-    ImGui::AlignTextToFramePadding();
-    if (connected()) theme::chip("Connected", theme::ok());
-    else theme::chip("Waiting for your career", theme::warn());
-    ImGui::SameLine(0.0f, S(10.0f));
-    if (connected()) {
-        const std::string club = st.in_cm && st.user_team > 0 ? model.team_name(st.user_team) : std::string();
-        if (!club.empty()) {
-            theme::push_title_font(1.0f);
-            ImGui::TextUnformatted(club.c_str());
-            theme::pop_title_font();
-            ImGui::SameLine(0.0f, S(8.0f));
-        }
-        ImGui::TextDisabled("%s", st.in_cm ? "career loaded" : "no career loaded");
-    } else {
-        ImGui::TextDisabled("%s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
-    }
-    if (!lua_queue.empty()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "| %zu name changes waiting", lua_queue.size());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("They are sent to the game one after the other, as soon as it is ready");
-    }
-    {
-        const std::string pl = preload_line();  // ui/preload.h
-        if (!pl.empty()) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", pl.c_str());
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Faces, tattoos, item previews and crests load in the background while Turbo is open");
-        }
-    }
-    if (faces3d_running()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", faces3d_line().c_str());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game renders the face chooser's heads from their 3D models (Render all filtered heads)");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop##faces3d")) faces3d_stop();
-    }
-    ImGui::SameLine(0.0f, S(16.0f));
-    draw_global_search(*this);  // 3.0: "Search players and clubs" (Enter or a click on a result opens it)
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!turbo::x2::can_history_back());
-    if (ImGui::SmallButton("<###hist_back")) {
-        shell::Place pl; int64_t pid = 0, tid = 0;
-        if (turbo::x2::history_back(pl, pid, tid)) {
-            turbo::x2::state().history_Applying = true;
-            if (pid > 0) sel_player = pid;
-            if (tid > 0) sel_team = tid;
-            go(pl.area, pl.page);
-            turbo::x2::state().history_Applying = false;
-        }
-    }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go back in navigation history");
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!turbo::x2::can_history_forward());
-    if (ImGui::SmallButton(">###hist_fwd")) {
-        shell::Place pl; int64_t pid = 0, tid = 0;
-        if (turbo::x2::history_forward(pl, pid, tid)) {
-            turbo::x2::state().history_Applying = true;
-            if (pid > 0) sel_player = pid;
-            if (tid > 0) sel_team = tid;
-            go(pl.area, pl.page);
-            turbo::x2::state().history_Applying = false;
-        }
-    }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go forward in navigation history");
-
-    if (busy()) {
-        ImGui::SameLine(ImGui::GetWindowWidth() - S(380.0f));
+    const CustomLayout& tcl = prefs.custom;
+    bool top_first = true;  // the first item drawn on the row takes no SameLine
+    auto next_item = [&](float spacing = -1.0f) {
+        if (!top_first) ImGui::SameLine(0.0f, spacing);
+        top_first = false;
+    };
+    auto draw_busy = [&] {
+        if (!top_first) ImGui::SameLine(ImGui::GetWindowWidth() - S(380.0f));  // as before: right of the row's start
+        top_first = false;
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Waiting: %s", usertext::pending_text(pending_label).c_str());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(st.in_cm ? "It runs as soon as the game is ready (the next career-mode event)"
@@ -2456,53 +2438,152 @@ void App::draw() {
             notify(usertext::pending_text(pending_label) + ": cancelled");
             pending_label.clear();
         }
-    } else {
-        // 2.22 (Pit wall CHANGE 21:43 f): the Refresh button of v2.14 is back on the status line (same call as "Reload from game" in Settings)
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Refresh###statusrefresh")) {
-            bridge.poll_files();
-            if (refresh()) notify("Lists refreshed from the game");
-            else notify(db_error, true);
+    };
+    if (tcl.top_bar) {
+        custom_layout::RegionScale top_scale(tcl.scale_top_bar);
+        if (tcl.top_item("status")) {
+            next_item();
+            // Turbo X (2026-10-31): the link as a chip (green = connected, amber = waiting), then the club in plain text
+            ImGui::AlignTextToFramePadding();
+            if (connected()) theme::chip("Connected", theme::ok());
+            else theme::chip("Waiting for your career", theme::warn());
+            ImGui::SameLine(0.0f, S(10.0f));
+            if (connected()) {
+                const std::string club = st.in_cm && st.user_team > 0 ? model.team_name(st.user_team) : std::string();
+                if (!club.empty()) {
+                    theme::push_title_font(1.0f);
+                    ImGui::TextUnformatted(club.c_str());
+                    theme::pop_title_font();
+                    ImGui::SameLine(0.0f, S(8.0f));
+                }
+                ImGui::TextDisabled("%s", st.in_cm ? "career loaded" : "no career loaded");
+            } else {
+                ImGui::TextDisabled("%s", db_error.empty() ? "Open your career in the game; Turbo connects by itself." : db_error.c_str());
+            }
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read the lists from the game again");
-
-        ImGui::SameLine();
-        const bool gifs_p = turbo::x2::pause_gifs();
-        char gif_lbl[64];
-        std::snprintf(gif_lbl, sizeof(gif_lbl), "%s###top_pause_gifs", gifs_p ? "Resume animations" : "Pause animations");
-        if (ImGui::SmallButton(gif_lbl)) {
-            turbo::x2::set_pause_gifs(!gifs_p);
-            save_gui_settings();
+        // the progress lines show only while something runs (names queued, pictures loading, heads rendering): never hidden
+        if (!lua_queue.empty()) {
+            next_item();
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "| %zu name changes waiting", lua_queue.size());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("They are sent to the game one after the other, as soon as it is ready");
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pause or resume GIF animations across pickers");
-
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Profiles###top_profiles")) {
-            go(shell::Area::Career, shell::Page::ChangesUndo);
+        {
+            const std::string pl = preload_line();  // ui/preload.h
+            if (!pl.empty()) {
+                next_item();
+                ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", pl.c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Faces, tattoos, item previews and crests load in the background while Turbo is open");
+            }
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manage saved edit profiles");
+        if (faces3d_running()) {
+            next_item();
+            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "| %s", faces3d_line().c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The game renders the face chooser's heads from their 3D models (Render all filtered heads)");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Stop##faces3d")) faces3d_stop();
+        }
+        if (tcl.top_item("search")) {
+            next_item(S(16.0f));
+            draw_global_search(*this);  // 3.0: "Search players and clubs" (Enter or a click on a result opens it)
+        }
+        if (tcl.top_item("history")) {
+            next_item();
+            ImGui::BeginDisabled(!turbo::x2::can_history_back());
+            if (ImGui::SmallButton("<###hist_back")) {
+                shell::Place pl; int64_t pid = 0, tid = 0;
+                if (turbo::x2::history_back(pl, pid, tid)) {
+                    turbo::x2::state().history_Applying = true;
+                    if (pid > 0) sel_player = pid;
+                    if (tid > 0) sel_team = tid;
+                    go(pl.area, pl.page);
+                    turbo::x2::state().history_Applying = false;
+                }
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go back in navigation history");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!turbo::x2::can_history_forward());
+            if (ImGui::SmallButton(">###hist_fwd")) {
+                shell::Place pl; int64_t pid = 0, tid = 0;
+                if (turbo::x2::history_forward(pl, pid, tid)) {
+                    turbo::x2::state().history_Applying = true;
+                    if (pid > 0) sel_player = pid;
+                    if (tid > 0) sel_team = tid;
+                    go(pl.area, pl.page);
+                    turbo::x2::state().history_Applying = false;
+                }
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go forward in navigation history");
+        }
+        if (busy()) {
+            draw_busy();
+        } else {
+            if (tcl.top_item("refresh")) {
+                // 2.22 (Pit wall CHANGE 21:43 f): the Refresh button of v2.14 is back on the status line (same call as "Reload from game" in Settings)
+                next_item();
+                if (ImGui::SmallButton("Refresh###statusrefresh")) {
+                    bridge.poll_files();
+                    if (refresh()) notify("Lists refreshed from the game");
+                    else notify(db_error, true);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read the lists from the game again");
+            }
+            if (tcl.top_item("pause")) {
+                next_item();
+                const bool gifs_p = turbo::x2::pause_gifs();
+                char gif_lbl[64];
+                std::snprintf(gif_lbl, sizeof(gif_lbl), "%s###top_pause_gifs", gifs_p ? "Resume animations" : "Pause animations");
+                if (ImGui::SmallButton(gif_lbl)) {
+                    turbo::x2::set_pause_gifs(!gifs_p);
+                    save_gui_settings();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pause or resume GIF animations across pickers");
+            }
+            if (tcl.top_item("profiles")) {
+                next_item();
+                if (ImGui::SmallButton("Profiles###top_profiles")) go(shell::Area::Career, shell::Page::ChangesUndo);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manage saved edit profiles");
+            }
+        }
+        // X 2.0: the way into Customize layout (never hidden)
+        next_item();
+        if (ImGui::SmallButton("Layout###top_layout")) custom_layout::window_open() = !custom_layout::window_open();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Customize layout: show, hide, resize and scale menus and panels (Ctrl+L)");
+        {
+            // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)
+            const bool show_undo = tcl.top_item("undo"), show_changes = tcl.top_item("changes");
+            if (show_undo || show_changes) {
+                const size_t changes = changes::count();  // 2.16 wiring: the Changes list of ui_changes.cpp
+                const std::string label = (changes ? "Changes (" + std::to_string(changes) + ")" : std::string("Changes")) + "###changes";
+                const ImGuiStyle& cst = ImGui::GetStyle();
+                const float bw = show_changes ? ImGui::CalcTextSize(label.c_str(), nullptr, true).x + cst.FramePadding.x * 2.0f : 0.0f;
+                const float uw = show_undo ? ImGui::CalcTextSize(changes::undo_label(*this).c_str()).x + cst.FramePadding.x * 2.0f + cst.ItemSpacing.x : 0.0f;
+                ImGui::SameLine();
+                ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - uw - S(16.0f)));
+                if (show_undo) {
+                    changes::draw_status_undo(*this);  // "Undo: <what>" / "Nothing to undo"
+                    if (show_changes) ImGui::SameLine();
+                }
+                if (show_changes) {
+                    if (ImGui::Button(label.c_str())) go(shell::area_of(shell::Page::ChangesUndo), shell::Page::ChangesUndo);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Turbo puts back every time you load your career, and how to stop it");
+                }
+            }
+        }
+        ImGui::Separator();
+    } else if (busy()) {
+        draw_busy();  // the top bar is hidden: a command waiting for the game still shows, with its Cancel
+        ImGui::Separator();
     }
-    {
-        // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)
-        const size_t changes = changes::count();  // 2.16 wiring: the Changes list of ui_changes.cpp
-        const std::string label = (changes ? "Changes (" + std::to_string(changes) + ")" : std::string("Changes")) + "###changes";
-        const ImGuiStyle& cst = ImGui::GetStyle();
-        const float bw = ImGui::CalcTextSize(label.c_str(), nullptr, true).x + cst.FramePadding.x * 2.0f;
-        const float uw = ImGui::CalcTextSize(changes::undo_label(*this).c_str()).x + cst.FramePadding.x * 2.0f + cst.ItemSpacing.x;
-        ImGui::SameLine();
-        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - bw - uw - S(16.0f)));
-        changes::draw_status_undo(*this);  // "Undo: <what>" / "Nothing to undo"
-        ImGui::SameLine();
-        if (ImGui::Button(label.c_str())) go(shell::area_of(shell::Page::ChangesUndo), shell::Page::ChangesUndo);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("What Turbo puts back every time you load your career, and how to stop it");
-    }
-    ImGui::Separator();
 
     draw_pages();  // the left rail, the page strip and the page (App::draw_pages above)
     hotkey_popup(*this);  // hotkey_setting.h: waits for the new show/hide key after Change...
     // the capture window was not drawn this frame: stop waiting for a key (hotkey_setting.h)
     if (hotkey_capture && hotkey_capture_frame != ImGui::GetFrameCount()) hotkey_capture = false;
     ImGui::End();
+    custom_layout::draw_window(*this);  // X 2.0: Customize layout (its own window, beside the panel)
 }
 
 }  // namespace turbo

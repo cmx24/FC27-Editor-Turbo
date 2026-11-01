@@ -387,6 +387,8 @@ public:
     bool team_names_live() const { return team_names_service && team_names_service->available(); }
     std::string team_names_why_off() const;         // "" when live
     void team_names_publish();                      // the store to the service (nothing without one)
+    // X 2.0 review fix: the edit profiles (core/edit_profiles.cpp) save through the same guarded paths as every other edit
+    bool save_team_names(std::string* why);         // turbo_output\\team_names.json, never over a file unreadable at start-up
     // Keep a club's names (stamped now), publish them, save the store. false (*err) when the file was not written; the
     // names are published for this session anyway
     bool team_names_keep(tnames::Entry e, std::string* err);

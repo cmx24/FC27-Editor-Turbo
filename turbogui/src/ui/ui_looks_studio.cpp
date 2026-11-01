@@ -1445,12 +1445,10 @@ void draw_looks_studio(App& app) {
     // 5.0b-B: the three panes keep their width in gui_settings.json gui.splits (split::pane_x, key "<page>/<id>"), so a restart brings them back.
     // The child IDs are the same literals, so the ini blocks of earlier versions still seed them. Defaults (unscaled px) = the old first-use sizes.
     const float un = g_ui_scale > 0.0f ? 1.0f / g_ui_scale : 1.0f;
-    split::pane_x("##lslist", list_w * un, 160.0f);
-    person_list(app, s);
+    if (split::pane_x("##lslist", list_w * un, 160.0f)) person_list(app, s);  // X 2.0 layout: false = folded away
     ImGui::EndChild();
     ImGui::SameLine();
-    split::pane_x("##lspreview", preview_w * un, 220.0f);
-    preview_pane(app, s, who, t, rec);
+    if (split::pane_x("##lspreview", preview_w * un, 220.0f)) preview_pane(app, s, who, t, rec);
     ImGui::EndChild();
     ImGui::SameLine();
     // 2.22: the cards' pane is as tall as the page; its right edge is the page's, so the divider to the preview is the one that drags (the preview's
@@ -1467,6 +1465,12 @@ void draw_looks_studio_embedded(App& app) {
     const int requests = s.body.requests() + s.big.requests();
     s.st = StudioState();
     s.st.requests = requests;
+    // X 2.0 review fix (12): the embedded tab shows players; the standalone studio's Players / Managers choice is put back when it returns
+    struct KeepManagers {
+        bool& ref;
+        bool was;
+        ~KeepManagers() { ref = was; }
+    } keep{s.managers, s.managers};
     s.managers = false;
     if (!app.connected()) {
         not_connected_hint();
@@ -1482,8 +1486,7 @@ void draw_looks_studio_embedded(App& app) {
     const float un = g_ui_scale > 0.0f ? 1.0f / g_ui_scale : 1.0f;
     const float preview_w = std::min(S(280.0f), std::max(S(200.0f), avail.x * 0.38f));
 
-    split::pane_x("##lspreview", preview_w * un, 180.0f);
-    preview_pane(app, s, who, t, rec);
+    if (split::pane_x("##lspreview", preview_w * un, 180.0f)) preview_pane(app, s, who, t, rec);
     ImGui::EndChild();
 
     ImGui::SameLine();

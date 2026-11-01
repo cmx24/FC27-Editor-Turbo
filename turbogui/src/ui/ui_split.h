@@ -88,6 +88,21 @@ inline float width_to_apply(const std::string& key, float default_w, float min_w
     return un * scale;
 }
 
+// Turbo X 2.0 layout (Cassio 11-01: show / hide the frames): the list and preview panes on the LEFT of a divider can be folded away (the last
+// pane of a row fills the rest and is never folded). Right-click on the divider: "Hide this panel"; the folded pane is a slim strip with a
+// ">" button that brings it back; Customize layout (Ctrl+L) lists them too. One choice per pane id, for every page (SplitStore::folded).
+inline bool foldable(const char* id) {
+    const std::string s = id ? id : "";
+    return s == "##select" || s == "##lslist" || s == "##lspreview";
+}
+inline const char* fold_label(const std::string& id) {  // the words the person reads (Customize layout, the tooltips)
+    if (id == "##select") return "List beside the editor (players, staff, clubs)";
+    if (id == "##lslist") return "Looks: people list";
+    if (id == "##lspreview") return "Looks: preview";
+    return "panel";
+}
+constexpr float kFoldedStripW = 26.0f;  // unscaled px
+
 namespace detail {
 // Has ImGui already made the child window of this pane (drawn earlier in this ImGui context)? A window that the layout file seeds is
 // created at its first Begin, so before that first frame this is false; later it is true. (Same name BeginChildEx builds.)
@@ -105,6 +120,19 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     const std::string lkey = last_key(id);
     Runtime& rt = runtimes()[id];
 
+    // Turbo X 2.0: a folded pane is a slim strip with a ">" that shows it again; the caller's content is skipped (pane returns false) and the
+    // caller still ends it with EndChild. The strip has its own child id, so the pane's own window (and its saved width) is untouched.
+    if (foldable(id) && store().is_folded(id)) {
+        rt.have_rect = false;
+        const std::string sid = std::string(id) + "_folded";
+        ImGui::BeginChild(sid.c_str(), along_x ? ImVec2(kFoldedStripW * sc, cross) : ImVec2(cross, kFoldedStripW * sc),
+                          ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        const std::string bl = std::string(along_x ? ">" : "v") + "###unfold" + id;
+        if (ImGui::Button(bl.c_str(), ImVec2(-FLT_MIN, 0.0f))) store().set_folded(id, false);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the %s", fold_label(id));
+        return false;
+    }
+
     // the grip line in the gap after the pane (last frame's rectangle: the panes cover their own borders)
     if (rt.have_rect) {
         const ImGuiStyle& st = ImGui::GetStyle();
@@ -117,6 +145,21 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
         } else {
             const float y = rt.rect.Max.y + st.ItemSpacing.y * 0.5f;
             dl->AddRectFilled(ImVec2(rt.rect.Min.x, y - th * 0.5f), ImVec2(rt.rect.Max.x, y + th * 0.5f), col, th * 0.5f);
+        }
+    }
+
+    // Turbo X 2.0: right-click on the divider (the pane's resize border, last frame) folds the pane away
+    if (foldable(id)) {
+        const std::string pop = std::string("##foldmenu") + id;
+        if (rt.have_rect && rt.border_active) {
+            ImGui::SetTooltip("Drag to resize. Right-click to hide this panel.");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup(pop.c_str());
+        }
+        if (ImGui::BeginPopup(pop.c_str())) {
+            const std::string hl = std::string("Hide this panel###fold") + id;
+            if (ImGui::MenuItem(hl.c_str())) store().set_folded(id, true);
+            ImGui::TextDisabled("The > strip brings it back (or Ctrl+L, Customize layout)");
+            ImGui::EndPopup();
         }
     }
 

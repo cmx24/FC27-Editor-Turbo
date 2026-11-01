@@ -62,14 +62,15 @@ static void draw_player_edit(App& app) {
     ImGui::Dummy(ImVec2(0.0f, S(4.0f)));
 
     // Persistent Left Pane: 320px finder with quick actions across ALL 4 tabs
-    split::pane_x("##select", 320.0f);
-    if (ImGui::Button("+ Create###pf_create")) app.go(shell::Page::CreatePlayer);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create or clone a player");
-    ImGui::SameLine();
-    if (ImGui::Button("Bulk edit###pf_bulk")) app.go(shell::Page::BulkEdit);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit multiple players at once");
-    ImGui::Spacing();
-    draw_classic_player_list(app);
+    if (split::pane_x("##select", 320.0f)) {  // X 2.0 layout: false = the person folded the list away (a ">" strip shows it again)
+        if (ImGui::Button("+ Create###pf_create")) app.go(shell::Page::CreatePlayer);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create or clone a player");
+        ImGui::SameLine();
+        if (ImGui::Button("Bulk edit###pf_bulk")) app.go(shell::Page::BulkEdit);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit multiple players at once");
+        ImGui::Spacing();
+        draw_classic_player_list(app);
+    }
     ImGui::EndChild();
 
     ImGui::SameLine();

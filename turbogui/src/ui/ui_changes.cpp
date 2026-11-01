@@ -777,7 +777,12 @@ void card_profiles(App& app) {
     ImGui::SameLine();
     const bool can_save = s_save_name[0] != '\0';
     if (!can_save) ImGui::BeginDisabled();
+    // X 2.0 review fix (10): the profile folder is read at most every 2 s (and right after Save / Apply / Delete), not on every frame
+    static std::vector<profiles::ProfileSlotInfo> s_slots;
+    static double s_slots_read = -1.0;
+    static bool s_slots_stale = true;
     if (ImGui::Button("Save profile###prof_save_btn")) {
+        s_slots_stale = true;
         std::string slug, err;
         if (profiles::save_profile(app, s_save_name, &slug, &err)) {
             app.notify("Profile saved as " + slug, false);
@@ -792,7 +797,12 @@ void card_profiles(App& app) {
     ImGui::Spacing();
 
     // 3. List of saved profiles
-    const auto slots = profiles::list_profiles(app.bridge.root());
+    if (s_slots_stale || s_slots_read < 0.0 || app.now - s_slots_read > 2.0) {
+        s_slots = profiles::list_profiles(app.bridge.root());
+        s_slots_read = app.now;
+        s_slots_stale = false;
+    }
+    const auto& slots = s_slots;
     if (slots.empty()) {
         theme::muted_text("No saved edit profiles yet. Type a name above and click Save profile.");
     } else {
@@ -834,6 +844,7 @@ void card_profiles(App& app) {
             ImGui::SameLine();
             if (!s.valid_checksum) ImGui::BeginDisabled();
             if (ImGui::SmallButton("Apply###prof_btn_apply")) {
+                s_slots_stale = true;
                 std::string summary, err;
                 if (profiles::apply_profile(app, s.slug, &summary, &err)) {
                     app.notify(summary, false);
@@ -841,11 +852,22 @@ void card_profiles(App& app) {
                     app.notify("Apply failed: " + err, true);
                 }
             }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Apply this profile's edits to the live session (creates 1-click revert snapshot)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Merge this profile's kept edits into yours (Revert edits undoes it). Team names change at once; player and kit "
+                                  "edits show at the next career load.");  // X 2.0 review fix (18): it said "the live session"
             if (!s.valid_checksum) ImGui::EndDisabled();
 
             ImGui::SameLine();
-            if (ImGui::SmallButton("Delete###prof_btn_delete")) {
+            // X 2.0 review fix (11): Delete asks once ("Confirm delete" on the same button), it had no confirmation
+            static std::string s_confirm_delete;
+            const bool confirming = s_confirm_delete == s.slug;
+            const bool del_clicked = ImGui::SmallButton(confirming ? "Confirm delete###prof_btn_delete" : "Delete###prof_btn_delete");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", confirming ? "Click again to delete this profile file" : "Delete this profile (asks once)");
+            if (del_clicked && !confirming) {
+                s_confirm_delete = s.slug;
+            } else if (del_clicked) {
+                s_confirm_delete.clear();
+                s_slots_stale = true;
                 std::string err;
                 if (profiles::delete_profile(app.bridge.root(), s.slug, &err)) {
                     app.notify("Deleted profile " + s.slug, false);

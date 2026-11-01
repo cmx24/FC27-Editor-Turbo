@@ -321,18 +321,26 @@ void draw_player_contract_actions(App& app) {
     confirm_popup(app);  // the question those controls ask first (teampage::confirm_popup)
 }
 
-static void draw_pitch_squad_view(App& app, int64_t club) {
+void draw_pitch_squad_view(App& app, int64_t club) {  // X 2.0: also drawn by Home's Pitch view (ui_team_pages.h)
     const auto squad = squad_of(app, club);
     if (squad.empty()) {
         theme::muted_text("No players found in this squad.");
         return;
     }
-    // Select top 11 players by overall rating
-    std::vector<const PlayerRow*> best = squad;
-    std::sort(best.begin(), best.end(), [](const PlayerRow* a, const PlayerRow* b) {
-        return a->overall > b->overall;
-    });
-    if (best.size() > 11) best.resize(11);
+    // X 2.0 review fix (21): the Best XI = the best goalkeeper (if the squad has one) + the best ten outfield players by overall. W-D2 took the
+    // top 11 first and added a goalkeeper after grouping, so 12 could be drawn, and every goalkeeper in the top 11 stood in goal.
+    std::vector<const PlayerRow*> sorted = squad;
+    std::sort(sorted.begin(), sorted.end(), [](const PlayerRow* a, const PlayerRow* b) { return a->overall > b->overall; });
+    std::vector<const PlayerRow*> best;
+    const PlayerRow* keeper = nullptr;
+    for (const PlayerRow* p : sorted)
+        if (p->positions[0] == 0) { keeper = p; break; }
+    if (keeper) best.push_back(keeper);
+    for (const PlayerRow* p : sorted) {
+        if (best.size() >= 11) break;
+        if (p->positions[0] == 0) continue;  // one goalkeeper in the eleven
+        best.push_back(p);
+    }
 
     // Group into positions: GK, DEF, MID, FWD
     std::vector<const PlayerRow*> gks, defs, mids, fwds;
@@ -341,15 +349,6 @@ static void draw_pitch_squad_view(App& app, int64_t club) {
         else if (p->positions[0] >= 1 && p->positions[0] <= 8) defs.push_back(p);
         else if (p->positions[0] >= 9 && p->positions[0] <= 19) mids.push_back(p);
         else fwds.push_back(p);
-    }
-    if (gks.empty()) {
-        for (const PlayerRow* p : squad) {
-            if (p->positions[0] == 0) {
-                gks.push_back(p);
-                if (!best.empty()) best.pop_back();
-                break;
-            }
-        }
     }
 
     const ImVec2 size(ImGui::GetContentRegionAvail().x, S(380.0f));
@@ -444,32 +443,21 @@ void draw_team_players(App& app) {
     g_state.own_club = is_own_club(app, club);
     preset_strip(app, club);
 
-    // 2.0 Clubs & Managers Studio: Transfer budget bar
+    // 2.0 Clubs & Managers Studio: Transfer budget bar. X 2.0 review fix (6): the bar shows the LIVE budget and opens the guarded control
+    // (Career > Money & transfers: availability check, confirmation with the old amount, Add). W-B's own input started at 100,000,000,
+    // kept a stale amount across careers and wrote it without asking.
     const bool is_user_club = g_state.own_club;
-    static int s_budget_amount = 100000000;
-    static bool s_budget_inited = false;
-    const BridgeState& bst = app.bridge.state();
-    if (!s_budget_inited && bst.transfer_budget > 0) {
-        s_budget_amount = static_cast<int>(std::min<int64_t>(bst.transfer_budget, 2000000000LL));
-        s_budget_inited = true;
-    }
-    ImGui::AlignTextToFramePadding();
-    theme::muted_text("Transfer budget:");
-    ImGui::SameLine();
-    if (!is_user_club) ImGui::BeginDisabled();
-    ImGui::SetNextItemWidth(S(150.0f));
-    ImGui::InputInt("##tp_budget_input", &s_budget_amount, 1000000, 10000000);
-    if (s_budget_amount < 0) s_budget_amount = 0;
-    ImGui::SameLine();
-    if (ImGui::Button("Set###tp_budget_set")) {
-        app.send(teampage::run_cmd("transfer_budget", {{"mode", "set"}, {"amount", static_cast<int64_t>(s_budget_amount)}}), "Set budget");
-        page::done("team_players", "Transfer budget updated.");
-    }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set transfer budget for this career club");
-    if (!is_user_club) {
-        ImGui::EndDisabled();
+    if (is_user_club) {
+        const BridgeState& bst = app.bridge.state();
+        ImGui::AlignTextToFramePadding();
+        theme::muted_text("Transfer budget:");
         ImGui::SameLine();
-        theme::muted_text("(Career club only)");
+        if (bst.unavailable_reason("transfer_budget")) theme::muted_text("this game version can't change it");
+        else if (bst.transfer_budget >= 0) ImGui::Text("%s", money(bst.transfer_budget).c_str());
+        else theme::muted_text("shows once your career is open");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Change budget###tp_budget_open")) app.go(shell::area_of(shell::Page::Transfers), shell::Page::Transfers);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Career > Money & transfers: set or add to your transfer budget");
     }
     ImGui::Spacing();
 

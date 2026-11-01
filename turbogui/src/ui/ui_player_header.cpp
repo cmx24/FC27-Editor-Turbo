@@ -210,6 +210,7 @@ bool draw_player_header(App& app) {
         std::snprintf(pin_lbl, sizeof pin_lbl, "%s###hdr_fav_player", pinned ? "Pinned" : "Pin");
         if (ImGui::SmallButton(pin_lbl)) {
             turbo::x2::toggle_fav_player(p->playerid);
+            if (!app.save_gui_settings()) app.notify("cannot save the pin", true);  // X 2.0 review fix (16): the pin survives a restart
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pin / unpin this player on the Home Hub favorites strip");
     }

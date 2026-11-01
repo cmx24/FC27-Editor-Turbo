@@ -361,8 +361,7 @@ void frame(App& app, DrawFn select_fn, DrawFn editor_fn, void* user, Primary* pr
         if (narrow) {
             ImGui::BeginChild("##selectrail", ImVec2(S(theme::kRailWidth), -footer), ImGuiChildFlags_Borders);
         } else {
-            split::pane_x("##select", theme::kSelectWidth, kSplitMinW, kSplitMaxFrac, -footer);
-            select_fn(app, user);
+            if (split::pane_x("##select", theme::kSelectWidth, kSplitMinW, kSplitMaxFrac, -footer)) select_fn(app, user);  // X 2.0: false = folded
         }
         ImGui::EndChild();
         ImGui::SameLine();

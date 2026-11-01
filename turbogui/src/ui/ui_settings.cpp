@@ -2,6 +2,7 @@
 // health summary (technical details collapsed) and the log (collapsed). The health pieces are the old Status tab's, drawn by ui_tools.cpp.
 #include <cstdio>
 
+#include "ui_custom_layout.h"
 #include "app.h"
 #include "hotkey_setting.h"
 #include "imgui.h"
@@ -75,6 +76,10 @@ void draw_layout(App& app) {
         ImGui::TextDisabled("Window now: %.0f x %.0f. Remembered for the next start: %s. Pane widths remembered: %d.", app.main_window_size_.x,
                             app.main_window_size_.y, mem, static_cast<int>(app.prefs.splits.widths.size()));
     }
+    ImGui::Spacing();
+    // X 2.0: show / hide / resize / scale the menus and panels (ui_custom_layout.h; also Ctrl+L and the top bar's Layout button)
+    if (ImGui::Button("Customize layout...###layout_customize", ImVec2(0, bh))) custom_layout::window_open() = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show, hide, resize and scale the top bar, the left menu, the page tabs and the panels (Ctrl+L)");
     ImGui::Spacing();
     if (ImGui::Button("Restore window to default###layout_window", ImVec2(0, bh))) app.restore_window_default();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("The Turbo window goes back to its first-use size and place, not maximized");

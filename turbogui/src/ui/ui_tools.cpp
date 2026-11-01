@@ -700,7 +700,7 @@ void draw_look_and_feel(App& app) {
         if (!app.save_gui_settings()) app.notify("cannot save the settings", true);
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Turns off animated transitions and pauses visual picker preview playback.");
+        ImGui::SetTooltip("Pauses the picture animations (GIFs) in every picker, like Pause animations");  // X 2.0 review fix (19): there are no other transitions to turn off
 
     bool pause_gifs = turbo::x2::pause_gifs();
     if (ImGui::Checkbox("Pause animations###pause_gifs", &pause_gifs)) {

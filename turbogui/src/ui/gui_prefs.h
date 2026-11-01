@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
 
 #include "nlohmann/json.hpp"
@@ -330,8 +331,23 @@ struct SplitStore {
         dirty = false;
         return d;
     }
+    // Turbo X 2.0 layout (Cassio 11-01: "show/hide all the main menus, frames"): the list / preview panes the person folded away, by child id
+    // ("##select", "##lslist", "##lspreview"); one choice for every page that draws that pane. gui.folded_panes = ["##select", ...]
+    std::set<std::string> folded;
+    bool is_folded(const std::string& id) const { return folded.count(id) != 0; }
+    void set_folded(const std::string& id, bool fold) {
+        if (fold == is_folded(id)) return;
+        if (fold) folded.insert(id);
+        else folded.erase(id);
+        dirty = true;
+    }
     void load(const nlohmann::json& gui) {
         widths.clear();
+        folded.clear();
+        auto fo = gui.find("folded_panes");
+        if (fo != gui.end() && fo->is_array())
+            for (const auto& v : *fo)
+                if (v.is_string() && !v.get<std::string>().empty()) folded.insert(v.get<std::string>());
         auto so = gui.find("splits");
         if (so == gui.end() || !so->is_object()) return;
         for (auto it = so->begin(); it != so->end(); ++it)
@@ -342,6 +358,111 @@ struct SplitStore {
         nlohmann::json o = nlohmann::json::object();
         for (const auto& kv : widths) o[kv.first] = kv.second;
         gui["splits"] = o;
+        nlohmann::json f = nlohmann::json::array();
+        for (const auto& id : folded) f.push_back(id);
+        gui["folded_panes"] = f;
+    }
+};
+
+// ---- Custom layout (Turbo X 2.0, Cassio 11-01: "add ability to resize, scale, show/hide all the main menus, frames and etc. i want to be
+// able to customize the layout / visualization"). gui.custom_layout in gui_settings.json. Pure (no ImGui): the native tests check the round
+// trip, the clamps and the rules that keep a way back (Turbo settings is never hidden; the window "Customize layout" has Ctrl+L).
+//   main menus: top bar, left menu (rail), page tabs: each shown or hidden, each with its own text scale; the left menu's width
+//   items: each top-bar item, each left-menu area (not Turbo settings), each page tab (the page you are on always shows its tab)
+//   page content: its own text scale; frames: folded panes are in SplitStore::folded (above), their widths in SplitStore::widths
+struct CustomLayout {
+    static constexpr float kScaleMin = 0.70f, kScaleMax = 1.60f;
+    static constexpr float kRailMinW = 120.0f, kRailMaxW = 420.0f, kRailDefaultW = 176.0f;  // unscaled px (176 = the 3.0 rail)
+    static constexpr const char* kSettingsArea = "Turbo settings";  // shell::area_label(Area::Settings): never hidden
+
+    bool top_bar = true;
+    bool rail = true;
+    bool page_tabs = true;
+    float rail_width = kRailDefaultW;
+    float scale_top_bar = 1.0f, scale_rail = 1.0f, scale_tabs = 1.0f, scale_content = 1.0f;
+    std::set<std::string> hidden_top;    // top-bar item keys (kTopItems)
+    std::set<std::string> hidden_areas;  // shell::area_label() of the left-menu areas
+    std::set<std::string> hidden_pages;  // shell::page_key() of the page tabs
+
+    // The top-bar items the person can hide, in the order they are drawn: {key, label in the Customize layout window}
+    struct TopItem { const char* key; const char* label; };
+    static constexpr TopItem kTopItems[] = {
+        {"status", "Connection and club"}, {"search", "Search players and clubs"}, {"history", "Back / forward buttons"},
+        {"refresh", "Refresh"},            {"pause", "Pause animations"},         {"profiles", "Profiles"},
+        {"undo", "Undo"},                  {"changes", "Changes"},
+    };
+
+    static float clamp_scale(float v) {
+        if (!std::isfinite(v)) return 1.0f;
+        return v < kScaleMin ? kScaleMin : v > kScaleMax ? kScaleMax : v;
+    }
+    static float clamp_rail(float v) {
+        if (!std::isfinite(v)) return kRailDefaultW;
+        return v < kRailMinW ? kRailMinW : v > kRailMaxW ? kRailMaxW : v;
+    }
+    bool top_item(const std::string& key) const { return hidden_top.count(key) == 0; }
+    bool area_shown(const std::string& area) const { return area == kSettingsArea || hidden_areas.count(area) == 0; }
+    bool page_shown(const std::string& page) const { return hidden_pages.count(page) == 0; }
+    // true when the change is real (the caller saves)
+    static bool set_in(std::set<std::string>& s, const std::string& key, bool hidden) {
+        if (hidden == (s.count(key) != 0)) return false;
+        if (hidden) s.insert(key);
+        else s.erase(key);
+        return true;
+    }
+    bool set_area_hidden(const std::string& area, bool hidden) { return area != kSettingsArea && set_in(hidden_areas, area, hidden); }
+    bool is_default() const {
+        return top_bar && rail && page_tabs && rail_width == kRailDefaultW && scale_top_bar == 1.0f && scale_rail == 1.0f && scale_tabs == 1.0f &&
+               scale_content == 1.0f && hidden_top.empty() && hidden_areas.empty() && hidden_pages.empty();
+    }
+
+    static CustomLayout load(const nlohmann::json& gui) {  // gui = gui_settings.json["gui"]; anything missing or malformed keeps the default
+        CustomLayout c;
+        if (!gui.is_object()) return c;
+        auto it = gui.find("custom_layout");
+        if (it == gui.end() || !it->is_object()) return c;
+        const nlohmann::json& o = *it;
+        auto b = [&](const char* k, bool& v) { auto f = o.find(k); if (f != o.end() && f->is_boolean()) v = f->get<bool>(); };
+        auto n = [&](const char* k, float& v, float (*clamp)(float)) {
+            auto f = o.find(k);
+            if (f != o.end() && f->is_number()) v = clamp(static_cast<float>(f->get<double>()));
+        };
+        auto set = [&](const char* k, std::set<std::string>& v) {
+            auto f = o.find(k);
+            if (f == o.end() || !f->is_array()) return;
+            for (const auto& e : *f)
+                if (e.is_string() && !e.get<std::string>().empty()) v.insert(e.get<std::string>());
+        };
+        b("top_bar", c.top_bar);
+        b("rail", c.rail);
+        b("page_tabs", c.page_tabs);
+        n("rail_width", c.rail_width, &clamp_rail);
+        n("scale_top_bar", c.scale_top_bar, &clamp_scale);
+        n("scale_rail", c.scale_rail, &clamp_scale);
+        n("scale_tabs", c.scale_tabs, &clamp_scale);
+        n("scale_content", c.scale_content, &clamp_scale);
+        set("hidden_top", c.hidden_top);
+        set("hidden_areas", c.hidden_areas);
+        set("hidden_pages", c.hidden_pages);
+        c.hidden_areas.erase(kSettingsArea);  // a hand-edited file cannot hide the way back
+        return c;
+    }
+    void save(nlohmann::json& gui) const {
+        nlohmann::json o = nlohmann::json::object();
+        o["top_bar"] = top_bar;
+        o["rail"] = rail;
+        o["page_tabs"] = page_tabs;
+        o["rail_width"] = std::round(clamp_rail(rail_width));
+        auto r2 = [](float v) { return std::round(clamp_scale(v) * 100.0f) / 100.0f; };
+        o["scale_top_bar"] = r2(scale_top_bar);
+        o["scale_rail"] = r2(scale_rail);
+        o["scale_tabs"] = r2(scale_tabs);
+        o["scale_content"] = r2(scale_content);
+        auto arr = [](const std::set<std::string>& v) { nlohmann::json a = nlohmann::json::array(); for (const auto& e : v) a.push_back(e); return a; };
+        o["hidden_top"] = arr(hidden_top);
+        o["hidden_areas"] = arr(hidden_areas);
+        o["hidden_pages"] = arr(hidden_pages);
+        gui["custom_layout"] = o;
     }
 };
 
@@ -352,6 +473,7 @@ struct GuiPrefs {
     RowDensity row_density = RowDensity::Normal;  // the nearest step of row_height (kept for an older build's file)
     float row_height = kRowHeightNormal;         // 2.22: the Row height slider (unscaled px of a table row)
     SplitStore splits;                            // 2.22: the widths of the list panes the person dragged
+    CustomLayout custom;                          // Turbo X 2.0: gui.custom_layout (menus shown / hidden, scales, the left menu's width)
     std::map<std::string, bool> sections_open;  // "<page>.<section>" -> open (pages ask section_open(id, default))
     bool rail_collapsed = false;   // gui.rail_collapsed (3.0 left rail)
     bool body_show_all = false;    // gui.body_show_all (5.0c RV4): the Body type window's "Show all body types" tick, default off, saved with the layout
@@ -391,6 +513,7 @@ struct GuiPrefs {
         p.row_density = density_of_row_height(p.row_height);
         p.splits.load(*g);
         p.splits.dirty = false;
+        p.custom = CustomLayout::load(*g);
         p.window = WindowPrefs::load(gui_settings);
         auto so = g->find("sections_open");
         if (so != g->end() && so->is_object())
@@ -407,6 +530,7 @@ struct GuiPrefs {
         g["row_density"] = row_density_name(density_of_row_height(row_height));
         g["row_height"] = std::round(clamp_row_height(row_height));
         splits.save(g);
+        custom.save(g);
         nlohmann::json so = nlohmann::json::object();
         for (const auto& kv : sections_open) so[kv.first] = kv.second;
         g["sections_open"] = so;

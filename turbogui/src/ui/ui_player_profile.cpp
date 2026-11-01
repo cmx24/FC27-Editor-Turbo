@@ -81,8 +81,7 @@ void list_and_editor(App& app, void (*editor_fn)(App&, void*), void* user = null
     // gui_settings.json gui.splits ("PlayerEdit/##select") and committed when the drag is released (E6); it was a raw ResizeX child that only
     // the ImGui layout file kept, which left the Edit a player divider outside the "saved once, per page" contract (test_ux_resize.h).
     // The first-use width is the spec's 320 px (unscaled for the store; Turbo X: people rows, not an 11-column table); the child id "##select" is unchanged.
-    split::pane_x("##select", 320.0f);
-    draw_classic_player_list(app);
+    if (split::pane_x("##select", 320.0f)) draw_classic_player_list(app);  // X 2.0 layout: false = folded away
     g_listed = classic_player_list_rows();
     ImGui::EndChild();
     ImGui::SameLine();

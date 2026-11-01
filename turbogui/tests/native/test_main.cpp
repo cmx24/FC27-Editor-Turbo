@@ -3360,6 +3360,7 @@ static std::vector<uint8_t> file_bytes(const fs::path& p);
 #include "test_gui50_window_rect.h"  // 5.0 T7: Cassio's gui.window replayed (resize kept, Restore fits the screen, stored choice kept, window log lines)
 #include "test_layout_store.h"  // 5.0b-B: the layout store (ImGui ini owned by Turbo), converted panes, Settings > Layout
 #include "test_layout_flush.h"  // 5.0c E6-layout: pane width committed at release, ini width wins over the default, release/hide flushes (fail-old on 5.0b/integration)
+#include "test_custom_layout.h"  // Turbo X 2.0: Customize layout (menus, tabs, panels shown / hidden, widths, text sizes)
 #include "test_r2r_split.h"   // Turbo X R2-R(a)/(b): a clamp is not stored; an undragged page takes the last dragged width
 #include "test_r2r_dialog.h"  // Turbo X R2-R(c): dialogs reopen at the size the person gave them
 #include "test_shell.h"  // 2026-10-16: GUI revamp contract (ui_shell.h areas/pages/registry, ui_theme.h palette)
@@ -10073,6 +10074,7 @@ static void test_ui() {
         calc_ovr_test::ui_cases(app, ui, le);  // test_calc_ovr.h: Calc OVR / Delta columns (2.22 calc-ovr)
         ovr_mask_test::ui_cases(app, ui);  // test_ovr_mask.h: Shown OVR (display only) store + header field (3.2 calc-ovr)
         shell40_test::ui_cases(app, ui);  // test_shell_40.h: page_has_frame against the pages that draw the frame's bar (4.0 S3; before test_shell_app clears the registry)
+        custom_layout_test::ui_cases(app, ui);  // test_custom_layout.h (X 2.0): before test_shell_app clears the page registry
         layout_store_test::ui_cases(app, ui, le);  // test_layout_store.h (5.0b-B): Settings > Layout on the real App (before test_shell_app clears the registry; test_gameplay_page leaves it empty)
         test_shell_app(app);  // test_shell.h: page registry
         test_shell_ui(app, ui);  // test_shell.h: area tabs, request_tab / go(), Settings page
@@ -15903,6 +15905,7 @@ int main(int argc, char** argv) {
     window_settings_test::run();  // test_window_settings.h (pure cases)
     gui50_window_rect_test::run();  // test_gui50_window_rect.h (pure cases, D3)
     layout_store_test::run();  // test_layout_store.h (5.0b-B: own-context cases, file sink, source scans)
+    custom_layout_test::run();  // test_custom_layout.h (X 2.0: the saved layout model)
     layout_flush_test::run();  // test_layout_flush.h (5.0c E6-layout: own-context cases)
     r2r_split_test::run_a();     // test_r2r_split.h (R2-R(a))
     r2r_split_test::run_b();     // test_r2r_split.h (R2-R(b))

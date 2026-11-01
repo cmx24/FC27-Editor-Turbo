@@ -1240,6 +1240,17 @@ bool App::team_names_keep(tnames::Entry e, std::string* err) {
     return false;
 }
 
+bool App::save_team_names(std::string* why) {
+    std::string w;
+    if (team_names_unreadable_) w = "turbo_output\\team_names.json could not be read at start-up (left as it is; the change lasts this session)";
+    else if (!team_names.save(tnames::store_path(bridge.root()), &w)) w = "turbo_output\\team_names.json (" + w + ")";
+    if (w.empty()) return true;
+    team_names_error = "team names not saved: " + w;
+    log(team_names_error);
+    if (why) *why = w;
+    return false;
+}
+
 bool App::move_team_name(int64_t teamid, const std::string& from, const std::string& to) {
     const tnames::Entry* e = team_names.find(teamid, from);
     if (!e || from == to || scope_kind(to) == ScopeKind::Unknown) return false;

@@ -89,4 +89,7 @@ void list_buttons(App& app, const PlayerRow& p, bool with_status) TURBO_WEAK;
 // core/team_preset.h (track S2, brief 2.20-S2-team-defaults): the "My team" preset of the user's club; false when nothing was sent
 bool team_preset_apply(App& app, int64_t teamid) TURBO_WEAK;
 
+// X 2.0: the read-only Best XI on a pitch (Club > Squad > Pitch view, Home > My squad > Pitch view), ui_team_players.cpp
+void draw_pitch_squad_view(App& app, int64_t club);
+
 }  // namespace turbo

@@ -17,6 +17,34 @@ namespace fs = std::filesystem;
 
 namespace turbo::profiles {
 
+// X 2.0 review fix (9): a hand-edited profile with a non-string "name" / "sha256" / ... must not throw on every frame of Changes & undo
+// (nlohmann's value() throws type_error when the key exists with another type): a wrong type reads as the default.
+static std::string str_of(const nlohmann::json& j, const char* key, const std::string& dflt) {
+    if (!j.is_object()) return dflt;
+    auto it = j.find(key);
+    return it != j.end() && it->is_string() ? it->get<std::string>() : dflt;
+}
+// X 2.0 review fix (3): write a file through a temp file and a rename; false when it could not be written whole
+static bool write_whole(const fs::path& path, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    const fs::path tmp = path.string() + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f << text;
+        f.flush();
+        if (!f) return false;
+    }
+    fs::rename(tmp, path, ec);
+    if (ec) {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
+
 namespace {
 
 constexpr uint32_t kK[64] = {
@@ -94,16 +122,17 @@ std::vector<ProfileSlotInfo> list_profiles(const fs::path& le_root) {
         if (!entry.is_regular_file(ec)) continue;
         const std::string fn = entry.path().filename().u8string();
         if (fn.size() <= 12 || fn.compare(fn.size() - 12, 12, ".turbox.json") != 0) continue;
+        if (fn == "_pre_apply.turbox.json") continue;  // X 2.0 review fix (11): the Revert snapshot is not a profile (Apply / Delete on it lost Revert)
         std::ifstream f(entry.path(), std::ios::binary);
         if (!f) continue;
         const nlohmann::json j = nlohmann::json::parse(f, nullptr, false);
         if (!j.is_object() || !j.contains("payload") || !j["payload"].is_object()) continue;
         ProfileSlotInfo info;
         info.slug = fn.substr(0, fn.size() - 12);
-        info.name = j.value("name", info.slug);
-        info.career = j.value("career", std::string());
-        info.updated_at = j.value("updated_at", std::string());
-        info.sha256 = j.value("sha256", std::string());
+        info.name = str_of(j, "name", info.slug);
+        info.career = str_of(j, "career", std::string());
+        info.updated_at = str_of(j, "updated_at", std::string());
+        info.sha256 = str_of(j, "sha256", std::string());
         const nlohmann::json& p = j["payload"];
         info.valid_checksum = !info.sha256.empty() && sha256_hex(p.dump()) == info.sha256;
         if (p.contains("reapply") && p["reapply"].is_object()) {
@@ -250,8 +279,8 @@ bool diff_profile(App& app, const std::string& slug, ProfileDiff& out, std::stri
         if (err) *err = "Profile corrupted: invalid JSON structure";
         return false;
     }
-    out.name = root.value("name", slug);
-    const std::string expected_sha = root.value("sha256", "");
+    out.name = str_of(root, "name", slug);
+    const std::string expected_sha = str_of(root, "sha256", "");
     const nlohmann::json& payload = root["payload"];
     const std::string actual_sha = sha256_hex(payload.dump());
     if (expected_sha != actual_sha) {
@@ -321,7 +350,7 @@ bool apply_profile(App& app, const std::string& slug, std::string* summary, std:
         if (err) *err = "Corrupt profile structure";
         return false;
     }
-    const std::string expected_sha = root.value("sha256", "");
+    const std::string expected_sha = str_of(root, "sha256", "");
     const nlohmann::json& payload = root["payload"];
     if (sha256_hex(payload.dump()) != expected_sha) {
         if (err) *err = "Profile integrity check failed (SHA-256 mismatch)";
@@ -344,8 +373,11 @@ bool apply_profile(App& app, const std::string& slug, std::string* summary, std:
         snap_root["sha256"] = sha256_hex(snap_p.dump());
         snap_root["payload"] = snap_p;
 
-        std::ofstream pf(pre_path, std::ios::binary);
-        if (pf) pf << snap_root.dump(2);
+        // X 2.0 review fix (3): no Apply without a Revert snapshot written whole
+        if (!write_whole(pre_path, snap_root.dump(2))) {
+            if (err) *err = "Could not write the Revert snapshot (" + pre_path.string() + "): nothing was applied";
+            return false;
+        }
     }
 
     size_t items_applied = 0;
@@ -366,7 +398,11 @@ bool apply_profile(App& app, const std::string& slug, std::string* summary, std:
                 app.reapply.callnames[kv.first] = kv.second;
                 ++items_applied;
             }
-            save_reapply_store(reapply_store_path(le_root), app.reapply, nullptr);
+            // X 2.0 review fix (2): through App::save_reapply (career prune, set-aside of an unreadable file, the error line)
+            if (!app.save_kept_edits()) {
+                if (err) *err = "Profile merged for this session, but the kept edits were not saved: " + app.reapply_error;
+                return false;
+            }
         }
     }
     // 3. Club voice merge
@@ -391,10 +427,16 @@ bool apply_profile(App& app, const std::string& slug, std::string* summary, std:
                 ++items_applied;
             }
             app.team_names_publish();
+            // X 2.0 review fix (4): the merged names are saved (they were lost at the next start)
+            std::string why;
+            if (!app.save_team_names(&why)) {
+                if (err) *err = "Profile applied, but the team names were not saved: " + why;
+                return false;
+            }
         }
     }
 
-    s_last_applied_name = root.value("name", slug);
+    s_last_applied_name = str_of(root, "name", slug);
     if (summary) {
         *summary = "Profile '" + s_last_applied_name + "' applied (" + std::to_string(items_applied) + " items merged).";
     }
@@ -426,10 +468,19 @@ bool revert_last_apply(App& app, std::string* summary, std::string* err) {
     const nlohmann::json& payload = root["payload"];
 
     if (payload.contains("reapply") && payload["reapply"].is_object()) {
+        // X 2.0 review fix (1, blocker): ReapplyStore::career is run time only (the loaded career, never in the file): the snapshot's store
+        // has none, and moving it in left new edits without a career scope (re-applied in every career) and published no team names of
+        // this career. The loaded career is kept across the revert.
+        const std::string career = app.reapply.career;
         ReapplyStore snap;
+        snap.career = career;
         if (parse_reapply_json(payload["reapply"].dump(), snap, nullptr)) {
             app.reapply = std::move(snap);
-            save_reapply_store(reapply_store_path(le_root), app.reapply, nullptr);
+            app.reapply.career = career;
+            if (!app.save_kept_edits()) {
+                if (err) *err = "Reverted for this session, but the kept edits were not saved: " + app.reapply_error;
+                return false;
+            }
         }
     }
     if (payload.contains("club_voice") && payload["club_voice"].is_object()) {
@@ -444,6 +495,11 @@ bool revert_last_apply(App& app, std::string* summary, std::string* err) {
         if (tnames::parse_store_json(payload["team_names"].dump(), snap_tn, nullptr)) {
             app.team_names = std::move(snap_tn);
             app.team_names_publish();
+            std::string why;
+            if (!app.save_team_names(&why)) {
+                if (err) *err = "Reverted, but the team names were not saved: " + why;
+                return false;
+            }
         }
     }
 

@@ -116,14 +116,16 @@ void draw_home(App& app) {
     if (career) {
         same_line_if_fits("Boost form");
         if (ImGui::SmallButton("Boost form###home_boost_form")) {
-            app.send(teampage::run_cmd("form_morale", {{"form", 99}}), "Squad form");
+            // X 2.0 review fix (7): the override is merged onto auto.form_morale; 0 = leave alone (form_morale.lua plan), so the other two are
+            // sent as 0 (a bare {"form": 99} also set the configured morale and fitness)
+            app.send(teampage::run_cmd("form_morale", {{"form", 99}, {"morale", 0}, {"fitness", 0}}), "Squad form");
             app.notify("Squad form boosted");
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sets form to excellent for all players in your squad");
 
         same_line_if_fits("Boost morale");
         if (ImGui::SmallButton("Boost morale###home_boost_morale")) {
-            app.send(teampage::run_cmd("form_morale", {{"morale", 99}}), "Squad morale");
+            app.send(teampage::run_cmd("form_morale", {{"form", 0}, {"morale", 99}, {"fitness", 0}}), "Squad morale");
             app.notify("Squad morale boosted");
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sets morale to very high for all players in your squad");
@@ -179,8 +181,7 @@ void draw_home(App& app) {
         sh = sh < S(140.0f) ? S(140.0f) : (sh > S(300.0f) ? S(300.0f) : sh);
         ImGui::BeginChild("##home_squad", ImVec2(0.0f, sh), ImGuiChildFlags_Borders);
         if (x2::state().squad_pitch_home) {
-            theme::muted_text("Starting eleven formation and squad overview");
-            squad_table(app, st.user_team);
+            draw_pitch_squad_view(app, st.user_team);  // X 2.0 review fix (14): the toggle drew the table in both views
         } else {
             squad_table(app, st.user_team);
         }
