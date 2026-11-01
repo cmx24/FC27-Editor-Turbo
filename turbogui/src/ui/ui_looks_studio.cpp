@@ -1209,6 +1209,10 @@ void look_card_body(App& app, Studio& s, const Subject& who, const Table& t, uin
             break;
         }
     }
+    // Turbo X 1.0.1 (L2b): a REAL-FACE PLAYER (headclasscode 0) behaves like a real-face manager: his 3D section (the faces gate, drawn by
+    // hair_card above on this page whenever the model has him) owns hair and beard, so the generic Hair / Beard rows are not drawn
+    // (look::band_owned, kPlayer). !hair3d = the Appearance Editor's cards pane, where hair_card is drawn; elsewhere the rows stay.
+    if (!who.manager && !hair3d && t.has("headclasscode") && app.db.get_int(t, rec, "headclasscode", -1) == 0 && app.model.player(who.id)) band = true;
     s.st.look_rows += vp::look_rows(app, t, rec, who.manager, band);
     if (s.force_all_fields) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
     else if (s.fold_was_forced) ImGui::SetNextItemOpen(false, ImGuiCond_Always);

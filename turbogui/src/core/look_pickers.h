@@ -189,8 +189,12 @@ inline const char* section_reason(Section s, int64_t headclasscode) {
 // 5.0c E3 (R1): on a REAL-FACE manager (headclasscode 0) the hair and beard are edited in the 3D band space, so the Look card draws ONE editor
 // for them (the faces gate's 3D section, with its Undo) INSTEAD of the generic Hair / Beard rows: the card never has two pickers for the
 // same attribute. The generic rows stay on every other head; "All fields" keeps the typed entry of both columns (Amendment A3).
+// Turbo X 1.0.1 (L2b, owner's screenshots 2026-11-01): a REAL-FACE PLAYER too. The faces gate's 3D section (the Hair & beard card of the
+// Appearance Editor, ui_looks_studio.cpp hair_card) is his hair and beard editor, so the Look card does not draw the generic rows as a
+// second picker. Only hair and beard TYPE: Hair colour, Beard colour, Eyebrows and every other row stay. The band codes (incl. Bald 9998 /
+// No beard 510) and the gate's writer are unchanged.
 inline bool band_owned(Subject s, const char* column, int64_t headclasscode) {
-    if (s != kManager || headclasscode != 0 || !column) return false;
+    if ((s != kManager && s != kPlayer) || headclasscode != 0 || !column) return false;
     return std::strcmp(column, "hairtypecode") == 0 || std::strcmp(column, "facialhairtypecode") == 0;
 }
 
