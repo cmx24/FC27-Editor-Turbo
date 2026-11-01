@@ -270,7 +270,9 @@ bool Generator::write_item(size_t ref, size_t item, std::string* err) {
     int64_t value = items_[item].id;
     const std::string fdb = f.db;
     if (real_face_ && (fdb == "hairtypecode" || fdb == "facialhairtypecode")) {  // a scanned head: Turbo's live band code
-        value = fdb == "hairtypecode" ? faces3d::hair_band_code(items_[item].id) : faces3d::beard_band_code(items_[item].id);
+        const int64_t id0 = items_[item].id;
+        if (id0 == 0) value = fdb == "hairtypecode" ? faces3d::kHairBaldCode : faces3d::kBeardNoneCode;  // Bald / No beard
+        else value = fdb == "hairtypecode" ? faces3d::hair_band_code(id0) : faces3d::beard_band_code(id0);
         if (value <= 0) {
             if (err) *err = "not on Turbo's real-face list (faces3d band)";
             return false;
