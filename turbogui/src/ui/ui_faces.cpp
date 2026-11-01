@@ -1492,6 +1492,9 @@ struct Render3d {
     face_tile::Breaker game_br;
     uint64_t game_br_gen = 0;
     bool game_br_log = false;  // the trip is logged by the next tick (head3d_failed has no App)
+    // Turbo X 1.0.3 lane CG: "Render all" stops after capture::kSweepCapHeads heads until the user presses Continue (crash guard,
+    // 2026-11-01: 3,252 heads back to back before the game crashed)
+    capture::SweepCap cap;
 };
 Render3d g_r3d;
 constexpr size_t kVisibleQueueMax = 3 * capture::kMaxPlayersPerRequest;  // heads on screen waiting
@@ -1538,6 +1541,9 @@ void faces3d_forget_render(App& app, bool manager, int64_t id) {
     g_r3d.fails.erase(head3d_key(manager, id));
     app.textures.forget(f);
 }
+
+// 1.0.3 lane CG: a head Render all may ask for: a real face (headclasscode 0) or one of the game's own heads, never a generic head
+static bool head3d_scanned(const Face& f) { return f.real || f.game_head; }
 
 static bool head3d_given_up(int64_t k) {
     auto it = g_r3d.fails.find(k);
@@ -1671,7 +1677,7 @@ static void head3d_failed(const Head3d& h, const std::string& why) {
 
 // The heads of the next request: on-screen heads first, then the "Render all" queue; distinct ids (the game hands each
 // picture back with its id only), skipping heads already rendered or given up
-static std::vector<Head3d> next_heads3d(App& app, size_t max) {
+static std::vector<Head3d> next_heads3d(App& app, size_t max, size_t queue_room) {
     std::vector<Head3d> pick;
     auto picked = [&](int64_t k) -> Head3d* {
         for (Head3d& h : pick)
@@ -1693,7 +1699,8 @@ static std::vector<Head3d> next_heads3d(App& app, size_t max) {
         h.in_batch = false;
         pick.push_back(h);
     }
-    while (!g_r3d.queue.empty() && pick.size() < max) {
+    size_t from_queue = 0;
+    while (!g_r3d.queue.empty() && pick.size() < max && from_queue < queue_room) {
         Head3d h = g_r3d.queue.front();
         const int64_t k = head3d_key(h.manager, h.id);
         if (!picked(k) && id_taken(h.id)) break;
@@ -1709,6 +1716,7 @@ static std::vector<Head3d> next_heads3d(App& app, size_t max) {
         }
         h.in_batch = g_r3d.batch;
         pick.push_back(h);
+        ++from_queue;
     }
     return pick;
 }
@@ -1769,7 +1777,10 @@ void tick_faces3d(App& app) {
     const capture::Status st = svc->status();
     if (!st.installed || !st.available || st.busy) return;
     const size_t max = static_cast<size_t>(std::clamp(st.max_batch, 1, static_cast<int>(capture::kMaxPlayersPerRequest)));
-    std::vector<Head3d> pick = next_heads3d(app, max);
+    // 1.0.3 lane CG: past the cap only the heads on screen go; the "Render all" queue waits for Continue
+    const size_t room = g_r3d.batch ? g_r3d.cap.room() : g_r3d.queue.size();
+    if (g_r3d.front.empty() && room == 0) return;
+    std::vector<Head3d> pick = next_heads3d(app, max, room);
     if (pick.empty()) {
         if (g_r3d.queue.empty() && g_r3d.front.empty()) g_r3d.batch = false;
         return;
@@ -1795,12 +1806,25 @@ void tick_faces3d(App& app) {
     }
     std::string err;
     if (svc->request(req, &err)) {
+        size_t swept = 0;
+        for (const Head3d& h : pick) swept += h.in_batch ? 1 : 0;
+        if (g_r3d.batch && g_r3d.cap.sent(swept))
+            app.log("faces: Render all paused after " + std::to_string(g_r3d.cap.sent_total()) + " heads (1.0.3 crash guard, " +
+                    std::to_string(g_r3d.cap.cap()) + " per run): press Continue in the face chooser for the next " +
+                    std::to_string(g_r3d.cap.cap()));
         g_r3d.inflight = std::move(pick);
         g_r3d.since = now;
     } else {
         for (const Head3d& h : pick) head3d_failed(h, err);
     }
 }
+
+bool faces3d_sweep_held() { return g_r3d.batch && g_r3d.cap.held(); }
+void faces3d_sweep_continue() {
+    if (!faces3d_sweep_held()) return;
+    g_r3d.cap.resume();
+}
+void faces3d_set_sweep_cap(size_t heads) { g_r3d.cap.set_cap(heads); }
 
 void faces3d_stop() {
     g_r3d.queue.clear();
@@ -1818,6 +1842,7 @@ std::string faces3d_line() {
     std::snprintf(buf, sizeof(buf), "3D heads: %zu / %zu", std::min(g_r3d.batch_done, g_r3d.batch_total), g_r3d.batch_total);
     std::string s = buf;
     if (g_r3d.failed > 0) s += ", " + std::to_string(g_r3d.failed) + " failed";
+    if (g_r3d.cap.held()) s += ", paused at " + std::to_string(g_r3d.cap.sent_total()) + ": Continue in the face chooser";
     return s;
 }
 
@@ -1959,10 +1984,29 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
         ImGui::SameLine();
         if (ImGui::Button("Stop##r3d")) faces3d_stop();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stops sending heads (the request in flight still finishes)");
+        if (g_r3d.cap.held()) {  // 1.0.3 lane CG: the sweep stopped at its cap
+            ImGui::SameLine();
+            char cl[64];
+            std::snprintf(cl, sizeof(cl), "Continue (next %zu heads)##r3dcont", g_r3d.cap.cap());
+            if (ImGui::Button(cl)) faces3d_sweep_continue();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Render all pauses after every %zu heads so that the game is never asked for thousands of\n"
+                                  "heads in one go without you (Turbo X 1.0.3).",
+                                  g_r3d.cap.cap());
+        }
     } else {
-        size_t missing = 0;
-        for (const Face* f : rows)
-            if (head3d_id(*f) > 0 && !face3d_cached(app, face_in_m(*f), head3d_id(*f)) && (!f->game_head || game_head_wants_render(app, *f))) ++missing;
+        // 1.0.3 lane CG (owner 2026-11-01): Render all renders SCANNED heads only (Face::real: headclasscode 0, and the game's own
+        // heads); a generic head is never asked for. Heads already rendered (the faces3d cache) are skipped, so a sweep that was
+        // stopped (Stop, the cap, a crash) goes on where it stopped.
+        size_t missing = 0, generic = 0;
+        for (const Face* f : rows) {
+            if (head3d_id(*f) <= 0 || face3d_cached(app, face_in_m(*f), head3d_id(*f))) continue;
+            if (!head3d_scanned(*f)) {
+                ++generic;
+                continue;
+            }
+            if (!f->game_head || game_head_wants_render(app, *f)) ++missing;
+        }
         if (missing > 0) {
             char bl[96];
             std::snprintf(bl, sizeof(bl), "Render all filtered heads (%zu)##r3dall", missing);
@@ -1974,16 +2018,25 @@ static void head3d_bar(App& app, const std::vector<const Face*>& rows) {
                 g_r3d.note.clear();
                 game_breaker().reset();  // ... and the hidden heads' route is tried again
                 for (const Face* f : rows)
-                    if (!f->game_head || game_head_wants_render(app, *f)) queue_head3d(app, *f, false);
+                    if (head3d_scanned(*f) && (!f->game_head || game_head_wants_render(app, *f))) queue_head3d(app, *f, false);
                 g_r3d.batch = true;
                 g_r3d.batch_total = g_r3d.queue.size();
                 g_r3d.batch_done = 0;
+                g_r3d.cap.start();  // 1.0.3 lane CG: a new sweep, a new cap
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Asks the game to render each filtered head from its 3D model, up to %d per request, in the background\n"
-                                  "(it goes on with this window closed; progress and Stop on Turbo's status line).\n"
+                ImGui::SetTooltip("Asks the game to render each filtered real face (scanned head) from its 3D model, up to %d per request, in the\n"
+                                  "background (it goes on with this window closed; progress and Stop on Turbo's status line).\n"
+                                  "It pauses after every %zu heads: press Continue for the next ones. Heads already rendered are skipped,\n"
+                                  "so it goes on where it stopped. Generic heads are not rendered (%zu among the filtered heads).\n"
                                   "Renders are kept in %s",
-                                  int(capture::kMaxPlayersPerRequest), faces3d_dir(app).string().c_str());
+                                  int(capture::kMaxPlayersPerRequest), g_r3d.cap.cap(), generic, faces3d_dir(app).string().c_str());
+            if (generic > 0) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%zu generic heads skipped", generic);
+            }
+        } else if (generic > 0) {
+            ImGui::TextDisabled("Every filtered real face has its 3D render (%zu generic heads are not rendered).", generic);
         } else {
             ImGui::TextDisabled("Every filtered head has its 3D render.");
         }

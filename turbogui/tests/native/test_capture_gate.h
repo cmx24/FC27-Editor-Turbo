@@ -63,7 +63,7 @@ inline void cases() {
         const size_t held = req.find("raw->held = true;"), disp = req.find("dispatch_locked(raw);");
         CHECK(held != std::string::npos && disp != std::string::npos && held < disp, "request(): the gate is checked before the game thread gets it");
         const std::string st = capture_watchdog_test::function_body(win, "Status status() override");
-        CHECK(st.find("pump_held_locked();") != std::string::npos && st.find("g_gate.may_submit(real_seconds(), 1, &why)") != std::string::npos,
+        CHECK(st.find("pump_held_locked();") != std::string::npos && st.find("g_gate.may_submit(real_seconds(), 2, &why)") != std::string::npos,
               "status(): a held request is pumped, and `available` stays false while paused (callers wait, nothing fails)");
         const std::string poll = capture_watchdog_test::function_body(win, "bool poll(Result& out) override");
         CHECK(poll.find("if (j->held) return false;") != std::string::npos, "poll(): a held request hands out nothing and has no watchdog");
@@ -85,6 +85,79 @@ inline void cases() {
         CHECK(rt.find("player_capture_display_reinit(\"new swap chain\")") != std::string::npos, "a replaced swap chain is a re-init too");
         const std::string rf = capture_watchdog_test::function_body(ov, "static void render_frame(IDXGISwapChain3* sc)");
         CHECK(rf.find("player_capture_frame();") != std::string::npos, "every presented frame feeds the gate");
+    });
+
+    run_case("1.0.3 player capture pacing: a batch waits 0.25 s after the previous request ended, a single request never", [&] {
+        pc::SubmitGate g;
+        std::string why;
+        CHECK(g.may_submit(0.0, 6, &why), "no request yet: a batch goes");
+        g.request_ended(10.0);
+        CHECK(!g.may_submit(10.05, 6, &why) && why.find("pacing") != std::string::npos, "50 ms after a request ended (the log's gap): a batch waits: " + why);
+        CHECK(g.may_submit(10.05, 1, nullptr), "a single request (Miniface editor, faces card) is never paced");
+        CHECK(!g.may_submit(10.249, 2, nullptr) && g.may_submit(10.25, 2, nullptr), "the gap is 0.25 s");
+        CHECK(pc::GateConfig().batch_gap_s == 0.25 && pc::GateConfig().settle_frames == 120 && pc::GateConfig().settle_s == 2.0, "defaults");
+        // the log's cadence: render 0.64 s + gap -> ~0.9 s per batch of 6 instead of ~0.69 s (a fresh gate: no earlier end)
+        g = pc::SubmitGate();
+        double t = 0.0;
+        int batches = 0;
+        while (t < 60.0) {
+            while (!g.may_submit(t, 6, nullptr)) t += 0.016;  // one frame at 60 fps
+            t += 0.64;
+            g.request_ended(t);
+            ++batches;
+        }
+        CHECK(batches >= 60 && batches <= 70, "about 65 batches a minute at the paced rate (" + std::to_string(batches) + ")");
+    });
+
+    run_case("1.0.3 sweep cap: Render all stops after 600 heads and goes on only after Continue", [&] {
+        pc::SweepCap c;
+        CHECK(c.cap() == 600 && pc::kSweepCapHeads == 600, "600 heads per run");
+        c.start();
+        bool hit = false;
+        int batches = 0;
+        while (!c.held()) {
+            const size_t n = std::min<size_t>(6, c.room());
+            hit = c.sent(n) || hit;
+            ++batches;
+        }
+        CHECK(hit && batches == 100 && c.sent_total() == 600 && c.room() == 0, "100 batches of 6, then held (" + std::to_string(batches) + ")");
+        CHECK(!c.sent(0), "the cap is reported once");
+        c.resume();
+        CHECK(!c.held() && c.room() == 600, "Continue: the next 600");
+        c.sent(4);
+        CHECK(c.room() == 596, "counted");
+        c.start();
+        CHECK(c.sent_total() == 0 && c.room() == 600, "a new Render all starts at 0");
+        pc::SweepCap small(2);
+        small.start();
+        CHECK(small.sent(2) && small.held(), "a cap of 2 holds after 2");
+    });
+
+    run_case("1.0.3 sweep cap and pacing: wired into the face chooser's Render all and the Windows host", [&] {
+        const std::string ui = read_src("ui/ui_faces.cpp");
+        CHECK(!ui.empty(), "ui_faces.cpp read");
+        const std::string tick = capture_watchdog_test::function_body(ui, "void tick_faces3d(App& app)");
+        CHECK(tick.find("g_r3d.cap.room()") != std::string::npos && tick.find("next_heads3d(app, max, room)") != std::string::npos,
+              "tick_faces3d: the Render all queue gives at most the cap's room");
+        CHECK(tick.find("g_r3d.cap.sent(swept)") != std::string::npos && tick.find("faces: Render all paused after ") != std::string::npos,
+              "tick_faces3d: counts the sweep's heads sent and logs the pause once");
+        const std::string bar = capture_watchdog_test::function_body(ui, "static void head3d_bar(App& app, const std::vector<const Face*>& rows)");
+        CHECK(bar.find("if (!head3d_scanned(*f)) {") != std::string::npos && bar.find("if (head3d_scanned(*f) && (!f->game_head") != std::string::npos &&
+                  bar.find("generic heads skipped") != std::string::npos,
+              "owner 2026-11-01: Render all counts and queues scanned heads only, and says how many generic heads it skips");
+        CHECK(ui.find("static bool head3d_scanned(const Face& f) { return f.real || f.game_head; }") != std::string::npos,
+              "scanned = headclasscode 0 (Face::real) or a game head");
+        CHECK(bar.find("face3d_cached(app, face_in_m(*f), head3d_id(*f))) continue;") != std::string::npos,
+              "heads already rendered are skipped: a stopped sweep goes on where it stopped");
+        CHECK(bar.find("Continue (next %zu heads)##r3dcont") != std::string::npos && bar.find("faces3d_sweep_continue()") != std::string::npos &&
+                  bar.find("g_r3d.cap.start();") != std::string::npos,
+              "the chooser: Render all starts a new cap, Continue goes on");
+        const std::string win = read_src("win/player_capture_win.cpp");
+        size_t ends = 0;
+        for (size_t at = win.find("g_gate.request_ended(real_seconds());"); at != std::string::npos; at = win.find("g_gate.request_ended(real_seconds());", at + 1)) ++ends;
+        CHECK(ends == 4, "the host records the end of a request where it leaves g_current: settle, poll (2), cancel (" + std::to_string(ends) + ")");
+        const std::string st = capture_watchdog_test::function_body(win, "Status status() override");
+        CHECK(st.find("g_gate.may_submit(real_seconds(), 2, &why)") != std::string::npos, "status(): not available within the gap after a request");
     });
 }
 

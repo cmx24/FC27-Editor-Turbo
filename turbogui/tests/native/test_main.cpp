@@ -6696,8 +6696,15 @@ static void test_ui() {
             CHECK(ui.find("Stop##faces3d") != nullptr, "progress and Stop on the status line with the chooser closed");
             fake->st.available = true;
             fake->st.max_batch = 1;  // turbo_output\player_capture_batch1.txt: single requests
+            faces3d_set_sweep_cap(1);  // 1.0.3 lane CG: a cap of 1 head: Render all holds after each head until Continue
             for (int k = 0; k < 2; ++k) {
                 ui.frames(2);
+                if (k == 1) {  // 1.0.3 lane CG: the cap (1 head) was reached by the first: nothing more until Continue
+                    CHECK(fake->requests.size() == 3 && faces3d_sweep_held() && faces3d_line().find("paused at 1") != std::string::npos,
+                          fmt("1.0.3 sweep cap: held after 1 head, no request %d (%zu): %s", 4, fake->requests.size(), faces3d_line().c_str()));
+                    faces3d_sweep_continue();
+                    ui.frames(2);
+                }
                 CHECK(fake->requests.size() == size_t(3 + k), fmt("request %d sent with the chooser closed (%zu)", 3 + k, fake->requests.size()));
                 if (fake->requests.size() != size_t(3 + k)) return;
                 const capture::Request& rs = fake->requests.back();
@@ -6711,6 +6718,7 @@ static void test_ui() {
             ui.frames(3);
             CHECK(fs::exists(file3d(r0.batch[4].id)) && fs::exists(file3d(r0.batch[5].id)), "every head rendered");
             CHECK(ui.find("Stop##faces3d") == nullptr && fake->requests.size() == 4, "Render all finished: status line clear, nothing more asked");
+            faces3d_set_sweep_cap(capture::kSweepCapHeads);
             app.capture.reset();
             fs::remove_all(dir, ec);
         });

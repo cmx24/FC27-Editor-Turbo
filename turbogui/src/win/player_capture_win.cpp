@@ -127,6 +127,7 @@ void settle_current_locked() {
         capture_log("request " + j->label + ": " + j->error);
     }
     g_current = nullptr;
+    g_gate.request_ended(real_seconds());  // 1.0.3 lane CG pacing counts from here
 }
 
 bool feature_off() {
@@ -392,17 +393,17 @@ void on_done_invoker(const void* storage) {
 
 // (under g_mutex) Hands a held request to the game thread once the gate opens (1.0.3 lane CG). A cancelled one is no longer
 // g_current, so it is never sent.
-void dispatch_locked(Job* raw) {
+static void dispatch_locked(Job* raw) {
     raw->held = false;
     g_dispatch = run_on_game_thread([raw]() { run_request(raw); });
     capture_log("request " + raw->label + " queued (" + (g_dispatch.empty() ? "no game-thread dispatcher yet" : g_dispatch) + ")");
 }
-std::string gate_reason_locked() {
+static std::string gate_reason_locked() {
     std::string why;
     if (g_gate.may_submit(real_seconds(), 2, &why)) return "waiting for its turn";
     return why;
 }
-void pump_held_locked() {
+static void pump_held_locked() {
     Job* j = g_current;
     if (!j || !j->held || j->cancelled) return;
     if (!g_gate.may_submit(real_seconds(), j->book.size(), nullptr)) return;
@@ -438,10 +439,12 @@ public:
                                        : g_current->ran ? "rendering..." : (g_dispatch == "hook" ? "queued" : "queued: runs on the next career-mode event (advance the calendar / open a screen)");
             return s;
         }
-        // 1.0.3 lane CG: nothing new while the display settles after a re-init (callers wait for `available`, nothing fails)
+        // 1.0.3 lane CG: nothing new while the display settles after a re-init, nor a batch within the pacing gap (callers wait
+        // for `available`, nothing fails; a single request asked right after a batch also waits the gap here: status() does not
+        // know the size of the next request, request() does and never holds a single one for pacing)
         {
             std::string why;
-            if (!g_gate.may_submit(real_seconds(), 1, &why)) {
+            if (!g_gate.may_submit(real_seconds(), 2, &why)) {
                 s.reason = why;
                 return s;
             }
@@ -564,13 +567,19 @@ public:
                 have_pic = true;
                 e = pic.entry;
             } else if (!j->book.take_failed(over, e, why)) {
-                if (over && j->book.all_handed()) g_current = nullptr;  // nothing left to hand out
+                if (over && j->book.all_handed()) {  // nothing left to hand out
+                    g_current = nullptr;
+                    g_gate.request_ended(real_seconds());
+                }
                 return false;
             }
             entry = j->book.entries()[e];
             job_failed = j->failed;  // set after the error text (game thread) or under this mutex (timeout)
             if (job_failed && !have_pic) job_error = j->error;
-            if (over && j->book.all_handed()) g_current = nullptr;  // that was the last head
+            if (over && j->book.all_handed()) {  // that was the last head
+                g_current = nullptr;
+                g_gate.request_ended(real_seconds());
+            }
             job = j;
         }
         out = Result();
@@ -620,6 +629,7 @@ public:
         g_current->book.drop_pictures();
         capture_log("request " + g_current->label + " cancelled");
         g_current = nullptr;
+        g_gate.request_ended(real_seconds());
     }
 
     const Template* learned() override { return g_template.learned ? &g_template : nullptr; }

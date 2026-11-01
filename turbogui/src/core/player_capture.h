@@ -231,6 +231,11 @@ inline bool answer_overdue(double since_ran_s, bool finished, double timeout_s) 
 struct GateConfig {
     int settle_frames = 120;  // ~2 s at 60 fps
     double settle_s = 2.0;
+    // Pacing (lane CG item 3): a batch (more than one head) is submitted at least batch_gap_s after the previous request ended.
+    // turbo_gui.log 2026-11-01: a batch of 6 renders in ~0.64 s wall and the next one went 47-60 ms later (92% of the time the
+    // controller was busy); 0.25 s gives the game >= 15 frames at 60 fps between batches for ~35% fewer heads per minute
+    // (~0.95 s per batch). Single requests (the Miniface editor, the faces card, the Looks studio) are never paced.
+    double batch_gap_s = 0.25;
 };
 class SubmitGate {
 public:
@@ -255,14 +260,26 @@ public:
         return false;
     }
     bool paused() const { return paused_; }
+    // a request ended (its last Result, a cancel, a timeout): the pacing counts from here
+    void request_ended(double now) {
+        ended_ = true;
+        t_end_ = now;
+    }
     // may a request of `heads` heads be submitted now? why = the reason when not
     bool may_submit(double now, size_t heads, std::string* why) const {
-        (void)heads;
         if (paused_) {
             if (why) {
                 char b[160];
                 std::snprintf(b, sizeof(b), "paused (display re-init): %d of %d frames, %.1f of %.1f s", frames_, cfg_.settle_frames, now - t_reinit_,
                               cfg_.settle_s);
+                *why = b;
+            }
+            return false;
+        }
+        if (heads > 1 && ended_ && now - t_end_ < cfg_.batch_gap_s) {
+            if (why) {
+                char b[96];
+                std::snprintf(b, sizeof(b), "pacing: %.2f s between batches", cfg_.batch_gap_s);
                 *why = b;
             }
             return false;
@@ -275,9 +292,41 @@ public:
 
 private:
     GateConfig cfg_;
-    bool paused_ = false;
+    bool paused_ = false, ended_ = false;
     int frames_ = 0, reinits_ = 0;
-    double t_reinit_ = 0.0;
+    double t_reinit_ = 0.0, t_end_ = 0.0;
+};
+
+// Lane CG item 3: a bulk sweep ("Render all filtered heads", ui_faces.cpp) stops after `cap` heads and goes on only after the
+// user's Continue (the next `cap`). 600 heads = 100 batches = ~95 s at the paced rate: well under the 3,252 heads (542 batches)
+// sent back to back before the 2026-11-01 crash, small enough that a sweep never runs unattended for long. Heads on screen (the
+// visible tiles) are not counted: they are what the user is looking at.
+constexpr size_t kSweepCapHeads = 600;
+class SweepCap {
+public:
+    explicit SweepCap(size_t cap = kSweepCapHeads) : cap_(cap ? cap : 1) {}
+    void start() {  // a new sweep (Render all): the count starts at 0
+        sent_ = 0;
+        limit_ = cap_;
+    }
+    // heads of the sweep sent to the game; true when this reaches the cap (the caller logs the pause once)
+    bool sent(size_t heads) {
+        const bool was = held();
+        sent_ += heads;
+        return !was && held();
+    }
+    bool held() const { return sent_ >= limit_; }
+    size_t room() const { return held() ? 0 : limit_ - sent_; }  // heads the sweep may still send before the cap
+    void resume() { limit_ = sent_ + cap_; }                     // the user's Continue: the next `cap` heads
+    size_t sent_total() const { return sent_; }
+    size_t cap() const { return cap_; }
+    void set_cap(size_t c) {  // tests
+        cap_ = c ? c : 1;
+        limit_ = sent_ + cap_;
+    }
+
+private:
+    size_t cap_, sent_ = 0, limit_ = kSweepCapHeads;
 };
 
 // ---------------------------------------------------------------- the game's callback object
