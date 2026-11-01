@@ -683,6 +683,32 @@ void draw_look_and_feel(App& app) {
         if (!app.save_gui_settings()) app.notify("cannot save the row height", true);
     }
     ImGui::TextDisabled("Drag column edges to resize columns; drag the line between panels to resize panels.");
+
+    form_label("Theme", "Visual appearance and contrast mode");
+    const char* themes[] = {"Broadcast dark", "High-contrast studio (AAA)"};
+    int cur_theme = static_cast<int>(turbo::x2::theme_mode());
+    ImGui::SetNextItemWidth(S(240.0f));
+    if (ImGui::Combo("##theme_select", &cur_theme, themes, 2)) {
+        turbo::x2::set_theme_mode(static_cast<turbo::x2::ThemeMode>(cur_theme));
+        app.update_style();
+        if (!app.save_gui_settings()) app.notify("cannot save the settings", true);
+    }
+
+    bool red_motion = turbo::x2::reduce_motion();
+    if (ImGui::Checkbox("Reduce motion###reduce_motion", &red_motion)) {
+        turbo::x2::set_reduce_motion(red_motion);
+        if (!app.save_gui_settings()) app.notify("cannot save the settings", true);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Turns off animated transitions and pauses visual picker preview playback.");
+
+    bool pause_gifs = turbo::x2::pause_gifs();
+    if (ImGui::Checkbox("Pause animations###pause_gifs", &pause_gifs)) {
+        turbo::x2::set_pause_gifs(pause_gifs);
+        if (!app.save_gui_settings()) app.notify("cannot save the settings", true);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Pauses animated previews in visual pickers and body views.");
 }
 
 void draw_preferences(App& app, bool with_look) {

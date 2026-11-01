@@ -154,6 +154,28 @@ inline bool can_history_forward() {
     return s.history_idx >= 0 && s.history_idx + 1 < static_cast<int>(s.history.size());
 }
 
+inline bool history_back(shell::Place& out_pl, int64_t& out_player, int64_t& out_team) {
+    RuntimeState& s = state();
+    if (s.history_idx <= 0 || s.history.empty()) return false;
+    --s.history_idx;
+    const auto& entry = s.history[static_cast<size_t>(s.history_idx)];
+    out_pl = entry.place;
+    out_player = entry.player;
+    out_team = entry.team;
+    return true;
+}
+
+inline bool history_forward(shell::Place& out_pl, int64_t& out_player, int64_t& out_team) {
+    RuntimeState& s = state();
+    if (s.history_idx < 0 || s.history_idx + 1 >= static_cast<int>(s.history.size())) return false;
+    ++s.history_idx;
+    const auto& entry = s.history[static_cast<size_t>(s.history_idx)];
+    out_pl = entry.place;
+    out_player = entry.player;
+    out_team = entry.team;
+    return true;
+}
+
 // ---- JSON persistence into gui_settings.json["gui"]
 inline void load_from_json(const nlohmann::json& root) {
     RuntimeState& s = state();

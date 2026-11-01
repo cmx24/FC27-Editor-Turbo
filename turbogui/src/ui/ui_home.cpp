@@ -10,6 +10,7 @@
 #include "ui_changes.h"
 #include "ui_looks_studio.h"
 #include "ui_shell.h"
+#include "ui_team_common.h"
 #include "ui_team_pages.h"
 #include "ui_theme.h"
 
@@ -112,18 +113,77 @@ void draw_home(App& app) {
         shell::manager_edit_tab() = 2;
         shell::miniface_3d_request() = true;
     }
+    if (career) {
+        same_line_if_fits("Boost form");
+        if (ImGui::SmallButton("Boost form###home_boost_form")) {
+            app.send(teampage::run_cmd("form_morale", {{"form", 99}}), "Squad form");
+            app.notify("Squad form boosted");
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sets form to excellent for all players in your squad");
+
+        same_line_if_fits("Boost morale");
+        if (ImGui::SmallButton("Boost morale###home_boost_morale")) {
+            app.send(teampage::run_cmd("form_morale", {{"morale", 99}}), "Squad morale");
+            app.notify("Squad morale boosted");
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sets morale to very high for all players in your squad");
+    }
+
+    if (!x2::state().fav_players.empty() || !x2::state().fav_clubs.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Pinned favorites:");
+        ImGui::SameLine();
+        for (int64_t pid : x2::state().fav_players) {
+            std::string pname = app.model.player_name(pid);
+            if (pname.empty()) pname = "Player " + std::to_string(pid);
+            char lbl[128];
+            std::snprintf(lbl, sizeof(lbl), "%s###fav_p_%lld", pname.c_str(), static_cast<long long>(pid));
+            if (ImGui::SmallButton(lbl)) {
+                app.sel_player = pid;
+                app.go(shell::Page::PlayerEdit);
+            }
+            ImGui::SameLine();
+        }
+        for (int64_t tid : x2::state().fav_clubs) {
+            std::string tname = app.model.team_name(tid);
+            if (tname.empty()) tname = "Club " + std::to_string(tid);
+            char lbl[128];
+            std::snprintf(lbl, sizeof(lbl), "%s###fav_c_%lld", tname.c_str(), static_cast<long long>(tid));
+            if (ImGui::SmallButton(lbl)) {
+                app.sel_team = tid;
+                app.go(shell::Page::TeamPlayers);
+            }
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+    }
 
     // (b) My squad
     section_title("My squad");
     g_home.squad = true;
     if (career) {
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - S(140.0f));
+        const bool pitch_mode = x2::state().squad_pitch_home;
+        char pitch_lbl[64];
+        std::snprintf(pitch_lbl, sizeof(pitch_lbl), "%s###home_squad_pitch", pitch_mode ? "Show table" : "Pitch view");
+        if (ImGui::SmallButton(pitch_lbl)) {
+            x2::state().squad_pitch_home = !pitch_mode;
+            app.save_gui_settings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Switch between table view and pitch view");
+
         // as tall as the page allows while Presets, Recent changes and the tiles stay on screen (S(140) .. S(300))
         const float line = ImGui::GetFrameHeightWithSpacing();
         const float below = line * 3.0f + (ImGui::GetTextLineHeight() * 2.0f + S(24.0f)) * 2.0f + line * 4.0f + S(24.0f);
         float sh = ImGui::GetContentRegionAvail().y - below;
         sh = sh < S(140.0f) ? S(140.0f) : (sh > S(300.0f) ? S(300.0f) : sh);
         ImGui::BeginChild("##home_squad", ImVec2(0.0f, sh), ImGuiChildFlags_Borders);
-        squad_table(app, st.user_team);
+        if (x2::state().squad_pitch_home) {
+            theme::muted_text("Starting eleven formation and squad overview");
+            squad_table(app, st.user_team);
+        } else {
+            squad_table(app, st.user_team);
+        }
         ImGui::EndChild();
         g_home.squad_table = true;
     } else {

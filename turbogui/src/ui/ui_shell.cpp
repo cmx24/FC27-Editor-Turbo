@@ -186,12 +186,29 @@ bool g_dev_page_drawn = false;  // Turbo was shown in the frame that applied it 
 
 bool find_place(const std::string& area, const std::string& page, Place& out, std::string& error) {
     out = Place{};
+    std::string a_req = area;
+    std::string p_req = page;
+
+    // Aliases (keep canonical area_label and page_label untouched)
+    if (same_label(a_req, "hub")) {
+        a_req = area_label(Area::Home);
+        if (p_req.empty() || same_label(p_req, "hub")) p_req = page_label(Page::Home);
+    } else if (same_label(a_req, "clubs")) {
+        a_req = area_label(Area::Club);
+    } else if (same_label(a_req, "managers")) {
+        a_req = area_label(Area::Squad);
+        if (p_req.empty() || same_label(p_req, "managers")) p_req = page_label(Page::Staff);
+    } else if (same_label(a_req, "saves & studio") || same_label(a_req, "profiles")) {
+        a_req = area_label(Area::Career);
+        if (p_req.empty() || same_label(p_req, "saves & studio") || same_label(p_req, "profiles")) p_req = page_label(Page::ChangesUndo);
+    }
+
     for (int ai = 0; ai < kAreaCount; ++ai) {
         const Area a = static_cast<Area>(ai);
-        if (!same_label(area, area_label(a))) continue;
+        if (!same_label(a_req, area_label(a))) continue;
         std::string names;
         for (Page p : pages_of(a)) {
-            if (same_label(page, page_label(p))) {
+            if (same_label(p_req, page_label(p))) {
                 out = Place{a, p};
                 return true;
             }

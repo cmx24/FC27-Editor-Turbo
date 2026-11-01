@@ -83,7 +83,9 @@ void App::update_style() {
     ImGuiIO& io = ImGui::GetIO();
     float want = auto_ui_scale(io.DisplaySize.y) * std::max(kUiScaleMin, std::min(kUiScaleMax, ui_scale_user));
     want = std::round(want * 20.0f) / 20.0f;
-    if (want == ui_scale_applied && prefs.row_height == row_height_applied) return;
+    static turbo::x2::ThemeMode theme_applied = turbo::x2::ThemeMode::BroadcastDark;
+    if (want == ui_scale_applied && prefs.row_height == row_height_applied && turbo::x2::theme_mode() == theme_applied) return;
+    theme_applied = turbo::x2::theme_mode();
     ImGuiStyle& st = ImGui::GetStyle();
     // Start from Dear ImGui's unscaled sizes every time: ScaleAllSizes multiplies what is there, and turbo_theme only
     // resets a few sizes, so each scale change (window height, UI size, Ctrl + wheel) used to grow the scrollbars,
@@ -111,6 +113,7 @@ void App::update_style() {
 
 App::App(Memory& m, fs::path le_root, uint64_t mailbox_addr, std::string sess)
     : mem(m), bridge(std::move(le_root)), db(m), model(db), session(std::move(sess)), legacy(bridge.root()) {
+    turbo::x2::reset_for_new_app();
     preloader = std::make_unique<Preloader>();
     shell::back_place() = shell::Place{};  // 3.1 N1: a new App has nothing to go back to (the value is a static; tests build several Apps)
     game_root = game_root_from_process();
@@ -1772,6 +1775,7 @@ void App::load_gui_settings() {
         const json& c = gui_settings["callnames"];
         if (c.contains("bank_team") && c["bank_team"].is_string()) callnames.bank_team_setting = c["bank_team"].get<std::string>();
     }
+    turbo::x2::load_from_json(gui_settings);
 }
 
 bool App::save_gui_settings() {
@@ -1779,6 +1783,7 @@ bool App::save_gui_settings() {
     gui_settings["gui"]["toggle_mods"] = toggle_mods;
     gui_settings["gui"]["ui_scale"] = std::round(ui_scale_user * 100.0f) / 100.0f;
     prefs.save(gui_settings);
+    turbo::x2::save_to_json(gui_settings);
     if (gui_settings["gui"].is_object()) {  // the old pages and the card view are gone: a stored choice is dropped, as an unticked one was
         gui_settings["gui"].erase("legacy_pages");
         gui_settings["gui"].erase("player_card_view");
@@ -1794,6 +1799,7 @@ void App::go(shell::Area a, shell::Page p) {
     if (p == Page::None || p == Page::Count || area_of(p) != a) return;
     go_to_ = Place{a, p};
     back_nav_ = false;
+    turbo::x2::history_record(Place{a, p}, sel_player, sel_team);
 }
 
 // 3.1 N1: the place the last navigation left, one level. The target is taken like any go(): at the next draw_pages(), where the place
@@ -1905,8 +1911,21 @@ void global_search_pick(App& app, GlobalSearch& g, size_t i) {
 
 static void draw_global_search(App& app) {
     GlobalSearch& g = global_search();
+    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_K)) {
+        ImGui::SetKeyboardFocusHere();
+    }
     ImGui::SetNextItemWidth(S(240.0f));
     const bool enter = ImGui::InputTextWithHint("##gsearch", "Search players and clubs", g.buf, sizeof(g.buf), ImGuiInputTextFlags_EnterReturnsTrue);
+    if (g.buf[0] != '\0') {
+        ImGui::SameLine(0.0f, S(4.0f));
+        if (ImGui::SmallButton("x###gsearch_clear")) {
+            g.buf[0] = '\0';
+            g.query.clear();
+            g.hits.clear();
+            g.open = false;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear search text");
+    }
     const ImVec2 under(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y + S(2.0f));
     const bool box_active = ImGui::IsItemActive();
     if (box_active) g.open = true;
@@ -2109,6 +2128,7 @@ void App::draw_pages() {
 }
 
 void App::draw() {
+    turbo::x2::begin_frame();
     shell::dev_page_pump(*this);  // 4.0 S0a: the dev-service open_page op (ui_shell.h), first thing in the frame, hidden or not
     textures.new_frame(now);
     zoom_input(*this);  // Ctrl + mouse wheel / Ctrl + 0 (ui_zoom.h); the style follows on the next tick
@@ -2394,6 +2414,36 @@ void App::draw() {
     }
     ImGui::SameLine(0.0f, S(16.0f));
     draw_global_search(*this);  // 3.0: "Search players and clubs" (Enter or a click on a result opens it)
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!turbo::x2::can_history_back());
+    if (ImGui::SmallButton("<###hist_back")) {
+        shell::Place pl; int64_t pid = 0, tid = 0;
+        if (turbo::x2::history_back(pl, pid, tid)) {
+            turbo::x2::state().history_Applying = true;
+            if (pid > 0) sel_player = pid;
+            if (tid > 0) sel_team = tid;
+            go(pl.area, pl.page);
+            turbo::x2::state().history_Applying = false;
+        }
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go back in navigation history");
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!turbo::x2::can_history_forward());
+    if (ImGui::SmallButton(">###hist_fwd")) {
+        shell::Place pl; int64_t pid = 0, tid = 0;
+        if (turbo::x2::history_forward(pl, pid, tid)) {
+            turbo::x2::state().history_Applying = true;
+            if (pid > 0) sel_player = pid;
+            if (tid > 0) sel_team = tid;
+            go(pl.area, pl.page);
+            turbo::x2::state().history_Applying = false;
+        }
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Go forward in navigation history");
+
     if (busy()) {
         ImGui::SameLine(ImGui::GetWindowWidth() - S(380.0f));
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Waiting: %s", usertext::pending_text(pending_label).c_str());
@@ -2415,6 +2465,22 @@ void App::draw() {
             else notify(db_error, true);
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Read the lists from the game again");
+
+        ImGui::SameLine();
+        const bool gifs_p = turbo::x2::pause_gifs();
+        char gif_lbl[64];
+        std::snprintf(gif_lbl, sizeof(gif_lbl), "%s###top_pause_gifs", gifs_p ? "Resume animations" : "Pause animations");
+        if (ImGui::SmallButton(gif_lbl)) {
+            turbo::x2::set_pause_gifs(!gifs_p);
+            save_gui_settings();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pause or resume GIF animations across pickers");
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Profiles###top_profiles")) {
+            go(shell::Area::Career, shell::Page::ChangesUndo);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manage saved edit profiles");
     }
     {
         // the Changes button, right-aligned: what Turbo puts back at every career load (Career tools > Changes & undo)

@@ -85,7 +85,8 @@ static void test_shell() {
                              {Page::Identity, "Name, colours & crest"}, {Page::TeamPlayers, "Squad"}, {Page::TeamTransfers, "Transfers"},
                              {Page::StadiumExtras, "Stadium & extras"}, {Page::TacticPresets, "Presets"}, {Page::TeamSheet, "Team sheet & bench"},
                              {Page::GameplayPresets, "Game settings & CPU sliders"}, {Page::Standings, "Standings"}, {Page::Transfers, "Money & transfers"},
-                             {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"}};
+                             {Page::JobOffer, "Manager jobs"}, {Page::CMTracker, "Season pack"}, {Page::ChangesUndo, "Changes & undo"},
+                             {Page::Settings, "Settings"}};
         for (const L& l : names30) CHECK(std::string(page_label(l.p)) == l.label, std::string("3.0 label: ") + l.label);
         CHECK(sizeof(names30) / sizeof(names30[0]) == static_cast<size_t>(kPageCount - 1), "every page is in the 3.0 label table");
         for (Page p : shell_all_pages()) CHECK(std::string(page_label(p)).find("(Lab)") == std::string::npos, "no page says (Lab)");
