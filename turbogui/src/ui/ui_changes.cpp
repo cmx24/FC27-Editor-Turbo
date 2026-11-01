@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "app.h"
+#include "core/edit_profiles.h"
 #include "imgui.h"
 #include "table_registry.h"
 #include "ui_kits.h"
@@ -739,6 +740,143 @@ void card_never() {
     }
 }
 
+void card_profiles(App& app) {
+    ImGui::SeparatorText("Saved edit profiles");
+    theme::muted_text("Save, compare, and switch collections of player, kit, and name edits across saves without touching game save files.");
+    ImGui::Spacing();
+
+    // 1. Revert button if an applied profile has a snapshot
+    if (profiles::can_revert_last_apply()) {
+        const std::string name = profiles::last_applied_profile_name();
+        ImGui::AlignTextToFramePadding();
+        theme::chip("Profile applied", theme::accent());
+        ImGui::SameLine();
+        ImGui::Text("%s", name.empty() ? "Custom profile" : name.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Revert edits###changes_prof_revert")) {
+            std::string summary, err;
+            if (profiles::revert_last_apply(app, &summary, &err)) {
+                app.notify(summary, false);
+            } else {
+                app.notify("Failed to revert: " + err, true);
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("1-click rollback: restore all edits to the state before this profile was applied");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
+
+    // 2. Save current edits as profile
+    static char s_save_name[64] = "";
+    ImGui::AlignTextToFramePadding();
+    theme::muted_text("Save current edits as:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(220.0f));
+    ImGui::InputTextWithHint("##prof_save_input", "Profile name (e.g. Serie A Realism)", s_save_name, sizeof(s_save_name));
+    ImGui::SameLine();
+    const bool can_save = s_save_name[0] != '\0';
+    if (!can_save) ImGui::BeginDisabled();
+    if (ImGui::Button("Save profile###prof_save_btn")) {
+        std::string slug, err;
+        if (profiles::save_profile(app, s_save_name, &slug, &err)) {
+            app.notify("Profile saved as " + slug + ".turbox.json", false);
+            s_save_name[0] = '\0';
+        } else {
+            app.notify("Save failed: " + err, true);
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Package current edits into a transactional .turbox.json profile");
+    if (!can_save) ImGui::EndDisabled();
+
+    ImGui::Spacing();
+
+    // 3. List of saved profiles
+    const auto slots = profiles::list_profiles(app.bridge.root());
+    if (slots.empty()) {
+        theme::muted_text("No saved edit profiles yet. Type a name above and click Save profile.");
+    } else {
+        static std::string s_diff_slug;
+        static profiles::ProfileDiff s_diff_data;
+        static bool s_show_diff = false;
+
+        for (size_t i = 0; i < slots.size(); ++i) {
+            const auto& s = slots[i];
+            ImGui::PushID(static_cast<int>(i));
+
+            ImGui::Text("%s", s.name.c_str());
+            ImGui::SameLine();
+            theme::muted_text("(%s)", s.slug.c_str());
+            ImGui::SameLine();
+            if (s.valid_checksum) {
+                theme::chip("Verified", ImVec4(0.12f, 0.40f, 0.25f, 1.0f));
+            } else {
+                theme::chip("Corrupt", ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
+            }
+
+            ImGui::Text("  %zu player edits | %zu kits | %zu commentary | %zu team names",
+                        s.players, s.kits, s.callnames + s.club_voices, s.team_names);
+            if (!s.updated_at.empty()) {
+                ImGui::SameLine();
+                theme::muted_text("| %s", s.updated_at.c_str());
+            }
+
+            // Actions: Preview diff, Apply, Delete
+            if (ImGui::SmallButton("Preview differences###prof_btn_diff")) {
+                std::string err;
+                if (profiles::diff_profile(app, s.slug, s_diff_data, &err)) {
+                    s_diff_slug = s.slug;
+                    s_show_diff = true;
+                } else {
+                    app.notify("Cannot diff: " + err, true);
+                }
+            }
+            ImGui::SameLine();
+            if (!s.valid_checksum) ImGui::BeginDisabled();
+            if (ImGui::SmallButton("Apply###prof_btn_apply")) {
+                std::string summary, err;
+                if (profiles::apply_profile(app, s.slug, &summary, &err)) {
+                    app.notify(summary, false);
+                } else {
+                    app.notify("Apply failed: " + err, true);
+                }
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Apply this profile's edits to the live session (creates 1-click revert snapshot)");
+            if (!s.valid_checksum) ImGui::EndDisabled();
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete###prof_btn_delete")) {
+                std::string err;
+                if (profiles::delete_profile(app.bridge.root(), s.slug, &err)) {
+                    app.notify("Deleted profile " + s.slug, false);
+                    if (s_diff_slug == s.slug) s_show_diff = false;
+                } else {
+                    app.notify("Delete failed: " + err, true);
+                }
+            }
+
+            // Expanded Diff view
+            if (s_show_diff && s_diff_slug == s.slug) {
+                ImGui::Indent();
+                ImGui::Spacing();
+                theme::chip("Differences vs current session", theme::accent());
+                for (const auto& line : s_diff_data.lines) {
+                    ImGui::Bullet();
+                    ImGui::TextUnformatted(line.c_str());
+                }
+                if (ImGui::SmallButton("Close preview###prof_diff_close")) {
+                    s_show_diff = false;
+                }
+                ImGui::Spacing();
+                ImGui::Unindent();
+            }
+
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+    }
+}
+
 void editor_changes(App& app, void*) {
     poll(app);
     theme::muted_text("What did I change?");
@@ -751,6 +889,8 @@ void editor_changes(App& app, void*) {
     card_never();
     ImGui::Spacing();
     kept_player_edits_section(app);  // 2.22 G-squad (v2.14 capability): per-field Kept / Was / Now with Forget and Forget all
+    ImGui::Spacing();
+    card_profiles(app);
 }
 
 }  // namespace

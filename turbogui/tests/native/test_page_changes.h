@@ -10,6 +10,8 @@
 // Every case runs on an emptied undo stack / bulk list / kept-edit store (put back afterwards) so the cases do not depend on what the
 // cases before them left behind.
 #pragma once
+#include "core/edit_profiles.h"
+#include "core/player_file.h"
 #include "ui/ui_changes.h"
 #include "ui/ui_shell.h"
 
@@ -236,6 +238,48 @@ static void ui_cases(App& app, Ui& ui, const fs::path& le) {
         ui.frames(3);
         CHECK(app.place() == shell::place_of(shell::Page::TacticPresets), "the Tactic presets page opened");
         hide(ui);
+    });
+
+    run_case("Edit profiles: save, list, checksum integrity, diff, apply, 1-click revert, and rating clamp (W-E)", [&] {
+        Sandbox sb(app, ui);
+        profiles::reset_session_for_tests();
+
+        std::string slug, err;
+        CHECK(profiles::save_profile(app, "Serie A Realism", &slug, &err), "save_profile");
+        CHECK(slug == "serie_a_realism", "slug generation: " + slug);
+
+        const auto list = profiles::list_profiles(app.bridge.root());
+        CHECK(!list.empty(), "profiles listed");
+        bool found = false;
+        for (const auto& it : list) {
+            if (it.slug == "serie_a_realism") {
+                found = true;
+                CHECK(it.valid_checksum, "checksum valid");
+                CHECK(it.name == "Serie A Realism", "name match");
+            }
+        }
+        CHECK(found, "saved profile found in slot list");
+
+        profiles::ProfileDiff diff;
+        CHECK(profiles::diff_profile(app, slug, diff, &err), "diff_profile");
+        CHECK(diff.valid_checksum, "diff valid checksum");
+
+        std::string summary;
+        CHECK(profiles::apply_profile(app, slug, &summary, &err), "apply_profile");
+        CHECK(profiles::can_revert_last_apply(), "can_revert_last_apply true");
+        CHECK(profiles::last_applied_profile_name() == "Serie A Realism", "last_applied_profile_name: " + profiles::last_applied_profile_name());
+
+        CHECK(profiles::revert_last_apply(app, &summary, &err), "revert_last_apply");
+        CHECK(!profiles::can_revert_last_apply(), "can_revert_last_apply false after revert");
+
+        CHECK(profiles::delete_profile(app.bridge.root(), slug, &err), "delete_profile");
+
+        // Rating attribute clamping check
+        nlohmann::json test_preset = {{"players", {{"overallrating", 140}, {"acceleration", 0}, {"finishing", 95}}}};
+        clamp_preset_ratings(test_preset);
+        CHECK(test_preset["players"]["overallrating"] == 99, "overall clamped to 99");
+        CHECK(test_preset["players"]["acceleration"] == 1, "acceleration clamped to 1");
+        CHECK(test_preset["players"]["finishing"] == 95, "finishing 95 preserved");
     });
 }
 

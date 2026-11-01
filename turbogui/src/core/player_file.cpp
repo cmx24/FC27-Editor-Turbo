@@ -417,4 +417,23 @@ PlayerFilePreset player_file_to_preset(const PlayerFile& f, const PlayerFileOpti
     return r;
 }
 
+void clamp_preset_ratings(nlohmann::json& preset) {
+    if (!preset.is_object() || !preset.contains("players") || !preset["players"].is_object()) return;
+    auto& pl = preset["players"];
+    static const char* const kRatings[] = {
+        "acceleration", "aggression", "agility", "balance", "ballcontrol", "composure", "crossing", "curve",
+        "defensiveawareness", "dribbling", "finishing", "freekickaccuracy", "gkdiving", "gkhandling", "gkkicking",
+        "gkpositioning", "gkreflexes", "headingaccuracy", "interceptions", "jumping", "longpassing", "longshots",
+        "overallrating", "penalties", "positioning", "potential", "reactions", "shortpassing", "shotpower",
+        "slidingtackle", "sprintspeed", "stamina", "standingtackle", "strength", "vision", "volleys"
+    };
+    for (const char* key : kRatings) {
+        if (pl.contains(key) && pl[key].is_number()) {
+            const int64_t v = pl[key].get<int64_t>();
+            if (v < 1) pl[key] = 1;
+            else if (v > 99) pl[key] = 99;
+        }
+    }
+}
+
 }  // namespace turbo

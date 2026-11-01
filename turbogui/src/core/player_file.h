@@ -69,4 +69,7 @@ struct PlayerFilePreset {
 };
 PlayerFilePreset player_file_to_preset(const PlayerFile& f, const PlayerFileOptions& o);
 
+// 2.0 Edit Profiles & RDBM safety: Clamps rating attributes in preset "players" to 1..99.
+void clamp_preset_ratings(nlohmann::json& preset);
+
 }  // namespace turbo

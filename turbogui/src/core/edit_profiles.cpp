@@ -110,40 +110,371 @@ std::vector<ProfileSlotInfo> list_profiles(const fs::path& le_root) {
             const auto& r = p["reapply"];
             if (r.contains("players") && r["players"].is_array()) info.players = r["players"].size();
             if (r.contains("kits") && r["kits"].is_array()) info.kits = r["kits"].size();
-            if (r.contains("callnames") && r["callnames"].is_array()) info.callnames = r["callnames"].size();
+            if (r.contains("playernamemap") && r["playernamemap"].is_array()) info.callnames = r["playernamemap"].size();
+            else if (r.contains("callnames") && r["callnames"].is_array()) info.callnames = r["callnames"].size();
         }
-        if (p.contains("club_voice") && p["club_voice"].is_object() && p["club_voice"].contains("entries") && p["club_voice"]["entries"].is_array())
-            info.club_voices = p["club_voice"]["entries"].size();
-        if (p.contains("team_names") && p["team_names"].is_object() && p["team_names"].contains("entries") && p["team_names"]["entries"].is_array())
-            info.team_names = p["team_names"]["entries"].size();
+        if (p.contains("club_voice") && p["club_voice"].is_object()) {
+            const auto& cv = p["club_voice"];
+            if (cv.contains("clubs") && cv["clubs"].is_array()) info.club_voices = cv["clubs"].size();
+            else if (cv.contains("entries") && cv["entries"].is_array()) info.club_voices = cv["entries"].size();
+        }
+        if (p.contains("team_names") && p["team_names"].is_object()) {
+            const auto& tn = p["team_names"];
+            if (tn.contains("teams") && tn["teams"].is_array()) info.team_names = tn["teams"].size();
+            else if (tn.contains("entries") && tn["entries"].is_array()) info.team_names = tn["entries"].size();
+        }
         out.push_back(std::move(info));
     }
     std::sort(out.begin(), out.end(), [](const ProfileSlotInfo& a, const ProfileSlotInfo& b) { return a.slug < b.slug; });
     return out;
 }
 
-bool save_profile(App&, const std::string&, std::string*, std::string* err) {
-    if (err) *err = "save_profile stub";
+static std::string s_last_applied_name;
+static fs::path s_last_le_root;
+
+static fs::path pre_apply_file(const fs::path& le_root) {
+    return profiles_dir(le_root) / "_pre_apply.turbox.json";
+}
+
+bool save_profile(App& app, const std::string& name, std::string* out_slug, std::string* err) {
+    if (name.empty()) {
+        if (err) *err = "Profile name cannot be empty";
+        return false;
+    }
+    const std::string slug = sanitize_slug(name);
+    if (out_slug) *out_slug = slug;
+
+    const fs::path le_root = app.bridge.root();
+    s_last_le_root = le_root;
+    const fs::path dir = profiles_dir(le_root);
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) {
+        if (err) *err = "Failed to create profiles folder: " + ec.message();
+        return false;
+    }
+
+    nlohmann::json payload = nlohmann::json::object();
+    try {
+        payload["reapply"] = nlohmann::json::parse(reapply_json(app.reapply));
+    } catch (...) {
+        payload["reapply"] = nlohmann::json::object();
+    }
+    try {
+        payload["club_voice"] = nlohmann::json::parse(clubvoice::store_json(app.club_voice));
+    } catch (...) {
+        payload["club_voice"] = nlohmann::json::object();
+    }
+    try {
+        payload["team_names"] = nlohmann::json::parse(tnames::store_json(app.team_names));
+    } catch (...) {
+        payload["team_names"] = nlohmann::json::object();
+    }
+
+    const std::string payload_dump = payload.dump();
+    const std::string sha = sha256_hex(payload_dump);
+
+    std::time_t t = std::time(nullptr);
+    char tbuf[64] = {};
+    std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
+
+    nlohmann::json root = nlohmann::json::object();
+    root["format"] = "turbo-profile";
+    root["version"] = 1;
+    root["slug"] = slug;
+    root["name"] = name;
+    root["career"] = app.reapply.career;
+    root["updated_at"] = tbuf;
+    root["sha256"] = sha;
+    root["payload"] = payload;
+
+    const fs::path target = dir / (slug + ".turbox.json");
+    const fs::path tmp = dir / (slug + ".turbox.tmp");
+
+    std::ofstream f(tmp, std::ios::binary);
+    if (!f) {
+        if (err) *err = "Failed to open temporary file for writing: " + tmp.string();
+        return false;
+    }
+    f << root.dump(2);
+    f.close();
+    if (!f) {
+        fs::remove(tmp, ec);
+        if (err) *err = "Failed to flush profile data to disk";
+        return false;
+    }
+
+    ec.clear();
+    fs::rename(tmp, target, ec);
+    if (ec) {
+        fs::remove(target, ec);
+        ec.clear();
+        fs::rename(tmp, target, ec);
+        if (ec) {
+            fs::remove(tmp, ec);
+            if (err) *err = "Failed to rename temporary profile file to " + target.string();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool delete_profile(const fs::path& le_root, const std::string& slug, std::string* err) {
+    const fs::path target = profiles_dir(le_root) / (slug + ".turbox.json");
+    std::error_code ec;
+    if (!fs::exists(target, ec)) {
+        if (err) *err = "Profile not found";
+        return false;
+    }
+    fs::remove(target, ec);
+    if (ec) {
+        if (err) *err = "Failed to delete profile: " + ec.message();
+        return false;
+    }
+    return true;
+}
+
+bool diff_profile(App& app, const std::string& slug, ProfileDiff& out, std::string* err) {
+    out = ProfileDiff{};
+    out.slug = slug;
+    const fs::path le_root = app.bridge.root();
+    s_last_le_root = le_root;
+    const fs::path target = profiles_dir(le_root) / (slug + ".turbox.json");
+    std::ifstream f(target, std::ios::binary);
+    if (!f) {
+        if (err) *err = "Profile file not found: " + target.string();
+        return false;
+    }
+    nlohmann::json root = nlohmann::json::parse(f, nullptr, false);
+    if (!root.is_object() || !root.contains("payload") || !root["payload"].is_object()) {
+        if (err) *err = "Profile corrupted: invalid JSON structure";
+        return false;
+    }
+    out.name = root.value("name", slug);
+    const std::string expected_sha = root.value("sha256", "");
+    const nlohmann::json& payload = root["payload"];
+    const std::string actual_sha = sha256_hex(payload.dump());
+    if (expected_sha != actual_sha) {
+        out.valid_checksum = false;
+        if (err) *err = "Profile checksum mismatch: expected " + expected_sha + ", got " + actual_sha;
+        return false;
+    }
+    out.valid_checksum = true;
+
+    if (payload.contains("reapply") && payload["reapply"].is_object()) {
+        const auto& r = payload["reapply"];
+        if (r.contains("players") && r["players"].is_array()) {
+            out.players_changed = r["players"].size();
+            if (out.players_changed > 0)
+                out.lines.push_back("+ " + std::to_string(out.players_changed) + " player attribute, growth & role edits");
+        }
+        if (r.contains("kits") && r["kits"].is_array()) {
+            out.kits_changed = r["kits"].size();
+            if (out.kits_changed > 0)
+                out.lines.push_back("+ " + std::to_string(out.kits_changed) + " kit colour and font modifications");
+        }
+        if (r.contains("playernamemap") && r["playernamemap"].is_array()) {
+            out.callnames_changed = r["playernamemap"].size();
+        } else if (r.contains("callnames") && r["callnames"].is_array()) {
+            out.callnames_changed = r["callnames"].size();
+        }
+        if (out.callnames_changed > 0)
+            out.lines.push_back("+ " + std::to_string(out.callnames_changed) + " player callname assignments");
+    }
+    if (payload.contains("club_voice") && payload["club_voice"].is_object()) {
+        const auto& cv = payload["club_voice"];
+        if (cv.contains("clubs") && cv["clubs"].is_array()) {
+            out.club_voices_changed = cv["clubs"].size();
+        } else if (cv.contains("entries") && cv["entries"].is_array()) {
+            out.club_voices_changed = cv["entries"].size();
+        }
+        if (out.club_voices_changed > 0)
+            out.lines.push_back("+ " + std::to_string(out.club_voices_changed) + " club commentary name mappings");
+    }
+    if (payload.contains("team_names") && payload["team_names"].is_object()) {
+        const auto& tn = payload["team_names"];
+        if (tn.contains("teams") && tn["teams"].is_array()) {
+            out.team_names_changed = tn["teams"].size();
+        } else if (tn.contains("entries") && tn["entries"].is_array()) {
+            out.team_names_changed = tn["entries"].size();
+        }
+        if (out.team_names_changed > 0)
+            out.lines.push_back("+ " + std::to_string(out.team_names_changed) + " live team name overrides");
+    }
+    if (out.lines.empty()) {
+        out.lines.push_back("Profile is empty or has no changes.");
+    }
+    return true;
+}
+
+bool apply_profile(App& app, const std::string& slug, std::string* summary, std::string* err) {
+    const fs::path le_root = app.bridge.root();
+    s_last_le_root = le_root;
+    const fs::path target = profiles_dir(le_root) / (slug + ".turbox.json");
+    std::ifstream f(target, std::ios::binary);
+    if (!f) {
+        if (err) *err = "Profile file not found: " + target.string();
+        return false;
+    }
+    nlohmann::json root = nlohmann::json::parse(f, nullptr, false);
+    if (!root.is_object() || !root.contains("payload") || !root["payload"].is_object()) {
+        if (err) *err = "Corrupt profile structure";
+        return false;
+    }
+    const std::string expected_sha = root.value("sha256", "");
+    const nlohmann::json& payload = root["payload"];
+    if (sha256_hex(payload.dump()) != expected_sha) {
+        if (err) *err = "Profile integrity check failed (SHA-256 mismatch)";
+        return false;
+    }
+
+    // 1. Pre-apply snapshot for 1-click revert
+    const fs::path pre_path = pre_apply_file(le_root);
+    {
+        nlohmann::json snap_root = nlohmann::json::object();
+        snap_root["format"] = "turbo-profile";
+        snap_root["version"] = 1;
+        snap_root["slug"] = "_pre_apply";
+        snap_root["name"] = "_pre_apply";
+        snap_root["career"] = app.reapply.career;
+        nlohmann::json snap_p = nlohmann::json::object();
+        try { snap_p["reapply"] = nlohmann::json::parse(reapply_json(app.reapply)); } catch (...) {}
+        try { snap_p["club_voice"] = nlohmann::json::parse(clubvoice::store_json(app.club_voice)); } catch (...) {}
+        try { snap_p["team_names"] = nlohmann::json::parse(tnames::store_json(app.team_names)); } catch (...) {}
+        snap_root["sha256"] = sha256_hex(snap_p.dump());
+        snap_root["payload"] = snap_p;
+
+        std::ofstream pf(pre_path, std::ios::binary);
+        if (pf) pf << snap_root.dump(2);
+    }
+
+    size_t items_applied = 0;
+    // 2. Reapply store merge
+    if (payload.contains("reapply") && payload["reapply"].is_object()) {
+        ReapplyStore incoming;
+        std::string parse_err;
+        if (parse_reapply_json(payload["reapply"].dump(), incoming, &parse_err)) {
+            for (const auto& kv : incoming.players) {
+                app.reapply.players[kv.first] = kv.second;
+                ++items_applied;
+            }
+            for (const auto& kv : incoming.kits) {
+                app.reapply.kits[kv.first] = kv.second;
+                ++items_applied;
+            }
+            for (const auto& kv : incoming.callnames) {
+                app.reapply.callnames[kv.first] = kv.second;
+                ++items_applied;
+            }
+            save_reapply_store(reapply_store_path(le_root), app.reapply, nullptr);
+        }
+    }
+    // 3. Club voice merge
+    if (payload.contains("club_voice") && payload["club_voice"].is_object()) {
+        clubvoice::Store incoming_cv;
+        std::string parse_err;
+        if (clubvoice::parse_store_json(payload["club_voice"].dump(), incoming_cv, &parse_err)) {
+            for (const auto& e : incoming_cv.entries) {
+                app.club_voice.upsert(e);
+                ++items_applied;
+            }
+            app.club_voice.save(clubvoice::store_path(le_root), nullptr);
+        }
+    }
+    // 4. Team names merge
+    if (payload.contains("team_names") && payload["team_names"].is_object()) {
+        tnames::Store incoming_tn;
+        std::string parse_err;
+        if (tnames::parse_store_json(payload["team_names"].dump(), incoming_tn, &parse_err)) {
+            for (const auto& e : incoming_tn.entries) {
+                app.team_names.upsert(e);
+                ++items_applied;
+            }
+            app.team_names_publish();
+        }
+    }
+
+    s_last_applied_name = root.value("name", slug);
+    if (summary) {
+        *summary = "Profile '" + s_last_applied_name + "' applied (" + std::to_string(items_applied) + " items merged).";
+    }
+    return true;
+}
+
+bool revert_last_apply(App& app, std::string* summary, std::string* err) {
+    const fs::path le_root = app.bridge.root();
+    s_last_le_root = le_root;
+    const fs::path pre = pre_apply_file(le_root);
+    std::error_code ec;
+    if (!fs::exists(pre, ec)) {
+        if (err) *err = "No pre-apply profile snapshot found to revert";
+        return false;
+    }
+    nlohmann::json root;
+    {
+        std::ifstream f(pre, std::ios::binary);
+        if (!f) {
+            if (err) *err = "Could not open pre-apply profile snapshot";
+            return false;
+        }
+        root = nlohmann::json::parse(f, nullptr, false);
+    }
+    if (!root.is_object() || !root.contains("payload") || !root["payload"].is_object()) {
+        if (err) *err = "Corrupt pre-apply profile snapshot";
+        return false;
+    }
+    const nlohmann::json& payload = root["payload"];
+
+    if (payload.contains("reapply") && payload["reapply"].is_object()) {
+        ReapplyStore snap;
+        if (parse_reapply_json(payload["reapply"].dump(), snap, nullptr)) {
+            app.reapply = std::move(snap);
+            save_reapply_store(reapply_store_path(le_root), app.reapply, nullptr);
+        }
+    }
+    if (payload.contains("club_voice") && payload["club_voice"].is_object()) {
+        clubvoice::Store snap_cv;
+        if (clubvoice::parse_store_json(payload["club_voice"].dump(), snap_cv, nullptr)) {
+            app.club_voice = std::move(snap_cv);
+            app.club_voice.save(clubvoice::store_path(le_root), nullptr);
+        }
+    }
+    if (payload.contains("team_names") && payload["team_names"].is_object()) {
+        tnames::Store snap_tn;
+        if (tnames::parse_store_json(payload["team_names"].dump(), snap_tn, nullptr)) {
+            app.team_names = std::move(snap_tn);
+            app.team_names_publish();
+        }
+    }
+
+    fs::remove(pre, ec);
+    const std::string was = s_last_applied_name.empty() ? "last applied profile" : ("'" + s_last_applied_name + "'");
+    s_last_applied_name.clear();
+    if (summary) {
+        *summary = "Reverted edits back to state prior to applying " + was + ".";
+    }
+    return true;
+}
+
+bool can_revert_last_apply() {
+    if (!s_last_applied_name.empty()) return true;
+    if (!s_last_le_root.empty()) {
+        std::error_code ec;
+        return fs::exists(pre_apply_file(s_last_le_root), ec);
+    }
     return false;
 }
-bool diff_profile(App&, const std::string&, ProfileDiff&, std::string* err) {
-    if (err) *err = "diff_profile stub";
-    return false;
+
+std::string last_applied_profile_name() {
+    return s_last_applied_name;
 }
-bool apply_profile(App&, const std::string&, std::string*, std::string* err) {
-    if (err) *err = "apply_profile stub";
-    return false;
+
+void reset_session_for_tests() {
+    s_last_applied_name.clear();
+    if (!s_last_le_root.empty()) {
+        std::error_code ec;
+        fs::remove(pre_apply_file(s_last_le_root), ec);
+    }
 }
-bool delete_profile(const fs::path&, const std::string&, std::string* err) {
-    if (err) *err = "delete_profile stub";
-    return false;
-}
-bool can_revert_last_apply() { return false; }
-std::string last_applied_profile_name() { return {}; }
-bool revert_last_apply(App&, std::string*, std::string* err) {
-    if (err) *err = "revert_last_apply stub";
-    return false;
-}
-void reset_session_for_tests() {}
 
 }  // namespace turbo::profiles
