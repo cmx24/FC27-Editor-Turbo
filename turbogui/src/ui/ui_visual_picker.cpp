@@ -792,7 +792,9 @@ bool draw_anim(App& app, const fs::path& file, int side, size_t max_bytes, ImVec
         return false;
     }
     float u0, v0, u1, v1;
-    an.uv(an.frame_at(ImGui::GetTime() * 1000.0), u0, v0, u1, v1);
+    const int frame_idx = turbo::x2::gifs_paused() ? 0 : an.frame_at(ImGui::GetTime() * 1000.0);
+    an.uv(frame_idx, u0, v0, u1, v1);
+    turbo::x2::note_gif_drawn();
     ImVec2 p0, p1;
     fit_rect(static_cast<float>(an.frame_w), static_cast<float>(an.frame_h), a, box, p0, p1);
     dl->AddImage(pic.tex->GetTexRef(), p0, p1, ImVec2(u0, v0), ImVec2(u1, v1));
@@ -1510,6 +1512,11 @@ void draw_picker_body(App& app, const Table& t, uint64_t rec) {
         ImGui::SetTooltip("Apply hands the pick to the Hair & beard (3D) section. Nothing is written until its \"Apply hair & beard\".");
     ImGui::SameLine();
     if (ImGui::Button("Cancel##vpcancel")) {
+        ImGui::CloseCurrentPopup();
+        close_picker();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Close###vp_close")) {
         ImGui::CloseCurrentPopup();
         close_picker();
     }

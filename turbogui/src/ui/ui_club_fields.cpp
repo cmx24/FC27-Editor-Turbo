@@ -9,6 +9,7 @@
 #include "core/club_fields.h"
 #include "imgui.h"
 #include "ui_theme.h"
+#include "ui_visual_picker.h"
 
 namespace turbo {
 
@@ -60,6 +61,8 @@ bool field_row(App& app, const Table& t, uint64_t rec, const cf::Def& d, int64_t
     bool asked = false;
     if (!readable || set.empty()) {
         ImGui::TextDisabled("unreadable");
+    } else if (vp::has_picture(app, t, d.field)) {
+        vp::inline_field(app, t, rec, d.field, nullptr);
     } else if (d.look == cf::Look::Switch && set.size() == 2 && (v.i == 0 || v.i == 1)) {
         // a plain On / Off: a tick box with the word beside it
         bool on = v.i == 1;

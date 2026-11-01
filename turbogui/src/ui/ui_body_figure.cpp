@@ -35,13 +35,19 @@ ImU32 selected_ring() { return IM_COL32(96, 160, 255, 255); }
 void draw_body_figure(ImDrawList* dl, ImVec2 p0, ImVec2 size, const bodyshape::BodyShape& shape, bool selected, bool hovered) {
     const ImVec2 p1(p0.x + size.x, p0.y + size.y);
     dl->AddRectFilled(p0, p1, tile_ground(selected, hovered), 4.0f);
+    // Subtle top ambient studio light
+    const ImU32 top_hl = selected ? IM_COL32(40, 72, 130, 60) : (hovered ? IM_COL32(65, 75, 95, 50) : IM_COL32(45, 52, 70, 40));
+    dl->AddRectFilledMultiColor(p0, p1, top_hl, top_hl, 0, 0);
+
     if (selected) dl->AddRect(p0, p1, selected_ring(), 4.0f, 2.0f, ImDrawFlags_None);
     const ImU32 fill = figure_fill(selected);
+    const ImU32 rim_col = selected ? IM_COL32(255, 255, 255, 90) : IM_COL32(220, 230, 250, 60);
     for (const bodyshape::Polygon& poly : bodyshape::silhouette(shape)) {
         std::vector<ImVec2> pts;
         pts.reserve(poly.size());
         for (const bodyshape::Pt& p : poly) pts.push_back(ImVec2(p0.x + p.x * size.x, p0.y + p.y * size.y));
         dl->AddConvexPolyFilled(pts.data(), static_cast<int>(pts.size()), fill);
+        dl->AddPolyline(pts.data(), static_cast<int>(pts.size()), rim_col, 1.0f, ImDrawFlags_Closed);
     }
     // the ground line under the feet: the common baseline every figure stands on
     const float gy = p0.y + 0.985f * size.y;

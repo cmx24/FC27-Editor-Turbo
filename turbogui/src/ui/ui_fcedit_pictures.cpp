@@ -98,6 +98,19 @@ int64_t id_of_name(const std::string& stem) {
 
 std::string folder_field(const std::string& field) {
     if (field.size() == 14 && field.compare(0, 13, "accessorycode") == 0 && field[13] >= '1' && field[13] <= '4') return "accessorycode";
+    if (field == "ballid" || field == "defaultballid" || field == "balltypecode") return "ballid";
+    if (field == "stadiumid") return "stadiumid";
+    if (field == "stadiummowpattern_code" || field == "mowpattern" || field == "mowpattern_code" || field == "mowpatterncode") return "stadiummowpattern_code";
+    if (field == "stadiumgoalnetstyle" || field == "goalnetstyle") return "stadiumgoalnetstyle";
+    if (field == "stadiumgoalnetpattern" || field == "goalnetpattern") return "stadiumgoalnetpattern";
+    if (field == "pitchcolor") return "pitchcolor";
+    if (field == "pitchwear") return "pitchwear";
+    if (field == "jerseycollargeometrytype" || field == "jerseycollar" || field == "collar") return "jerseycollargeometrytype";
+    if (field == "jerseyfont" || field == "kitfont" || field == "jerseyfonttype") return "jerseyfont";
+    if (field == "kitnumber" || field == "kitnumbers") return "kitnumber";
+    if (field == "outfitid" || field == "manageroutfit") return "outfitid";
+    if (field == "heads_staff" || field == "managerheads") return "heads_staff";
+    if (field == "genericmanagerheads") return "genericmanagerheads";
     return field;
 }
 bool Index::has(const std::string& field) const { return fields.count(folder_field(field)) != 0; }
