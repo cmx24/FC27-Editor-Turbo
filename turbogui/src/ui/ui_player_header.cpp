@@ -8,6 +8,7 @@
 #include "app.h"
 #include "core/overall.h"
 #include "core/ovr_mask.h"
+#include "core/ovr_pin.h"
 #include "imgui.h"
 #include "ui_images.h"
 #include "ui_theme.h"
@@ -83,13 +84,18 @@ bool shown_ovr_apply(App& app, int64_t pid, const std::string& text_in, std::str
             err = "Nothing to clear: no Shown OVR is stored for this player";
         } else {
             ok = ovr_mask::clear(app.turbo_output(), career, pid, &err);
-            ok_msg = "Cleared";
+            ok_msg = "Cleared: his stored overall is the game's again";
         }
     } else {
         const bool digits = text.size() <= 3 && text.find_first_not_of("0123456789") == std::string::npos;
         const int v = digits ? std::atoi(text.c_str()) : -1;
         ok = ovr_mask::set(app.turbo_output(), career, pid, v, &err);  // refuses anything outside 1..99
-        ok_msg = "Shown OVR set to " + std::to_string(v) + " (display only)";
+        ok_msg = "Shown OVR set to " + std::to_string(v) + ": pinned as his stored overall in this career";
+    }
+    if (ok) {
+        // Turbo X: the pin follows at once (core/ovr_pin.h): Set writes players.overallrating, Clear puts the game's value back
+        app.ovr_pin_tick(true);
+        app.ovr_pin_rescan();
     }
     if (msg) *msg = ok ? ok_msg : err;
     if (ok) shown_ovr_reload(app, pid);  // a refused write keeps what was typed in the box
@@ -108,8 +114,15 @@ void draw_shown_ovr(App& app, PlayerHeaderState& st) {
     theme::muted_text("shown as");
     ImGui::PopFont();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Shown OVR, display only: a number from 1 to 99 kept for this player in this career only.\n"
-                          "Nothing is written to the game's database or memory; OVR above stays what the game stores.");
+        ImGui::SetTooltip("Shown OVR (fake overall): a number from 1 to 99 for this player in this career only.\n"
+                          "Turbo writes it into his STORED overall (players.overallrating), which the game's squad, bio and\n"
+                          "search screens show; his attributes are not touched. It is NOT display only: the game also uses the\n"
+                          "stored overall for his value, wages and AI squad choices while it is pinned.\n"
+                          "The game works his overall out again at its growth updates; Turbo checks every %.0f s and writes the\n"
+                          "pin again (log: \"ovr mask: <id> overallrating X -> Y\"). A career saved now keeps the pinned number.\n"
+                          "Clear puts the game's own overall back. Off switch: turbo_output\\ovr_pin_off.txt.\n"
+                          "Last pin: %s",
+                          ovr_pin::kPollSeconds, app.ovr_pin_status.empty() ? "nothing written yet" : app.ovr_pin_status.c_str());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(S(40.0f));
     const bool enter = ImGui::InputText("###hdr_shown_ovr", g_shown.buf, sizeof g_shown.buf,

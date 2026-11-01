@@ -1,8 +1,9 @@
 // FC 27 LE Turbo GUI - the "Shown OVR" store (3.2 calc-ovr, Pit wall addition 2026-10-25).
 //
-// A per-career, per-player number the player header lets the user type next to the OVR ("Shown OVR (display only)"). It is a
-// DISPLAY value only: nothing here writes the players table or game memory (the game reads and rewrites players.overallrating,
-// so the stored overall can never be the mask: briefs/2.22-calc-ovr.md:33). A later hook (probe first) reads this file.
+// A per-career, per-player number the player header lets the user type next to the OVR ("Shown OVR"). This header is the store only:
+// nothing here writes the players table or game memory. Turbo X (11-01, tx-ovr2): core/ovr_pin.h + App::ovr_pin_tick read this file
+// and pin the player's stored players.overallrating to the value (the screens show the stored overall; the game rewrites it at its
+// growth updates, so the pin is written again then). Not a display-only mask: the game's own uses of the stored overall see it.
 //
 // File: <LE>\turbo_output\careers\<career id>\ovr_mask.json, the LOCKED schema
 //     {"version":1,"players":{"<pid decimal string>":<int 1..99>}}

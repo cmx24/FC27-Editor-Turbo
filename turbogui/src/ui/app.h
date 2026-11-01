@@ -336,6 +336,18 @@ public:
     // A newly loaded career is reported (another Lua session or load_gen than the last re-apply) and entries are kept:
     // tick then connects at once even while the window is hidden, so the edits are back before the first match
     bool reapply_due() const;
+    // ---- Turbo X Shown OVR pin (core/ovr_pin.h, ui_reapply.cpp): the players in the identified career's ovr_mask.json get their
+    // stored players.overallrating written to the shown value (Database::set, the re-apply path) at the career load, after a
+    // Set / Clear (force) and again every ovr_pin::kPollSeconds when the game has put its own value back; Clear (or
+    // turbo_output\ovr_pin_off.txt) puts the game's value back while the field still holds the pin. Only while the database
+    // Turbo reads is the one the game reports (no refresh pending). Log: "ovr mask: <pid> overallrating X -> Y (...)".
+    void ovr_pin_tick(bool force = false);
+    void ovr_pin_rescan();           // ovr_pin_files_ from the careers folders (start-up, after a Set / Clear)
+    void ovr_pin_release_on_exit();  // ~App: pinned fields that still hold the pin get the game value back (state file kept)
+    std::string ovr_pin_status;      // the last pass that wrote something or refused ("" = none yet), for the header tooltip
+    bool ovr_pin_files_ = false;     // some career has an ovr_mask.json / ovr_pin_state.json: reapply_due connects at a load
+    bool ovr_pin_scanned_ = false;
+    double ovr_pin_next_ = 0.0;
     // ---- voice swaps (core/callname_voice.h, Players > Callname): in matches only, a player is called with another
     // player's own recording, or his own recording is turned off and a generic callname used. Nothing is written to the
     // database or the save. The store (turbo_output\callnames\voice_swaps.json, all careers) is loaded at start-up and

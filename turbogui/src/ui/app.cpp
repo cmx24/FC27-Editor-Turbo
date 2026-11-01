@@ -249,6 +249,7 @@ std::unordered_set<int64_t> App::commentary_ids() {
 App::~App() {
     tactics_clear_on_exit(*this);      // game variables the Tactics tab set go back to "the game decides"
     match_setup_clear_on_exit(*this);  // ... and those the Match setup panel set (ui_match.cpp)
+    ovr_pin_release_on_exit();         // Shown OVR pins still in place get the game's overall back (ui_reapply.cpp)
     if (reapply_save_due_) save_reapply();  // a player edit kept in the last frame
     bank_cancel_ = true;
     if (bank_thread_.joinable()) bank_thread_.join();
@@ -955,6 +956,7 @@ bool App::refresh() {
     // FC 27 reloads teamkits and playernamemap from its base data at every career load: the kept edits go back in once
     // per newly loaded career (ui_reapply.cpp)
     maybe_reapply();
+    ovr_pin_tick(true);  // Turbo X: the Shown OVR pins of this career, right after the kept edits (ui_reapply.cpp)
     faces3d_restore_markers(*this);  // 2.17: the "his own, live" marker gives way to his own codes once it is not needed
     return true;
 }
@@ -1122,6 +1124,7 @@ void App::tick(double t) {
         model.rebuild(today());
         ++gen;
     }
+    ovr_pin_tick();  // Turbo X Shown OVR pin: the masked players' stored overall, every few seconds (ui_reapply.cpp)
     probe.mark("model");
     if (mailbox && t >= next_publish) {
         next_publish = t + 2.0;
