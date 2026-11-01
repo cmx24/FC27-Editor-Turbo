@@ -43,7 +43,7 @@ namespace turbo::gear_thumbs {
 
 namespace fs = std::filesystem;
 
-constexpr double kStepDeadlineSec = 45.0;  // per round (one request), from the request to the last picture
+constexpr double kStepDeadlineSec = 90.0;  // per round (one request), from the request to the last picture
 constexpr int kMaxAttempts = 2;
 constexpr int kMaxEmptyRounds = 3;  // rounds in a row without one picture: the game stopped answering, stop and restore
 constexpr int64_t kFieldBase = 100000000;  // step code = (field index + 1) * kFieldBase + id

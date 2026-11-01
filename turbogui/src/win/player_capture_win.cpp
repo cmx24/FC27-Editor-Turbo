@@ -37,7 +37,7 @@ void on_done_invoker(const void* storage);
 namespace {
 
 constexpr size_t kMaxSliceBytes = 32u << 20;  // a picture the game hands over is ~190 KB; refuse anything absurd
-constexpr double kAnswerTimeout = 20.0;       // seconds after the request ran on the game thread
+constexpr double kAnswerTimeout = 75.0;       // seconds after the request ran on the game thread
 constexpr int kMaxLoggedCaptures = 40;
 
 using GetOrCreateFn = void* (*)();
@@ -115,7 +115,7 @@ void settle_current_locked() {
     const Settle s = settle_request(all, j->finished, j->failed, j->ran, since, kAnswerTimeout);
     if (s == Settle::Running) return;
     if (s == Settle::TimedOut) {
-        j->error = "the game handed every picture over but did not finish the capture in 20 s";
+        j->error = "the game handed every picture over but did not finish the capture in 75 s";
         j->cancelled = true;
         j->failed = true;
         capture_log("request " + j->label + ": " + j->error);
@@ -507,7 +507,7 @@ public:
             bool timeout = j->ran && !j->finished && std::chrono::duration<double>(now - j->t_ran).count() > kAnswerTimeout;
             if (timeout && !j->failed) {
                 j->failed = true;
-                j->error = j->submitted ? "the game did not finish the capture in 20 s (is a menu screen open?)" : "the request did not run";
+                j->error = j->submitted ? "the game did not finish the capture in 75 s (is a menu screen open?)" : "the request did not run";
                 j->cancelled = true;
                 capture_log("request " + j->label + ": " + j->error);
             }
