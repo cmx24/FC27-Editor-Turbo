@@ -872,7 +872,9 @@ bool draw_picture(App& app, const Source& src, int idx, bool large, ImVec2 a, Im
             const ImVec2 saved = ImGui::GetCursorScreenPos();
             ImGui::SetCursorScreenPos(ImVec2(a.x + (box.x - std::min(box.x, box.y)) * 0.5f, a.y));
             draw_legacy_picture(app, src.game[k], std::min(box.x, box.y), true);
-            theme::cursor_back_to(saved);
+            // Turbo X: a plain cursor move back (the tile's own item follows in the caller). A zero-size item here broke the grid:
+            // the next SameLine tile was placed after it, so tiles of one row stacked on top of each other (owner's screenshot 10-31)
+            ImGui::SetCursorScreenPos(saved);
             return true;
         }
         case kSrcFigure: {
