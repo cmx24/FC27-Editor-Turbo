@@ -1,6 +1,8 @@
 // FC 27 LE Turbo GUI - Turbo X: the game draws the look items that ship without a picture (see gear_thumbs.h)
 #include "gear_thumbs.h"
 
+#include "faces3d.h"
+
 #include <algorithm>
 #include <atomic>
 #include <climits>
@@ -121,6 +123,7 @@ bool parse_request(const std::string& text, Request& out, std::string* err, std:
             }
         }
         out.fresh = j.contains("fresh") && j["fresh"].is_boolean() && j["fresh"].get<bool>();
+        out.real_face = j.contains("real_face") && j["real_face"].is_boolean() && j["real_face"].get<bool>();
         if (j.contains("career") && j["career"].is_string()) out.career = j["career"].get<std::string>();
         if (!j.contains("steps") || !j["steps"].is_array()) {
             if (err) *err = "the request has no \"steps\" list";
@@ -263,7 +266,16 @@ bool Generator::write_item(size_t ref, size_t item, std::string* err) {
     }
     dirty.insert(f.db);  // even a refused write may have left something: the restore writes it back
     std::string e;
-    if (!env_.write_field(pid, f.db, items_[item].id, &e)) {
+    int64_t value = items_[item].id;
+    const std::string fdb = f.db;
+    if (real_face_ && (fdb == "hairtypecode" || fdb == "facialhairtypecode")) {  // a scanned head: Turbo's live band code
+        value = fdb == "hairtypecode" ? faces3d::hair_band_code(items_[item].id) : faces3d::beard_band_code(items_[item].id);
+        if (value <= 0) {
+            if (err) *err = "not on Turbo's real-face list (faces3d band)";
+            return false;
+        }
+    }
+    if (!env_.write_field(pid, f.db, value, &e)) {
         if (err) *err = "could not be written: " + e;
         return false;
     }
@@ -328,7 +340,8 @@ void Generator::pick_round() {
             Item& it = items_[i];
             if (used[i] || it.cam != cam_ || it.state != "todo") continue;
             const std::string db = fields()[static_cast<size_t>(it.field_index)].db;
-            if (scanned && (db == "hairtypecode" || db == "facialhairtypecode")) continue;
+            if (scanned && !real_face_ && (db == "hairtypecode" || db == "facialhairtypecode")) continue;
+            if (real_face_ && !scanned && (db == "hairtypecode" || db == "facialhairtypecode")) continue;
             used[i] = true;
             std::string e;
             if (!write_item(r, i, &e)) {  // the range was checked at start: a refused write is not retried
@@ -403,7 +416,8 @@ void Generator::poll_round() {
             continue;
         }
         const FieldSpec& f = fields()[static_cast<size_t>(it.field_index)];
-        const fs::path p = picture_file(env_.turbo_output, f, it.id);
+        const fs::path p = real_face_ ? pictures_root(env_.turbo_output) / "realface_test" / (std::string(f.folder) + "_" + std::to_string(it.id) + ".png")
+                                      : picture_file(env_.turbo_output, f, it.id);
         const std::vector<uint8_t> png = bodytype_thumbs::encode_png(r.image);
         std::string e;
         std::error_code ec;
@@ -542,7 +556,7 @@ bool Generator::start(const Request& rq, const std::vector<Reference>& refs, std
     if (env_.svc->status().busy) return refuse("another picture is being drawn: wait until it is done");
 
     Plan plan = make_plan(env_.turbo_output, rq, env_.check);
-    if (!any_generic) {  // a scanned head carries its own hair and stubble in its textures (hairbeard_thumbs.h)
+    if (!any_generic && !rq.real_face) {  // a scanned head carries its own hair and stubble in its textures (hairbeard_thumbs.h)
         std::vector<Planned> keep;
         for (const Planned& s : plan.head) {
             const std::string db = fields()[static_cast<size_t>(s.field_index)].db;
@@ -611,6 +625,7 @@ bool Generator::start(const Request& rq, const std::vector<Reference>& refs, std
     if (!bodytype_thumbs::write_file_atomic(own_file(env_.turbo_output), oj.dump(1), &e)) return refuse("their own values could not be recorded: " + e);
 
     fresh_ = rq.fresh;
+    real_face_ = rq.real_face;
     if (!fresh_) load_manifest();
     cancelled_ = aborted_ = restored_ = false;
     requests_ = 0;

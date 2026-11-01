@@ -87,6 +87,10 @@ struct Request {
     int32_t player = 0;
     std::vector<int32_t> players;  // up to kMaxPlayersPerRequest, each > 0, no repeats; empty = {player}
     bool fresh = false;
+    // Turbo X: "real_face": true = the hair / beard steps go on SCANNED heads (headclasscode 0) through Turbo's live band codes
+    // (faces3d: kHairBandBase + i / kBeardBandBase + i, the path the Looks picker writes for a real face) and the pictures are kept in
+    // pictures\realface_test\<field>_<id>.png (never in the picture pack).
+    bool real_face = false;
     std::string career;  // optional: the request is refused in another career
     std::vector<Step> steps;
 };
@@ -197,6 +201,7 @@ private:
     bool aborted_ = false;
     bool restored_ = false;
     bool fresh_ = false;
+    bool real_face_ = false;
     size_t rejected_ = 0;
     size_t requests_ = 0;
     int empty_rounds_ = 0;
