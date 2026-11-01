@@ -23,6 +23,7 @@
 #include "core/looks_fields_data.h"
 #include "core/player_capture.h"
 #include "imgui.h"
+#include "modal_size.h"  // R2-R(c): the dialog reopens at the size the person gave it
 #include "ui_bodytype_thumbs.h"
 #include "ui_bodytypes.h"
 #include "ui_body_figure.h"
@@ -955,7 +956,7 @@ void face_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
         // begins the chooser's window first in the frame (same name, same size as ui_faces.cpp sets) for that line, then
         // manager_real_face_picker appends the chooser itself to the same window (ImGui's Begin appends on a second call).
         if (choose) ImGui::OpenPopup(kManagerFacePopup);
-        ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+        modal_size::set_next("mgrface", ImVec2(880.0f, 640.0f));  // R2-R(c): same id and default as ui_faces.cpp manager_real_face_picker
         if (ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) {
             s.st.asking = true;  // the warning is shown
             ImGui::PushTextWrapPos(0.0f);

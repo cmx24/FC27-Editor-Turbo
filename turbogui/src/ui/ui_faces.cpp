@@ -21,6 +21,7 @@
 #include "core/player_capture.h"
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "modal_size.h"  // R2-R(c): the dialog reopens at the size the person gave it
 #include "ui_asset_browser.h"
 #include "ui_faces.h"
 #include "ui_bodytype_thumbs.h"
@@ -2551,8 +2552,9 @@ static void chooser_opened(Chooser& ch) {
 }
 
 void real_face_picker(App& app, int64_t target_pid) {
-    ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+    modal_size::set_next("realface", ImVec2(880.0f, 640.0f));
     if (!ImGui::BeginPopupModal("Choose a real face", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    modal_size::track("realface", ImVec2(880.0f, 640.0f));
     static int s_open_frame = -2;
     if (popup_just_opened(s_open_frame)) chooser_opened(g_player_ch);
     chooser_body(app, g_player_ch, false);
@@ -2564,8 +2566,9 @@ void real_face_picker(App& app, int64_t target_pid) {
 bool manager_chooser_on_manager_heads() { return g_manager_ch.manager_heads; }
 
 void manager_real_face_picker(App& app, int64_t managerid) {
-    ImGui::SetNextWindowSize(ImVec2(S(880.0f), S(640.0f)), ImGuiCond_Appearing);
+    modal_size::set_next("mgrface", ImVec2(880.0f, 640.0f));  // Looks > Managers begins this window first with the same id and default
     if (!ImGui::BeginPopupModal(kManagerFacePopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    modal_size::track("mgrface", ImVec2(880.0f, 640.0f));
     // 3.1 N3: opened for a manager, the chooser starts on the managers' heads (it started on the players' heads, a radio away).
     // "Opened" = OpenPopup() ran since this popup was last drawn here: ImGuiPopupData::OpenFrameCount of the popup being begun is the frame of
     // its OpenPopup(), a new value at every open, also a close and reopen on consecutive frames (the 57d9f9f frame counter "not drawn last

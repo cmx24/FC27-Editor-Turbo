@@ -12,13 +12,20 @@
 //   * a visible grip line in the gap between the two panes (the panes themselves cover the border), brighter on hover / drag
 //   * the width is clamped: at least min_w (default 180 px) and at most max_frac (default 70 %) of the panel it sits in
 //   * the width is remembered PER PAGE: gui_settings.json gui.splits["<page key>/<child id>"], unscaled px (gui_prefs.h SplitStore).
-//     It is written once, the frame after the mouse is released (5.0c E6; was: after 0.4 s of rest), never per frame. The page key is set by App::draw_pages
+//     R2-R(b): every drag also writes gui.splits["last/<child id>"], and a page with no width of its own opens at that one (the last width
+//     the person dragged this pane to, on any page) instead of the default: the shell's "##select" is drawn on ~30 pages, and the base
+//     reset it to the default on each page not yet dragged. A page the person dragged keeps its own width.
+//     It is written once, the frame after the mouse is released (5.0c E6; was: after 0.4 s of rest), never per frame, and only after the
+//     person dragged the divider (R2-R(a): a width ImGui's constraints clamped, e.g. the main window made narrower, is never stored).
+//     The page key is set by App::draw_pages
 //     (split::set_page); the child's own ID is the literal given here and the ID stack is untouched, so tables inside the pane keep
 //     their saved column layout.
-// The width is applied again (ImGuiCond_Always for one frame) whenever the page or the UI size changed; between those frames ImGui's
+// The width is applied again (ImGuiCond_Always for one frame) whenever the page, the UI size or the panel's size changed (R2-R(a): a pane the
+// narrower window clamped grows back to its stored width when the window does); between those frames ImGui's
 // own manual resize owns the size. G-ia's ##lscards and G-pickers' ##vpgrid call this after merge.
 #pragma once
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -60,7 +67,10 @@ struct Runtime {
     float seen = 0.0f;        // last observed size along the axis, unscaled px
     bool pending = false;
     double changed_at = 0.0;
+    ImGuiID applied_child = 0;  // R2-R(b): the ImGui window (child ID) the width was applied to: sub-tabs of one page share the key, not the window
     ImRect rect;              // last frame's screen rect of the pane (for the grip line)
+    float applied_panel = -1.0f;  // R2-R(a): the panel size (along the axis, scaled px) the width was last applied or seen for
+    bool dragging = false;    // R2-R(a): the person holds this pane's border (since the press); only such a change is stored
     bool border_active = false;
     bool have_rect = false;
 };
@@ -69,6 +79,8 @@ inline std::map<std::string, Runtime>& runtimes() {
     return m;
 }
 inline void reset_runtime_for_tests() { runtimes().clear(); }
+// R2-R(b): the key of the width this pane id was last dragged to on any page (the fallback of a page with no width of its own)
+inline std::string last_key(const char* id) { return std::string("last/") + id; }
 
 // The scaled size to give the pane on a forced frame: stored (or default) unscaled px, clamped
 inline float width_to_apply(const std::string& key, float default_w, float min_w, float panel_px, float max_frac, float scale) {
@@ -90,6 +102,7 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float panel = along_x ? avail.x : avail.y;
     const std::string key = page_key() + "/" + id;
+    const std::string lkey = last_key(id);
     Runtime& rt = runtimes()[id];
 
     // the grip line in the gap after the pane (last frame's rectangle: the panes cover their own borders)
@@ -112,12 +125,22 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     // stamped it over the width the person had dragged and the layout file had saved (gui_settings.json starts with no splits).
     // It IS forced when the page changed under the same child id (the pane keeps one ImGui window across pages: each page starts at its
     // own default), when the UI size changed, and when ImGui already holds a window for the pane that the layout file did not make.
-    const bool changed = rt.applied_key != key || rt.applied_scale != sc;
+    // R2-R(b): the width to apply is the page's own, else the last dragged one of this id ("last/<id>"), else the default
+    const bool own = store().has(key);
+    const bool stored = own || store().has(lkey);
+    const std::string& src = own ? key : lkey;
+    // R2-R(b): two sub-tabs drawing this pane under one page key are two ImGui windows: showing the other one is a change too (the base read
+    // its old size as a new width and stored it over the page's)
+    const ImGuiID child = ImGui::GetCurrentWindow()->GetID(id);
+    const bool changed = rt.applied_key != key || rt.applied_scale != sc || rt.applied_child != child;
     const bool scale_moved = rt.applied_scale != 0.0f && rt.applied_scale != sc;
     const bool first = rt.applied_key.empty();
     const bool key_moved = !first && rt.applied_key != key;
-    const bool force = changed && (store().has(key) || scale_moved || key_moved || (first && window_exists(id)));
-    const float want = width_to_apply(key, default_size, min_size, panel, max_frac, sc);
+    // R2-R(a): the panel changed size (the main window made narrower or wider, placed, restored): the stored width is applied again, clamped
+    // to the new panel, so a pane that a narrower window clamped gets its stored width back (never while the person drags this divider)
+    const bool panel_moved = !first && rt.applied_panel >= 0.0f && std::fabs(panel - rt.applied_panel) > 0.5f && !rt.dragging;
+    const bool force = (changed && (stored || scale_moved || key_moved || (first && window_exists(id)))) || (panel_moved && stored);
+    const float want = width_to_apply(src, default_size, min_size, panel, max_frac, sc);
     if (force) ImGui::SetNextWindowSize(along_x ? ImVec2(want, 0.0f) : ImVec2(0.0f, want), ImGuiCond_Always);
     const float hi = (panel * max_frac) > min_size * sc ? panel * max_frac : min_size * sc;
     if (along_x) ImGui::SetNextWindowSizeConstraints(ImVec2(min_size * sc, 0.0f), ImVec2(hi, FLT_MAX));
@@ -128,23 +151,39 @@ inline bool pane(bool along_x, const char* id, float default_size, float min_siz
     ImGuiWindow* w = ImGui::GetCurrentWindow();
     const float cur = (along_x ? w->Size.x : w->Size.y) / sc;
     rt.rect = ImRect(w->Pos, ImVec2(w->Pos.x + w->Size.x, w->Pos.y + w->Size.y));
-    rt.border_active = w->ResizeBorderHeld != -1 || w->ResizeBorderHovered != -1;
+    const bool held = w->ResizeBorderHeld != -1;
+    rt.border_active = held || w->ResizeBorderHovered != -1;
     rt.have_rect = true;
+    rt.applied_panel = panel;
     const double now = ImGui::GetTime();
-    if (changed) {
+    if (changed || force) {
         rt.applied_key = key;
         rt.applied_scale = sc;
+        rt.applied_child = child;
         rt.seen = cur;
         rt.pending = false;
-    } else if (cur != rt.seen) {
+        rt.dragging = false;
+        return open;
+    }
+    // R2-R(a): only a size the person dragged is stored. ImGui's own clamps (SetNextWindowSizeConstraints: the 70 % of a panel that got
+    // narrower) change the size too; the base stored ANY change once the mouse was up, so shrinking the main window overwrote the width.
+    if (held) rt.dragging = true;
+    if (cur != rt.seen) {
         rt.seen = cur;
-        rt.pending = true;
-        rt.changed_at = now;
-    } else if (rt.pending && !ImGui::IsMouseDown(0)) {
+        if (rt.dragging) {
+            rt.pending = true;
+            rt.changed_at = now;
+        }
+    }
+    if (!held && !ImGui::IsMouseDown(0)) {
         // 5.0c E6: committed the frame after the mouse is released, not 0.4 s later: hiding the panel or closing the game inside that
         // window lost the drag (the pane is not drawn while the panel is hidden, so nothing could commit it afterwards)
+        if (rt.pending) {
+            store().set(key, cur);
+            store().set(lkey, cur);  // R2-R(b): the width the pages not yet dragged open at
+        }
         rt.pending = false;
-        store().set(key, cur);
+        rt.dragging = false;
     }
     return open;
 }

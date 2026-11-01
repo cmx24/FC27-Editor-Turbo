@@ -12,6 +12,7 @@
 
 #include "app.h"
 #include "imgui.h"
+#include "modal_size.h"  // R2-R(c): the dialog reopens at the size the person gave it
 #include "nlohmann/json.hpp"
 
 #ifdef _WIN32
@@ -221,8 +222,9 @@ static fs::path save_target(const FilePicker& fp) {
 
 bool file_picker_modal(const char* popup_id, FilePicker& fp, fs::path& out) {
     bool done = false;
-    ImGui::SetNextWindowSize(ImVec2(S(680.0f), S(500.0f)), ImGuiCond_Appearing);
+    modal_size::set_next("filepicker", ImVec2(680.0f, 500.0f));  // one remembered size for every file picker
     if (!ImGui::BeginPopupModal(popup_id, nullptr, ImGuiWindowFlags_NoSavedSettings)) return false;
+    modal_size::track("filepicker", ImVec2(680.0f, 500.0f));
     std::error_code ec;
     if (ImGui::IsWindowAppearing()) {
         fs::path r = remembered_folder(fp.key);
