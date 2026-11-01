@@ -276,7 +276,10 @@ inline bool person_row(const char* id, const char* name, const char* line, int o
     // the picture, in its slot
     ImGui::SetCursorScreenPos(ImVec2(p.x + pad, p.y + (height - picture) * 0.5f));
     draw_picture();
-    ImGui::SetCursorScreenPos(after);
+    // back to where the row ended, through a zero-size item placed one item-spacing higher: ImGui wants an item after a
+    // SetCursorScreenPos that moves the cursor (the "SetCursorPos() to extend window boundaries" error box of the Looks list)
+    ImGui::SetCursorScreenPos(ImVec2(after.x, after.y - ImGui::GetStyle().ItemSpacing.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
     return hit;
 }
 
