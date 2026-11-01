@@ -1,0 +1,20 @@
+{
+  "_comment": "Attach-Turbo settings. packageZip: \"auto\" = newest packagePattern zip under packageSearchRoot that has a .sha256 beside it (<zip>.sha256 or <name>.sha256), or an absolute zip path (then a .sha256 beside it or packageSha256 is required). expectedDllMd5: empty = taken from the verified package. Paths must be absolute; %USERPROFILE% style variables are expanded. A Live Editor inside gameFolder is reported, never written.",
+  "packageZip": "auto",
+  "packageSearchRoot": "C:\\FC_Tools\\TurboX",
+  "packagePattern": "FC27_LE_Turbo_X_*.zip",
+  "packageSha256": "",
+  "expectedDllMd5": "",
+  "scanRoots": [
+    { "path": "C:\\FC 27 Live Editor", "depth": 0 },
+    { "path": "C:\\FC27 Live Editor", "depth": 0 },
+    { "path": "C:\\FC 27 Live Editor 27", "depth": 0 },
+    { "path": "%USERPROFILE%\\Desktop\\FC 27 Live Editor", "depth": 0 },
+    { "path": "C:\\Program Files\\EA Games\\EA SPORTS FC 27", "depth": 2 },
+    { "path": "C:\\FC_Tools\\FCM27", "depth": 5 }
+  ],
+  "extraLeRoots": [],
+  "gameFolder": "C:\\Program Files\\EA Games\\EA SPORTS FC 27",
+  "blockingProcesses": [ "FC27", "Launcher", "LauncherNoAuth", "FIFA Mod Manager", "FIFAModManager", "FrostyModManager", "FIFA Editor Tool", "Patch FCM*" ],
+  "fcmPatchDir": "C:\\FC_Tools\\FCM27"
+}
