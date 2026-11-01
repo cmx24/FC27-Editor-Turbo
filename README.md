@@ -1,43 +1,32 @@
 # FC27-Editor-Turbo
 
-**FC 27 LE Turbo 1.0.2**: FC 26 Live Editor features for **FC 27 Live Editor** (public build v27.1.0 or newer), plus an
-in-game window (the **Turbo GUI**) with Players / Teams / Managers / Database editors and a button for every Turbo tool.
+**FC 27 LE Turbo X 1.0** (2026-11-01): an in-game overlay for **FC 27 Live Editor** (v27.1.x) that edits players, managers,
+clubs and careers live — redesigned from the ground up in Turbo X.
 
-Which FC 26 Live Editor feature is where, and its status in 1.0.2 (verified in game, untested in a match, not in Turbo 1.0,
-not possible in FC 27): [`docs/fc26-parity.md`](docs/fc26-parity.md). What changed: [`CHANGELOG.md`](CHANGELOG.md).
+Release notes (what is seen in game and what is only built): [`docs/turbo-x/RELEASE_NOTES.md`](docs/turbo-x/RELEASE_NOTES.md).
+Day-by-day build record: [`docs/turbo-x/BUILD_LOG.md`](docs/turbo-x/BUILD_LOG.md). Older history: [`CHANGELOG.md`](CHANGELOG.md).
 
 Offline Career Mode / Kick-Off only. Never use Live Editor or Turbo in online modes. Turbo runs next to an official,
 unmodified Live Editor and never modifies, copies or redistributes its files.
 
-## What Turbo 1.0 does
+## What Turbo X 1.0 does
 
-Turbo 1.0 is for Manager Career players. Many of its features call the game's own code, so the game makes the change
-and its own screens show it. Seen working in a test career:
-
-- **Players**: a full editor (sliders, combos, check boxes, PlayStyles and traits, star-head, tattoo, hair and item
-  galleries, undo), minifaces from the game's 3D model, export / import / clone (Live Editor preset CSV and Turbo JSON),
-  develop to potential, reveal player data through the game's own scouting.
-- **Callnames**: the commentators speak the name you pick, in the commentary language the game has loaded
-  (Italian: 2,462 surnames, 751 player recordings).
-- **Career**: a real job offer from the club you pick; league table edits shown on the game's Standings screen at once;
-  injuries-off switch.
-- **Editors** for teams, managers and any database table, and a Status tab. Buttons work at once, no day advance needed.
-- Also in 1.0, being checked in game now: transfer / loan lists for your own players, job security and unsackable,
-  transfer budget, team name / colours / crest, create a player from a template, miniface from an image file, manager
-  moves, youth academy tools, match setup switches and fixture swaps.
-
-Built but not yet seen in a played match: forced results, injuries off during a match, editing a played result, weekly
-forced growth. Not in 1.0: transfers of your own club through the game's engine, live season stats, stadium override and
-the features FC 27 Live Editor already has. Not possible in FC 27: transfer bans, VAR off, match sharpness.
+- **One clean interface**: left rail, page strip, Players page with a hero header (OVR / POT / Calc), Appearance Editor,
+  Game settings with real sliders. The classic editor, Lab area and duplicate pages are gone.
+- **One visual picker** for hair, beard, accessories, tattoos, body type and kit, with 531 pictures the game rendered itself.
+- **Real faces**: change hair or beard on a scanned face with no old hair left underneath; hair 0 = Bald, beard 0 = No beard.
+- **Shown OVR**: a fake overall that the game itself shows.
+- **Callnames in seven commentary languages** (English, Dutch, French, German, Italian, Portuguese BR, Spanish): every name
+  FC 27 has a recording for, with Preview, plus a Preview clip for every recorded club.
+- **Careers**: transfers, loans (stale loans hidden), contracts, squad roles, job offers, standings, youth tools, and more.
 
 ## Install
 
 1. Install the official FC 27 Live Editor as usual.
-2. Unzip `FC27_LE_Turbo_1.0.2.zip` into the Live Editor folder (the folder with `FCLiveEditor.DLL`). Same layout as 0.3.0
-   and 0.4.0. Nothing of Live Editor is overwritten.
-3. Start the game through Live Editor as usual. Nothing to run: about 20 seconds after the main menu appears, press **F8**.
-4. Load a career: the Turbo window's top line says **Connected**. (At the main menu, run `turbo_gui_load.lua` in Live Editor's
-   Lua Engine to connect there.)
+2. Unzip `FC27_LE_Turbo_X_1.0.zip` somewhere, close the game, and run `install\Install-Turbo.cmd` from it (it backs up every
+   file it replaces and writes an `Undo-Turbo.cmd` under `turbo_backups\`). Nothing of Live Editor is overwritten.
+3. Start the game through Live Editor as usual. About 20 seconds after the main menu appears, press **F8** (or Num+).
+4. Load a career: the Turbo window says **Connected**.
 
 [`turbo/package/TURBO_README.md`](turbo/package/TURBO_README.md) has the in-game test checklist and the recovery steps
 (game will not launch: delete `lua\autorun\turbo_boot.lua`; kill switch: `turbo_output\turbo_gui_disable.txt`).

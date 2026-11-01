@@ -3,6 +3,21 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Turbo X 1.0 (2026-11-01, build final12, Turbo.dll 3caad80f) - the redesign
+
+Installed on the owner's PC 2026-11-01. Full notes, with what is seen in game versus only built:
+[`docs/turbo-x/RELEASE_NOTES.md`](docs/turbo-x/RELEASE_NOTES.md); day-by-day record: [`docs/turbo-x/BUILD_LOG.md`](docs/turbo-x/BUILD_LOG.md).
+
+- New interface (rail, page strip, Players hero header, Appearance Editor rows, Game settings sliders); classic editor, Lab and
+  duplicate pages removed by deletion.
+- One visual picker for every look item; 531 game-rendered pictures (hair, beard, boots, accessories, body types).
+- Real faces: no old hair under a new style (template v5, seen in game); hair 0 = Bald, beard 0 = No beard.
+- Shown OVR pinned into the game's overall so the game shows it.
+- Callnames: every recorded name in seven commentary languages; club Preview clips for every recorded club; decoder keeps
+  two-stream English club calls.
+- Transfers > Loans hides stale loan rows (checked against the game's runtime loan list).
+- .player import, accent-agnostic search, 122 file-mapped game-settings sliders, real-clock timers.
+
 ## 3.1.0 (built 2026-10-24) - crisp full-body pictures, fewer clicks
 
 Offline-green only (check_all); the G3 record says what was seen in game. Base: 3.0.1 (3.0.1/integration c0b03c4). Brief: `turbo_dev\PITWALL\briefs\3.1-gui.md`, merge log: `turbo_dev\PITWALL\reviews\merge_31.md`.
