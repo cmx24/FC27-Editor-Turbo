@@ -780,13 +780,13 @@ void card_profiles(App& app) {
     if (ImGui::Button("Save profile###prof_save_btn")) {
         std::string slug, err;
         if (profiles::save_profile(app, s_save_name, &slug, &err)) {
-            app.notify("Profile saved as " + slug + ".turbox.json", false);
+            app.notify("Profile saved as " + slug, false);
             s_save_name[0] = '\0';
         } else {
             app.notify("Save failed: " + err, true);
         }
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Package current edits into a transactional .turbox.json profile");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Package current edits into a saved profile file");
     if (!can_save) ImGui::EndDisabled();
 
     ImGui::Spacing();

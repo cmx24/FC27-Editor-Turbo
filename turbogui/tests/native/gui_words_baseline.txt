@@ -37,6 +37,7 @@ ui_faces.cpp	hook	1
 ui_faces3d_gate.cpp	json	1
 ui_faces3d_gate.cpp	lua	1
 ui_faces3d_gate.cpp	path	1
+ui_fcedit_pictures.h	path	1
 ui_game_settings.cpp	md5	1
 ui_game_settings.cpp	path	3
 ui_game_settings.cpp	turbo_output	3
@@ -60,12 +61,16 @@ ui_live_tactic.cpp	lua	2
 ui_live_tactic.cpp	path	8
 ui_live_tactic.cpp	turbo_output	8
 ui_live_tactic.cpp	txt	4
+ui_looks_studio.cpp	path	1
 ui_names.cpp	channel	1
 ui_names.cpp	lua	2
 ui_parity.cpp	json	1
 ui_parity.cpp	path	2
 ui_parity.cpp	turbo_output	3
 ui_parity.cpp	txt	1
+ui_player_header.cpp	path	1
+ui_player_header.cpp	turbo_output	1
+ui_player_header.cpp	txt	1
 ui_players.cpp	dll	1
 ui_players.cpp	json	1
 ui_players.cpp	lua	1
@@ -79,7 +84,7 @@ ui_presets.cpp	txt	1
 ui_reapply.cpp	json	2
 ui_reapply.cpp	path	3
 ui_reapply.cpp	turbo_output	3
-ui_reapply.cpp	txt	2
+ui_reapply.cpp	txt	3
 ui_role_rules.cpp	json	3
 ui_role_rules.cpp	path	5
 ui_role_rules.cpp	turbo_output	5

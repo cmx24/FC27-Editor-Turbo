@@ -9,6 +9,7 @@ app.cpp	-	###nav_back	1
 app.cpp	-	###rail_%s	1
 app.cpp	-	###railnarrow	1
 app.cpp	-	###railwiden	1
+app.cpp	-	###top_pause_gifs	1
 app.cpp	-	###winmax	1
 app.cpp	-	##turbo_toasts	1
 app.cpp	Begin	##gsearch_results	1
@@ -20,7 +21,11 @@ app.cpp	BeginChild	##rail	1
 app.cpp	InputTextWithHint	##gsearch	1
 app.cpp	PushID	##pages	1
 app.cpp	PushID	##shell	3
+app.cpp	SmallButton	###gsearch_clear	1
+app.cpp	SmallButton	###hist_back	1
+app.cpp	SmallButton	###hist_fwd	1
 app.cpp	SmallButton	###statusrefresh	1
+app.cpp	SmallButton	###top_profiles	1
 app.cpp	SmallButton	Cancel	1
 app.cpp	SmallButton	Stop##faces3d	1
 file_picker.cpp	-	##fpplace	1
@@ -331,7 +336,10 @@ ui_changes.cpp	BeginTable	##chgelsewhere	1
 ui_changes.cpp	BeginTable	##chgkept	1
 ui_changes.cpp	BeginTable	##chgrows	1
 ui_changes.cpp	Button	###askno	1
+ui_changes.cpp	Button	###changes_prof_revert	1
+ui_changes.cpp	Button	###prof_save_btn	1
 ui_changes.cpp	Checkbox	###chg_keep_players	1
+ui_changes.cpp	InputTextWithHint	##prof_save_input	1
 ui_changes.cpp	SmallButton	###chg_open_name	1
 ui_changes.cpp	SmallButton	###chg_open_page	1
 ui_changes.cpp	SmallButton	###chg_row_open	1
@@ -341,6 +349,10 @@ ui_changes.cpp	SmallButton	###chg_scope_here	1
 ui_changes.cpp	SmallButton	###chg_stop_callname	1
 ui_changes.cpp	SmallButton	###chg_stop_kit	1
 ui_changes.cpp	SmallButton	###chg_stop_player	1
+ui_changes.cpp	SmallButton	###prof_btn_apply	1
+ui_changes.cpp	SmallButton	###prof_btn_delete	1
+ui_changes.cpp	SmallButton	###prof_btn_diff	1
+ui_changes.cpp	SmallButton	###prof_diff_close	1
 ui_club_fields.cpp	-	##v	1
 ui_club_fields.cpp	-	Undo last change##cfundo_	1
 ui_club_fields.cpp	BeginCombo	##cf	1
@@ -374,6 +386,7 @@ ui_club_tools.cpp	OpenPopup	Licensed stadium##clubcust	1
 ui_club_tools.cpp	SmallButton	Open Kits##clubtoolskits	1
 ui_club_tools.cpp	checkbox_right	My save is backed up	1
 ui_club_voice.cpp	-	##cv	1
+ui_club_voice.cpp	-	##play_c%lld	1
 ui_club_voice.cpp	-	> No club name (not verified in game)##cv0	1
 ui_club_voice.cpp	-	No club name (not verified in game)##cv0	1
 ui_club_voice.cpp	BeginChild	##cvlist	1
@@ -527,6 +540,7 @@ ui_faces_layout.h	-	##whatcopy	1
 ui_faces_layout.h	-	Apply##faces	1
 ui_faces_layout.h	-	Sort##facesort	1
 ui_game_settings.cpp	-	##gsexppick	1
+ui_game_settings.cpp	-	##gsf_	1
 ui_game_settings.cpp	-	##gsimppick	1
 ui_game_settings.cpp	-	##gsp	1
 ui_game_settings.cpp	-	##gsv_	1
@@ -549,6 +563,7 @@ ui_game_settings.cpp	OpenPopup	##gsimppick	1
 ui_game_settings.cpp	OpenPopup	Delete preset?##gsdeletepop	1
 ui_game_settings.cpp	OpenPopup	Rename preset##gsrenamepop	1
 ui_game_settings.cpp	SmallButton	Delete...##gsdel	1
+ui_game_settings.cpp	SmallButton	Discard queued##gsfdiscard	1
 ui_game_settings.cpp	SmallButton	Duplicate##gsdup	1
 ui_game_settings.cpp	SmallButton	Export...##gsexp	1
 ui_game_settings.cpp	SmallButton	Import...##gsimp	1
@@ -560,6 +575,8 @@ ui_gear_thumbs.cpp	Button	###gearthumbsyes	1
 ui_gear_thumbs.cpp	OpenPopup	###gearthumbsconfirm	1
 ui_gear_thumbs.cpp	SmallButton	###gearthumbscancel	1
 ui_gear_thumbs.cpp	SmallButton	###gearthumbsgo	1
+ui_home.cpp	-	###fav_c_%lld	1
+ui_home.cpp	-	###fav_p_%lld	1
 ui_home.cpp	-	###home_game_settings	1
 ui_home.cpp	-	###home_manager_looks	1
 ui_home.cpp	-	###home_manager_miniface	1
@@ -567,9 +584,12 @@ ui_home.cpp	-	###home_player_looks	1
 ui_home.cpp	-	###home_preset_season	1
 ui_home.cpp	-	###home_preset_tactics	1
 ui_home.cpp	-	###home_preset_team	1
+ui_home.cpp	-	###home_squad_pitch	1
 ui_home.cpp	-	###home_tile_%d	1
 ui_home.cpp	BeginChild	##home_squad	1
 ui_home.cpp	Button	###home_changes	1
+ui_home.cpp	SmallButton	###home_boost_form	1
+ui_home.cpp	SmallButton	###home_boost_morale	1
 ui_identity.cpp	-	##c	1
 ui_identity.cpp	-	##crestassets	1
 ui_identity.cpp	-	##crestbrowser	1
@@ -772,12 +792,14 @@ ui_live_tactic.cpp	checkbox_right	Keep my bench order after Team Management##ltb
 ui_looks_studio.cpp	-	##	1
 ui_looks_studio.cpp	-	###look3dnode	1
 ui_looks_studio.cpp	-	###lsdraw	1
+ui_looks_studio.cpp	-	###lshairnode	1
+ui_looks_studio.cpp	-	###lshairnode3d	1
 ui_looks_studio.cpp	-	###lsundo	1
 ui_looks_studio.cpp	-	###lsviewbody	1
 ui_looks_studio.cpp	-	###lsviewhead	1
 ui_looks_studio.cpp	-	##bt	1
 ui_looks_studio.cpp	-	##lsbody	1
-ui_looks_studio.cpp	-	##lscards	1
+ui_looks_studio.cpp	-	##lscards	2
 ui_looks_studio.cpp	-	##lsface	1
 ui_looks_studio.cpp	-	##lsgear	1
 ui_looks_studio.cpp	-	##lshair	1
@@ -787,7 +809,7 @@ ui_looks_studio.cpp	-	##lslook	1
 ui_looks_studio.cpp	-	##lsm	1
 ui_looks_studio.cpp	-	##lsminiface	1
 ui_looks_studio.cpp	-	##lsp	1
-ui_looks_studio.cpp	-	##lspreview	1
+ui_looks_studio.cpp	-	##lspreview	2
 ui_looks_studio.cpp	-	##lstattoo	1
 ui_looks_studio.cpp	BeginChild	##lsrows	1
 ui_looks_studio.cpp	BeginCombo	##lv	1
@@ -800,7 +822,6 @@ ui_looks_studio.cpp	InvisibleButton	##btpic	1
 ui_looks_studio.cpp	OpenPopup	Choose a real face	1
 ui_looks_studio.cpp	RadioButton	###lsmanagers	1
 ui_looks_studio.cpp	RadioButton	###lsplayers	1
-ui_looks_studio.cpp	TreeNode	###lshairnode	1
 ui_looks_studio.cpp	TreeNode	###lslookall	1
 ui_match.cpp	-	##mf%u	1
 ui_match.cpp	-	Competition##msc	1
@@ -839,6 +860,10 @@ ui_pages_216.cpp	-	###pe_ability	1
 ui_pages_216.cpp	-	###pe_appearance	1
 ui_pages_216.cpp	-	###pe_callname	1
 ui_pages_216.cpp	-	###pe_profile	1
+ui_pages_216.cpp	-	##select	1
+ui_pages_216.cpp	BeginChild	##editor	1
+ui_pages_216.cpp	Button	###pf_bulk	1
+ui_pages_216.cpp	Button	###pf_create	1
 ui_parity.cpp	-	##	2
 ui_parity.cpp	BeginTable	##scouts	1
 ui_parity.cpp	BeginTable	##xfrows	1
@@ -864,6 +889,7 @@ ui_player_creation.cpp	Button	###pc_delete	1
 ui_player_creation.cpp	Button	###pc_delgo	1
 ui_player_creation.cpp	Button	###pc_delno	1
 ui_player_creation.cpp	InputTextWithHint	##pcsearch	1
+ui_player_header.cpp	-	###hdr_fav_player	1
 ui_player_header.cpp	-	###hdr_undo	1
 ui_player_header.cpp	-	##hdr_calc	1
 ui_player_header.cpp	-	##hdr_ovr	1
@@ -883,14 +909,14 @@ ui_player_profile.cpp	-	###ab_style	1
 ui_player_profile.cpp	-	###ab_styles	1
 ui_player_profile.cpp	-	###ab_typetier	1
 ui_player_profile.cpp	-	###ab_undo	1
-ui_player_profile.cpp	-	###bits2	1
-ui_player_profile.cpp	-	###bits3	1
 ui_player_profile.cpp	-	###pe_empty_create	1
 ui_player_profile.cpp	-	###pf_callname	1
 ui_player_profile.cpp	-	###pf_club	1
+ui_player_profile.cpp	-	###pf_confirm_btn	1
 ui_player_profile.cpp	-	###pf_details	1
 ui_player_profile.cpp	-	###pf_names	1
 ui_player_profile.cpp	-	###pf_undo	1
+ui_player_profile.cpp	-	###prof_move_ask	1
 ui_player_profile.cpp	-	##ab_ovrgrid	1
 ui_player_profile.cpp	-	##ab_pos	1
 ui_player_profile.cpp	-	##ab_rolegrid	1
@@ -898,11 +924,19 @@ ui_player_profile.cpp	-	##ab_stylegrid	1
 ui_player_profile.cpp	-	##pf_detailgrid	1
 ui_player_profile.cpp	-	##pf_flaggrid	1
 ui_player_profile.cpp	-	##select	1
+ui_player_profile.cpp	-	To club##pf_dest_club	1
 ui_player_profile.cpp	BeginChild	##editor	1
 ui_player_profile.cpp	BeginTable	##bits	1
 ui_player_profile.cpp	BeginTable	##sl	1
 ui_player_profile.cpp	Button	###pe_empty_club	1
+ui_player_profile.cpp	Button	###pf_btn_loan	1
+ui_player_profile.cpp	Button	###pf_btn_release	1
+ui_player_profile.cpp	Button	###pf_btn_transfer	1
+ui_player_profile.cpp	Button	###pf_cancel_btn	1
 ui_player_profile.cpp	Button	###pf_team	1
+ui_player_profile.cpp	InputInt	Contract length##pf_months	1
+ui_player_profile.cpp	InputInt	Transfer fee##pf_fee	1
+ui_player_profile.cpp	InputInt	Weekly wage##pf_wage	1
 ui_player_profile.cpp	SmallButton	###ab_all	1
 ui_player_profile.cpp	SmallButton	###ab_none	1
 ui_player_profile.cpp	TreeNodeEx	###ab_roles	1
@@ -1246,6 +1280,8 @@ ui_team_filter.cpp	-	%s##geo%lld	1
 ui_team_filter.cpp	InputTextWithHint	##geoq	1
 ui_team_filter.cpp	InputTextWithHint	##teamq	1
 ui_team_filter.cpp	Selectable	Any club	1
+ui_team_players.cpp	-	###tp_view_pitch	1
+ui_team_players.cpp	-	###tp_view_table	1
 ui_team_players.cpp	-	###tpaddpts	1
 ui_team_players.cpp	-	###tpdevpot	1
 ui_team_players.cpp	-	###tpreadrole	1
@@ -1269,12 +1305,15 @@ ui_team_players.cpp	BeginTabItem	###tptabclubs	1
 ui_team_players.cpp	BeginTabItem	###tptabplayer	1
 ui_team_players.cpp	BeginTabItem	###tptabsquad	1
 ui_team_players.cpp	BeginTabItem	###tptabsquadlist	1
+ui_team_players.cpp	Button	###tp_budget_set	1
 ui_team_players.cpp	Checkbox	###tpnodecline	1
 ui_team_players.cpp	Checkbox	###tpweeklyon	1
 ui_team_players.cpp	Combo	##role	1
+ui_team_players.cpp	InputInt	##tp_budget_input	1
 ui_team_players.cpp	InputInt	##tppoints	1
 ui_team_players.cpp	InputInt	##tppotential	1
 ui_team_players.cpp	InputTextWithHint	##teamplq	1
+ui_team_players.cpp	InvisibleButton	##pitch_canvas	1
 ui_team_players.cpp	PushID	tprole	1
 ui_team_players.cpp	SliderInt	##tpweekly	1
 ui_team_transfers.cpp	-	###tpend	1
@@ -1411,9 +1450,12 @@ ui_tools.cpp	-	Set youth player##yt	1
 ui_tools.cpp	BeginChild	##log	1
 ui_tools.cpp	BeginChild	##tools	1
 ui_tools.cpp	Button	###squadgo	1
+ui_tools.cpp	Checkbox	###pause_gifs	1
 ui_tools.cpp	Checkbox	###preload	1
+ui_tools.cpp	Checkbox	###reduce_motion	1
 ui_tools.cpp	CollapsingHeader	Technical details	1
 ui_tools.cpp	Combo	##squadrole	1
+ui_tools.cpp	Combo	##theme_select	1
 ui_tools.cpp	InputInt	##banuntil	1
 ui_tools.cpp	InputInt	##rvleague	1
 ui_tools.cpp	InputInt	##yearsc	1
@@ -1509,6 +1551,7 @@ ui_visual_picker.cpp	BeginTable	##vrow	1
 ui_visual_picker.cpp	BeginTable	##vrows	3
 ui_visual_picker.cpp	Button	###fefolderdef	1
 ui_visual_picker.cpp	Button	###fefolderset	1
+ui_visual_picker.cpp	Button	###vp_close	1
 ui_visual_picker.cpp	Button	###vpfolderdef	1
 ui_visual_picker.cpp	Button	###vpfolderset	1
 ui_visual_picker.cpp	Button	Apply##vpapply	1

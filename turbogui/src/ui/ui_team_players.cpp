@@ -463,7 +463,7 @@ void draw_team_players(App& app) {
     ImGui::SameLine();
     if (ImGui::Button("Set###tp_budget_set")) {
         app.send(teampage::run_cmd("transfer_budget", {{"mode", "set"}, {"amount", static_cast<int64_t>(s_budget_amount)}}), "Set budget");
-        app.notify("Transfer budget updated.", false);
+        page::done("team_players", "Transfer budget updated.");
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set transfer budget for this career club");
     if (!is_user_club) {

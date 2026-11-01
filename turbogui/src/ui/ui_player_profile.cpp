@@ -219,11 +219,12 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
 
     const TeamRow* dest = app.model.team(s_pmove.to_team);
     const bool can_move = (s_pmove.to_team > 0 && dest != nullptr);
+    static const char kMoveAskTitle[] = "Confirm move###prof_move_ask";
 
     if (!can_move) ImGui::BeginDisabled();
     if (ImGui::Button("Transfer###pf_btn_transfer")) {
         s_pmove.ask_open = true;
-        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_title = kMoveAskTitle;
         s_pmove.ask_body = "Transfer " + p.name + " to " + (dest ? dest->name : "destination") + "?";
         nlohmann::json action = {
             {"action", "transfer"},
@@ -244,7 +245,7 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
     ImGui::SameLine();
     if (ImGui::Button("Loan###pf_btn_loan")) {
         s_pmove.ask_open = true;
-        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_title = kMoveAskTitle;
         s_pmove.ask_body = "Loan " + p.name + " to " + (dest ? dest->name : "destination") + " for " + std::to_string(s_pmove.loan_months) + " months?";
         nlohmann::json action = {
             {"action", "loan"},
@@ -264,7 +265,7 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
     ImGui::SameLine();
     if (ImGui::Button("Release to free agent###pf_btn_release")) {
         s_pmove.ask_open = true;
-        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_title = kMoveAskTitle;
         s_pmove.ask_body = "Release " + p.name + " to Free Agents?";
         nlohmann::json action = {
             {"action", "release"},
@@ -279,10 +280,10 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Terminate contract and release player to free agents");
 
     if (s_pmove.ask_open) {
-        ImGui::OpenPopup("Confirm move###prof_move_ask");
+        ImGui::OpenPopup(kMoveAskTitle);
         s_pmove.ask_open = false;
     }
-    if (ImGui::BeginPopupModal("Confirm move###prof_move_ask", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal(kMoveAskTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(s_pmove.ask_body.c_str());
         ImGui::Spacing();
         if (theme::primary_button("Confirm###pf_confirm_btn")) {
