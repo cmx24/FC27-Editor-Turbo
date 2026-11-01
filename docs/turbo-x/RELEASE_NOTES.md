@@ -1,3 +1,18 @@
+# Turbo X 1.0.2 — release notes (2026-11-01, installed 14:55 EST)
+
+**Package**: `dist/FC27_LE_Turbo_X_1.0.2.zip` (126 files, sha256 `c6abe740f521798a4d6cd820bc2e242ea5430142bbee545dfee775d9a27f1172`),
+`Turbo.dll` md5 `e7a48c96156bb97aa00046faaf659edf`, built from `bec9b74` (MinGW exit 0). INSTALL PASS 120 files, 83,284 user files
+unchanged. Undo: `turbo_backups\install_20261101_145355\Undo-Turbo.cmd`. Resume point for any agent: `docs/turbo-x/RESUME.md`.
+
+BUILT (tests red on old code, green after; PC full suite clean except one flaky Kits-page case), **NOT SEEN in game yet**:
+- Real-face player: ONE hair/beard editor (faces-gate card, fold open by default); Look card keeps colours/eyebrows (1.0.1 + R2-O1).
+- Hair/beard tiles: Turbo in-game capture > FC 27 preview > FC Editor FC27 > RDBM26; 1,442 new in-game renders in pictures\raw (R2-P).
+- Tattoo tiles: the design from the game's tattoo texture (381 tiles) > FC 27 preview; full-body renders no longer used.
+- Picker filters per field and Players/Clubs list filters kept after a restart (R2-F); split panes and 8 dialogs keep their size (R2-R).
+- Club ▶ Play on the Commentary card, playing the name in effect (1.0.1 L1 + R2-O2).
+- Gear generator: no false 75 s timeouts; stale (repeated) captures refused (capture A/B). DX12 SRV heap 2048, slot 0 never reused.
+Deferred: contract actions on the player Profile (R2-A, red). Known: a flaky UI test; some tattoo designs shown as two pieces.
+
 # Turbo X 1.0 — release notes (2026-11-01, build final12)
 
 **Package**: `dist/FC27_LE_Turbo_X_1.0.zip` (126 files, sha256 `a3ca80debf9aad8d36a2bf6faad3284e0d4ef48705cf584c6068a2250ed87d9b`),

@@ -3,6 +3,13 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Turbo X 1.0.2 (2026-11-01, Turbo.dll e7a48c96) - pickers, tattoos, kept filters and sizes
+
+Installed on the owner's PC 2026-11-01 14:55. Notes: [`docs/turbo-x/RELEASE_NOTES.md`](docs/turbo-x/RELEASE_NOTES.md); resume point:
+[`docs/turbo-x/RESUME.md`](docs/turbo-x/RESUME.md). Includes 1.0.1 (one hair/beard editor on real-face players, club ▶, SRV heap 2048).
+- Hair/beard tile order with Turbo's in-game captures first; tattoo design tiles; picker and list filters kept; pane/dialog sizes kept;
+  ▶ plays the name in effect; capture timeout and stale-capture fixes. Built and tested; NOT seen in game yet. R2-A deferred.
+
 ## Turbo X 1.0 (2026-11-01, build final12, Turbo.dll 3caad80f) - the redesign
 
 Installed on the owner's PC 2026-11-01. Full notes, with what is seen in game versus only built:

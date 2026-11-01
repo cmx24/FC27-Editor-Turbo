@@ -162,3 +162,22 @@ Question: the owner's workbook counts 16,694 spoken names (generic surnames + re
   when non-empty); (3) Transfers > Loans re-checks that list every 2 s. turbo_gui.log line "loans: N players on loan, K stale
   playerloans rows not shown as loans" on each rebuild.
 - Built (MinGW, rc 0) and packaged (126 files). NOT seen in game yet.
+
+
+## 2026-11-01 (day): Turbo X 1.0.1 and 1.0.2 (multi-agent, Opus point, Fable approver)
+
+- Plan: Antigravity v3 overhaul plan reviewed by Fable (turbo_dev\turbox_20_assessment_20261101\08): too big for a noon target;
+  noon slice + rounds. Owner evidence: two hair pickers on a real-face player (missed by the first review) -> L2b fix.
+- 1.0.1 (e797310): L3 SRV 2048, L2b one picker (red 26 vs 26 rows -> green), L1 club ▶; L2a reverted (team-pages 4.0 red).
+  Cloud full suite 1.0.1 vs 1.0: identical 155 failing cases, NEW 0 (Miniface case skipped; it SIGSEGVs on both).
+- Round 2 lanes (filtered native runs, red -> green): R2-P TX-102 840/8 -> 848/0; R2-O1 L2b 833/4 -> 837/0; R2-R r2-r 822/24 -> 846/0
+  (split/layout residuals = base); R2-F 838/14 (toggle off) -> 853/0; capture A 819/4 -> 823/0, B 870/8 -> 878/0; tattoo tiles
+  820/12 -> 832/0. R2-A red after fix (818/13; team-pages 870/6) and did not compile on MinGW -> dropped (0bbc47d).
+- Integration tx-102-int: merges + dad60a3 (Miniface guard, test) + a305d14 (R2-F test) + b2094a3 (FC Editor isolation, test) +
+  bec9b74 (tattoo). PC full suite bec9b74: 45010/1884, only unexplained case = flaky Kits page; Fable GO WITH NOTE.
+- Game: run1 LAUNCH_FAILED (le_config listed CryptBase.dll, file missing; owner placed it: FrostyModSupport proxy for FCM 27);
+  run2 stopped at FCM's Italian Personal Settings screen; owner loaded LEICESTER; gear generator rendered 1309 hair + 133 beard
+  in 4 min, 0 failed (~1 s per 6-head round; the old 29-52 s figure was the outer polling loop); tattoos as full-body shots were
+  useless -> replaced by design tiles extracted from the game's tattoo textures (381/381).
+- Lessons: shared 6.27 GB memory cgroup -> one compile lock + ccache; MinGW stricter than Linux g++; PC runner 24 cores; check
+  result folders before asking the owner.
