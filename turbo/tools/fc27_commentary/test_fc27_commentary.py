@@ -342,6 +342,19 @@ def main():
         check("no full set for the team asked -> refused", True)
     only_gm = FakeBank("eng_us", {pre + "eng_us_gm_full/pplayer_names_simple": sble("player_db_pID", (5, 6))})
     check("default team missing -> the first full set", only_gm.primary == "eng_us_gm_full")
+    # --set: another set's rows, wavs under encoded segment numbers (callname_coverage.py SET_INDEX)
+    check("set_index: full 0, licensed 1, demo 2 (no team / dr); gm +3; unknown None",
+          (fc.set_index("", "full"), fc.set_index("", "demo"), fc.set_index("dr", "licensed"), fc.set_index("gm", "demo"),
+           fc.set_index("drsr", "full"), fc.set_index("", "wc")) == (0, 2, 1, 5, None, None))
+    ita_demo = FakeBank("ita_it", ita.res)
+    ita_demo._index_sets(None, "ita_it_demo")
+    check("--set ita_it_demo: that set is the primary one", ita_demo.primary == "ita_it_demo"
+          and ita_demo.families() == ["pplayer_names_simple"])
+    try:
+        ita_demo._index_sets(None, "ita_it_licensed")
+        check("--set of a set the bank does not have is refused", False)
+    except fc.FormatError:
+        check("--set of a set the bank does not have is refused", True)
 
     took = time.time() - t0
     print("test_fc27_commentary: %s (%.2f s)" % ("ok" if not FAILS else "%d failed" % len(FAILS), took))

@@ -24,6 +24,8 @@ Turbo's set T is read the way the GUI's loader reads it (turbogui/src/core/calln
 
 usage:
   python turbo/tools/callname_coverage.py <wav_dir | wav list .txt> <selection xlsx dir> <master json>
+  python turbo/tools/callname_coverage.py <wav_dir | wav list .txt> --bank <lang>_bank.json [--bank <set>_bank.json]
+         <master json>   (the other options as above)
          [--spoken spoken_<lang>.txt] [--db DIR] [--examples N]
          [--write-spoken OUT] [--write-master OUT [--wav-dir-json DIR] [--wavset-only] [--game-build B]]
          [--sets-root DIR [--sets-wav-list FILE] [--copy-from-sets | --write-copy-plan OUT]] [--catalog JSON]
@@ -50,6 +52,20 @@ usage:
               only there) but never listed: the kick-off name check asks SIMPLE / LINK only.
   --catalog JSON    the game asset catalog (turbo_output\\asset_catalog\\catalog_<key>.json): names.player fills the
               master's players without a name.
+  --bank JSON       instead of the selection xlsx: a turbo_bank json of turbo/tools/fc27_commentary/fc27_commentary.py
+              (the layout of turbo_dev\\masters\\fc27_audio\\<lang>_bank.json + <lang>\\generic, real, real_link,
+              real_high). Its rows (generic, real, real_link, real_high: segment -> id, the set "primary_set") are the
+              selection rows, keyed "segment_offset" (0 for the full set) + segment; the wavs are the ones fc27_commentary
+              --wav wrote. Repeat it for another set extracted with fc27_commentary --set <set> (its wavs in the same
+              folder, encoded segment numbers). The json's "sets" / "union" (the ids of EVERY set of the language,
+              full / demo / licensed, every team) are the game's count: an id of a set whose rows were not given has no
+              segment, so it is listed (selectable: real_players / generic_ids, "no_preview_players") but has no
+              Preview; --write-master and --write-spoken take those ids too. Labels as with --sets-root (the DB words).
+  --labels-from JSON  another master (repeatable, in order) whose names / generic_names label the ids the input
+              master does not name (e.g. the English master's DB words for a language whose master is an FC 26 list).
+  --db-players CSV --db-names TXT [--db-edited CSV]   the career database export turbo_table_players.csv (commonnameid,
+              firstnameid, lastnameid), bridge_names.txt (name id TAB text) and turbo_table_editedplayernames.csv: the
+              name of a player that neither the masters nor --catalog name (as build_callname_master.py names them)
 Exit code 0 when G \\ T is empty for every bank, 1 otherwise, 2 on bad input. Python 3 + openpyxl only.
 """
 import argparse
@@ -185,6 +201,41 @@ def read_spoken_list(path):
     return ids, ""
 
 
+def db_player_names(players_csv, names_txt, edited_csv=None):
+    """{player id: name} from the career database export (edited names first, then common name, else first + last)"""
+    texts = {}
+    with open(names_txt, encoding="utf-8", errors="replace") as fh:   # some names are cut inside a UTF-8 sequence
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            x = line.rstrip("\r\n").split("\t")
+            if len(x) >= 2 and x[0].strip().isdigit():
+                texts[int(x[0])] = x[1].strip()
+    out = {}
+    with open(players_csv, encoding="utf-8-sig", newline="") as fh:
+        for r in csv.DictReader(fh):
+            try:
+                pid = int(r["playerid"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            nm = lambda f: texts.get(int(r.get(f) or 0), "") if str(r.get(f) or "").strip().isdigit() else ""
+            n = nm("commonnameid") or " ".join(x for x in (nm("firstnameid"), nm("lastnameid")) if x)
+            if n:
+                out[pid] = n
+    if edited_csv:
+        with open(edited_csv, encoding="utf-8-sig", newline="") as fh:
+            for r in csv.DictReader(fh):
+                try:
+                    pid = int(r["playerid"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                n = (r.get("commonname") or "").strip() or " ".join(
+                    x for x in ((r.get("firstname") or "").strip(), (r.get("surname") or "").strip()) if x)
+                if n:
+                    out[pid] = n
+    return out
+
+
 def read_tsv(path):
     with open(path, encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.reader(fh, delimiter="\t", quoting=csv.QUOTE_NONE))
@@ -304,6 +355,80 @@ def read_sets(root, lang, wav_list=None):
         row["wavs"] = sum(1 for b in BANKS for k in wavs[b] if k // OTHER_SET == idx)
         per_set.append(row)
     return sel, spec, per_set, wavs
+
+
+BANK_ROWS = (("generic", "SIMPLE_SURNAME", "commentaryid"), ("real", "PLAYER_NAMES_SIMPLE", "playerid"),
+             ("real_link", "PLAYER_NAMES_LINK", "playerid"), ("real_high", "PLAYER_NAMES_HIGH", "playerid"))
+UNION_KEY = {"SIMPLE_SURNAME": "generic", "PLAYER_NAMES_SIMPLE": "simple", "PLAYER_NAMES_LINK": "link",
+             "PLAYER_NAMES_HIGH": "high"}
+
+
+def read_banks(paths):
+    """--bank: the selection rows of fc27_commentary bank jsons {bank: {encoded segment: ids}}, the ids of every set of
+    the language (the first json's "sets" / "union") and one info row per json"""
+    sel = {b: collections.defaultdict(set) for b in BANKS}
+    infos, sets, union, offsets = [], None, None, set()
+    for p in paths:
+        with open(p, encoding="utf-8-sig") as fh:
+            d = json.load(fh)
+        if not isinstance(d, dict) or d.get("turbo_bank") != 1:
+            die(f"{p}: not a turbo_bank json of fc27_commentary.py")
+        off = int(d.get("segment_offset") or 0)
+        if off in offsets:
+            die(f"{p}: segment offset {off} given twice (one --bank per set)")
+        offsets.add(off)
+        row = {"file": p, "lang": d.get("lang"), "set": d.get("primary_set"), "offset": off,
+               "game_build": d.get("game_build"), "wav_dir": d.get("wav_dir")}
+        for key, b, idk in BANK_ROWS:
+            n = 0
+            for r in d.get(key) or []:
+                try:
+                    sel[b][off + int(r["segment"])].add(int(r[idk]))
+                    n += 1
+                except (KeyError, TypeError, ValueError):
+                    continue
+            row[b] = n
+        if d.get("generic_high"):
+            print(f"warning: {p}: {len(d['generic_high'])} pPLAYER_NAMES_HIGH rows keyed by surname_ID (generic_high): "
+                  "Turbo has no preview for them; not listed")
+        if sets is None:
+            sets, union = d.get("sets") or {}, d.get("union") or {}
+        infos.append(row)
+    if union is None or not union:
+        die("the --bank json has no \"union\" (made by an fc27_commentary.py before per-set ids): extract it again")
+    uni = {b: set(int(x) for x in union.get(UNION_KEY[b]) or []) for b in BANKS}
+    return sel, sets, uni, infos
+
+
+def report_banks(infos, sets, uni, g, wavs):
+    print("-- the game's banks (--bank): every set of the language")
+    for r in infos:
+        print(f"  {r['file']}: set {r['set']} offset {r['offset']} build {r['game_build']} rows " +
+              ", ".join(f"{b} {r[b]}" for b in BANKS))
+    for s, v in sorted((sets or {}).items()):
+        ids = v.get("ids") or {}
+        own = set(ids.get("simple") or []) | set(ids.get("link") or [])
+        err = v.get("errors") or {}
+        print(f"  set {s:22s} team {v.get('team')!r:5s} {v.get('kind'):8s} generic {len(ids.get('generic') or [])}"
+              f"  own (SIMPLE | LINK) {len(own)}  HIGH {len(ids.get('high') or [])}" + (f"  errors {err}" if err else ""))
+    own = uni["PLAYER_NAMES_SIMPLE"] | uni["PLAYER_NAMES_LINK"]
+    high, gen = uni["PLAYER_NAMES_HIGH"], uni["SIMPLE_SURNAME"]
+    g_own = set(g["PLAYER_NAMES_SIMPLE"]) | set(g["PLAYER_NAMES_LINK"])
+    print(f"  every set: players with an own recording (SIMPLE | LINK) {len(own)}; HIGH {len(high)}, HIGH only "
+          f"{len(high - own)}; generic surname ids {len(gen)}; spoken names {len(gen) + len(own)}")
+    print(f"  with a wav (G): own {len(g_own)} of {len(own)}, generic {len(g['SIMPLE_SURNAME'])} of {len(gen)},"
+          f" HIGH {len(g['PLAYER_NAMES_HIGH'])} of {len(high)}")
+    no_wav_own = sorted(own - g_own)
+    print(f"  own players without a wav (a set whose rows were not given: fc27_commentary --set): {len(no_wav_own)}"
+          f" {no_wav_own[:20]}")
+    for s, v in sorted((sets or {}).items()):
+        ids = v.get("ids") or {}
+        x = sorted((set(ids.get("simple") or []) | set(ids.get("link") or [])) & set(no_wav_own))
+        if x:
+            print(f"    only in {s}: {len(x)} {x}")
+    print(f"  generic ids without a wav: {len(gen - set(g['SIMPLE_SURNAME']))}")
+    return {"own": own - g_own, "generic": gen - set(g["SIMPLE_SURNAME"]),
+            "simple": uni["PLAYER_NAMES_SIMPLE"], "link": uni["PLAYER_NAMES_LINK"]}
 
 
 def merge_set_wavs(wavs, set_wavs):
@@ -485,8 +610,8 @@ def report(g, t, master, wavs, sel_no_wav, wav_no_sel, odd, db, examples, lang):
 
 
 # ---------------------------------------------------------------- writers
-def write_spoken(path, lang, g):
-    ids = sorted(c for c in g["SIMPLE_SURNAME"] if SPOKEN_LO < c <= SPOKEN_HI)
+def write_spoken(path, lang, g, extra=()):
+    ids = sorted(c for c in set(g["SIMPLE_SURNAME"]) | set(extra) if SPOKEN_LO < c <= SPOKEN_HI)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\r\n") as o:   # CRLF, as the shipped lists
         o.write(f"#turbo-spoken {lang} {len(ids)}\n")
@@ -495,10 +620,21 @@ def write_spoken(path, lang, g):
     print(f"wrote {path}: {len(ids)} ids (G's surname ids in 900001..965000; ids above 965000 come from the master)")
 
 
-def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, sources, catalog_names=None, db_labels_only=False):
+def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, sources, catalog_names=None, db_labels_only=False,
+                 unrecorded=None, labels_from=(), db_names=None):
     names = {int(k): v for k, v in (master.get("names") or {}).items() if str(k).isdigit()}
+    gnames_more = {}
+    for lm in labels_from:   # later masters label only what the earlier ones do not
+        for k, v in (lm.get("names") or {}).items():
+            if str(k).isdigit() and isinstance(v, str) and v.strip():
+                names.setdefault(int(k), v)
+        for k, v in (lm.get("generic_names") or {}).items():
+            if str(k).isdigit() and isinstance(v, str) and v.strip():
+                gnames_more.setdefault(int(k), v)
     from_catalog = {i: n for i, n in (catalog_names or {}).items() if n and i not in names}
     gnames_old = {int(k): v for k, v in (master.get("generic_names") or {}).items() if str(k).isdigit()}
+    for k, v in gnames_more.items():
+        gnames_old.setdefault(k, v)
     cn = {int(r["commentaryid"]): r["commentarystring"].strip() for r in db["commentarynames"]} if db else {}
     seg = {b: {i: list(v) for i, v in g[b].items()} for b in BANKS}
     simple, link, high = set(seg["PLAYER_NAMES_SIMPLE"]), set(seg["PLAYER_NAMES_LINK"]), set(seg["PLAYER_NAMES_HIGH"])
@@ -516,13 +652,21 @@ def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, so
         extra_noseg = sorted(old_real - simple - link)
     else:
         extra_noseg = []
+    unrec = unrecorded or {}
+    no_preview = sorted(set(unrec.get("own") or ()) - simple - link)
+    simple |= set(i for i in no_preview if i in (unrec.get("simple") or ()))
+    link |= set(i for i in no_preview if i in (unrec.get("link") or ()))
     own = simple | link
-    filled = 0
+    filled = filled_db = 0
     for i in sorted(own | high):
         if i not in names and i in from_catalog:
             names[i] = from_catalog[i]
             filled += 1
-    gen = sorted(seg["SIMPLE_SURNAME"])
+        elif i not in names and db_names and db_names.get(i):
+            names[i] = db_names[i]
+            filled_db += 1
+    gen_no_preview = sorted(set(unrec.get("generic") or ()) - set(seg["SIMPLE_SURNAME"]))
+    gen = sorted(set(seg["SIMPLE_SURNAME"]) | set(gen_no_preview))
     gnames, gprev = {}, {}
     for c in gen:
         # the game's own label (commentarynames, trimmed); the previous label kept beside it when the text differs (not
@@ -555,6 +699,7 @@ def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, so
                  "'generic' = pSIMPLE_SURNAME (commentary id). Labels: commentarynames (trimmed; 'DB | previous' "
                  "when the previous master's label is a different text), else the previous master."),
         "counts": {"generic_ids": len(gen), "real_players": len(own), "real_simple_players": len(simple),
+                   "no_preview_players": len(no_preview), "no_preview_generic_ids": len(gen_no_preview),
                    "real_link_players": len(link), "real_high_players": len(high),
                    "carried_other_set_players": len(carried),
                    "segments": {SEG_KEY[b]: sum(len(v) for v in seg[b].values()) for b in BANKS}},
@@ -574,27 +719,38 @@ def write_master(path, lang, g, master, db, wav_dir, wavset_only, game_build, so
                                "--wavset-only drops them")
     if extra_noseg:
         out["dropped_players"] = extra_noseg
+    if no_preview or gen_no_preview:
+        out["no_preview_players"] = no_preview
+        out["no_preview_generic_ids"] = gen_no_preview
+        out["no_preview_note"] = ("ids the game records in a set whose recordings are not in wav_dir (e.g. a demo set): "
+                                  "listed so they can be picked, no Preview until that set is extracted "
+                                  "(fc27_commentary.py --set <set> --wav <wav_dir>) and this list rebuilt with its --bank")
     if gprev:
         out["generic_previous_labels"] = gprev
         out["generic_previous_note"] = ("generic_names = the game's commentarynames text; generic_previous_labels = the "
                                         "previous master's label where it is another word (often the player it was used for)")
-    if filled:
-        out["names_note"] = f"{filled} player names filled from the asset catalog (names.player)"
+    if filled or filled_db:
+        out["names_note"] = (f"{filled} player names filled from the asset catalog (names.player), {filled_db} from the "
+                             "career database export (players + bridge_names)")
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as o:
         json.dump(out, o, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, path)
     print(f"wrote {path}: {len(gen)} generic ids, {len(own)} own-recording players ({len(simple)} SIMPLE, {len(link)} LINK,"
-          f" {len(carried)} carried from other sets), {len(high)} HIGH; wav_dir {wav_dir!r}")
+          f" {len(carried)} carried from other sets), {len(high)} HIGH; without a Preview: {len(no_preview)} players,"
+          f" {len(gen_no_preview)} generic ids; unnamed players {len(out['unnamed_players'])}; wav_dir {wav_dir!r}")
     return out
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("wavs")
-    ap.add_argument("selection_dir")
-    ap.add_argument("master")
+    ap.add_argument("inputs", nargs="+", metavar="ARG", help="<wavs> <selection_dir> <master>, or <wavs> <master> with --bank")
+    ap.add_argument("--bank", action="append", default=[], help="fc27_commentary bank json (instead of the selection xlsx)")
+    ap.add_argument("--labels-from", action="append", default=[], help="another master that labels the unnamed ids")
+    ap.add_argument("--db-players")
+    ap.add_argument("--db-names")
+    ap.add_argument("--db-edited")
     ap.add_argument("--spoken", help="spoken_<lang>.txt (default: none = only the master's generic ids)")
     ap.add_argument("--db", help="folder with commentarynames.txt, playernames.txt, playernamemap.txt")
     ap.add_argument("--examples", type=int, default=20)
@@ -609,7 +765,18 @@ def main():
     ap.add_argument("--copy-from-sets", action="store_true")
     ap.add_argument("--write-copy-plan")
     ap.add_argument("--catalog")
-    a = ap.parse_args()
+    a = ap.parse_intermixed_args()
+    if a.bank:
+        if len(a.inputs) != 2:
+            ap.error("with --bank give <wavs> <master>")
+        a.wavs, a.master = a.inputs
+        a.selection_dir = None
+        if a.sets_root:
+            ap.error("--bank and --sets-root do not go together")
+    else:
+        if len(a.inputs) != 3:
+            ap.error("give <wavs> <selection_dir> <master>")
+        a.wavs, a.selection_dir, a.master = a.inputs
 
     with open(a.master, encoding="utf-8-sig") as fh:
         master = json.load(fh)
@@ -618,11 +785,16 @@ def main():
     lang = (a.lang or master.get("language") or "").lower()
     wavs, odd = read_wavs(a.wavs)
     sel = {}
-    for b in BANKS:
-        m, why = read_selection(a.selection_dir, b)
-        if m is None:
-            die(why)
-        sel[b] = m
+    bank_info = None
+    if a.bank:
+        sel, bsets, buni, binfos = read_banks(a.bank)
+        bank_info = (bsets, buni, binfos)
+    else:
+        for b in BANKS:
+            m, why = read_selection(a.selection_dir, b)
+            if m is None:
+                die(why)
+            sel[b] = m
     spoken = set()
     if a.spoken:
         spoken, err = read_spoken_list(a.spoken)
@@ -649,6 +821,14 @@ def main():
     g, sel_no_wav, wav_no_sel = build_g(wavs, sel)
     t = turbo_sets(master, spoken)
     ok = report(g, t, master, wavs, sel_no_wav, wav_no_sel, odd, db, a.examples, lang)
+    unrecorded = None
+    if bank_info:
+        unrecorded = report_banks(bank_info[2], bank_info[0], bank_info[1], g, wavs)
+        own_u = bank_info[1]["PLAYER_NAMES_SIMPLE"] | bank_info[1]["PLAYER_NAMES_LINK"]
+        gen_t = t["spoken_list"] | t["generic_ids"]
+        print(f"-- Turbo now vs every set: own players {len(own_u - t['real_players'])} missing, "
+              f"{len(t['real_players'] - own_u)} extra (not recorded in FC 27 {lang}); generic ids "
+              f"{len(bank_info[1]['SIMPLE_SURNAME'] - gen_t)} missing, {len(gen_t - bank_info[1]['SIMPLE_SURNAME'])} extra")
     if sets_info:
         report_sets(sets_info[0], sets_info[1], sets_info[2], g)
         print(f"-- set wavs the wav folder lacks under their encoded name: {len(plan)}"
@@ -681,14 +861,24 @@ def main():
         for k, v in ((cat.get("names") or {}).get("player") or {}).items():
             if str(k).isdigit() and isinstance(v, list) and v and isinstance(v[0], str):
                 catalog_names[int(k)] = v[0]
+    labels_from = []
+    for p in a.labels_from:
+        with open(p, encoding="utf-8-sig") as fh:
+            labels_from.append(json.load(fh))
     if a.write_spoken:
-        write_spoken(a.write_spoken, lang, g)
+        write_spoken(a.write_spoken, lang, g, (unrecorded or {}).get("generic", ()))
     if a.write_master:
-        src = [os.path.abspath(a.wavs), os.path.abspath(a.selection_dir), "labels: " + os.path.abspath(a.master)]
+        src = [os.path.abspath(a.wavs)] + ([os.path.abspath(a.selection_dir)] if a.selection_dir else [])
+        src += ["bank: " + os.path.abspath(b) for b in a.bank]
+        src.append("labels: " + os.path.abspath(a.master))
+        src += ["labels: " + os.path.abspath(p) for p in a.labels_from]
         if a.sets_root:
             src.append("sets: " + os.path.abspath(a.sets_root))
+        build = a.game_build or (bank_info[2][0]["game_build"] if bank_info else None)
         write_master(a.write_master, lang, g, master, db, a.wav_dir_json if a.wav_dir_json is not None else master.get("wav_dir", ""),
-                     a.wavset_only or bool(a.sets_root), a.game_build, src, catalog_names, db_labels_only=bool(a.sets_root))
+                     a.wavset_only or bool(a.sets_root) or bool(a.bank), build, src, catalog_names,
+                     db_labels_only=bool(a.sets_root) or bool(a.bank), unrecorded=unrecorded, labels_from=labels_from,
+                     db_names=db_player_names(a.db_players, a.db_names, a.db_edited) if a.db_players and a.db_names else None)
     return 0 if ok else 1
 
 
