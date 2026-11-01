@@ -8,11 +8,12 @@
 //       real handle held without FILE_SHARE_DELETE) returns false and leaves the old bytes; one retry is allowed;
 //   (d) the header field: inside an identified career Set writes careers\<id>\ovr_mask.json, a bad value is refused with the file
 //       unchanged, Clear removes it; an empty or all-spaces box with nothing stored says "Nothing to clear" and writes nothing;
-//       outside an identified career nothing is written; the players table is never touched.
+//       outside an identified career nothing is written. Turbo X (11-01): Set pins players.overallrating, Clear puts it back (core/ovr_pin.h).
 #pragma once
 #include <string>
 
 #include "core/ovr_mask.h"
+#include "core/ovr_pin.h"
 #include "ui/ui_player_header.h"
 #include "ui/ui_shell.h"
 
@@ -31,6 +32,45 @@ static void ui_cases(App& app, Ui& ui) {
     using shell::Page;
     namespace om = turbo::ovr_mask;
     const std::string kCareer = "0123456789abcdef";
+
+    run_case("Shown OVR: the pin plan pins, re-pins after the game's own write, puts the game value back on Clear", [&] {
+        namespace op = turbo::ovr_pin;
+        std::map<int64_t, int> field = {{1, 72}, {2, 60}};
+        auto read = [&](int64_t pid) -> int { auto it = field.find(pid); return it == field.end() ? -1 : it->second; };
+        auto apply = [&](const std::vector<op::Step>& v) { for (const auto& s : v) field[s.pid] = s.to; };
+        op::State st;
+        om::Map mask = {{1, 85}, {9, 50}};  // 9 is not in this career: nothing written, nothing recorded
+        auto steps = op::plan(mask, st, read);
+        CHECK(steps.size() == 1 && steps[0].pid == 1 && steps[0].act == op::Act::Pin && steps[0].from == 72 && steps[0].to == 85, "first pass: 72 -> 85");
+        CHECK(st.size() == 1 && st[1].game == 72 && st[1].pinned == 85, "state: game 72, pinned 85");
+        apply(steps);
+        CHECK(op::plan(mask, st, read).empty(), "in place: nothing to write");
+        field[1] = 74;  // the game's growth update wrote its own overall
+        steps = op::plan(mask, st, read);
+        CHECK(steps.size() == 1 && steps[0].act == op::Act::Repin && steps[0].from == 74 && st[1].game == 74, "re-pin 74 -> 85, game value 74");
+        apply(steps);
+        mask[1] = 80;  // a new Shown OVR
+        steps = op::plan(mask, st, read);
+        CHECK(steps.size() == 1 && steps[0].act == op::Act::Pin && steps[0].from == 85 && steps[0].to == 80 && st[1].game == 74, "85 -> 80, game kept 74");
+        apply(steps);
+        CHECK(op::release_all(st, read).size() == 1 && op::release_all(st, read)[0].to == 74, "unload: 80 -> 74 offered, state kept");
+        mask.erase(1);  // Clear
+        steps = op::plan(mask, st, read);
+        CHECK(steps.size() == 1 && steps[0].act == op::Act::Restore && steps[0].to == 74 && st.empty(), "Clear: 80 -> 74, no pin left");
+        op::failed(st, steps[0]);
+        CHECK(st.size() == 1 && st[1].pinned == 80 && st[1].game == 74, "a failed put-back is tried again");
+        field[1] = 77;  // the game moved it since: never written over
+        CHECK(op::plan(mask, st, read).empty() && st.empty(), "moved by the game: left alone, entry dropped");
+        const fs::path dir = fs::temp_directory_path() / "turbo_ovr_pin_test";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        const fs::path sf = op::state_file(dir, kCareer);
+        op::State a = {{225667, {99, 71}}}, b;
+        std::string err;
+        CHECK(op::save_state(sf, a, &err) && op::load_state(sf, b, &err) && b == a, "state file round-trips: " + err);
+        CHECK(op::save_state(sf, op::State{}, &err) && !fs::exists(sf), "an empty state removes the file");
+        fs::remove_all(dir, ec);
+    });
 
     run_case("Shown OVR: the locked schema round-trips, Clear removes the pid and then the file, invalid values are refused", [&] {
         const fs::path root = fs::temp_directory_path() / "turbo_ovr_mask_test";
@@ -186,7 +226,9 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.type_into(ui.find("###hdr_shown_ovr"), "70"), "type 70 + Enter");
         CHECK(fs::exists(f) && om::get(app.turbo_output(), kCareer, 1001) == 70, "ovr_mask.json holds 1001 -> 70");
         CHECK(player_header_state().shown_ovr == 70, "the card reads it back");
-        if (p) CHECK(app.model.player(1001)->overall == stored, "the stored overall is untouched");
+        // Turbo X (11-01): the pin writes his stored overall at once (core/ovr_pin.h); his attributes are not touched
+        if (p) CHECK(app.model.player(1001)->overall == 70, "the pin: his stored overall is 70 now (was " + std::to_string(stored) + ")");
+        CHECK(fs::exists(turbo::ovr_pin::state_file(app.turbo_output(), kCareer)), "ovr_pin_state.json records the pin and the game value");
         const std::string before = slurp(f);
         CHECK(ui.type_into(ui.find("###hdr_shown_ovr"), "150"), "type 150");
         CHECK(slurp(f) == before && om::get(app.turbo_output(), kCareer, 1001) == 70, "150 is refused: the file is unchanged");
@@ -195,7 +237,8 @@ static void ui_cases(App& app, Ui& ui) {
         CHECK(ui.click("Clear###hdr_shown_clear"), "click Clear");
         ui.frames(2);
         CHECK(!fs::exists(f) && player_header_state().shown_ovr == 0, "Clear removes the pid and the empty file");
-        if (p) CHECK(app.model.player(1001)->overall == stored, "the stored overall is still untouched");
+        if (p) CHECK(app.model.player(1001)->overall == stored, "Clear puts the game's overall back: " + std::to_string(stored));
+        CHECK(!fs::exists(turbo::ovr_pin::state_file(app.turbo_output(), kCareer)), "no pin left: ovr_pin_state.json removed");
 
         // an empty box with nothing stored: "nothing to clear", nothing written (3.2 review fix: it said "Cleared")
         CHECK(ui.type_into(ui.find("###hdr_shown_ovr"), ""), "empty box + Enter, nothing stored");

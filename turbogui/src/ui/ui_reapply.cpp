@@ -46,6 +46,7 @@
 
 #include "app.h"
 #include "core/compdata_profile.h"
+#include "core/ovr_pin.h"
 #include "imgui.h"
 #include "ui_career_page.h"
 #include "ui_identity.h"
@@ -255,7 +256,164 @@ std::string App::reapply_key() const {
 
 bool App::reapply_due() const {
     const auto& st = bridge.state();
-    return st.loaded && st.in_cm && !reapply.empty() && reapply_key() != reapplied_key_;
+    if (!st.loaded || !st.in_cm || reapply_key() == reapplied_key_) return false;
+    // the Shown OVR pin (ovr_pin_tick) needs the newly loaded career's database too, also while the window is hidden
+    return !reapply.empty() || ovr_pin_files_;
+}
+
+// ---------------------------------------------------------------- Turbo X Shown OVR pin (core/ovr_pin.h)
+namespace {
+struct OvrPinRuntime {
+    std::string key;     // reapply_key() + career the state below belongs to ("" = none loaded)
+    std::string career;  // its career id
+    ovr_pin::State state;
+    bool state_unreadable = false;  // ovr_pin_state.json could not be read: never overwritten, nothing written in that career
+};
+OvrPinRuntime g_pin;
+
+// any turbo_output\careers\<id>\ovr_mask.json or ovr_pin_state.json (a few folders: at start-up and after a Set / Clear)
+bool any_mask_file(const fs::path& turbo_output) {
+    std::error_code ec;
+    const fs::path dir = turbo_output / "careers";
+    if (!fs::is_directory(dir, ec)) return false;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code ec2;
+        if (fs::exists(it->path() / "ovr_mask.json", ec2) || fs::exists(it->path() / "ovr_pin_state.json", ec2)) return true;
+    }
+    return false;
+}
+
+// The stored overall of a player of the connected database, -1 when he is not readable here; his record goes to *rec
+int read_overall(App& app, const Table& pt, const Field& fo, int64_t pid, uint64_t* rec) {
+    const PlayerRow* p = app.model.player(pid);
+    if (!p || !app.db.table_alive(pt, p->rec)) return -1;
+    Value v;
+    if (!app.db.get(pt, p->rec, fo, v) || v.type != FieldType::Int) return -1;
+    if (rec) *rec = p->rec;
+    return static_cast<int>(v.i);
+}
+}  // namespace
+
+void App::ovr_pin_rescan() {
+    ovr_pin_scanned_ = true;
+    ovr_pin_files_ = any_mask_file(turbo_output());
+}
+
+void App::ovr_pin_tick(bool force) {
+    if (!ovr_pin_scanned_) ovr_pin_rescan();
+    if (!force && now < ovr_pin_next_) return;
+    ovr_pin_next_ = now + ovr_pin::kPollSeconds;
+    const auto& st = bridge.state();
+    const std::string career = career_faces_wanted();  // "" while not in an identified career, or before its identity is read
+    // only the database the game reports: a load Turbo has not re-read yet (window hidden) is never written through old addresses
+    if (!db.ready() || !st.loaded || !st.in_cm || career.empty() || st.db_gen != seen_db_gen || st.db_service != seen_service) return;
+    const std::string key = reapply_key() + "|" + career;
+    if (key != g_pin.key) {
+        // a newly loaded career: its own state file (what was pinned in it, and the game values)
+        g_pin = OvrPinRuntime{};
+        g_pin.key = key;
+        g_pin.career = career;
+        std::string err;
+        if (!ovr_pin::load_state(ovr_pin::state_file(turbo_output(), career), g_pin.state, &err)) {
+            g_pin.state_unreadable = true;
+            ovr_pin_status = time_stamp() + ": not pinned: " + err;
+            const std::string line = "ovr mask: " + err + " (left as it is; no pin written in this career)";
+            log(line);
+            if (log_hook) log_hook(line);
+        }
+    }
+    if (g_pin.state_unreadable) return;
+    ovr_mask::Map mask;
+    std::error_code ec;
+    const bool off = fs::exists(ovr_pin::kill_switch(turbo_output()), ec);
+    if (!off) {
+        std::string err;
+        if (!ovr_mask::load(ovr_mask::file_for(turbo_output(), career), mask, &err)) {
+            // an unreadable mask file is never acted on: nothing pinned, nothing put back
+            if (force) {
+                ovr_pin_status = time_stamp() + ": not pinned: " + err;
+                log("ovr mask: " + err);
+            }
+            return;
+        }
+    }
+    if (mask.empty() && g_pin.state.empty()) return;
+    const Table* pt = db.table("players");
+    const Field* fo = pt ? pt->field("overallrating") : nullptr;
+    if (!pt || !fo || fo->type != FieldType::Int) return;
+    std::map<int64_t, uint64_t> recs;
+    auto read = [&](int64_t pid) -> int {
+        uint64_t rec = 0;
+        const int v = read_overall(*this, *pt, *fo, pid, &rec);
+        if (v >= 0) recs[pid] = rec;
+        return v;
+    };
+    const ovr_pin::State before = g_pin.state;
+    const std::vector<ovr_pin::Step> steps = ovr_pin::plan(mask, g_pin.state, read);
+    size_t wrote = 0, failed = 0;
+    for (const ovr_pin::Step& s : steps) {
+        std::string err;
+        const PlayerRow* p = model.player(s.pid);
+        const std::string who = (p ? p->name : std::string("player")) + " (" + std::to_string(s.pid) + ")";
+        char head[96];
+        std::snprintf(head, sizeof head, "ovr mask: %lld overallrating %d -> %d", static_cast<long long>(s.pid), s.from, s.to);
+        if (!db.set(*pt, recs[s.pid], *fo, Value::of_int(s.to), &err)) {
+            ++failed;
+            ovr_pin::failed(g_pin.state, s);
+            const std::string line = std::string(head) + " NOT written (" + ovr_pin::act_name(s.act) + ", " + who + "): " + err;
+            log(line);
+            if (log_hook) log_hook(line);
+            continue;
+        }
+        ++wrote;
+        model.refresh_player(s.pid, today());
+        const char* why = s.act == ovr_pin::Act::Pin     ? "pin: the Shown OVR"
+                          : s.act == ovr_pin::Act::Repin ? "re-pin: the game had written its own overall"
+                          : off                          ? "put back: ovr_pin_off.txt"
+                                                         : "put back: Shown OVR cleared";
+        const std::string line = std::string(head) + " (" + why + ", " + who + ", career " + career + ")";
+        log(line);
+        if (log_hook) log_hook(line);
+    }
+    if (wrote) ++gen;
+    if (wrote || failed)
+        ovr_pin_status = time_stamp() + ": " + std::to_string(wrote) + " written" +
+                         (failed ? ", " + std::to_string(failed) + " NOT written (GUI log)" : std::string()) + ", " + std::to_string(g_pin.state.size()) +
+                         " pinned";
+    if (!(g_pin.state == before)) {
+        std::string err;
+        if (!ovr_pin::save_state(ovr_pin::state_file(turbo_output(), career), g_pin.state, &err)) {
+            log("ovr mask: state not saved: " + err);
+            if (log_hook) log_hook("ovr mask: state not saved: " + err);
+        }
+    }
+}
+
+void App::ovr_pin_release_on_exit() {
+    try {
+        const auto& st = bridge.state();
+        if (g_pin.state.empty() || g_pin.state_unreadable || !db.ready() || !st.loaded || !st.in_cm || st.db_gen != seen_db_gen ||
+            st.db_service != seen_service || career_faces_wanted() != g_pin.career)
+            return;
+        const Table* pt = db.table("players");
+        const Field* fo = pt ? pt->field("overallrating") : nullptr;
+        if (!pt || !fo || fo->type != FieldType::Int) return;
+        std::map<int64_t, uint64_t> recs;
+        auto read = [&](int64_t pid) -> int {
+            uint64_t rec = 0;
+            const int v = read_overall(*this, *pt, *fo, pid, &rec);
+            if (v >= 0) recs[pid] = rec;
+            return v;
+        };
+        for (const ovr_pin::Step& s : ovr_pin::release_all(g_pin.state, read)) {
+            std::string err;
+            const bool ok = db.set(*pt, recs[s.pid], *fo, Value::of_int(s.to), &err);
+            const std::string line = "ovr mask: " + std::to_string(s.pid) + " overallrating " + std::to_string(s.from) + " -> " + std::to_string(s.to) +
+                                     " (put back: Turbo unloads)" + (ok ? std::string() : " NOT written: " + err);
+            if (log_hook) log_hook(line);
+        }
+    } catch (...) {
+    }
 }
 
 // 2.15: the loaded career's identity (core/reapply.h header). Read once per career load (reapply_key), before the kept
