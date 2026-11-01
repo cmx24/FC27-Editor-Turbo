@@ -126,16 +126,13 @@ static void draw_copy_popup(App& app, const Table& t, uint64_t rec, int head_cla
     bodytype_risky_box(app, t, rec);
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputTextWithHint("##btcopyflt", "player name (at least 2 letters)", g_gal.copy_text, sizeof(g_gal.copy_text));
-    std::string q = g_gal.copy_text;
-    std::transform(q.begin(), q.end(), q.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    const std::string q = fold_search(g_gal.copy_text);
     if (!pt || !pt->has("bodytypecode")) {
         ImGui::TextDisabled("The players table has no body type field.");
     } else if (q.size() >= 2 && ImGui::BeginChild("##btcopylist", ImVec2(0, -S(34.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY)) {
         int shown = 0;
         for (const auto& p : app.model.players()) {
-            std::string n = p.name;
-            std::transform(n.begin(), n.end(), n.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            if (n.find(q) == std::string::npos) continue;
+            if (!fold_find(p.name_fold, p.name, q)) continue;
             if (shown++ >= 12) break;
             const int64_t code = app.db.get_int(*pt, p.rec, "bodytypecode", -1);
             ImGui::AlignTextToFramePadding();

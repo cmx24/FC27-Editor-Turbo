@@ -26,6 +26,7 @@
 #include "core/asset_catalog.h"
 #include "core/player_create.h"
 #include "core/t3db.h"
+#include "core/text_fold.h"
 
 namespace turbo::player_id {
 
@@ -273,6 +274,7 @@ struct Hidden {
     int64_t id = 0;
     bool head = false, callname = false, miniface = false;
     std::string name, source;  // catalog name ("" = none)
+    mutable std::string fold;  // fold_search(name) (core/text_fold.h), filled by the picker's first search after the list is built
 };
 
 // Ids with a hidden 3D head (no row wears it, not generic) or an own callname recording in the loaded language (any
@@ -323,15 +325,16 @@ inline std::string lower(std::string s) {
     return s;
 }
 
-// The rows the picker shows: the filter, then the search (part of the name or of the id, any letter case)
+// The rows the picker shows: the filter, then the search (part of the name or of the id, any letter case, accents ignored)
 inline std::vector<const Hidden*> pick(const std::vector<Hidden>& all, Want w, const std::string& search) {
     std::vector<const Hidden*> out;
-    const std::string q = lower(search);
+    const std::string q = fold_search(search);
     for (const Hidden& h : all) {
         if (w == Want::Head && !h.head) continue;
         if (w == Want::Callname && !h.callname) continue;
         if (w == Want::Both && !(h.head && h.callname)) continue;
-        if (!q.empty() && lower(h.name).find(q) == std::string::npos && std::to_string(h.id).find(q) == std::string::npos) continue;
+        if (!q.empty() && h.fold.empty() && !h.name.empty()) h.fold = fold_search(h.name);
+        if (!q.empty() && h.fold.find(q) == std::string::npos && std::to_string(h.id).find(q) == std::string::npos) continue;
         out.push_back(&h);
     }
     return out;

@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "core/model.h"
+#include "core/text_fold.h"
 #include "ui/playstyles.h"
 
 namespace turbo {
@@ -27,32 +28,6 @@ static std::string trim(const std::string& s) {
 static std::string lower_ascii(std::string s) {
     for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
-}
-
-// Accent folding for the Latin letters of player names (U+00C0..U+017F), everything else is lower-cased ASCII or kept
-static const char* kFold00C0 =  // U+00C0..U+00FF
-    "aaaaaaaceeeeiiii" "dnooooo*ouuuuyts" "aaaaaaaceeeeiiii" "dnooooo/ouuuuyty";
-static const char* kFold0100 =  // U+0100..U+017F
-    "aaaaaaccccccccdd" "ddeeeeeeeeeegggg" "gggghhhhiiiiiiii" "iiiijjkkklllllll"
-    "lllnnnnnnnnnoooo" "oooorrrrrrssssss" "ssttttttuuuuuuuu" "uuuuwwyyyzzzzzzs";
-
-static std::string fold(const std::string& s) {
-    std::string out;
-    for (size_t i = 0; i < s.size();) {
-        unsigned char c = static_cast<unsigned char>(s[i]);
-        if (c < 0x80) { out += static_cast<char>(std::tolower(c)); ++i; continue; }
-        if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
-            unsigned cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3Fu);
-            if (cp >= 0xC0 && cp <= 0xFF) { out += kFold00C0[cp - 0xC0]; i += 2; continue; }
-            if (cp >= 0x100 && cp <= 0x17F) { out += kFold0100[cp - 0x100]; i += 2; continue; }
-            out += s.substr(i, 2);
-            i += 2;
-            continue;
-        }
-        out += static_cast<char>(c);
-        ++i;
-    }
-    return out;
 }
 
 static bool to_int(const std::string& s, int64_t& v) {
@@ -135,6 +110,8 @@ size_t CmtLibrary::add_csv(const std::string& text, const std::string& source, s
         size_t k = hs.find("/DB/");
         if (k != std::string::npos && to_int(hs.substr(k + 4, 3), v) && v > 0 && v < 100) p.db_version = static_cast<int>(v);
         p.source = source;
+        p.search_text = fold_search(p.name + " " + col(p, "info.name.firstname") + " " + col(p, "info.name.lastname") + " " + p.club + " " +
+                                    p.nation + " " + p.position);
         auto it = by_id_.find(p.id);
         if (it != by_id_.end()) players_[it->second] = std::move(p);
         else { by_id_[p.id] = players_.size(); players_.push_back(std::move(p)); }
@@ -181,15 +158,14 @@ const CmtPlayer* CmtLibrary::find(int64_t id) const {
 
 std::vector<const CmtPlayer*> CmtLibrary::search(const std::string& query, size_t limit) const {
     std::vector<std::string> words;
-    std::istringstream ws(fold(query));
+    std::istringstream ws(fold_search(query));
     for (std::string w; ws >> w;) words.push_back(w);
     std::vector<std::pair<int, const CmtPlayer*>> hits;
     if (words.empty()) {
         for (auto& p : players_) hits.emplace_back(p.overall, &p);
     } else {
         for (auto& p : players_) {
-            std::string hay = fold(p.name + " " + col(p, "info.name.firstname") + " " + col(p, "info.name.lastname") + " " +
-                                   p.club + " " + p.nation + " " + p.position);
+            const std::string& hay = p.search_text;
             bool ok = true;
             int score = p.overall;
             for (auto& w : words) {

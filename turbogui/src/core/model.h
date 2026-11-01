@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "t3db.h"
+#include "text_fold.h"
 
 namespace turbo {
 
@@ -60,6 +61,7 @@ struct PlayerRow {
     std::string name;
     int64_t club = 0;        // club team id (0 = none / free agent)
     std::string club_name;
+    std::string name_fold, club_fold;  // fold_search(name), fold_search(club_name) (core/text_fold.h): what the search boxes compare
     int overall = 0, potential = 0, position = -1, age = -1;
     // used by the Players list filters
     int positions[7] = {-1, -1, -1, -1, -1, -1, -1};  // preferredposition1..7 (-1 = none or field absent)
@@ -101,6 +103,7 @@ struct TeamRow {
     int64_t teamid = 0;
     uint64_t rec = 0;
     std::string name;
+    std::string name_fold;   // fold_search(name) (core/text_fold.h)
     int overall = 0;
     int64_t league = -1;
 };
@@ -109,6 +112,7 @@ struct ManagerRow {
     int64_t managerid = 0;
     uint64_t rec = 0;
     std::string name;
+    std::string name_fold;   // fold_search(name) (core/text_fold.h)
     int64_t teamid = 0;
 };
 
@@ -144,6 +148,7 @@ public:
     bool has_name(int64_t nameid) const { return name_by_nameid_.count(nameid) > 0; }
     const PlayerRow* player(int64_t pid) const;
     const TeamRow* team(int64_t tid) const;
+    const std::string& team_name_fold(int64_t tid) const;  // the club row's fold_search(name); "" when there is no row
     std::vector<LinkRow> links_of_player(int64_t pid) const;
     std::vector<LinkRow> links_of_team(int64_t tid) const;
     bool is_national_team(int64_t tid) const;

@@ -1806,14 +1806,14 @@ static bool strip_button(const char* label, bool selected, bool first) {
     return hit;
 }
 
-// 3.0 top bar: the global search "##gsearch". Case-insensitive match on the players' and the clubs' names (model.players() / teams()); the
+// 3.0 top bar: the global search "##gsearch". Case- and accent-insensitive match on the players' and the clubs' names (model.players() / teams()); the
 // first 8 matches as Selectables in a small window under the box. Enter takes the first match. A player opens Players > Player with
 // app.sel_player set; a club opens Club > Squad with app.sel_team set (the page's club chooser reads it). The match list is rebuilt only
 // when the text or the model changes (never per frame).
 namespace {
 struct GlobalSearch {
     char buf[96] = {};
-    std::string query;          // lower-case text the results are for
+    std::string query;          // fold_search'ed text the results are for (case and accents ignored)
     uint64_t model_version = ~0ull;
     struct Hit { bool club; int64_t id; std::string text; };
     std::vector<Hit> hits;
@@ -1823,14 +1823,8 @@ GlobalSearch& global_search() {
     static GlobalSearch g;
     return g;
 }
-std::string lower_ascii(const std::string& s) {
-    std::string o(s);
-    for (char& c : o)
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return o;
-}
 void global_search_refresh(App& app, GlobalSearch& g) {
-    std::string q = lower_ascii(g.buf);
+    std::string q = fold_search(g.buf);
     while (!q.empty() && q.back() == ' ') q.pop_back();
     while (!q.empty() && q.front() == ' ') q.erase(q.begin());
     if (q == g.query && g.model_version == app.model.version()) return;
@@ -1840,11 +1834,11 @@ void global_search_refresh(App& app, GlobalSearch& g) {
     if (q.size() < 2 || !app.model.built()) return;
     for (const TeamRow& t : app.model.teams()) {
         if (g.hits.size() >= 3) break;  // clubs first, at most three of the eight
-        if (lower_ascii(t.name).find(q) != std::string::npos) g.hits.push_back({true, t.teamid, t.name});
+        if (fold_find(t.name_fold, t.name, q)) g.hits.push_back({true, t.teamid, t.name});
     }
     for (const PlayerRow& p : app.model.players()) {
         if (g.hits.size() >= 8) break;
-        if (lower_ascii(p.name).find(q) != std::string::npos)
+        if (fold_find(p.name_fold, p.name, q))
             g.hits.push_back({false, p.playerid, p.name + (p.club_name.empty() ? std::string() : "  (" + p.club_name + ")")});
     }
 }

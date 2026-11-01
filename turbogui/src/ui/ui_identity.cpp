@@ -26,11 +26,6 @@ namespace fs = std::filesystem;
 static const ImVec4 kWarn(1.0f, 0.7f, 0.3f, 1.0f);
 static const ImVec4 kGood(0.55f, 0.95f, 0.55f, 1.0f);
 
-static std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 static void placeholder_box(float side, const char* text) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -876,11 +871,11 @@ static int64_t crest_gallery(App& app, CrestEditor& ed, int64_t exclude) {
     int64_t picked = 0;
     ImGui::SetNextItemWidth(S(220.0f));
     ImGui::InputTextWithHint("##crestsearch", "club name or ID", ed.gallery_search, sizeof(ed.gallery_search));
-    std::string q = lower(ed.gallery_search);
+    std::string q = fold_search(ed.gallery_search);
     std::vector<const TeamRow*> rows;
     for (const auto& t : app.model.teams()) {
         if (t.teamid == exclude) continue;
-        if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
+        if (!q.empty() && !fold_find(t.name_fold, t.name, q) && std::to_string(t.teamid).find(q) != 0) continue;
         rows.push_back(&t);
     }
     ImGui::TextDisabled("%zu clubs (pictures load from the game as they come into view)", rows.size());

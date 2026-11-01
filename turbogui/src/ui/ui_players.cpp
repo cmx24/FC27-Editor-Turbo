@@ -12,6 +12,7 @@
 #include "table_registry.h"
 #include "core/field_labels.h"
 #include "core/overall.h"
+#include "core/text_fold.h"
 #include "core/range_filter.h"
 #include "core/team_preset.h"
 #include "geo.h"
@@ -29,11 +30,6 @@
 namespace turbo {
 
 using nlohmann::json;
-
-static std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
 
 // Case-insensitive text compare for the sortable columns (<0, 0, >0)
 static int ci_compare(const std::string& a, const std::string& b) {
@@ -330,12 +326,12 @@ void draw_classic_player_list(App& app) {
     std::snprintf(fkey, sizeof(fkey), "|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%lld|%lld|%lld|%d|%d|%d|%d", f_pos, pos_exact ? 1 : 0, f_style,
                   f_plus ? 1 : 0, f_retiring ? 1 : 0, f_free ? 1 : 0, f_age.from, f_age.to, f_ovr.from, f_ovr.to, f_pot.from, f_pot.to,
                   static_cast<long long>(f_team), static_cast<long long>(f_nat), static_cast<long long>(f_cont), f_gender, f_loan, f_group, sort_by);
-    std::string key = lower(search) + (my_club ? "|1" : "|0") + fkey;
+    std::string key = fold_search(search) + (my_club ? "|1" : "|0") + fkey;
     if (key != last_key || last_version != app.model.version()) {
         last_key = key;
         last_version = app.model.version();
         rows.clear();
-        std::string q = lower(search);
+        std::string q = fold_search(search);
         int64_t qid = 0;
         bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
         if (numeric) qid = std::atoll(q.c_str());
@@ -368,7 +364,7 @@ void draw_classic_player_list(App& app) {
             if (!q.empty()) {
                 if (numeric) {
                     if (p.playerid != qid && std::to_string(p.playerid).find(q) != 0) continue;
-                } else if (lower(p.name).find(q) == std::string::npos && lower(p.club_name).find(q) == std::string::npos) {
+                } else if (!fold_find(p.name_fold, p.name, q) && !fold_find(p.club_fold, p.club_name, q)) {
                     continue;
                 }
             }

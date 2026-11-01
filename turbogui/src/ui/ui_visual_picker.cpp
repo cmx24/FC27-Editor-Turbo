@@ -162,11 +162,6 @@ vis::AnimStore& store() {
     return *p;
 }
 
-std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 bool is_dir(const fs::path& p) {
     std::error_code ec;
     return !p.empty() && fs::is_directory(p, ec);
@@ -606,9 +601,9 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         if (fe && !light && out.note.empty()) out.note = std::to_string(fe) + " tiles show a lit preview converted from your FC Editor install (local only, not shipped).";
     }
     for (size_t i = 0; i < out.codes.size(); ++i) {
-        std::string q = lower(out.names[i]) + " " + std::to_string(out.codes[i]);
-        if (field == "hairtypecode" && out.codes[i] > 0) q += " " + lower(hair::describe(hair::lookup(out.codes[i])));
-        if (out.group[i] >= 0) q += " " + lower(out.groups[static_cast<size_t>(out.group[i])]);
+        std::string q = fold_search(out.names[i]) + " " + std::to_string(out.codes[i]);
+        if (field == "hairtypecode" && out.codes[i] > 0) q += " " + fold_search(hair::describe(hair::lookup(out.codes[i])));
+        if (out.group[i] >= 0) q += " " + fold_search(out.groups[static_cast<size_t>(out.group[i])]);
         out.search.push_back(std::move(q));
     }
     return true;
@@ -1113,7 +1108,7 @@ void filter(App& app, State& s) {
     s.shown_key = key;
     s.shown.clear();
     s.blank_count = 0;
-    const std::string q = lower(s.search);
+    const std::string q = fold_search(s.search);
     const Source& src = s.src;
     const bool is_hair = src.field == "hairtypecode";
     for (size_t i = 0; i < src.codes.size(); ++i) {

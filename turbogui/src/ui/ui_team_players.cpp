@@ -58,11 +58,11 @@ void player_list(App& app, const std::vector<const PlayerRow*>& squad) {
     static char search[64] = "";
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##teamplq", "player name", search, sizeof(search));
-    const std::string q = lower_copy(search);
+    const std::string q = fold_search(search);
     std::vector<const PlayerRow*> rows;
     rows.reserve(squad.size());
     for (const PlayerRow* p : squad)
-        if (q.empty() || lower_copy(p->name).find(q) != std::string::npos) rows.push_back(p);
+        if (fold_find(p->name_fold, p->name, q)) rows.push_back(p);
     g_state.listed = rows.size();
     ImGui::BeginChild("##team_pl_rows", ImVec2(0, 0));
     ImGuiListClipper clip;

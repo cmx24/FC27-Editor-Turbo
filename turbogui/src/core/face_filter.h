@@ -56,7 +56,7 @@ struct Face {
     bool manager = false;     // a manager's head (heads_staff miniface)
     bool real = false;        // real face: headclasscode 0 (any hashighqualityhead)
     int hq = -1;              // hashighqualityhead: 1, 0, -1 when the table has none (a badge, and an optional filter)
-    std::string name, lname;  // lname: lower case, for the search box
+    std::string name, lname;  // lname: fold_search(name) (core/text_fold.h: lower case, accents folded), for the search box
     int overall = 0;          // players: overall rating (sort)
     int64_t raw[kFacetCount];  // field values (database facets), look values or kUnclassified (3D facets); kNoValue: none
     const face3d::Look* look = nullptr;  // the head's 3D look (players only; set_look)

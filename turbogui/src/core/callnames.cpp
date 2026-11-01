@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "game_settings.h"
+#include "text_fold.h"
 #include "nlohmann/json.hpp"
 
 #ifdef _WIN32
@@ -741,15 +742,21 @@ CallnameInfo resolve_callname(int64_t playerid, int64_t commonnameid, int64_t la
     return info;
 }
 
-bool callname_filter_match(const std::string& text, const std::string& name, int64_t id) {
+bool callname_filter_match(const std::string& text, const std::string& name, std::string& fold, int64_t id) {
     if (text.empty()) return true;
-    std::string t = lower(text);
+    std::string t = fold_search(text);
     size_t start = t.find_first_not_of(" \t");
     if (start == std::string::npos) return true;
     t = t.substr(start);
     bool digits = !t.empty() && std::all_of(t.begin(), t.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
     if (digits && std::to_string(id).rfind(t, 0) == 0) return true;
-    return lower(name).find(t) != std::string::npos;
+    if (fold.empty() && !name.empty()) fold = fold_search(name);
+    return fold.find(t) != std::string::npos;
+}
+
+bool callname_filter_match(const std::string& text, const std::string& name, int64_t id) {
+    std::string fold;
+    return callname_filter_match(text, name, fold, id);
 }
 
 std::vector<AllCallnameRow> all_callnames(const MasterList& m, const CallnameIndex& ix,

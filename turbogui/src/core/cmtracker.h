@@ -25,6 +25,7 @@ struct CmtPlayer {
     int age = 0;
     std::map<std::string, std::string> cols;    // every CSV column of the row (lower-case header -> text)
     std::string source;                         // file the row came from
+    std::string search_text;                    // name, first and last name, club, nation, position: fold_search'ed once (core/text_fold.h)
 };
 
 class CmtLibrary {
@@ -36,7 +37,7 @@ public:
     size_t files() const { return files_; }
     const std::vector<std::string>& problems() const { return problems_; }  // files that were skipped, with the reason
     const CmtPlayer* find(int64_t id) const;
-    // Players whose name, club or nation contains every word of `query` (case and accents ignored for plain letters),
+    // Players whose name, club or nation contains every word of `query` (case and accents ignored: core/text_fold.h),
     // or whose id equals a number in the query; best first (id match, then overall). At most `limit`.
     std::vector<const CmtPlayer*> search(const std::string& query, size_t limit = 100) const;
     const std::vector<CmtPlayer>& all() const { return players_; }

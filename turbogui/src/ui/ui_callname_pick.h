@@ -23,6 +23,7 @@
 #include "core/callname_voice.h"
 #include "core/callnames.h"
 #include "core/callnames_catalog.h"
+#include "core/text_fold.h"
 
 namespace turbo {
 
@@ -90,16 +91,14 @@ inline std::string row_key(const AllCallnameRow& r) { return r.own() ? "p" + std
 inline const char* kind_label(const AllCallnameRow& r) { return r.own() ? "Real player" : "Generic"; }
 inline std::string row_name(const AllCallnameRow& r) { return r.text.empty() ? std::string("(no name)") : r.text; }
 
-// The search box: the typed words against the callname's text, case-insensitive; never an id
+// The search box: the typed words against the callname's text, case- and accent-insensitive (core/text_fold.h; the row's text is
+// folded on its first search, r.fold); never an id
 inline bool matches(const std::string& search, const AllCallnameRow& r) {
-    auto lower = [](std::string s) {
-        for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return s;
-    };
     const size_t b = search.find_first_not_of(" \t");
     if (b == std::string::npos) return true;
     const size_t e = search.find_last_not_of(" \t");
-    return lower(r.text).find(lower(search.substr(b, e - b + 1))) != std::string::npos;
+    if (r.fold.empty() && !r.text.empty()) r.fold = fold_search(r.text);
+    return r.fold.find(fold_search(search.substr(b, e - b + 1))) != std::string::npos;
 }
 
 // Can Apply be pressed for this row and this player? why = one plain sentence when not.

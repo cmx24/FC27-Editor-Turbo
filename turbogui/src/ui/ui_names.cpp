@@ -280,8 +280,7 @@ static void name_id_search(App& app, const Table& t, const PlayerRow& p) {
     static size_t total = 0;
     ImGui::SetNextItemWidth(S(240.0f));
     ImGui::InputTextWithHint("##nmidsearch", "find a name id by its text", q, sizeof(q));
-    std::string lq = trim(q);
-    std::transform(lq.begin(), lq.end(), lq.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const std::string lq = fold_search(trim(q));
     if (lq.size() < 2) return;
     if (lq != last_q || last_version != app.model.version()) {
         last_q = lq;
@@ -289,9 +288,7 @@ static void name_id_search(App& app, const Table& t, const PlayerRow& p) {
         hits.clear();
         total = 0;
         for (const auto& kv : app.model.names_by_id()) {
-            std::string ln = kv.second;
-            std::transform(ln.begin(), ln.end(), ln.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (ln.find(lq) == std::string::npos && std::to_string(kv.first) != lq) continue;
+            if (fold_search(kv.second).find(lq) == std::string::npos && std::to_string(kv.first) != lq) continue;
             ++total;
             hits.push_back(kv);
         }

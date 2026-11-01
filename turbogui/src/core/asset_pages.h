@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/asset_catalog.h"
+#include "core/text_fold.h"
 
 namespace turbo {
 
@@ -29,6 +30,7 @@ struct AssetBrowserItem {
     std::string name_source;  // assets::Name::source ("" = DB name or fallback)
     std::string path;         // picture path (legacy file), "" = placeholder
     bool hidden = false;
+    mutable std::string fold;  // fold_search(name) (core/text_fold.h), filled by the first search after the list is built
 };
 
 struct AssetBrowserState {
@@ -44,12 +46,13 @@ inline std::string asset_lower(std::string s) {
 }
 
 // Does the item match the search text? Empty text: yes. Digits only: the id contains them, or the name does.
-// Otherwise: the name contains the text (any letter case). `q_lower` must already be lower-case and trimmed.
+// Otherwise: the name contains the text (any letter case, accents ignored). `q_lower` must already be fold_search'ed and trimmed.
 inline bool asset_search_match(const AssetBrowserItem& it, const std::string& q_lower) {
     if (q_lower.empty()) return true;
     const bool digits = std::all_of(q_lower.begin(), q_lower.end(), [](char c) { return c >= '0' && c <= '9'; });
     if (digits && std::to_string(it.id).find(q_lower) != std::string::npos) return true;
-    return asset_lower(it.name).find(q_lower) != std::string::npos;
+    if (it.fold.empty() && !it.name.empty()) it.fold = fold_search(it.name);
+    return it.fold.find(q_lower) != std::string::npos;
 }
 
 inline std::string asset_trim(const std::string& s) {
@@ -61,7 +64,7 @@ inline std::string asset_trim(const std::string& s) {
 
 // Indices (into items) of the items that pass the scope filter and the search, in list order
 inline std::vector<size_t> asset_filter(const std::vector<AssetBrowserItem>& items, AssetScope scope, const std::string& search) {
-    const std::string q = asset_lower(asset_trim(search));
+    const std::string q = fold_search(asset_trim(search));
     std::vector<size_t> out;
     out.reserve(items.size());
     for (size_t i = 0; i < items.size(); ++i)
@@ -105,6 +108,7 @@ inline std::vector<std::string> asset_page_wants(const std::vector<AssetBrowserI
 // ("Youth face #91001"). A catalog name taken from a game file name ("slug") gets the id, because slugs are ambiguous
 // (two different heads can share one).
 inline void asset_pick_name(AssetBrowserItem& it, assets::Family f, const std::string& db_name, const assets::Name& cat_name) {
+    it.fold.clear();  // the name changes: the next search folds it again
     if (!db_name.empty()) {
         it.name = db_name;
         it.name_source.clear();

@@ -17,6 +17,7 @@
 #include "app.h"
 #include "core/cmtracker.h"
 #include "core/http.h"
+#include "core/player_file.h"
 #include "core/image.h"
 #include "core/season_pack.h"
 #include "file_picker.h"
@@ -41,6 +42,7 @@ struct CmtJob {
     std::atomic<int> state{0};   // 1 running, 2 finished
     std::mutex m;
     std::string label;           // player name
+    std::string what = "CMTracker";  // the route, for the messages ("CMTracker", ".player file")
     std::string note;            // what happened to the miniface
     std::string error;           // non-empty: nothing was written
     fs::path json_file;
@@ -183,12 +185,12 @@ void cmt_poll_job(App& app) {
         job.reset();
         std::lock_guard<std::mutex> lk(j->m);
         if (!j->error.empty()) {
-            app.notify("From CMTracker: " + j->error, true);
+            app.notify("From " + j->what + ": " + j->error, true);
         } else {
             json o = {{"source", {{"file", path_text(j->json_file)}}}, {"teamid", j->teamid}, {"jersey", j->jersey}};
-            app.send({{"op", "run"}, {"module", "create_player"}, {"overrides", o}}, "Create player from CMTracker: " + j->label);
+            app.send({{"op", "run"}, {"module", "create_player"}, {"overrides", o}}, "Create player from " + j->what + ": " + j->label);
             if (!j->note.empty()) app.notify(j->label + ": " + j->note);
-            app.log("CMTracker: " + j->label + " -> team " + std::to_string(j->teamid) + "; " + (j->note.empty() ? "no miniface requested" : j->note));
+            app.log(j->what + ": " + j->label + " -> team " + std::to_string(j->teamid) + "; " + (j->note.empty() ? "no miniface requested" : j->note));
         }
     }
 }
@@ -371,6 +373,161 @@ void cmtracker_dialog(App& app) {
         if (ImGui::Button("Close##pcmt")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+}
+
+// ---------------------------------------------------------------- "Import .player..." (core/player_file.h)
+// A .player file of FC Editor or the EA FC Player Creator (one player, UTF-16 tab-separated): previewed here (name, OVR, position,
+// how many players fields it fills, what is left out), then the same create as From CMTracker: the preset JSON is written to
+// turbo_output\players by the job above (no picture request) and cmt_poll_job hands it to Lua's create_player.
+
+namespace {
+
+struct PlayerFileUi {
+    char file[1024] = "";
+    FilePicker picker;
+    std::string previewed;
+    PlayerFile pf;
+    PlayerFilePreset pr;
+    int teamid = move_rules::kFreeAgents;
+    int jersey = 0;
+    bool show_left_out = false;
+};
+
+PlayerFileUi& pf_ui() {
+    static PlayerFileUi u;
+    return u;
+}
+
+// The live players table's int fields and ranges (the game's own metadata), else FC 27's list (core/player_file.h)
+std::vector<PlayersFieldRange> players_fields_of(App& app) {
+    std::vector<PlayersFieldRange> out;
+    if (const Table* t = app.db.table("players")) {
+        for (const Field& f : t->fields)
+            if (f.type == FieldType::Int) out.push_back({f.name, f.min, f.max()});
+    }
+    if (out.empty()) out = fc27_players_fields();
+    return out;
+}
+
+void pf_load(App& app, PlayerFileUi& u) {
+    u.previewed = u.file;
+    u.pf = u.file[0] ? read_player_file(text_path(u.file)) : PlayerFile();
+    u.pr = PlayerFilePreset();
+    if (!u.pf.ok) return;
+    const std::vector<PlayersFieldRange> fields = players_fields_of(app);
+    PlayerFileOptions o;
+    o.fields = &fields;
+    o.source = path_text(text_path(u.file).filename());
+    u.pr = player_file_to_preset(u.pf, o);
+    u.jersey = u.pr.jersey;
+    u.teamid = (u.pr.teamid > 0 && app.model.team(u.pr.teamid) && !app.model.is_national_team(u.pr.teamid)) ? static_cast<int>(u.pr.teamid)
+                                                                                                          : move_rules::kFreeAgents;
+}
+
+bool pf_can_create(App& app) {
+    PlayerFileUi& u = pf_ui();
+    const bool running = cmt_ui().job && cmt_ui().job->state == 1;
+    return u.pf.ok && app.model.team(u.teamid) != nullptr && !app.model.is_national_team(u.teamid) && !running;
+}
+
+// The same job as From CMTracker (no picture): the preset file is written on the worker, cmt_poll_job sends create_player
+void pf_create(App& app) {
+    PlayerFileUi& u = pf_ui();
+    const std::vector<PlayersFieldRange> fields = players_fields_of(app);
+    PlayerFileOptions o;
+    o.fields = &fields;
+    o.teamid = u.teamid;
+    o.jersey = u.jersey;
+    o.source = path_text(text_path(u.file).filename());
+    PlayerFilePreset pr = player_file_to_preset(u.pf, o);
+    const std::string base = preset_safe_name(pr.name) + "_" + std::to_string(pr.playerid) + "_player";
+    std::shared_ptr<CmtJob>& job = cmt_ui().job;
+    job = std::make_shared<CmtJob>();
+    job->state = 1;
+    job->label = pr.name;
+    job->what = ".player file";
+    job->teamid = u.teamid;
+    job->jersey = u.jersey;
+    std::thread(run_job, job, std::move(pr.preset), players_dir(app), heads_cache(app), base, pr.playerid, 0, false).detach();
+}
+
+}  // namespace
+
+void player_file_dialog(App& app) {
+    {
+        const ImVec2 disp = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(disp.x * 0.5f, disp.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(std::min(S(600.0f), disp.x * 0.92f), std::min(S(560.0f), disp.y * 0.9f)), ImGuiCond_Appearing);
+    }
+    if (!ImGui::BeginPopupModal("##pplayerfile", nullptr)) return;
+    PlayerFileUi& u = pf_ui();
+    const float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + S(4.0f);
+    ImGui::BeginChild("##pfbody", ImVec2(0, -footer_h));
+    ImGui::TextUnformatted("Create a player from a .player file");
+    theme::muted_text("FC Editor and the EA FC Player Creator save one player per .player file.");
+    ImGui::SetNextItemWidth(std::max(S(200.0f), ImGui::GetContentRegionAvail().x - S(90.0f)));
+    ImGui::InputTextWithHint("##pffile", "C:\\...\\player.player", u.file, sizeof(u.file));
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...##pplayerfile")) {
+        u.picker.mode = PickMode::Open;
+        u.picker.title = "Choose a .player file (FC Editor, EA FC Player Creator)";
+        u.picker.exts = {".player"};
+        u.picker.key = "import.playerfile";
+        u.picker.start = app.bridge.root();
+        if (u.file[0]) u.picker.dir = text_path(u.file).parent_path();
+        ImGui::OpenPopup("##pfbrowse");
+    }
+    fs::path chosen;
+    if (file_picker_modal("##pfbrowse", u.picker, chosen)) std::snprintf(u.file, sizeof(u.file), "%s", path_text(chosen).c_str());
+    if (u.previewed != u.file) pf_load(app, u);
+    if (u.file[0] && !u.pf.ok) theme::warn_text("%s", u.pf.error.c_str());
+    if (u.pf.ok) {
+        const PlayerFilePreset& pr = u.pr;
+        ImGui::SeparatorText(pr.name.c_str());
+        ImGui::Text("OVR %d  POT %d  %s", pr.overall, pr.potential, pr.position >= 0 ? position_name(pr.position) : "?");
+        theme::muted_text("%d players fields filled from %zu columns (%s)", pr.filled, u.pf.header.size(), u.pf.encoding.c_str());
+        const std::string gv = u.pf.get("gameversion");
+        if (!gv.empty() && gv != "27") theme::warn_text("Made for FC %s: values are checked against FC 27's ranges.", gv.c_str());
+        for (const auto& n : u.pf.notes) theme::muted_text("%s", n.c_str());
+        const size_t odd = pr.left_out.size() + pr.clamped.size() + pr.defaulted.size();
+        if (odd > 0) {
+            char lbl[96];
+            std::snprintf(lbl, sizeof(lbl), "Left out (%zu)###pf_leftout", odd);
+            if (ImGui::TreeNodeEx(lbl, ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                for (const auto& s2 : pr.clamped) ImGui::BulletText("clamped %s", s2.c_str());
+                for (const auto& s2 : pr.left_out) ImGui::BulletText("%s", s2.c_str());
+                for (const auto& s2 : pr.defaulted) ImGui::BulletText("%s: not in the file, new-player default", s2.c_str());
+                ImGui::TreePop();
+            }
+        }
+        const int64_t in_db = database_match(app, pr.playerid, pr.name, u.pf.has("birthdate") ? birthdate_days(u.pf.get("birthdate")) : 0);
+        if (in_db > 0) {
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1), "In this career: %s (ID %lld)", app.model.player_name(in_db).c_str(),
+                               static_cast<long long>(in_db));
+            if (ImGui::Button("Create from his career data...##pplayerfiledb")) {
+                request_create_from(app, in_db);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SeparatorText("Club");
+        club_picker(app, u.teamid);
+        club_notes(app, u.teamid);
+        form_label("Shirt number", "0 = the first free number at the club");
+        ImGui::SetNextItemWidth(S(110.0f));
+        ImGui::InputInt("##pfjersey", &u.jersey, 0);
+        u.jersey = std::max(0, std::min(u.jersey, 99));
+    }
+    ImGui::EndChild();
+    const bool can = pf_can_create(app);
+    if (!can) ImGui::BeginDisabled();
+    if (ImGui::Button("Create player##pplayerfile")) {
+        pf_create(app);
+        ImGui::CloseCurrentPopup();
+    }
+    if (!can) ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Close##pplayerfile")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
 }
 
 // ---------------------------------------------------------------- Season update pack (core/season_pack.h)

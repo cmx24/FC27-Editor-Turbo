@@ -12,7 +12,7 @@ class App;
 struct TeamRow;
 
 // Does the club match the typed text (lower case): part of its name, or the start of its ID. Empty text matches all.
-bool team_matches(const TeamRow& t, const std::string& lower_query);
+bool team_matches(const TeamRow& t, const std::string& folded_query);  // folded_query = fold_search(text) (core/text_fold.h)
 
 // Combo "Any club" / one club (teamid 0 = any). Typing in the popup narrows the list; Enter picks the first match.
 // Returns true when the pick changed. With `nation` / `league` (both optional, -1 = any) the popup also has "Any country" /

@@ -87,7 +87,7 @@ void select_panel(App& app, void*) {
     position_combo("##pcpos", g_pos, S(110.0f), "Any position");
 
     PlayerPageFilter f;
-    f.text = lower_ascii(g_search);
+    f.text = fold_search(g_search);
     f.my_club = g_my_club && user > 0;
     f.free_agents = g_free && !f.my_club;
     f.position = g_pos;
@@ -278,10 +278,11 @@ void editor_panel(App& app, void*) {
             "button does not cover it, so back up your save first.");
     explain("Export: saves him to a file you can share or import later.");
     explain("From CMTracker: a ready-made player from the CMTracker library (the second tab above has the same list).");
+    explain("Import .player: a new player from a file saved by FC Editor or the EA FC Player Creator.");
     explain("Repair names: gives back their own names to players whose names an old Import turned into one common name. Can't be undone from Turbo.");
     explain("A new player (Create, Clone, Import as new) is not an Undo step either: to remove one, delete him below.");
     ImGui::Spacing();
-    player_preset_buttons(app, *p);  // Export... / Import... / Clone... / Create player... / From CMTracker... / Repair names... and their dialogs
+    player_preset_buttons(app, *p);  // Export... / Import... / Clone... / Create player... / From CMTracker... / Import .player... / Repair names... and their dialogs
 
     delete_section(app, *p);
     delete_popup(app);
