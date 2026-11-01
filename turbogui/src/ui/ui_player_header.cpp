@@ -12,6 +12,7 @@
 #include "imgui.h"
 #include "ui_images.h"
 #include "ui_theme.h"
+#include "ui_x2_state.h"
 
 namespace turbo {
 
@@ -202,6 +203,16 @@ bool draw_player_header(App& app) {
     ImGui::TextUnformatted(st.name.c_str());
     theme::pop_title_font();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Player ID %lld", static_cast<long long>(p->playerid));
+    ImGui::SameLine();
+    {
+        const bool pinned = turbo::x2::is_fav_player(p->playerid);
+        char pin_lbl[32];
+        std::snprintf(pin_lbl, sizeof pin_lbl, "%s###hdr_fav_player", pinned ? "Pinned" : "Pin");
+        if (ImGui::SmallButton(pin_lbl)) {
+            turbo::x2::toggle_fav_player(p->playerid);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pin / unpin this player on the Home Hub favorites strip");
+    }
     {
         const size_t n = app.undo_count(p->playerid);
         char ul[48];

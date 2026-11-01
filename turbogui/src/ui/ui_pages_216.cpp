@@ -14,6 +14,7 @@
 #include "ui_shell.h"
 #include "ui_tactics_page.h"
 #include "ui_looks_studio.h"
+#include "ui_split.h"
 #include "ui_theme.h"
 
 namespace turbo {
@@ -40,10 +41,16 @@ static void draw_player_callname_tab(App& app) {
 }
 
 static void draw_player_edit(App& app) {
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
     // the Profile's "Open Team > Players" button goes to the new page. Set where the page is drawn (not at start-up) so that the Profile's own test, which draws
     // it without the shell, still sees its default (the squad page)
     profile_team_players_page() = shell::Page::TeamPlayers;
+
     draw_player_header(app);  // nothing when no player is picked
+
     // Turbo X (DESIGN_SPEC_X.md): a segmented control (pill buttons, the selected one accent-tinted) instead of the window-wide tab bar;
     // the four ids are unchanged, shell::player_edit_tab() (0..3) is the selection, set by code or by a click
     static const char* const kSegments[] = {"Profile###pe_profile", "Attributes & roles###pe_ability", "Looks###pe_appearance", "Callname###pe_callname"};
@@ -53,18 +60,40 @@ static void draw_player_edit(App& app) {
     ImGui::Dummy(ImVec2(0.0f, S(2.0f)));
     theme::segmented(kSegments, 4, want);
     ImGui::Dummy(ImVec2(0.0f, S(4.0f)));
-    const int now = want;
-    switch (now) {
-        case 0: draw_player_profile(app); break;
-        case 1: draw_player_ability(app); break;
-        case 2: looks::draw_looks_studio(app); break;
-        default: draw_player_callname_tab(app); break;
+
+    // Persistent Left Pane: 320px finder with quick actions across ALL 4 tabs
+    split::pane_x("##select", 320.0f);
+    if (ImGui::Button("+ Create###pf_create")) app.go(shell::Page::CreatePlayer);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create or clone a player");
+    ImGui::SameLine();
+    if (ImGui::Button("Bulk edit###pf_bulk")) app.go(shell::Page::BulkEdit);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit multiple players at once");
+    ImGui::Spacing();
+    draw_classic_player_list(app);
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Right Pane: Editor for the selected tab
+    ImGui::BeginChild("##editor", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    const PlayerRow* p = app.model.player(app.sel_player);
+    if (!p) {
+        draw_player_empty_editor(app);
+    } else {
+        const int now = want;
+        switch (now) {
+            case 0: draw_player_profile_editor(app); break;
+            case 1: draw_player_ability_editor(app); break;
+            case 2: looks::draw_looks_studio_embedded(app); break;
+            default: draw_player_callname_tab(app); break;
+        }
+        if (now != s_shown) {
+            static const char* const names[] = {"Profile", "Attributes & roles", "Looks", "Callname"};
+            app.log(std::string("Edit a player tab: ") + names[now]);
+        }
+        s_shown = now;
     }
-    if (now != s_shown) {
-        static const char* const names[] = {"Profile", "Attributes & roles", "Looks", "Callname"};
-        app.log(std::string("Edit a player tab: ") + names[now]);
-    }
-    s_shown = now;
+    ImGui::EndChild();
 }
 TURBO_REGISTER_NEW_PAGE(shell::Page::PlayerEdit, draw_player_edit);
 

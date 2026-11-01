@@ -1461,5 +1461,39 @@ void draw_looks_studio(App& app) {
     s.st.requests = s.body.requests() + s.big.requests();
 }
 
+void draw_looks_studio_embedded(App& app) {
+    Studio& s = studio();
+    tick_looks_studio(app);
+    const int requests = s.body.requests() + s.big.requests();
+    s.st = StudioState();
+    s.st.requests = requests;
+    s.managers = false;
+    if (!app.connected()) {
+        not_connected_hint();
+        return;
+    }
+    const Table* t = nullptr;
+    uint64_t rec = 0;
+    const Subject who = current_subject(app, s, &t, &rec);
+    s.st.subject = who;
+    auto_picture(app, s, who, t, rec);
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float un = g_ui_scale > 0.0f ? 1.0f / g_ui_scale : 1.0f;
+    const float preview_w = std::min(S(280.0f), std::max(S(200.0f), avail.x * 0.38f));
+
+    split::pane_x("##lspreview", preview_w * un, 180.0f);
+    preview_pane(app, s, who, t, rec);
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    split::pane_x("##lscards", std::max(220.0f, ImGui::GetContentRegionAvail().x * un), 200.0f, 2.0f);
+    cards_pane(app, s, who, t, rec);
+    ImGui::EndChild();
+
+    s.st.requests = s.body.requests() + s.big.requests();
+}
+
 }  // namespace looks
 }  // namespace turbo

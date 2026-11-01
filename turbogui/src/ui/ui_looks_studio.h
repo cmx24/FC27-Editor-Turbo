@@ -130,6 +130,7 @@ const StudioState& studio_state();
 void tick_looks_studio(App& app);
 // The page (registered as Faces & looks > Looks studio)
 void draw_looks_studio(App& app);
+void draw_looks_studio_embedded(App& app);
 
 // ---- tests
 void looks_studio_reset_for_tests();                  // forget the list, the picture, the Undo steps, the question

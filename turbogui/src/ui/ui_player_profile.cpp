@@ -25,6 +25,7 @@
 #include "ui_shell.h"
 #include "ui_split.h"
 #include "ui_theme.h"
+#include "ui_club_search.h"
 
 namespace turbo {
 
@@ -35,6 +36,20 @@ namespace {
 PlayerProfileState g_pstate;
 PlayerAbilityState g_astate;
 shell::Page g_team_page = shell::Page::TeamPlayers;
+
+struct ProfileMoveState {
+    int64_t to_team = 0;
+    int fee = 0;
+    int wage = 0;
+    int months = 36;
+    int loan_months = 12;
+
+    bool ask_open = false;
+    std::string ask_title;
+    std::string ask_body;
+    nlohmann::json ask_cmd;
+};
+static ProfileMoveState s_pmove;
 
 // ---------------------------------------------------------------- the player list (shared by both pages)
 // 2.22: the list is the Classic editor's own (draw_classic_player_list, ui_players.cpp): the full filter grid (club, nationality, continent,
@@ -176,6 +191,111 @@ void profile_club_summary(App& app, const Table& t, const PlayerRow& p) {
     if (ImGui::Button("Open Team > Players###pf_team")) app.go(g_team_page);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contract, morale, growth and squad role of the players of one club");
     g_pstate.team_link_shown = true;
+
+    ImGui::Separator();
+    theme::push_title_font(1.1f);
+    ImGui::TextUnformatted("Direct move and contract");
+    theme::pop_title_font();
+
+    club_search_box(app, "To club##pf_dest_club", s_pmove.to_team, S(240.0f), "Search club");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(90.0f));
+    ImGui::InputInt("Transfer fee##pf_fee", &s_pmove.fee, 0);
+    if (s_pmove.fee < 0) s_pmove.fee = 0;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transfer fee");
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(70.0f));
+    ImGui::InputInt("Weekly wage##pf_wage", &s_pmove.wage, 0);
+    if (s_pmove.wage < 0) s_pmove.wage = 0;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Weekly wage (0 = keep current)");
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(S(60.0f));
+    ImGui::InputInt("Contract length##pf_months", &s_pmove.months, 0);
+    if (s_pmove.months < 1) s_pmove.months = 1;
+    if (s_pmove.months > 120) s_pmove.months = 120;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Contract months");
+
+    const TeamRow* dest = app.model.team(s_pmove.to_team);
+    const bool can_move = (s_pmove.to_team > 0 && dest != nullptr);
+
+    if (!can_move) ImGui::BeginDisabled();
+    if (ImGui::Button("Transfer###pf_btn_transfer")) {
+        s_pmove.ask_open = true;
+        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_body = "Transfer " + p.name + " to " + (dest ? dest->name : "destination") + "?";
+        nlohmann::json action = {
+            {"action", "transfer"},
+            {"playerid", p.playerid},
+            {"to_teamid", s_pmove.to_team},
+            {"fee", s_pmove.fee},
+            {"wage", s_pmove.wage},
+            {"months", s_pmove.months}
+        };
+        s_pmove.ask_cmd = {
+            {"op", "run"},
+            {"module", "player_moves"},
+            {"overrides", {{"actions", nlohmann::json::array({action})}}}
+        };
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Transfer player to selected club");
+
+    ImGui::SameLine();
+    if (ImGui::Button("Loan###pf_btn_loan")) {
+        s_pmove.ask_open = true;
+        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_body = "Loan " + p.name + " to " + (dest ? dest->name : "destination") + " for " + std::to_string(s_pmove.loan_months) + " months?";
+        nlohmann::json action = {
+            {"action", "loan"},
+            {"playerid", p.playerid},
+            {"to_teamid", s_pmove.to_team},
+            {"months", s_pmove.loan_months}
+        };
+        s_pmove.ask_cmd = {
+            {"op", "run"},
+            {"module", "player_moves"},
+            {"overrides", {{"actions", nlohmann::json::array({action})}}}
+        };
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Send player on loan to selected club");
+    if (!can_move) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (ImGui::Button("Release to free agent###pf_btn_release")) {
+        s_pmove.ask_open = true;
+        s_pmove.ask_title = "Confirm move###prof_move_ask";
+        s_pmove.ask_body = "Release " + p.name + " to Free Agents?";
+        nlohmann::json action = {
+            {"action", "release"},
+            {"playerid", p.playerid}
+        };
+        s_pmove.ask_cmd = {
+            {"op", "run"},
+            {"module", "player_moves"},
+            {"overrides", {{"actions", nlohmann::json::array({action})}}}
+        };
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Terminate contract and release player to free agents");
+
+    if (s_pmove.ask_open) {
+        ImGui::OpenPopup("Confirm move###prof_move_ask");
+        s_pmove.ask_open = false;
+    }
+    if (ImGui::BeginPopupModal("Confirm move###prof_move_ask", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(s_pmove.ask_body.c_str());
+        ImGui::Spacing();
+        if (theme::primary_button("Confirm###pf_confirm_btn")) {
+            app.send(s_pmove.ask_cmd, "Transfer");
+            app.notify("Move requested.", false);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel###pf_cancel_btn")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void profile_editor(App& app, void*) {
@@ -585,6 +705,7 @@ void draw_player_profile(App& app) {
     list_and_editor(app, profile_editor);
 }
 void draw_player_profile_editor(App& app) { editor_scroll(app, profile_editor); }
+void draw_player_empty_editor(App& app) { empty_editor(app); }
 
 // 4.0 integration (S3 merge, brief 4.0-gui-pages :77-80, q3): the card of the 4.0 tree draws the host's controls for the picked player at
 // the end of the Profile editor (inside its scrolling pane, so they are reachable). Nobody picked: the editor says so and nothing more is drawn.
