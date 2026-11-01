@@ -45,24 +45,26 @@
         ui.frames(4);
         const int rows_real = turbo::looks::studio_state().look_rows;
         CHECK(turbo::looks::studio_state().look_cards == 1, "one Look card is drawn");
-        // the faces-gate section is present: the Hair & beard card's fold, and inside it the gate's Apply
-        const ItemRec* node = ui.find("###lshairnode", "##looksstudio_test");
-        if (!node) node = ui.find_scrolling("###lshairnode", "##looksstudio_test", "");
+        // the faces-gate section is present: the Hair & beard card's fold, and inside it the gate's Apply.
+        // TX-102 R2-O1: for a real face the fold starts OPEN (its own id ###lshairnode3d): the gate's Hair / Beard choosers and Apply are
+        // visible with no click (fails on e797310: the fold was closed by default, so the real-face player saw no hair / beard picker at all).
+        const ItemRec* node = ui.find("###lshairnode3d", "##looksstudio_test");
+        if (!node) node = ui.find_scrolling("###lshairnode3d", "##looksstudio_test", "");
         CHECK(node != nullptr, "real face: the Hair & beard card (faces gate) is on the page");
-        if (node) {
-            ui.click(node);
-            ui.frames(3);
-            CHECK(ui.find("Apply hair & beard", "##looksstudio_test") != nullptr || ui.find_scrolling("Apply hair & beard", "##looksstudio_test", "") != nullptr,
-                  "real face: the faces gate's Apply hair & beard is drawn in the Hair & beard card");
-            const ItemRec* again = ui.find("###lshairnode", "##looksstudio_test");
-            if (!again) again = ui.find_scrolling("###lshairnode", "##looksstudio_test", "");
-            if (again) ui.click(again);  // closed again: later cases see the card as a user first does
-            ui.frames(2);
-        }
+        CHECK(node && (node->flags & ImGuiItemStatusFlags_Opened) != 0, "R2-O1 real face: the Hair & beard fold is open without a click");
+        CHECK(ui.find("Apply hair & beard", "##looksstudio_test") != nullptr || ui.find_scrolling("Apply hair & beard", "##looksstudio_test", "") != nullptr,
+              "R2-O1 real face: the faces gate's Apply hair & beard is drawn with no click");
+        CHECK(ui.find("Choose...##pick", "##looksstudio_test") != nullptr || ui.find_scrolling("Choose...##pick", "##looksstudio_test", "") != nullptr,
+              "R2-O1 real face: the gate's Hair / Beard Choose... is drawn with no click");
 
         CHECK(app.db.set_int(*pt, rec, "headclasscode", 1), "player 1001 as a generic head, for the row count");
         ui.frames(4);
         const int rows_generic = turbo::looks::studio_state().look_rows;
+        {  // R2-O1: a generic head keeps its fold closed by default (its own id)
+            const ItemRec* gnode = ui.find("###lshairnode", "##looksstudio_test");
+            if (!gnode) gnode = ui.find_scrolling("###lshairnode", "##looksstudio_test", "");
+            CHECK(gnode && (gnode->flags & ImGuiItemStatusFlags_Opened) == 0, "R2-O1 generic head: the Hair & beard fold is still closed by default");
+        }
         CHECK(rows_generic > 0 && rows_real == rows_generic - 2,
               "real-face Look card has exactly the Hair and the Beard row fewer: real " + std::to_string(rows_real) + " vs generic " + std::to_string(rows_generic));
 

@@ -972,15 +972,18 @@ void hair_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
     // 5.0c E3: a manager's hair and beard are edited in the Look card below (look_card_body, hair3d): one editor, not a second copy here
     if (who.manager) return;
     card_begin(s, "##lshair", "Hair & beard");
-    // closed until opened: the faces card looks at a file every frame it is drawn (ui_faces3d_gate.cpp), as on the Appearance tab
-    ImGui::SetNextItemOpen(false, ImGuiCond_Once);
-    if (!ImGui::TreeNode("Change his hair and beard###lshairnode")) {
+    const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
+    // generic head: closed until opened (the faces card looks at a file every frame it is drawn, ui_faces3d_gate.cpp, as on the Appearance tab).
+    // TX-102 R2-O1: a REAL-FACE player (headclasscode 0) has no other hair / beard editor since 1.0.1 L2b, so his fold starts OPEN, like the
+    // real-face manager's 3D section. Its own id: a generic head's closed state and a real face's open state do not overwrite each other.
+    const bool real_face = hc == 0;
+    ImGui::SetNextItemOpen(real_face, ImGuiCond_Once);
+    if (!ImGui::TreeNode(real_face ? "Change his hair and beard###lshairnode3d" : "Change his hair and beard###lshairnode")) {
         card_end();
         return;
     }
     // players only (a manager returned above): his hair and beard are in the Look card
     if (const PlayerRow* p = app.model.player(who.id)) faces3d_gate_section(app, t, *p);  // ui_faces3d_gate.cpp
-    const int64_t hc = t.has("headclasscode") ? app.db.get_int(t, rec, "headclasscode", -1) : -1;
     // a generic head takes the game's hairstyles: they are rows of the Look card below (ONE picker for each, 5.0b-A)
     if (hc != 0) hint_line("This is a generic head: pick his hair and beard in the Look card below.");
     else hint_line("Hair & beard has its own way back: His own hair & beard.");
