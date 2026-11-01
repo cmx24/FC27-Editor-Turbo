@@ -123,6 +123,7 @@ bool parse_request(const std::string& text, Request& out, std::string* err, std:
             }
         }
         out.fresh = j.contains("fresh") && j["fresh"].is_boolean() && j["fresh"].get<bool>();
+        if (j.contains("body_mode") && j["body_mode"].is_number_integer()) out.body_mode = j["body_mode"].get<int>();
         out.real_face = j.contains("real_face") && j["real_face"].is_boolean() && j["real_face"].get<bool>();
         if (j.contains("career") && j["career"].is_string()) out.career = j["career"].get<std::string>();
         if (!j.contains("steps") || !j["steps"].is_array()) {
@@ -385,7 +386,7 @@ void Generator::send_round() {
         }
     }
     // the camera W2228 proved for the full body (mode 0, 256x256), as capture::Sequence sends it
-    if (camera == capture::kCameraBodyFull) rq.mode_override = 0;
+    if (camera == capture::kCameraBodyFull) rq.mode_override = body_mode_ >= 0 ? body_mode_ : 0;
     std::string err;
     if (!env_.svc->request(rq, &err)) {
         end_round("the picture was refused" + (err.empty() ? std::string() : ": " + err), true);
@@ -626,6 +627,7 @@ bool Generator::start(const Request& rq, const std::vector<Reference>& refs, std
 
     fresh_ = rq.fresh;
     real_face_ = rq.real_face;
+    body_mode_ = rq.body_mode;
     if (!fresh_) load_manifest();
     cancelled_ = aborted_ = restored_ = false;
     requests_ = 0;

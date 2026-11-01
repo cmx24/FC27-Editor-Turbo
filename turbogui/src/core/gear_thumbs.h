@@ -91,6 +91,8 @@ struct Request {
     // (faces3d: kHairBandBase + i / kBeardBandBase + i, the path the Looks picker writes for a real face) and the pictures are kept in
     // pictures\realface_test\<field>_<id>.png (never in the picture pack).
     bool real_face = false;
+    // Turbo X: "body_mode": the capture mode of the full-body pictures (-1 = the proven 0 = 256x256; 1 = the big 1024 slices, unproven)
+    int body_mode = -1;
     std::string career;  // optional: the request is refused in another career
     std::vector<Step> steps;
 };
@@ -202,6 +204,7 @@ private:
     bool restored_ = false;
     bool fresh_ = false;
     bool real_face_ = false;
+    int body_mode_ = -1;
     size_t rejected_ = 0;
     size_t requests_ = 0;
     int empty_rounds_ = 0;

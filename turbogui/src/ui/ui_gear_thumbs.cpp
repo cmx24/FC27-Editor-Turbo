@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "app.h"
 #include "core/bodytype_thumbs.h"
 #include "core/gear_thumbs.h"
+#include "core/t3db.h"
 #include "core/hairbeard_thumbs.h"
 #include "imgui.h"
 #include "ui_bodytype_thumbs.h"
@@ -18,6 +20,38 @@
 #include "ui_theme.h"
 
 namespace turbo {
+
+// Turbo X: a step with field "tattoo" takes the body area the save's tattoo table names for that id (arms and legs first: a shirt
+// hides the chest and back); a tattoo id the table does not know keeps "tattoo" and fails at start with the reason.
+static void resolve_tattoo_steps(App& app, gear_thumbs::Request& rq) {
+    bool any = false;
+    for (const gear_thumbs::Step& s : rq.steps) any = any || s.field == "tattoo";
+    if (!any) return;
+    const Table* t = app.db.table("tattoo");
+    if (!t || !t->has("tattooid")) return;
+    Snapshot snap;
+    if (!snap.load(app.db.memory(), *t)) return;
+    static const char* kOrder[] = {"tattooleftarm", "tattoorightarm", "tattooleftleg", "tattoorightleg", "tattoohead", "tattoofront", "tattooback"};
+    std::map<int64_t, std::string> area;
+    const Field* idf = t->field("tattooid");
+    for (uint32_t idx : snap.valid) {
+        const int64_t id = snap.get_int(idx, *idf);
+        if (id <= 0 || area.count(id)) continue;
+        for (const char* a : kOrder) {
+            const Field* af = t->field(a);
+            if (af && snap.get_int(idx, *af) != 0) {
+                area[id] = a;
+                break;
+            }
+        }
+    }
+    for (gear_thumbs::Step& s : rq.steps)
+        if (s.field == "tattoo") {
+            const auto it = area.find(s.id);
+            if (it != area.end()) s.field = it->second;
+        }
+}
+
 
 namespace gt = gear_thumbs;
 
@@ -198,8 +232,10 @@ void tick_gear_thumbs(App& app) {
         say(app, "request refused: " + err, true);
         return;
     }
+    resolve_tattoo_steps(app, rq);
     start_run(app, rq, bad, "request file");
 }
+
 
 void gear_thumbs_button(App& app, int32_t player) {
     gt::Generator& gen = generator(app);
