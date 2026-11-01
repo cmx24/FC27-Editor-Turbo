@@ -654,6 +654,15 @@ void staff_list(App& app) {
         }
         rows.push_back(i);
     }
+    const int64_t user_team = app.bridge.state().user_team;
+    auto is_user_mgr = [&](const ManagerRow& m) {
+        if (user_team > 0 && m.teamid == user_team) return true;
+        if (m.managerid == 1) return true;
+        return false;
+    };
+    std::stable_partition(rows.begin(), rows.end(), [&](size_t idx) {
+        return is_user_mgr(mgrs[idx]);
+    });
     ImGui::BeginChild("##careerstaffrows", ImVec2(0, 0));
     ImGuiListClipper clip;
     clip.Begin(static_cast<int>(rows.size()));
@@ -661,10 +670,15 @@ void staff_list(App& app) {
         for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
             const size_t i = rows[static_cast<size_t>(r)];
             const ManagerRow& m = mgrs[i];
+            const bool is_you = is_user_mgr(m);
             const std::string label = m.name + "##careerm" + std::to_string(i);
             if (ImGui::Selectable(label.c_str(), app.sel_manager == static_cast<int>(i))) app.sel_manager = static_cast<int>(i);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Manager ID %lld", static_cast<long long>(m.managerid));
-            ImGui::SameLine(S(190.0f));
+            ImGui::SameLine();
+            if (is_you) {
+                theme::chip("You", theme::accent());
+                ImGui::SameLine();
+            }
             theme::muted_text("%s", m.teamid > 0 ? app.model.team_name(m.teamid).c_str() : "free agent");
         }
     }
@@ -686,10 +700,19 @@ void staff_editor(App& app, const Table& t) {
         theme::err_text("The game's data changed (another save loaded?). Press Refresh at the top.");
         return;
     }
-    ImGui::Text("%s", m.name.c_str());
+    const int headid = app.db.get_int(t, m.rec, "headassetid", 0);
+    std::string pic = app.legacy.first_present(legacy_path::staff_pictures(m.managerid, headid));
+    if (pic.empty()) pic = legacy_path::staff_miniface_for(m.managerid, headid);
+
+    ImGui::BeginGroup();
+    draw_legacy_picture(app, pic, S(64.0f), true);
+    ImGui::EndGroup();
     ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::Text("%s", m.name.c_str());
     theme::muted_text("%s", m.teamid > 0 ? app.model.team_name(m.teamid).c_str() : "free agent");
     hint("Manager rules and moves are under Career > Manager jobs.");
+    ImGui::EndGroup();
     card_begin("##career_staff_details", "Details");
     field_grid(app, t, m.rec, {"firstname", "surname", "commonname", "nationality", "personalityid", "height", "weight", "skintonecode"}, "##careermgrid", 2);
     bodytype_gallery_button(app, t, m.rec, true);  // ui_bodytypes.h

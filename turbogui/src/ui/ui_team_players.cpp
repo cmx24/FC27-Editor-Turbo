@@ -32,6 +32,7 @@
 #include "ui_team_common.h"
 #include "ui_team_page40.h"
 #include "ui_team_pages.h"
+#include "ui_x2_state.h"
 
 namespace turbo {
 
@@ -320,6 +321,109 @@ void draw_player_contract_actions(App& app) {
     confirm_popup(app);  // the question those controls ask first (teampage::confirm_popup)
 }
 
+static void draw_pitch_squad_view(App& app, int64_t club) {
+    const auto squad = squad_of(app, club);
+    if (squad.empty()) {
+        theme::muted_text("No players found in this squad.");
+        return;
+    }
+    // Select top 11 players by overall rating
+    std::vector<const PlayerRow*> best = squad;
+    std::sort(best.begin(), best.end(), [](const PlayerRow* a, const PlayerRow* b) {
+        return a->overall > b->overall;
+    });
+    if (best.size() > 11) best.resize(11);
+
+    // Group into positions: GK, DEF, MID, FWD
+    std::vector<const PlayerRow*> gks, defs, mids, fwds;
+    for (const PlayerRow* p : best) {
+        if (p->positions[0] == 0) gks.push_back(p);
+        else if (p->positions[0] >= 1 && p->positions[0] <= 8) defs.push_back(p);
+        else if (p->positions[0] >= 9 && p->positions[0] <= 19) mids.push_back(p);
+        else fwds.push_back(p);
+    }
+    if (gks.empty()) {
+        for (const PlayerRow* p : squad) {
+            if (p->positions[0] == 0) {
+                gks.push_back(p);
+                if (!best.empty()) best.pop_back();
+                break;
+            }
+        }
+    }
+
+    const ImVec2 size(ImGui::GetContentRegionAvail().x, S(380.0f));
+    ImGui::InvisibleButton("##pitch_canvas", size);
+    if (ImDrawList* dl = ImGui::GetWindowDrawList()) {
+        const ImVec2 p0 = ImGui::GetItemRectMin();
+        const ImVec2 p1 = ImGui::GetItemRectMax();
+
+        // Pitch grass background: deep broadcast turf
+        dl->AddRectFilled(p0, p1, IM_COL32(22, 42, 28, 255), S(8.0f));
+        dl->AddRect(p0, p1, IM_COL32(40, 80, 50, 255), S(8.0f), 1.5f);
+
+        // Pitch lines: white with 50% opacity
+        const ImU32 line_col = IM_COL32(255, 255, 255, 120);
+        const float pad = S(16.0f);
+        const ImVec2 pitch_min(p0.x + pad, p0.y + pad);
+        const ImVec2 pitch_max(p1.x - pad, p1.y - pad);
+        dl->AddRect(pitch_min, pitch_max, line_col, 0.0f, 1.5f);
+
+        // Halfway line and center circle
+        const float mid_y = (pitch_min.y + pitch_max.y) * 0.5f;
+        dl->AddLine(ImVec2(pitch_min.x, mid_y), ImVec2(pitch_max.x, mid_y), line_col, 1.5f);
+        dl->AddCircle(ImVec2((pitch_min.x + pitch_max.x) * 0.5f, mid_y), S(35.0f), line_col, 32, 1.5f);
+
+        // Penalty boxes
+        const float pw = pitch_max.x - pitch_min.x;
+        const float box_w = pw * 0.45f;
+        const float box_h = S(50.0f);
+        const float box_x0 = pitch_min.x + (pw - box_w) * 0.5f;
+        dl->AddRect(ImVec2(box_x0, pitch_min.y), ImVec2(box_x0 + box_w, pitch_min.y + box_h), line_col, 0.0f, 1.5f);
+        dl->AddRect(ImVec2(box_x0, pitch_max.y - box_h), ImVec2(box_x0 + box_w, pitch_max.y), line_col, 0.0f, 1.5f);
+
+        // Helper to draw a player node
+        auto draw_player_node = [&](const PlayerRow* p, float nx, float ny) {
+            if (!p) return;
+            const ImVec2 pos(pitch_min.x + (pitch_max.x - pitch_min.x) * nx,
+                             pitch_min.y + (pitch_max.y - pitch_min.y) * ny);
+            const float r = S(14.0f);
+            dl->AddCircleFilled(pos, r, IM_COL32(18, 24, 38, 230));
+            dl->AddCircle(pos, r, IM_COL32(45, 212, 191, 255), 24, 2.0f);
+
+            char ovr_str[8];
+            std::snprintf(ovr_str, sizeof(ovr_str), "%d", p->overall);
+            const ImVec2 ovr_sz = ImGui::CalcTextSize(ovr_str);
+            dl->AddText(ImVec2(pos.x - ovr_sz.x * 0.5f, pos.y - ovr_sz.y * 0.5f), IM_COL32(255, 255, 255, 255), ovr_str);
+
+            const ImVec2 name_sz = ImGui::CalcTextSize(p->name.c_str());
+            dl->AddText(ImVec2(pos.x - name_sz.x * 0.5f, pos.y + r + S(2.0f)), IM_COL32(240, 240, 240, 240), p->name.c_str());
+        };
+
+        // Draw GK (bottom)
+        if (!gks.empty()) draw_player_node(gks.front(), 0.50f, 0.88f);
+
+        // Draw Defenders
+        const size_t nd = defs.size();
+        for (size_t i = 0; i < nd; ++i) {
+            float frac = nd == 1 ? 0.5f : (0.18f + 0.64f * float(i) / float(nd - 1));
+            draw_player_node(defs[i], frac, 0.68f);
+        }
+        // Draw Midfielders
+        const size_t nm = mids.size();
+        for (size_t i = 0; i < nm; ++i) {
+            float frac = nm == 1 ? 0.5f : (0.18f + 0.64f * float(i) / float(nm - 1));
+            draw_player_node(mids[i], frac, 0.45f);
+        }
+        // Draw Forwards (top)
+        const size_t nf = fwds.size();
+        for (size_t i = 0; i < nf; ++i) {
+            float frac = nf == 1 ? 0.5f : (0.22f + 0.56f * float(i) / float(nf - 1));
+            draw_player_node(fwds[i], frac, 0.20f);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- the page
 void draw_team_players(App& app) {
     g_state = TeamPageState{};
@@ -339,10 +443,50 @@ void draw_team_players(App& app) {
     }
     g_state.own_club = is_own_club(app, club);
     preset_strip(app, club);
+
+    // 2.0 Clubs & Managers Studio: Transfer budget bar
+    const bool is_user_club = g_state.own_club;
+    static int s_budget_amount = 100000000;
+    static bool s_budget_inited = false;
+    const BridgeState& bst = app.bridge.state();
+    if (!s_budget_inited && bst.transfer_budget > 0) {
+        s_budget_amount = static_cast<int>(std::min<int64_t>(bst.transfer_budget, 2000000000LL));
+        s_budget_inited = true;
+    }
+    ImGui::AlignTextToFramePadding();
+    theme::muted_text("Transfer budget:");
+    ImGui::SameLine();
+    if (!is_user_club) ImGui::BeginDisabled();
+    ImGui::SetNextItemWidth(S(150.0f));
+    ImGui::InputInt("##tp_budget_input", &s_budget_amount, 1000000, 10000000);
+    if (s_budget_amount < 0) s_budget_amount = 0;
+    ImGui::SameLine();
+    if (ImGui::Button("Set###tp_budget_set")) {
+        app.send(teampage::run_cmd("transfer_budget", {{"mode", "set"}, {"amount", static_cast<int64_t>(s_budget_amount)}}), "Set budget");
+        app.notify("Transfer budget updated.", false);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set transfer budget for this career club");
+    if (!is_user_club) {
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        theme::muted_text("(Career club only)");
+    }
+    ImGui::Spacing();
+
     if (ImGui::BeginTabBar("##team_pl_tabs")) {
         // 2.22 G-squad: the sortable squad table of 2.14 for the club picked above (any club), first and selected by default
         if (ImGui::BeginTabItem("Squad list###tptabsquadlist")) {
-            squad_table(app, club);
+            const bool pitch = x2::state().squad_pitch_club;
+            if (ImGui::SmallButton(pitch ? "Table view###tp_view_table" : "Pitch view###tp_view_pitch")) {
+                x2::state().squad_pitch_club = !pitch;
+            }
+            ImGui::SameLine();
+            theme::muted_text("%s", pitch ? "Pitch formation view (read-only Best XI)" : "Sortable squad table");
+            if (pitch) {
+                draw_pitch_squad_view(app, club);
+            } else {
+                squad_table(app, club);
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Player###tptabplayer")) {
