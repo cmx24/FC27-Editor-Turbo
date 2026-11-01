@@ -26,6 +26,7 @@
 
 #include "core/asset_catalog.h"
 #include "core/rdbm_resources.h"
+#include "ui/ui_fcedit_pictures.h"
 #include "ui/ui_images.h"
 #include "ui/ui_visual_picker.h"
 
@@ -594,6 +595,110 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
             CHECK(visual_picker_tile_name(0) != "Bald" && !visual_picker_tile_name(0).empty(), "beard 0 keeps its own name: " + visual_picker_tile_name(0));
         }
         wind_down();
+    });
+
+    // ---------------------------------------------------------------- TX-102 R2-P: Turbo's in-game picture pack wins first for hair and beard
+    // Owner: "a number of beards and hairs don't match the preview". The pack (<turbo_output>\pictures\assets\<field>\<id>.png, rendered by the
+    // FC 27 game through the gear generator) was read LAST (only when there was no RDBM26 file and no game preview). Order now, for hair and
+    // beard: pack -> game catalogue preview -> RDBM26 -> the rest. Code 0 (Bald / No beard) keeps its tile.
+    run_case("UI: TX-102 R2-P picker standard: Turbo's in-game pack picture wins for hair and beard; without it the chain is unchanged; Bald / No beard unchanged", [&] {
+        if (!p || !rec || !p->has("hairtypecode") || !p->has("facialhairtypecode")) {
+            CHECK(false, "the test world has hairtypecode and facialhairtypecode");
+            return;
+        }
+        // hair models 1 2 3 4, previews 1 2 5 (the small fixture); beards: a copy listing RDBM26 ids 27 (model + preview) and 28 (model only)
+        const fs::path root = test_tmp_dir("r2p_rdbm");
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        {
+            std::string cat_text = read_file("tests/fixtures/asset_catalog_v1_small.json");
+            const std::string old_line = "\"facialhair\": { \"model\": [1, 7], \"preview\": { \"7\": \"data/ui/imgAssets/facialhair/facialhair_7_0.dds\" } },";
+            const size_t at = cat_text.find(old_line);
+            CHECK(at != std::string::npos, "the fixture's beard line is where the test expects it");
+            if (at == std::string::npos) return;
+            cat_text.replace(at, old_line.size(),
+                             "\"facialhair\": { \"model\": [1, 7, 27, 28], \"preview\": { \"27\": \"data/ui/imgAssets/facialhair/facialhair_27_0.dds\" } },");
+            const fs::path catfile = root / "asset_catalog_r2p.json";
+            visual_picker_test::write_bytes(catfile, std::vector<uint8_t>(cat_text.begin(), cat_text.end()));
+            auto cat = std::make_shared<assets::Catalog>();
+            std::string cerr;
+            CHECK(cat->load_file(catfile.u8string(), "0000AAAA-0000BBBB", &cerr) && cat->current(), "beard catalog loaded: " + cerr);
+            set_gear_catalog(cat);
+        }
+        CHECK(!put_picture(root, "hairstyle", 2, png_header(2)).empty(), "RDBM26 lit hair 2 (the game has a preview too)");
+        CHECK(!put_picture(root, "hairstyle", 4, png_header(2)).empty(), "RDBM26 lit hair 4 (no game preview)");
+        CHECK(!put_picture(root, "hairstyle", 0, png_header(2)).empty(), "RDBM26 lit hair 0 (Bald)");
+        CHECK(!put_picture(root, "facialhair", 27, png_header(2)).empty(), "RDBM26 lit beard 27 (the game has a preview too)");
+        CHECK(!put_picture(root, "facialhair", 28, png_header(2)).empty(), "RDBM26 lit beard 28 (no game preview)");
+        visual_pictures_override((root / "Resources").u8string());
+        visual_pictures_refresh(app);
+        const fs::path pack = app.turbo_output() / "pictures" / "assets";
+        fs::remove_all(app.turbo_output() / "pictures", ec);
+        fcedit::override_dir("");  // the real resolver: FC Editor's default folder (absent here) + Turbo's pack in turbo_output
+        fcedit::refresh();
+        ui.extra_draw = draw_section;
+        struct Seen {
+            TileSource h0, h1, h2, h3, h4, b0, b27, b28;
+            std::string n0, nb0, f2, f3, f27, tip2, tip27;
+        };
+        auto look = [&]() {
+            Seen s{};
+            app.request_tab = 0;
+            ui.frames(2);
+            visual_picker_request("hairtypecode");
+            ui.frames(3);
+            CHECK(visual_picker_ui().open && visual_picker_ui().field == "hairtypecode", "the hair grid is open");
+            s.h0 = visual_picker_tile_source(0), s.h1 = visual_picker_tile_source(1), s.h2 = visual_picker_tile_source(2);
+            s.h3 = visual_picker_tile_source(3), s.h4 = visual_picker_tile_source(4);
+            s.n0 = visual_picker_tile_name(0);
+            s.f2 = visual_picker_tile_picture(2), s.f3 = visual_picker_tile_picture(3), s.tip2 = visual_picker_tile_tip(2);
+            visual_picker_close();
+            ui.frames(2);
+            visual_picker_request("facialhairtypecode");
+            ui.frames(3);
+            CHECK(visual_picker_ui().open && visual_picker_ui().field == "facialhairtypecode", "the beard grid is open");
+            s.b0 = visual_picker_tile_source(0), s.b27 = visual_picker_tile_source(27), s.b28 = visual_picker_tile_source(28);
+            s.nb0 = visual_picker_tile_name(0);
+            s.f27 = visual_picker_tile_picture(27), s.tip27 = visual_picker_tile_tip(27);
+            visual_picker_close();
+            ui.frames(2);
+            return s;
+        };
+        auto src = [](TileSource t) { return std::to_string(static_cast<int>(t)); };
+        // 1. no pack: the chain as it was (beard 7: the FC 27 game preview now beats the FC 26 RDBM26 picture, as hair already did)
+        const Seen a = look();
+        CHECK(a.h1 == TileSource::Game && a.h2 == TileSource::Game, "no pack: hair 1 and 2 show the game preview (" + src(a.h1) + "," + src(a.h2) + ")");
+        CHECK(a.h4 == TileSource::Rdbm, "no pack: hair 4 (no preview) shows its RDBM26 picture: " + src(a.h4));
+        CHECK(a.b28 == TileSource::Rdbm, "no pack: beard 28 (no preview) shows its RDBM26 picture: " + src(a.b28));
+        CHECK(a.b27 == TileSource::Game, "no pack: beard 27 shows the FC 27 game preview, not the FC 26 RDBM26 picture: " + src(a.b27));
+        CHECK(a.n0 == "Bald", "no pack: hair 0 is Bald: " + a.n0);
+        // 2. the pack has hair 2, 3, 0 and beard 27 (hair 0 has an RDBM26 picture: it must stay that, not the pack's 0.png)
+        const std::vector<uint8_t> png = png_header(2);  // the index lists files by name; the content is not decoded here
+        for (const char* f : {"hairtypecode/2.png", "hairtypecode/3.png", "hairtypecode/0.png", "facialhairtypecode/27.png"})
+            visual_picker_test::write_bytes(pack / fs::u8path(f), png);
+        fcedit::refresh();
+        const Seen b = look();
+        CHECK(b.h2 == TileSource::FcEditor, "pack: hair 2 takes Turbo's in-game picture over the game preview and RDBM26: " + src(b.h2));
+        CHECK(b.h3 == TileSource::FcEditor, "pack: hair 3 (model only) takes Turbo's in-game picture: " + src(b.h3));
+        CHECK(b.b27 == TileSource::FcEditor, "pack: beard 27 takes Turbo's in-game picture over the game preview and RDBM26: " + src(b.b27));
+        const auto same_file = [](const std::string& got, const fs::path& want) {
+            std::error_code e;
+            return !got.empty() && fs::equivalent(fs::u8path(got), want, e);
+        };
+        CHECK(same_file(b.f2, pack / "hairtypecode" / "2.png") && same_file(b.f3, pack / "hairtypecode" / "3.png"),
+              "pack: hair 2 and 3 tile + large preview draw the pack file: " + b.f2 + " | " + b.f3);
+        CHECK(same_file(b.f27, pack / "facialhairtypecode" / "27.png"), "pack: beard 27 tile + large preview draw the pack file: " + b.f27);
+        CHECK(has_word(b.tip2, "in-game") && has_word(b.tip27, "in-game"), "pack: the tooltip says Turbo's in-game picture: " + b.tip2 + " | " + b.tip27);
+        CHECK(b.h1 == a.h1 && b.h4 == a.h4 && b.b28 == a.b28, "pack: ids the pack lacks keep their old tile (hair 1, hair 4, beard 28)");
+        CHECK(b.h0 == a.h0 && b.n0 == a.n0, "pack: Bald (hair 0) tile unchanged even with a 0.png in the pack (" + src(a.h0) + " -> " + src(b.h0) + ")");
+        CHECK(b.b0 == a.b0 && b.nb0 == a.nb0, "pack: No beard (beard 0) tile unchanged (" + src(a.b0) + " -> " + src(b.b0) + ")");
+        // 3. the pack gone again: back to the first result
+        fs::remove_all(app.turbo_output() / "pictures", ec);
+        fcedit::refresh();
+        const Seen c = look();
+        CHECK(c.h2 == a.h2 && c.h3 == a.h3 && c.b27 == a.b27 && c.h0 == a.h0 && c.b0 == a.b0, "pack removed: every tile is back to the no-pack result");
+        wind_down();
+        fcedit::refresh();
     });
 }
 

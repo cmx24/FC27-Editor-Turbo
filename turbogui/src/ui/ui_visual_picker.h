@@ -117,6 +117,9 @@ std::string visual_picker_tile_reason(int64_t code);
 // 5.0c E10 fix round: is the tile (still TileSource::Placeholder: the game ships no picture) drawn as a look-class icon? Every hair and beard tile must be
 bool visual_picker_tile_drawn(int64_t code);
 uint32_t visual_picker_tile_icon(int64_t code);     // the packed class icon (0 = none): two tiles of different classes differ
+// TX-102 R2-P: the picture the tile and the large preview both draw (u8 path, "" for none / a code not in the list), and the tile's tooltip
+std::string visual_picker_tile_picture(int64_t code);
+std::string visual_picker_tile_tip(int64_t code);
 std::string visual_picker_tile_name(int64_t code);  // the name under the tile ("Bald" for hair 0), "" for a code not in the list
 size_t visual_picker_png_probes();         // tests: PNG headers read so far by the hair / beard palette probe (review E10-12: only files with no game preview)
 size_t visual_picker_list_size();          // codes in the open picker, before search and filters

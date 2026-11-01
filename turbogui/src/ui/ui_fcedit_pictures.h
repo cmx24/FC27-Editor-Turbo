@@ -35,8 +35,11 @@ struct Index {
     double ms = 0.0;           // time the listing took
     bool found = false;        // root\assets exists
     std::string root;          // the folder it was built from (u8)
+    // TX-102 R2-P: the pictures that came from Turbo's pack (level 0, <turbo_output>\pictures\assets\<field>): field -> id -> path
+    std::map<std::string, std::unordered_map<int64_t, std::string>> pack_fields;
     bool has(const std::string& field) const;
     std::string picture(const std::string& field, int64_t id) const;
+    std::string pack_picture(const std::string& field, int64_t id) const;  // "" when the pack has none for this id
 };
 // pack (Turbo X): <turbo_output>\pictures (same layout: assets\<field>\<id>.png), listed BEFORE every FC Editor folder; its pictures
 // are Turbo's own (FC Editor's FC 27 webp renders converted, the game's outfit / accessory previews, the in-game captures of the
@@ -53,6 +56,8 @@ std::filesystem::path folder(App& app);
 const Index& index(App& app);
 // The picture of `id` of `field` (the database column name), "" when there is none
 std::string picture(App& app, const std::string& field, int64_t id);
+// TX-102 R2-P: the picture of `id` only when it is Turbo's own (the pack, rendered by the FC 27 game), "" otherwise
+std::string pack_picture(App& app, const std::string& field, int64_t id);
 // Has the index any picture of this field? (vp::has_picture: the row shows a picture instead of a combo)
 bool has_field(App& app, const std::string& field);
 // Forget the index: the folder setting changed (built again on the next ask)

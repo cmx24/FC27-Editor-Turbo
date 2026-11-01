@@ -105,6 +105,12 @@ std::string Index::picture(const std::string& field, int64_t id) const {
     const auto p = f->second.find(id);
     return p == f->second.end() ? std::string() : p->second;
 }
+std::string Index::pack_picture(const std::string& field, int64_t id) const {
+    const auto f = pack_fields.find(folder_field(field));
+    if (f == pack_fields.end()) return {};
+    const auto p = f->second.find(id);
+    return p == f->second.end() ? std::string() : p->second;
+}
 
 Index build_index(const fs::path& root, const fs::path& pack) {
     const auto t0 = std::chrono::steady_clock::now();
@@ -128,7 +134,10 @@ Index build_index(const fs::path& root, const fs::path& pack) {
         for (auto& kv : best) {
             if (kv.second.empty()) continue;
             std::unordered_map<int64_t, std::string>& m = ix.fields[kv.first];
-            for (auto& e : kv.second) m.emplace(e.first, std::move(e.second.path));
+            for (auto& e : kv.second) {
+                if (have_pack && e.second.rank / 2 == 0) ix.pack_fields[kv.first].emplace(e.first, e.second.path);  // level 0 = the pack
+                m.emplace(e.first, std::move(e.second.path));
+            }
             ix.pictures += m.size();
         }
     }
@@ -195,6 +204,8 @@ const Index& index(App& app) {
 }
 
 std::string picture(App& app, const std::string& field, int64_t id) { return index(app).picture(field, id); }
+
+std::string pack_picture(App& app, const std::string& field, int64_t id) { return index(app).pack_picture(field, id); }
 
 bool has_field(App& app, const std::string& field) { return index(app).has(field); }
 

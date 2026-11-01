@@ -56,6 +56,7 @@ constexpr uint8_t kSrcRdbm = static_cast<uint8_t>(TileSource::Rdbm), kSrcSwatch 
                   kSrcFcEditor = static_cast<uint8_t>(TileSource::FcEditor);
 // Turbo X: the tooltip word of a tile whose picture is FC Editor's asset picture (ui_fcedit_pictures.h)
 constexpr const char* kFcEditorPictureTip = "FC Editor picture";
+constexpr const char* kTurboPackPictureTip = "Turbo's in-game picture (rendered by FC 27)";  // TX-102 R2-P: pictures\assets pack
 
 struct Source {  // what one picker shows
     std::string field, title, note;
@@ -470,9 +471,14 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             push_tile(out, code, name);
             const size_t k = out.codes.size() - 1;
+            // TX-102 R2-P: for hair and beard, Turbo's own picture pack (pictures\assets\<field>\<id>.png, rendered by the FC 27 game
+            // through the gear generator) wins first, then the game's catalogue preview, then RDBM26 (FC 26), then the rest of the chain.
+            // Code 0 (Bald / No beard) keeps its old tile.
+            const bool hair_or_beard = field == "hairtypecode" || field == "facialhairtypecode";
+            const std::string pack_pic = hair_or_beard && code > 0 && fe_field ? fcedit::pack_picture(app, field, code) : std::string();
             // 1. RDBM26: the set's picture (per file, then the fallback folder), the accessory in the slot's colour, a colour's file
             fs::path file;
-            if (have_res && d) {
+            if (have_res && d && pack_pic.empty()) {
                 if (is_acc_colour_field(field)) {
                     if (accessory > 0) file = vis::accessory_picture(res, code, accessory, &s.index);
                 } else {
@@ -496,16 +502,21 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             // Review E10-12 (brief D1): for hair the game's preview wins outright, so only the files with NO game preview are probed
             // (about 78 of 788 with Cassio's catalogue): probing all 788 cost ~30 ms in one frame on the first open (16 ms rule,
             // test_visual_picker.h "PERF: opening the merged hair grid"). Beards keep their order (78 files, probed).
+            // TX-102 R2-P: the beard's FC 27 game preview now beats its FC 26 RDBM26 picture too (it was kept for beards before).
             bool palette_only = false;
-            if (field == "hairtypecode" && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
+            bool from_fcedit = false, fc_picture = false, from_pack = false;
+            if (!pack_pic.empty()) {
+                file = fs::u8path(pack_pic);
+                gp.clear();
+                fc_picture = from_pack = true;
+            } else if (hair_or_beard && !file.empty() && !gp.empty() && !vis::is_colour_file(file)) {
                 file.clear();
-            } else if ((field == "hairtypecode" || field == "facialhairtypecode") && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
+            } else if (hair_or_beard && !file.empty() && !vis::is_colour_file(file) && is_palette_png(file)) {
                 file.clear();
                 palette_only = gp.empty();
             }
             // Turbo X: no game preview, no RDBM26 picture, no swatch -> FC Editor's own asset picture (read where it is, ui_fcedit_pictures.h),
             // then (5.0c E10-fcedit-previews) the lit render converted into the local cache (if any)
-            bool from_fcedit = false, fc_picture = false;
             if (file.empty() && gp.empty() && !out.swatch[k] && fe_field) {
                 const std::string fe = fcedit::picture(app, field, code);
                 if (!fe.empty()) {
@@ -531,7 +542,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
             }
             if (fc_picture) {
                 out.src[k] = kSrcFcEditor;
-                out.tip[k] = kFcEditorPictureTip;
+                out.tip[k] = from_pack ? kTurboPackPictureTip : kFcEditorPictureTip;
                 out.fcedit_any = true;
             } else if (!file.empty()) out.src[k] = vis::is_colour_file(file) ? kSrcSwatch : kSrcRdbm;
             else if (out.swatch[k]) out.src[k] = kSrcSwatch;
@@ -1525,6 +1536,20 @@ std::string visual_picker_tile_reason(int64_t code) {
     const Source& src = st().src;
     const int i = src.index_of(code);
     return i < 0 || src.src[static_cast<size_t>(i)] != kSrcBlank ? std::string() : src.reason[static_cast<size_t>(i)];
+}
+
+// TX-102 R2-P: the picture the tile AND the large preview draw (draw_picture: the game's preview for a Game tile, else the file), and the tooltip
+std::string visual_picker_tile_picture(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    if (i < 0) return {};
+    const size_t k = static_cast<size_t>(i);
+    return src.src[k] == kSrcGame ? src.game[k] : src.files[k].u8string();
+}
+std::string visual_picker_tile_tip(int64_t code) {
+    const Source& src = st().src;
+    const int i = src.index_of(code);
+    return i < 0 ? std::string() : src.tip[static_cast<size_t>(i)];
 }
 
 bool visual_picker_tile_drawn(int64_t code) {
