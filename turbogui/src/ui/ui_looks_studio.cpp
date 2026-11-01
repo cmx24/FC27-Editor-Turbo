@@ -528,11 +528,11 @@ bool look_combo(App& app, Studio& s, const Table& t, uint64_t rec, const Subject
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputTextWithHint("##lvq", "search", filt, sizeof(filt));
         }
-        const std::string q = lower_copy(filt);
+        const std::string q = fold_search(filt);  // the popup's rows are built every frame it is open: folded with them
         for (int64_t v : codes) {
             if (v != cur && (v < f->min || v > f->max())) continue;
             const std::string txt = value_text(lf, v);
-            if (!q.empty() && lower_copy(txt).find(q) == std::string::npos) continue;
+            if (!q.empty() && fold_search(txt).find(q) == std::string::npos) continue;
             const std::string item = txt + "##" + std::to_string(v);
             if (ImGui::Selectable(item.c_str(), v == cur) && v != cur) wrote = app.edit(t, rec, *f, Value::of_int(v));
             if (v == cur && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
@@ -615,13 +615,13 @@ bool person_row(App& app, const std::string& label, const std::string& name, con
 // ---------------------------------------------------------------- the person list
 void rebuild_rows(App& app, Studio& s) {
     s.rows.clear();
-    const std::string q = lower_copy(s.search);
+    const std::string q = fold_search(s.search);
     if (!s.managers) {
         const int64_t mine = app.bridge.state().user_team;
         std::vector<const PlayerRow*> v;
         for (const PlayerRow& p : app.model.players()) {
             if (s.my_club && (mine <= 0 || p.club != mine)) continue;
-            if (!q.empty() && lower_copy(p.name).find(q) == std::string::npos && lower_copy(p.club_name).find(q) == std::string::npos) continue;
+            if (!q.empty() && !fold_find(p.name_fold, p.name, q) && !fold_find(p.club_fold, p.club_name, q)) continue;
             v.push_back(&p);
         }
         std::sort(v.begin(), v.end(), [](const PlayerRow* a, const PlayerRow* b) {
@@ -635,7 +635,7 @@ void rebuild_rows(App& app, Studio& s) {
         for (size_t i = 0; i < mgrs.size(); ++i) {
             if (!q.empty()) {
                 const std::string team = mgrs[i].teamid > 0 ? app.model.team_name(mgrs[i].teamid) : std::string();
-                if (lower_copy(mgrs[i].name).find(q) == std::string::npos && lower_copy(team).find(q) == std::string::npos) continue;
+                if (!fold_find(mgrs[i].name_fold, mgrs[i].name, q) && !fold_find(app.model.team_name_fold(mgrs[i].teamid), team, q)) continue;
             }
             s.rows.push_back(static_cast<int64_t>(i));
         }
@@ -1003,7 +1003,7 @@ void build_tiles(App& app, Studio& s, int64_t current, int gender, bool manager)
             if (const labels::data::Users* u = labels::find_users("bodytypecode", code)) who = u->names;
             else who = cat.examples_text(code);
         }
-        tile.search = lower_copy(tile.caption + " " + who);
+        tile.search = fold_search(tile.caption + " " + who);
         tile.tip = tile.caption;
         const std::string detail = bodyshape::body_detail(manager, code, &cat);
         if (!detail.empty()) tile.tip += "\n" + detail;
@@ -1043,7 +1043,7 @@ void body_card(App& app, Studio& s, const Subject& who, const Table& t, uint64_t
     build_tiles(app, s, current, who.gender, who.manager);
     ImGui::SetNextItemWidth(S(240.0f));
     ImGui::InputTextWithHint("##lsbodyq", "find a body or a player", s.body_search, sizeof(s.body_search));
-    const std::string q = lower_copy(s.body_search);
+    const std::string q = fold_search(s.body_search);
     std::vector<const BodyTile*> shown;
     for (const BodyTile& tile : s.tiles)
         if (q.empty() || tile.search.find(q) != std::string::npos) shown.push_back(&tile);

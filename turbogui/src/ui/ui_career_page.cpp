@@ -318,13 +318,13 @@ void manager_picker(App& app, const char* id, char* search, size_t search_size, 
     const auto& mgrs = app.model.managers();
     ImGui::SetNextItemWidth(S(220.0f));
     ImGui::InputTextWithHint((std::string("##") + id + "q").c_str(), "manager or club name", search, search_size);
-    const std::string q = lower_copy(search);
+    const std::string q = fold_search(search);
     ImGui::BeginChild((std::string("##") + id + "list").c_str(), ImVec2(0, S(height)), ImGuiChildFlags_Borders);
     int shown = 0;
     for (size_t i = 0; i < mgrs.size() && shown < 60; ++i) {
         const ManagerRow& m = mgrs[i];
         const std::string team = m.teamid > 0 ? app.model.team_name(m.teamid) : std::string("free agent");
-        if (!q.empty() && lower_copy(m.name).find(q) == std::string::npos && lower_copy(team).find(q) == std::string::npos) continue;
+        if (!q.empty() && !fold_find(m.name_fold, m.name, q) && !fold_find(app.model.team_name_fold(m.teamid), team, q)) continue;
         ++shown;
         const std::string row = m.name + "  (" + team + ")##mgr" + std::to_string(i);
         if (ImGui::Selectable(row.c_str(), app.sel_manager == static_cast<int>(i))) app.sel_manager = static_cast<int>(i);
@@ -644,13 +644,13 @@ void staff_list(App& app) {
     static char search[64] = "";
     ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputTextWithHint("##careerstaffq", "manager or club name", search, sizeof(search));
-    const std::string q = lower_copy(search);
+    const std::string q = fold_search(search);
     std::vector<size_t> rows;
     rows.reserve(mgrs.size());
     for (size_t i = 0; i < mgrs.size(); ++i) {
         if (!q.empty()) {
             const std::string team = mgrs[i].teamid > 0 ? app.model.team_name(mgrs[i].teamid) : std::string();
-            if (lower_copy(mgrs[i].name).find(q) == std::string::npos && lower_copy(team).find(q) == std::string::npos) continue;
+            if (!fold_find(mgrs[i].name_fold, mgrs[i].name, q) && !fold_find(app.model.team_name_fold(mgrs[i].teamid), team, q)) continue;
         }
         rows.push_back(i);
     }

@@ -32,11 +32,6 @@ struct Edit {
 };
 Edit g_edit;
 
-std::string lower_copy(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 std::string trimmed(const char* s) {
     std::string t = s;
     const size_t a = t.find_first_not_of(" \t"), b = t.find_last_not_of(" \t");
@@ -48,7 +43,7 @@ bool is_number(const std::string& s) {
     return !s.empty() && s.size() <= 9 && std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
 }
 
-// The clubs matching q (lower case), best first; name order within a rank. Every club when q is empty.
+// The clubs matching q (fold_search'ed: case and accents ignored), best first; name order within a rank. Every club when q is empty.
 void find_clubs(App& app, const std::string& q, std::vector<const TeamRow*>& out) {
     out.clear();
     const bool num = is_number(q);
@@ -57,7 +52,9 @@ void find_clubs(App& app, const std::string& q, std::vector<const TeamRow*>& out
         int rank = q.empty() ? 0 : -1;
         if (rank < 0) {
             const std::string id = std::to_string(t.teamid);
-            const size_t at = lower_copy(t.name).find(q);
+            std::string folded;  // only for a row the model did not fold
+            const std::string& nf = t.name_fold.empty() ? (folded = fold_search(t.name)) : t.name_fold;
+            const size_t at = nf.find(q);
             if (num && id == q) rank = 0;                    // exactly that ID
             else if (num && id.rfind(q, 0) == 0) rank = 1;   // an ID starting with it
             else if (at == 0) rank = 2;                      // a name starting with it
@@ -122,7 +119,7 @@ bool club_search_box(App& app, const char* label, int64_t& teamid, float width, 
             g_edit.keyed = false;
             g_edit.cursor = 0;
         }
-        q = g_edit.typed ? lower_copy(trimmed(g_edit.text)) : std::string();
+        q = g_edit.typed ? fold_search(trimmed(g_edit.text)) : std::string();
         if (q != g_edit.query || g_edit.version != app.model.version()) {
             find_clubs(app, q, g_edit.hits);
             g_edit.query = q;

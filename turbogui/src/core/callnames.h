@@ -321,16 +321,21 @@ struct NameChoice {
     std::string name;
     int64_t commentaryid = 0;
     int users = 0;  // players whose common or last name it is
+    mutable std::string fold;  // fold_search(name), filled by the first search after the index is built (callname_filter_match)
 };
 struct PlayerChoice {
     int64_t playerid = 0;
     std::string name;
     std::string club;
     int64_t commentaryid = 0;
+    mutable std::string fold;  // fold_search(name + " " + club), filled by the first search after the index is built
 };
 
-// Case-insensitive substring match used by the type-ahead pickers (also matches an id prefix when `text` is a number)
+// Case- and accent-insensitive substring match used by the type-ahead pickers (core/text_fold.h; also matches an id prefix when
+// `text` is a number)
 bool callname_filter_match(const std::string& text, const std::string& name, int64_t id);
+// The same with the row's folded text kept in `fold` (folded on its first use: once per rebuild of the rows, not every frame)
+bool callname_filter_match(const std::string& text, const std::string& name, std::string& fold, int64_t id);
 
 // What Turbo knows about a commentary id being spoken in the loaded language (Callnames::spoken_answer)
 enum class SpokenAnswer {
@@ -390,6 +395,7 @@ struct AllCallnameRow {
     bool hidden = false;       // recorded, and no row of the save uses the id (a player no longer in the database)
     bool in_master = true;     // the master list names it
     std::string name_source;   // where `text` came from: "db", "master", a catalog source ("slug", ...), "" = fallback
+    mutable std::string fold;  // fold_search(text), filled by the first search after the rows are built (the pickers' search boxes)
     bool own() const { return playerid != 0; }
 };
 // Every callname of the language the master lists: its generic ids (by text, then id), then the players with their own

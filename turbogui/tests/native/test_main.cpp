@@ -3874,6 +3874,7 @@ struct FakeMatchSetup : msetup::Service {
 #include "test_page_tactics.h"  // 2.16 gui/page-tactics: the Tactics section pages (page_tactics_test::ui_cases)
 #include "test_tactics_page.h"  // 2.20 tactics: the Tactics pages against the real store, live read honesty (tactics_page_test::run, ::ui_cases)
 #include "test_season_pack.h"  // 2.10 B3: season update pack importer (season_pack_test::run)
+#include "test_player_file.h"  // Turbo X: .player import and accent-agnostic search (player_file_test::run)
 #include "test_attrib_ebx.h"  // 2.10 T1: attribulator EBX patch at load (attrib_ebx_test::run, real install fixtures)
 #include "test_minhook_reloc.h"  // 2.15 hooks/minhook-reloc: the trampoline relocation range check (minhook_reloc_test::run)
 #include "test_oodle_dispatch.h"  // 2.11: the shared Oodle decompress dispatcher: kits only, attrib only, both, neither (oodle_dispatch_test::run)
@@ -15917,6 +15918,7 @@ int main(int argc, char** argv) {
     minhook_reloc_test::run();  // test_minhook_reloc.h (2.15)
     attrib_two_copies_test::run();
     season_pack_test::run();  // test_season_pack.h (2.10 B3)
+    player_file_test::run();  // test_player_file.h (Turbo X: .player import, search folding)
     std::printf("native voice swaps\n");
     test_callname_voice();
     test_club_voice();

@@ -11,11 +11,6 @@ namespace turbo {
 
 namespace {
 
-std::string lower_ascii(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 bool digits_only(const std::string& s) {
     if (s.empty()) return false;
     for (char c : s)
@@ -34,9 +29,9 @@ bool player_page_matches(const PlayerRow& p, const PlayerPageFilter& f, int64_t 
         if (!any) return false;
     }
     if (!f.text.empty()) {
-        const std::string q = lower_ascii(f.text);
+        const std::string q = fold_search(f.text);
         if (digits_only(q) && std::to_string(p.playerid) == q) return true;
-        if (lower_ascii(p.name).find(q) == std::string::npos && lower_ascii(p.club_name).find(q) == std::string::npos) return false;
+        if (!fold_find(p.name_fold, p.name, q) && !fold_find(p.club_fold, p.club_name, q)) return false;
     }
     return true;
 }

@@ -1168,11 +1168,6 @@ void draw_confirm(App& app) {
     }
 }
 
-std::string lower_of(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    return s;
-}
-
 // The text before the first ": " of a gate line is its code ("G1 switches: off: tick ..."): the person reads what follows
 std::string plain_gate(const std::string& s) {
     const size_t c = s.find(": ");
@@ -1213,7 +1208,7 @@ bool knob_matches(const Knob& k, const std::string& needle) {
     while (words >> w) {
         bool hit = false;
         for (const std::string* f : {&k.label, &k.id, &k.group, &k.category, &k.field})
-            if (lower_of(*f).find(w) != std::string::npos) {
+            if (fold_search(*f).find(w) != std::string::npos) {
                 hit = true;
                 break;
             }
@@ -1695,7 +1690,7 @@ void draw_body(App& app) {
     ImGui::InputTextWithHint("##tvsearch", "search knobs (name, group, field)", g.search, sizeof(g.search));
     ImGui::SameLine();
     checkbox_right("Only changed##tvonlychanged", &g.only_changed, -1.0f);
-    const std::string needle = lower_of(g.search);
+    const std::string needle = fold_search(g.search);
     g_state.search = g.search;
     g_state.only_changed = g.only_changed;
     int total_shown = 0, total_listed = 0;

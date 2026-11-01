@@ -383,14 +383,18 @@ ui_club_voice.cpp	Checkbox	Show special ids##cvspecial	1
 ui_club_voice.cpp	InputTextWithHint	##cvsearch	1
 ui_club_voice.cpp	RadioButton	All careers##cvscope	1
 ui_club_voice.cpp	RadioButton	This career##cvscope	1
+ui_cmtracker.cpp	-	###pf_leftout	1
 ui_cmtracker.cpp	-	##packbrowse	1
 ui_cmtracker.cpp	-	##pcmtbrowse	1
+ui_cmtracker.cpp	-	##pfbrowse	1
 ui_cmtracker.cpp	-	%-3d %-3d %-4s  %s  -  %s  (%lld)##c%lld	1
 ui_cmtracker.cpp	-	Undo this pack##packundo	1
 ui_cmtracker.cpp	BeginChild	##cmtbody	1
 ui_cmtracker.cpp	BeginChild	##cmtlist	1
 ui_cmtracker.cpp	BeginChild	##packbody	1
+ui_cmtracker.cpp	BeginChild	##pfbody	1
 ui_cmtracker.cpp	BeginPopupModal	##pcmt	1
+ui_cmtracker.cpp	BeginPopupModal	##pplayerfile	1
 ui_cmtracker.cpp	BeginPopupModal	##pseasonpack	1
 ui_cmtracker.cpp	BeginPopupModal	Apply season pack page?	1
 ui_cmtracker.cpp	BeginPopupModal	Undo season pack?	1
@@ -398,22 +402,29 @@ ui_cmtracker.cpp	BeginTable	##packrows	1
 ui_cmtracker.cpp	Button	Add CSV files...	1
 ui_cmtracker.cpp	Button	Apply next page##packapply	1
 ui_cmtracker.cpp	Button	Apply##packconfirm	1
+ui_cmtracker.cpp	Button	Browse...##pplayerfile	1
 ui_cmtracker.cpp	Button	Cancel##packcancel	1
 ui_cmtracker.cpp	Button	Cancel##packundocancel	1
 ui_cmtracker.cpp	Button	Check again##packrecheck	1
 ui_cmtracker.cpp	Button	Choose pack folder...##packchoose	1
 ui_cmtracker.cpp	Button	Close##packclose	1
 ui_cmtracker.cpp	Button	Close##pcmt	1
+ui_cmtracker.cpp	Button	Close##pplayerfile	1
 ui_cmtracker.cpp	Button	Create from his career data...##pcmtdb	1
+ui_cmtracker.cpp	Button	Create from his career data...##pplayerfiledb	1
 ui_cmtracker.cpp	Button	Create player	1
+ui_cmtracker.cpp	Button	Create player##pplayerfile	1
 ui_cmtracker.cpp	Button	Reload	1
 ui_cmtracker.cpp	Button	Season pack...	1
 ui_cmtracker.cpp	Button	Season pack...##page	1
 ui_cmtracker.cpp	Button	Undo##packundoconfirm	1
 ui_cmtracker.cpp	InputInt	##jersey	1
+ui_cmtracker.cpp	InputInt	##pfjersey	1
 ui_cmtracker.cpp	InputTextWithHint	##cmtq	1
+ui_cmtracker.cpp	InputTextWithHint	##pffile	1
 ui_cmtracker.cpp	OpenPopup	##packbrowse	1
 ui_cmtracker.cpp	OpenPopup	##pcmtbrowse	1
+ui_cmtracker.cpp	OpenPopup	##pfbrowse	1
 ui_cmtracker.cpp	OpenPopup	##pseasonpack	2
 ui_cmtracker.cpp	OpenPopup	Apply season pack page?	1
 ui_cmtracker.cpp	OpenPopup	Undo season pack?	1
@@ -992,6 +1003,7 @@ ui_presets.cpp	Button	Create player	1
 ui_presets.cpp	Button	Create player...	1
 ui_presets.cpp	Button	Export...	1
 ui_presets.cpp	Button	From CMTracker...	1
+ui_presets.cpp	Button	Import .player...	1
 ui_presets.cpp	Button	Import...	1
 ui_presets.cpp	Button	Repair names##prepair	1
 ui_presets.cpp	Button	Replace and export	1
@@ -1016,6 +1028,7 @@ ui_presets.cpp	OpenPopup	##pexport	1
 ui_presets.cpp	OpenPopup	##pfbrowser	1
 ui_presets.cpp	OpenPopup	##pidpick	1
 ui_presets.cpp	OpenPopup	##pimport	1
+ui_presets.cpp	OpenPopup	##pplayerfile	1
 ui_presets.cpp	OpenPopup	##prepair	1
 ui_presets.cpp	RadioButton	A new player in a club	1
 ui_presets.cpp	RadioButton	This player	1

@@ -698,12 +698,8 @@ void draw_confirm(App& app) {
 
 // ---- 2.13 revamp: the page pattern of ui_shell.h ([select | editor] + ONE primary action). Chrome only: every button below calls the same
 // functions as before (save_current, start_load, start_undo, start_reapply, delete_selected ...); the ids (##tp*) are unchanged.
-bool contains_nocase(const std::string& hay, const char* needle) {
-    std::string h = hay, n = needle;
-    for (char& c : h) c = char(std::tolower((unsigned char)c));
-    for (char& c : n) c = char(std::tolower((unsigned char)c));
-    return h.find(n) != std::string::npos;
-}
+// case and accents ignored (core/text_fold.h); a handful of preset names, folded while the list is drawn
+bool contains_nocase(const std::string& hay, const char* needle) { return fold_contains(hay, needle); }
 
 // Everything the page shows that is computed, not drawn: the live tactic line, the latest load, what a Load would do now.
 void update_state(App& app) {

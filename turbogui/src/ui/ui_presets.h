@@ -62,6 +62,9 @@ void club_picker(App& app, int& teamid);
 void club_notes(App& app, int teamid);
 // "From CMTracker..." dialog (open it with ImGui::OpenPopup("##pcmt")); also finishes a create whose picture was fetched in the background
 void cmtracker_dialog(App& app);
+// "Import .player..." dialog (open it with ImGui::OpenPopup("##pplayerfile")): one player of an FC Editor / EA FC Player Creator
+// .player file (core/player_file.h), previewed, then created like From CMTracker (ui_cmtracker.cpp)
+void player_file_dialog(App& app);
 // "Season pack..." dialog (the "Season pack..." button of the From CMTracker dialog opens it with ImGui::OpenPopup("##pseasonpack"); it is
 // drawn inside that dialog): the season update pack importer (core/season_pack.h)
 void season_pack_dialog(App& app);

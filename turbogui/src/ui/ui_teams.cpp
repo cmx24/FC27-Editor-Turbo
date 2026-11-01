@@ -26,11 +26,6 @@ namespace turbo {
 
 using nlohmann::json;
 
-static std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 static const std::vector<std::string>& team_overview_fields() {
     static const std::vector<std::string> f = {
         "teamname", "overallrating", "attackrating", "midfieldrating", "defenserating", "domesticprestige",
@@ -59,7 +54,7 @@ static void team_list(App& app) {
     league_filter_combo(app, "##tleague", f_league, f_nation, half);
     transfer_columns_controls(app);  // ui_parity.h: In / Out / Spent / Received / Net columns (read only)
     const bool xf = transfer_columns_on();
-    std::string q = lower(search);
+    std::string q = fold_search(search);
     if (ImGui::BeginTable(xf ? "##teamsxf" : "##teams", xf ? 8 : 3,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
@@ -76,7 +71,7 @@ static void team_list(App& app) {
         ImGui::TableHeadersRow();
         std::vector<const TeamRow*> rows;
         for (const auto& t : app.model.teams()) {
-            if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
+            if (!q.empty() && !fold_find(t.name_fold, t.name, q) && std::to_string(t.teamid).find(q) != 0) continue;
             if (!team_in_geo(app, t, f_nation, f_league)) continue;
             rows.push_back(&t);
         }
@@ -242,7 +237,7 @@ static void club_pick_table(App& app, const char* id, const char* hint, char* se
     }
     ImGui::SameLine();
     league_filter_combo(app, "##league", f.league, f.nation, S(140.0f));
-    const std::string q = lower(search);
+    const std::string q = fold_search(search);
     if (ImGui::BeginTable("##clubs", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -260,7 +255,7 @@ static void club_pick_table(App& app, const char* id, const char* hint, char* se
             // clubs in a league only: national teams and teams outside every league cannot hire a manager
             if (t.league < 0 || app.model.is_national_team(t.teamid)) continue;
             if (t.teamid == skip1 || t.teamid == skip2) continue;
-            if (!q.empty() && lower(t.name).find(q) == std::string::npos && std::to_string(t.teamid).find(q) != 0) continue;
+            if (!q.empty() && !fold_find(t.name_fold, t.name, q) && std::to_string(t.teamid).find(q) != 0) continue;
             if (!team_in_geo(app, t, f.nation, f.league)) continue;
             std::string lname = g.league_name(t.league);
             if (lname.empty()) lname = "League " + std::to_string(t.league);
@@ -761,7 +756,7 @@ void draw_managers(App& app) {
     static char search[64] = "";
     ImGui::SetNextItemWidth(S(200.0f));
     ImGui::InputTextWithHint("##msearch", "name or team", search, sizeof(search));
-    std::string q = lower(search);
+    std::string q = fold_search(search);
     if (ImGui::BeginTable("##mgrs", 3,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable | table_sort_flags(),
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
@@ -778,7 +773,7 @@ void draw_managers(App& app) {
         for (size_t i = 0; i < mgrs.size(); ++i) {
             const auto& m = mgrs[i];
             std::string team = m.teamid > 0 ? app.model.team_name(m.teamid) : "";
-            if (!q.empty() && lower(m.name).find(q) == std::string::npos && lower(team).find(q) == std::string::npos) continue;
+            if (!q.empty() && !fold_find(m.name_fold, m.name, q) && !fold_find(app.model.team_name_fold(m.teamid), team, q)) continue;
             mrows.push_back({i, std::move(team)});
         }
         table_sort(mrows, [&](const MgrRow& a, const MgrRow& b, int col) {

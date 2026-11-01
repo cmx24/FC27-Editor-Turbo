@@ -103,8 +103,9 @@ std::string lower(std::string s) {
     return s;
 }
 
-bool contains_ci(const std::string& hay, const std::string& needle_lower) {
-    return needle_lower.empty() || lower(hay).find(needle_lower) != std::string::npos;
+// needle_folded = fold_search(text) (core/text_fold.h): case and accents ignored
+bool contains_ci(const std::string& hay, const std::string& needle_folded) {
+    return needle_folded.empty() || fold_search(hay).find(needle_folded) != std::string::npos;
 }
 
 std::string load_key(App& app) {
@@ -227,7 +228,7 @@ bool passes(const PlayerRow& p, const Filter& f, int64_t user, const std::unorde
     if (!q.empty()) {
         if (numeric) {
             if (p.playerid != qid && std::to_string(p.playerid).find(q) != 0) return false;
-        } else if (lower(p.name).find(q) == std::string::npos && lower(p.club_name).find(q) == std::string::npos) {
+        } else if (!fold_find(p.name_fold, p.name, q) && !fold_find(p.club_fold, p.club_name, q)) {
             return false;
         }
     }
@@ -236,7 +237,7 @@ bool passes(const PlayerRow& p, const Filter& f, int64_t user, const std::unorde
 
 std::string filter_key(App& app) {
     char b[320];
-    std::snprintf(b, sizeof(b), "%s|%d%d%d|%d|%d|%lld|%d-%d|%d-%d|%d-%d|%lld|%d", lower(g_f.search).c_str(), g_f.my_club ? 1 : 0, g_f.free_agents ? 1 : 0,
+    std::snprintf(b, sizeof(b), "%s|%d%d%d|%d|%d|%lld|%d-%d|%d-%d|%d-%d|%lld|%d", fold_search(g_f.search).c_str(), g_f.my_club ? 1 : 0, g_f.free_agents ? 1 : 0,
                   g_f.retiring ? 1 : 0, g_f.pos, g_f.gender, static_cast<long long>(g_f.nat), g_f.age.from, g_f.age.to, g_f.ovr.from, g_f.ovr.to,
                   g_f.pot.from, g_f.pot.to, static_cast<long long>(app.bridge.state().user_team), position_show_all() ? 1 : 0);
     std::string k = b;
@@ -258,7 +259,7 @@ void rebuild_matched(App& app) {
                 for (uint32_t i : s.valid) nat[s.get_int(i, "playerid")] = s.get_int(i, "nationality", -1);
         }
     }
-    const std::string q = lower(g_f.search);
+    const std::string q = fold_search(g_f.search);
     const bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), [](char c) { return c >= '0' && c <= '9'; });
     const int64_t qid = numeric ? std::atoll(q.c_str()) : 0;
     const bool pos_exact = position_show_all();
@@ -546,7 +547,7 @@ void pick_code(App& app, const Table& t, const Field& f, Row& r, float width) {
         const long long typed = filt[0] ? std::strtoll(filt, &endp, 10) : 0;
         if (filt[0] && endp && *endp == 0 && typed >= f.min && typed <= f.max() && std::find(codes.begin(), codes.end(), typed) == codes.end())
             codes.insert(codes.begin(), typed);  // a typed number reaches any value of the range
-        const std::string q = lower(filt);
+        const std::string q = fold_search(filt);
         for (int64_t v : codes) {
             const std::string txt = code_value_text(f.name, v);
             if (!contains_ci(txt, q) && std::to_string(v) != filt) continue;
@@ -776,7 +777,7 @@ void section_what(App& app, const Table& t) {
         }
         ImGui::SetNextItemWidth(S(320.0f));
         ImGui::InputTextWithHint("##bk_fieldfilter", "Search the fields", filt, sizeof(filt));
-        const std::string q = lower(filt);
+        const std::string q = fold_search(filt);
         if (ImGui::BeginChild("##bk_fieldlist", ImVec2(S(340.0f), S(300.0f)))) {
             std::string last_group;
             for (const std::string& name : list_fields(t)) {

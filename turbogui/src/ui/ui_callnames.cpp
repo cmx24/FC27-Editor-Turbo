@@ -656,7 +656,7 @@ static void by_name_picker(App& app, const Table& t, const PlayerRow& p) {
         ImGui::TableSetupColumn("Players", ImGuiTableColumnFlags_WidthFixed, S(60.0f));
         ImGui::TableHeadersRow();
         for (const auto& c : ix.names) {
-            if (!callname_filter_match(g_name_search, c.name, c.nameid)) continue;
+            if (!callname_filter_match(g_name_search, c.name, c.fold, c.nameid)) continue;
             ++total;
             if (shown >= kMaxRows) continue;
             ++shown;
@@ -1064,7 +1064,7 @@ static void all_callnames_picker(App& app, const Table& t, const PlayerRow& p) {
             const int64_t key = r.own() ? -r.playerid : r.commentaryid;
             if (from_bank && !callname_row_shown(bank, g_all_scope, r)) continue;
             if (key == g_sel_all) sel = &r;
-            if (!callname_filter_match(g_all_search, r.text, r.own() ? r.playerid : r.commentaryid)) continue;
+            if (!callname_filter_match(g_all_search, r.text, r.fold, r.own() ? r.playerid : r.commentaryid)) continue;
             ++total;
             if (shown >= kMaxRows) continue;
             ++shown;
@@ -1191,7 +1191,7 @@ static void by_player_picker(App& app, const PlayerRow& p) {
         ImGui::TableHeadersRow();
         for (const auto& c : ix.players) {
             if (c.playerid == p.playerid) continue;
-            if (!callname_filter_match(g_player_search, c.name + " " + c.club, c.playerid)) continue;
+            if (!callname_filter_match(g_player_search, c.name + " " + c.club, c.fold, c.playerid)) continue;
             ++total;
             if (shown >= kMaxRows) continue;
             ++shown;

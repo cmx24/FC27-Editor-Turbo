@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "fce_standings.h"
+#include "text_fold.h"
 
 namespace turbo {
 namespace comps {
@@ -295,7 +296,8 @@ inline std::vector<Parent> build_parents(const std::vector<Entry>& entries) {
     return out;
 }
 
-// Lower case, Latin-1 accents folded (UTF-8 "Süper Lig" -> "super lig"), for the search
+// Lower case, Latin-1 accents folded (UTF-8 "Süper Lig" -> "super lig"), for the sort orders (the search uses fold_search,
+// core/text_fold.h: every Latin accent)
 inline std::string fold(const std::string& s) {
     std::string out;
     for (size_t i = 0; i < s.size(); ++i) {
@@ -323,7 +325,7 @@ struct View {
 inline std::vector<std::string> tokens(const std::string& q) {
     std::vector<std::string> t;
     std::string cur;
-    for (char c : fold(q)) {
+    for (char c : fold_search(q)) {
         if (c == ' ' || c == ',' || c == '\t') {
             if (!cur.empty()) t.push_back(cur), cur.clear();
         } else {
@@ -336,9 +338,9 @@ inline std::vector<std::string> tokens(const std::string& q) {
 // Every word of the search is in the entry's name, country, kind, stage, competition id or key
 inline bool matches(const Entry& e, const std::vector<std::string>& toks, bool with_stage) {
     if (toks.empty()) return true;
-    std::string hay = fold(e.name) + " | " + fold(e.country) + " | " + kind_word(e.kind) + " | " +
+    std::string hay = fold_search(e.name) + " | " + fold_search(e.country) + " | " + kind_word(e.kind) + " | " +
                       (e.comp >= 0 ? std::to_string(e.comp) : "") + " | " + std::to_string(e.key);
-    if (with_stage) hay += " | " + fold(e.stage);
+    if (with_stage) hay += " | " + fold_search(e.stage);
     for (const std::string& t : toks)
         if (hay.find(t) == std::string::npos) return false;
     return true;

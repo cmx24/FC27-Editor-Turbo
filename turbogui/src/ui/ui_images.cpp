@@ -952,13 +952,13 @@ static int64_t player_chooser(App& app, char* search, size_t search_size, const 
     int64_t chosen = 0;
     ImGui::SetNextItemWidth(S(220.0f));
     ImGui::InputTextWithHint(id, "name or ID", search, search_size);
-    std::string q = lower(search);
+    std::string q = fold_search(search);
     bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
     ImGui::BeginChild("##chooser", ImVec2(S(420.0f), S(220.0f)), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_ResizeY);
     int shown = 0;
     for (const auto& p : app.model.players()) {
         if (q.empty()) break;
-        if (numeric ? std::to_string(p.playerid).find(q) != 0 : lower(p.name).find(q) == std::string::npos) continue;
+        if (numeric ? std::to_string(p.playerid).find(q) != 0 : !fold_find(p.name_fold, p.name, q)) continue;
         char lbl[200];
         std::snprintf(lbl, sizeof(lbl), "%s (%lld) %s##c%lld", p.name.c_str(), static_cast<long long>(p.playerid), p.club_name.c_str(),
                       static_cast<long long>(p.playerid));
@@ -2225,8 +2225,8 @@ static bool hair_matches(const HairFilter& hf, int64_t id) {
     if (hf.type >= 0 && s.type != hf.type) return false;
     if (hf.accessory >= 0 && s.accessory != hf.accessory) return false;
     if (hf.search[0]) {
-        std::string q = lower(hf.search);
-        if (std::to_string(id).find(q) == std::string::npos && lower(hair::describe(s)).find(q) == std::string::npos) return false;
+        std::string q = fold_search(hf.search);
+        if (std::to_string(id).find(q) == std::string::npos && fold_search(hair::describe(s)).find(q) == std::string::npos) return false;
     }
     return true;
 }

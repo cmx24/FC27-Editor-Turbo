@@ -317,13 +317,8 @@ std::vector<int64_t> code_value_list(App& app, const Table& t, const Field& f, i
     return codes;
 }
 
-static bool contains_ci(const std::string& hay, const char* needle) {
-    if (!needle[0]) return true;
-    std::string h = hay, n = needle;
-    std::transform(h.begin(), h.end(), h.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return h.find(n) != std::string::npos;
-}
+// case and accents ignored (core/text_fold.h); the rows of these popups are built every frame they are open, the folds with them
+static bool contains_ci(const std::string& hay, const char* needle) { return fold_contains(hay, needle); }
 
 bool enum_editor(App& app, const Table& t, uint64_t rec, const Field& f, const char* label, float width) {
     if (!is_enum_field(f.name) || f.type != FieldType::Int) return field_editor(app, t, rec, f, label, width);
@@ -620,8 +615,7 @@ void all_fields(App& app, const Table& t, uint64_t rec, const char* id) {
     ImGui::SameLine();
     ImGui::Checkbox("Show friendly names", &friendly);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Titles instead of field names, and names instead of numbers where the game has them.");
-    std::string flt = filter;
-    std::transform(flt.begin(), flt.end(), flt.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const std::string flt = fold_search(filter);
     if (ImGui::BeginTable("##all", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable,
                           ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);

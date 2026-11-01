@@ -7,6 +7,7 @@
 #include <set>
 
 #include "core/kit_fonts_data.h"
+#include "core/text_fold.h"
 
 namespace turbo {
 namespace kitfonts {
@@ -154,23 +155,19 @@ std::string choice_label(Kind k, int64_t id, const Entry* e) {
     return s;
 }
 
-static std::string lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
 bool matches(Kind k, int64_t id, const Entry* e, const std::string& filter) {
-    std::string hay = std::to_string(id) + " " + lower(pretty_name(game_name(k, id))) + " " + lower(game_name(k, id));
+    // case and accents ignored (core/text_fold.h): "atletico" finds a club worn as "Atlético"
+    std::string hay = std::to_string(id) + " " + fold_search(pretty_name(game_name(k, id))) + " " + fold_search(game_name(k, id));
     if (e)
-        for (const Wearer& w : e->clubs) hay += " " + lower(w.club);
+        for (const Wearer& w : e->clubs) hay += " " + fold_search(w.club);
     std::string word;
     auto ok = [&](const std::string& w) { return w.empty() || hay.find(w) != std::string::npos; };
-    for (char c : filter) {
+    for (char c : fold_search(filter)) {
         if (std::isspace(static_cast<unsigned char>(c))) {
             if (!ok(word)) return false;
             word.clear();
         } else {
-            word += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            word += c;
         }
     }
     return ok(word);

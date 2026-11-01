@@ -36,11 +36,6 @@ namespace fs = std::filesystem;
 using faces::Face;
 using faces::Facet;
 
-static std::string lower_text(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 // ---------------------------------------------------------------- heads
 static std::vector<Face> g_pfaces, g_mfaces;
 static std::vector<game_heads::ManagerName> g_mnames;  // the save's managers, for the name match (rebuilt with g_mfaces)
@@ -146,7 +141,7 @@ const std::vector<Face>& player_faces(App& app) {
         } else {
             r.name = app.model.player_name(r.id);
         }
-        r.lname = lower_text(r.name);
+        r.lname = fold_search(r.name);
         b.out.push_back(std::move(r));
     }
     if (b.pos < b.snap->valid.size()) return g_pfaces;
@@ -187,7 +182,7 @@ const std::vector<Face>& manager_faces(App& app) {
         for (int i = 0; i < faces::kFacetCount; ++i) r.raw[i] = ff[i] ? snap.get_int(idx, *ff[i]) : faces::kNoValue;
         auto it = by_id.find(r.id);
         r.name = it != by_id.end() ? it->second->name : "Manager " + std::to_string(r.id);
-        r.lname = lower_text(r.name);
+        r.lname = fold_search(r.name);
         game_heads::ManagerName mn;
         mn.managerid = r.id;
         mn.headassetid = r.headassetid;
@@ -236,7 +231,7 @@ const std::vector<Face>& game_faces(App& app) {
         r.game_head = true;
         r.name = game_heads::display_name(*h);
         r.name_source = h->source;
-        r.lname = lower_text(r.name);
+        r.lname = fold_search(r.name);
         // no database fields: a database facet filter never matches it. A real face's head id is its playerid, so a head
         // whose player was rendered before he left the save has that render's 3D look (the 3D facets filter it).
         if (const face3d::Look* look = face3d::lookup(h->id)) faces::set_look(r, look);
@@ -275,7 +270,7 @@ const std::vector<Face>& manager_match_faces(App& app) {
         r.match_label = m.manager->label;
         r.name = game_heads::display_name(*m.head);
         r.name_source = m.head->source;
-        r.lname = lower_text(r.name + " " + r.match_label);  // found by the manager's name too
+        r.lname = fold_search(r.name + " " + r.match_label);  // found by the manager's name too
         g_matchfaces.push_back(std::move(r));
     }
     return g_matchfaces;
@@ -2057,7 +2052,7 @@ static void chooser_body(App& app, Chooser& ch, bool manager_target) {
     }
 
     // heads matching the search and "real faces only"; the filters below narrow them
-    const std::string q = lower_text(ch.search);
+    const std::string q = fold_search(ch.search);
     const bool numeric = !q.empty() && std::all_of(q.begin(), q.end(), ::isdigit);
     // 2.17 gui/perf-4: everything that narrows or orders the heads, with the list's own key; the facet filters are part of it
     std::string view_key = ch.view.list_key + "|" + q + "|" + (ch.real_only ? "r" : "-") + (ch.hq_only ? "h" : "-") + (only3d ? "3" : "-") +

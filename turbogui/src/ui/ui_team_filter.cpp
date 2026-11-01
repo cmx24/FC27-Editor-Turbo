@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
+#include <unordered_map>
 #include <vector>
 
 #include "app.h"
@@ -13,15 +14,9 @@
 
 namespace turbo {
 
-static std::string lower_copy(const std::string& s) {
-    std::string out = s;
-    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return out;
-}
-
 bool team_matches(const TeamRow& t, const std::string& q) {
     if (q.empty()) return true;
-    if (lower_copy(t.name).find(q) != std::string::npos) return true;
+    if (fold_find(t.name_fold, t.name, q)) return true;
     return std::to_string(t.teamid).rfind(q, 0) == 0;
 }
 
@@ -41,11 +36,20 @@ bool geo_pick_combo(const char* id, const char* any_label, const std::string& pr
         }
         ImGui::SetNextItemWidth(-FLT_MIN);
         const bool enter = ImGui::InputTextWithHint("##geoq", "type to search", search, sizeof(search), ImGuiInputTextFlags_EnterReturnsTrue);
-        const std::string q = lower_copy(search);
+        const std::string q = fold_search(search);
         std::vector<GeoOption> all, hits;
         fill(all);
-        for (const auto& o : all)
-            if (q.empty() || lower_copy(o.name).find(q) != std::string::npos) hits.push_back(o);
+        // the options' folded names, kept between frames (country, league and continent names do not change within a career)
+        static std::unordered_map<std::string, std::string> folded;
+        if (folded.size() > 4096) folded.clear();
+        for (const auto& o : all) {
+            if (!q.empty()) {
+                auto it = folded.find(o.name);
+                if (it == folded.end()) it = folded.emplace(o.name, fold_search(o.name)).first;
+                if (it->second.find(q) == std::string::npos) continue;
+            }
+            hits.push_back(o);
+        }
         if (enter && !q.empty() && !hits.empty()) {
             sel = hits.front().id;
             ImGui::CloseCurrentPopup();
@@ -123,7 +127,7 @@ bool team_filter_combo(App& app, const char* id, int64_t& teamid, char* search, 
         ImGui::SetNextItemWidth(-FLT_MIN);
         const bool enter =
             ImGui::InputTextWithHint("##teamq", "club name or ID", search, search_size, ImGuiInputTextFlags_EnterReturnsTrue);
-        const std::string q = lower_copy(search);
+        const std::string q = fold_search(search);
         if (nation || league) {  // optional country / league narrowing
             const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
             if (nation) {

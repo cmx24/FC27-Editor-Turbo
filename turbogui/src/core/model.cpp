@@ -5,6 +5,7 @@
 
 #include "overall.h"
 #include "teamnames.h"
+#include "text_fold.h"
 
 namespace turbo {
 
@@ -204,6 +205,7 @@ void Model::build_teams() {
         r.teamid = s.get_int(i, "teamid");
         r.rec = s.addr(i);
         r.name = readable_team_name(r.teamid, fname ? s.get_str(i, *fname) : "");
+        r.name_fold = fold_search(r.name);
         r.overall = static_cast<int>(s.get_int(i, "overallrating", 0));
         auto lg = team_league_.find(r.teamid);
         r.league = lg == team_league_.end() ? -1 : lg->second;
@@ -315,6 +317,8 @@ void Model::build_players(const GameDate& today) {
         auto c = club_of.find(r.playerid);
         r.club = c == club_of.end() ? 0 : c->second;
         r.club_name = r.club ? team_name(r.club) : "";
+        r.name_fold = fold_search(r.name);
+        r.club_fold = fold_search(r.club_name);
         r.overall = static_cast<int>(s.get_int(i, "overallrating", 0));
         r.potential = static_cast<int>(s.get_int(i, "potential", 0));
         r.position = static_cast<int>(s.get_int(i, "preferredposition1", -1));
@@ -346,6 +350,7 @@ void Model::build_managers() {
         std::string sur = fsur ? s.get_str(i, *fsur) : "";
         r.name = first.empty() ? sur : (sur.empty() ? first : first + " " + sur);
         if (r.name.empty()) r.name = "Manager " + std::to_string(r.managerid);
+        r.name_fold = fold_search(r.name);
         managers_.push_back(r);
     }
 }
@@ -405,6 +410,7 @@ void Model::refresh_player_name(int64_t pid) {
         n = !common.empty() ? common : (first.empty() ? last : (last.empty() ? first : first + " " + last));
     }
     r.name = n.empty() ? "#" + std::to_string(pid) : n;
+    r.name_fold = fold_search(r.name);
 }
 
 void Model::refresh_team(int64_t tid) {
@@ -415,7 +421,10 @@ void Model::refresh_team(int64_t tid) {
     r.overall = static_cast<int>(db_.get_int(*t, r.rec, "overallrating", r.overall));
     if (const Field* f = t->field("teamname")) {
         Value v;
-        if (db_.get(*t, r.rec, *f, v) && !v.s.empty()) r.name = readable_team_name(tid, v.s);
+        if (db_.get(*t, r.rec, *f, v) && !v.s.empty()) {
+            r.name = readable_team_name(tid, v.s);
+            r.name_fold = fold_search(r.name);
+        }
     }
 }
 
@@ -437,6 +446,12 @@ std::string Model::fallback_team_name(int64_t tid) const {
 std::string Model::player_name(int64_t pid) const {
     const PlayerRow* p = player(pid);
     return p ? p->name : "#" + std::to_string(pid);
+}
+
+const std::string& Model::team_name_fold(int64_t tid) const {
+    static const std::string none;
+    auto it = team_index_.find(tid);
+    return it == team_index_.end() ? none : teams_[it->second].name_fold;
 }
 
 std::string Model::team_name(int64_t tid) const {

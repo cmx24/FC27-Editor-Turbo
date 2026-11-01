@@ -961,6 +961,9 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     ImGui::SameLine();
     if (ImGui::Button("From CMTracker...")) ImGui::OpenPopup("##pcmt");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fully populated new player picked from the CMTracker CSV library: stats, positions, PlayStyles, appearance, names, miniface");
+    ImGui::SameLine();
+    if (ImGui::Button("Import .player...")) ImGui::OpenPopup("##pplayerfile");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new player from a .player file of FC Editor or the EA FC Player Creator: every field it has, the names");
     // on the same row when it fits (the row is long at small window widths)
     const char* repair_label = "Repair names...";
     const float repair_w = ImGui::CalcTextSize(repair_label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -977,6 +980,7 @@ void player_preset_buttons(App& app, const PlayerRow& p) {
     clone_dialog(app, p);
     create_dialog(app, p);
     cmtracker_dialog(app);
+    player_file_dialog(app);
     repair_names_dialog(app);
 }
 

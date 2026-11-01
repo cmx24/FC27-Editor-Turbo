@@ -74,11 +74,6 @@ bool donor_named(App& app, int64_t id) {
     return clubvoice::donor_is_named(t ? t->name : std::string(), app.model.fallback_team_name(id));
 }
 
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 void refresh_shown(App& app, const std::vector<int32_t>& ids, int64_t teamid) {
     // the search, the language, the special-ids box, and what names the clubs (the teams table after a rebuild, the fallback map)
     const std::string key = std::string(g_pick.search) + "\x02" + g_rec.lang + "\x02" + (g_pick.special ? "s" : "-") + "\x02" +
@@ -87,11 +82,11 @@ void refresh_shown(App& app, const std::vector<int32_t>& ids, int64_t teamid) {
     g_pick.shown_for = key;
     g_pick.shown.clear();
     g_pick.total = ids.size();
-    const std::string q = lower(g_pick.search);
+    const std::string q = fold_search(g_pick.search);
     for (int32_t id : ids) {
         if (id == teamid) continue;  // its own name is "Use its own name"
         if (!g_pick.special && clubvoice::is_special_id(id)) continue;
-        if (!q.empty() && lower(donor_name(app, id)).find(q) == std::string::npos && std::to_string(id).find(q) == std::string::npos) continue;
+        if (!q.empty() && fold_search(donor_name(app, id)).find(q) == std::string::npos && std::to_string(id).find(q) == std::string::npos) continue;
         g_pick.shown.push_back(id);
     }
 }

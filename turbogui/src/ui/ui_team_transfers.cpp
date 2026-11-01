@@ -304,7 +304,7 @@ void card_sign(App& app, int64_t club) {
     form_label("Find a player", "Part of his name.");
     ImGui::SetNextItemWidth(S(280.0f));
     ImGui::InputTextWithHint("##tpsignq", "player name", search, sizeof(search));
-    const std::string q = lower_copy(search);
+    const std::string q = fold_search(search);
     if (q.size() >= 3) {
         // the search walks every player of the database: it runs when the text, the club or the lists change, not every frame
         static std::string last_q;
@@ -317,7 +317,7 @@ void card_sign(App& app, int64_t club) {
             last_club = club;
             hits.clear();
             for (const PlayerRow& p : app.model.players()) {
-                if (p.club == club || lower_copy(p.name).find(q) == std::string::npos) continue;
+                if (p.club == club || !fold_find(p.name_fold, p.name, q)) continue;
                 hits.push_back(p.playerid);
                 if (hits.size() >= 8) break;
             }
