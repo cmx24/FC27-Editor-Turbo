@@ -80,6 +80,7 @@ struct Source {  // what one picker shows
     std::vector<std::string> cap, reason;  // 5.0c E10-12: a grey tile's short word in its box, and why it has no picture ("" on tiles that have one)
     std::vector<int> group;             // index into groups, -1 = none
     std::vector<std::string> groups;    // eyebrow styles, generic head models
+    std::string zero_game;              // Turbo X bald: the game gallery's own preview of code 0 when it lists one ("" = none): only the real-face chooser's Bald / No beard tile shows it
     std::unordered_map<int64_t, int> pos;
     int index_of(int64_t code) const {
         auto it = pos.find(code);
@@ -419,6 +420,7 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
         if (gal && !light) ge = gallery_entries(app, field, manager, colour);
         std::unordered_map<int64_t, size_t> gpos;
         for (size_t i = 0; i < ge.size(); ++i) gpos[ge[i].id] = i;
+        if (const auto g0 = gpos.find(0); g0 != gpos.end()) out.zero_game = ge[g0->second].preview;  // the real-face chooser's Bald tile
 
         std::vector<int64_t> all;
         if (light) {
@@ -609,9 +611,13 @@ bool build_source(App& app, const Table& t, uint64_t rec, const std::string& fie
     return true;
 }
 
-// Step 7: the tiles of `in` whose code is in `keep` (in `in`'s order), with 0 named `zero_name` and every tile writable: the 3D section's
-// chooser lists the band's generic ids, and the band list itself is the gate (ui_faces3d_gate.cpp writes the band code of the pick).
-Source subset_source(const Source& in, const std::vector<int64_t>& keep, const char* zero_name) {
+// Step 7: the tiles of `in` whose code is in `keep` (in `in`'s order) and every tile writable: the 3D section's chooser lists the band's
+// generic ids, and the band list itself is the gate (ui_faces3d_gate.cpp writes the band code of the pick).
+// Turbo X bald: the chooser of a real face also has two tiles of its own, first: code 0 named `zero_name` ("Bald" / "No beard": the
+// game's generic none part, written as faces3d::kHairBaldCode / kBeardNoneCode) with the game gallery's preview of 0 when it has one,
+// else a blank box; and `own_code` named `own_name` ("His scanned hair" / "His scanned beard": no generic part), a blank "his own" box.
+// own_name == nullptr: no own tile. Code 0 is offered even when `in` has no tile for it.
+Source subset_source(const Source& in, const std::vector<int64_t>& keep, const char* zero_name, int64_t own_code, const char* own_name) {
     Source o;
     o.field = in.field;
     o.title = in.title;
@@ -624,13 +630,30 @@ Source subset_source(const Source& in, const std::vector<int64_t>& keep, const c
     o.eyebrow = in.eyebrow;
     o.fcedit_any = in.fcedit_any;
     o.groups = in.groups;
+    o.zero_game = in.zero_game;
+    const bool hair = in.field == "hairtypecode";
+    // the two tiles of the chooser itself
+    push_tile(o, 0, zero_name ? zero_name : (hair ? "Bald" : "None"));
+    o.search.push_back(fold_search(o.names.back()) + " 0");
+    if (!in.zero_game.empty()) {
+        o.game.back() = in.zero_game;
+        o.src.back() = kSrcGame;
+    } else {
+        o.reason.back() = hair ? "Bald: the game ships no picture of hair 0." : "No beard: the game ships no picture of beard 0.";
+    }
+    if (own_name) {
+        push_tile(o, own_code, own_name);
+        o.search.push_back(fold_search(o.names.back()) + " own scan");
+        o.cap.back() = "his own";
+        o.reason.back() = hair ? "His scanned hair: no generic model, the hair of his scan stays." : "His scanned beard: no generic model, the beard of his scan stays.";
+    }
     std::unordered_set<int64_t> want(keep.begin(), keep.end());
     for (size_t i = 0; i < in.codes.size(); ++i) {
         const int64_t code = in.codes[i];
-        if (!want.count(code)) continue;
+        if (!want.count(code) || o.pos.count(code)) continue;  // 0 and his own are the chooser's tiles above
         o.pos[code] = static_cast<int>(o.codes.size());
         o.codes.push_back(code);
-        o.names.push_back(code == 0 && zero_name ? std::string(zero_name) : in.names[i]);
+        o.names.push_back(in.names[i]);
         o.search.push_back(in.search[i]);
         o.files.push_back(in.files[i]);
         o.game.push_back(in.game[i]);
@@ -953,12 +976,14 @@ void open_picker(App& app, const Table& t, uint64_t rec, const std::string& fiel
     if (field == "bodytypecode") looks::body_show_all(app.prefs.body_show_all);
     build_source(app, t, rec, field, manager, s.src);
     if (s.choice.on) {
-        // the band's generic ids only (plus 0 = his own); the 3D section writes the band code, so the list is the gate
-        std::vector<int64_t> keep = s.choice.ids;
-        keep.push_back(0);
-        s.src = subset_source(s.src, keep, field == "hairtypecode" ? "His scanned hair (not bald)" : "His scanned beard");
-        s.src.title = (field == "hairtypecode" ? std::string("Hair") : std::string("Beard")) + " (3D, real face)";
-        s.src.note = "Real face: his scanned head keeps its own hairline and stubble in its skin, so a new style sits on top of it. 0 = his scanned hair, not bald.";
+        // the band's generic ids only, plus Bald / No beard (code 0, the game's generic none part) and his scanned hair / beard (the "his
+        // own" code: no generic part); the 3D section writes the band code (or the bald / no-beard code), so the list is the gate
+        const bool hair = field == "hairtypecode";
+        s.src = subset_source(s.src, s.choice.ids, hair ? "Bald" : "No beard", hair ? faces3d::kHairOwnCode : faces3d::kBeardOwnCode,
+                              hair ? "His scanned hair" : "His scanned beard");
+        s.src.title = (hair ? std::string("Hair") : std::string("Beard")) + " (3D, real face)";
+        s.src.note = hair ? "Real face: a new style replaces the hair painted into his scan. 0 = Bald; \"His scanned hair\" keeps the hair of his scan."
+                          : "Real face: a new beard replaces the stubble painted into his scan. 0 = No beard; \"His scanned beard\" keeps the beard of his scan.";
     }
     // step 7: a tattoo picker opens on the tattoos made for its body area (the combo lists the others too)
     if (tattoo_area_index(field) >= 0)
@@ -1101,7 +1126,10 @@ std::string filter_key(const State& s) {
 // Step 7: a tile the grid hides unless "Show N without picture" is ticked: no picture from any source (a names-only list has no toggle:
 // every tile is a name there). The current value is always shown, so the person sees what he has.
 bool blank_tile(const State& s, size_t i) {
-    return !s.ui.names_only && s.src.src[i] == kSrcBlank && s.src.codes[i] != s.ui.current;
+    const int64_t c = s.src.codes[i];
+    // Turbo X bald: the real-face chooser's own tiles (Bald / No beard, his scanned hair / beard) are choices, never "without picture"
+    if (s.choice.on && (c == 0 || c == faces3d::kHairOwnCode || c == faces3d::kBeardOwnCode)) return false;
+    return !s.ui.names_only && s.src.src[i] == kSrcBlank && c != s.ui.current;
 }
 
 void filter(App& app, State& s) {
@@ -1616,8 +1644,9 @@ bool visual_picker_apply(App& app) {
         s.ui.current = s.ui.selected;
         const int i = s.src.index_of(s.ui.selected);
         s.ui.last_result = "Picked " + (i >= 0 ? s.src.names[static_cast<size_t>(i)] : std::to_string(s.ui.selected));
-        vlog(app, "visual picker (3D chooser): " + s.src.field + " of " + t->name + " " + std::to_string(who_id(app, *t, s.rec)) + " picked generic id " +
-                      std::to_string(s.ui.selected) + " (nothing written: the 3D section's Apply writes the band code)");
+        vlog(app, "visual picker (3D chooser): " + s.src.field + " of " + t->name + " " + std::to_string(who_id(app, *t, s.rec)) + " picked " +
+                      std::to_string(s.ui.selected) + " (generic id; 0 = bald / no beard, " + std::to_string(faces3d::kHairOwnCode) + " / " +
+                      std::to_string(faces3d::kBeardOwnCode) + " = his scan; nothing written: the 3D section's Apply writes the code)");
         return true;
     }
     std::string msg;

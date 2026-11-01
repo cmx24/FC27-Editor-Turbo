@@ -1,8 +1,10 @@
 // faces3d template v5 (5.0c E13, hair / beard replace): the clean-scan splices over the REAL stock player_kit.lua (read at run time
 // from the evidence folder, never copied into the repository; SKIP when it is not on this machine), against the bytes the offline
 // lupa trace ran (turbo_dev/evidence/2026-10-31/E13: gen_body.py -> v5_empty.lua md5 39474a1c, trace_clean_face.py PASS):
-//   - the embedded v5 text is the reviewed template (md5 1c57d7f9) and anchors the same stock as v4 (9399e39a);
-//   - v5 over the stock, empty list == v5_empty.lua byte for byte; a changed anchor line or a changed stock is refused;
+//   - the embedded v5 text is the reviewed template + the Turbo X bald codes (md5 ab7e7df8; reviewed E13 text was 1c57d7f9) and anchors
+//     the same stock as v4 (9399e39a);
+//   - v5 over the stock, empty list: builds (the byte pin v5_empty.lua 39474a1c is the PRE-bald trace: printed, not checked, until a new
+//     lupa trace of the bald text pins it again); a changed anchor line or a changed stock is refused;
 //   - main-chunk locals stay stock + 1 (TURBO_GATE only: every new function is a TURBO_GATE field);
 //   - build_live_override: hair_replace = true -> v5; false (the default, and what hair_replace_off.txt selects) -> v4 EXACTLY
 //     (afea57af, the 5.0b live bytes); a v5 refusal falls back to v4;
@@ -57,14 +59,17 @@ static int col0_locals(const std::string& s) {
     return n;
 }
 
-static const char* const kV5Md5 = "1c57d7f9d5e18f8a73104b3651bc07ab";        // evidence/2026-10-31/E13/player_kit_template_v5.lua
-static const char* const kV5EmptyMd5 = "39474a1c24c5fe8ec3897fc2f5b94f68";   // evidence/2026-10-31/E13/v5_empty.lua (gen_body.py)
-static const size_t kV5EmptySize = 289562;
+static const char* const kV5Md5 = "ab7e7df858067ec99763bef9b192c733";        // E13 player_kit_template_v5.lua (1c57d7f9) + Turbo X bald (9998 / 510)
+static const char* const kV5EmptyMd5Pre = "39474a1c24c5fe8ec3897fc2f5b94f68";   // evidence/2026-10-31/E13/v5_empty.lua (gen_body.py), PRE-bald text
+static const size_t kV5EmptySizePre = 289562;
 static const char* const kV4EmptyMd5 = "afea57af5c80424c8d03e6a189639940";   // test_faces3d.cpp test_real_v4 (5.0b live, empty list)
 
 static void test_embedded() {
     const std::string t5 = template_v5_text();
-    check(md5s(t5) == kV5Md5 && std::string(template_v5_md5()) == kV5Md5, "embedded v5 == the reviewed template 1c57d7f9 (" + md5s(t5) + ")");
+    check(md5s(t5) == kV5Md5 && std::string(template_v5_md5()) == kV5Md5, "embedded v5 == the reviewed template + bald, ab7e7df8 (" + md5s(t5) + ")");
+    check(t5.find("\tBALDH = 9998,\n") != std::string::npos && t5.find("\tNOBEARDB = 510,\n") != std::string::npos &&
+              t5.find("\tif h == TURBO_GATE.BALDH then hid = 0 end\n") != std::string::npos,
+          "v5 carries the bald / no-beard codes");
     check(template_stock_md5(t5) == "9399e39a1e46a15d151ada423759abe9", "v5 anchors the same stock as v4");
     check(t5.find("FACE GATE v5") != std::string::npos && t5.find("TURBO_GATE.band = function") != std::string::npos,
           "v5 keeps the live-looks marker and names itself in the gate");
@@ -107,8 +112,9 @@ static void test_real_v5() {
         return;
     }
     const Built e5 = generate_body(template_v5_text(), stock, Table{});
-    check(e5.ok && e5.md5 == kV5EmptyMd5 && e5.bytes.size() == kV5EmptySize,
-          "real stock v5, empty list == v5_empty.lua 39474a1c (the lupa-traced bytes): " + e5.md5 + " " + std::to_string(e5.bytes.size()) + e5.error);
+    check(e5.ok && e5.bytes.size() > kV5EmptySizePre, "real stock v5 (bald), empty list builds: " + e5.md5 + " " + std::to_string(e5.bytes.size()) + e5.error);
+    std::printf("  NOTE real stock v5 (bald) empty body md5 %s, %zu bytes (pre-bald trace pin %s, %zu bytes: re-pin after a lupa trace)\n",
+                e5.md5.c_str(), e5.bytes.size(), kV5EmptyMd5Pre, kV5EmptySizePre);
     if (!e5.ok) return;
     check(lualoader::has_live_looks(e5.bytes.data(), e5.bytes.size()), "v5 body carries the live-looks marker");
     check(col0_locals(e5.bytes) == col0_locals(stock) + 1, "v5 main-chunk locals == stock + 1 (" + std::to_string(col0_locals(e5.bytes)) + " vs " +
@@ -143,7 +149,7 @@ static void test_real_v5() {
     check(parse_players_json(pj, t, &err), "players_v3_test.json parses");
     std::string note, why;
     const auto on0 = build_live_override(stock, Table{}, note, why, CrestList{}, true);
-    check(on0 && md5s(*on0) == kV5EmptyMd5 && note == "0 players on the saved list" && why.empty(), "build_live_override(hair_replace) == v5 empty body");
+    check(on0 && md5s(*on0) == e5.md5 && note == "0 players on the saved list" && why.empty(), "build_live_override(hair_replace) == v5 empty body");
     const auto off0 = build_live_override(stock, Table{}, note, why, CrestList{}, false);
     check(off0 && md5s(*off0) == kV4EmptyMd5, "build_live_override(hair_replace off) == v4 afea57af exactly (switch file)");
     const auto def0 = build_live_override(stock, Table{}, note, why);

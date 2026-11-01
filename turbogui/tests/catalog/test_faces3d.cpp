@@ -583,6 +583,22 @@ static void test_bands() {
               !beard_from_code(kBeardOwnCode) && is_turbo_hair_code(kHairOwnCode) && is_turbo_beard_code(kBeardOwnCode) && is_turbo_hair_code(8193) &&
               !is_turbo_hair_code(8039) && !is_turbo_beard_code(335) && !is_turbo_hair_code(696),
           "own codes 9999 / 511: no model, no band index, but Turbo codes; 8039 / 335 are plain ids");
+    // Turbo X bald: 9998 / 510 = generic hair 0 / beard 0 on a real face
+    check(kHairBaldCode == 9998 && kBeardNoneCode == 510 && kHairBaldCode != kHairOwnCode && kBeardNoneCode != kBeardOwnCode,
+          "bald / no-beard codes 9998 / 510, distinct from the own codes");
+    check(!hair_from_code(kHairBaldCode) && !beard_from_code(kBeardNoneCode) && !hair_id_ok(kHairBaldCode) && !beard_id_ok(kBeardNoneCode) &&
+              (kHairBaldCode < 8040 || kHairBaldCode > 9410) && (kBeardNoneCode < 336 || kBeardNoneCode > 440) && kHairBaldCode > 3022 &&
+              kBeardNoneCode > 304 && kHairBaldCode <= 10000 && kBeardNoneCode <= 512,
+          "9998 / 510: outside both bands, no model id, above EA's codes, inside the field ranges");
+    check(is_turbo_hair_code(kHairBaldCode) && is_turbo_beard_code(kBeardNoneCode) && !is_turbo_hair_code(0) && !is_turbo_beard_code(0) &&
+              !is_turbo_hair_code(kBeardNoneCode),
+          "bald / no-beard codes are Turbo codes (never recorded as his own); 0 is not");
+    check(hair_look_code(kLookNone) == kHairBaldCode && beard_look_code(kLookNone) == kBeardNoneCode && hair_look_code(155) == 8193 &&
+              beard_look_code(46) == 355 && hair_look_code(0) == 0 && beard_look_code(0) == 0 && hair_look_code(999999) == 0,
+          "look codes: none -> 9998 / 510, an id -> its band code, his own / unlisted -> 0");
+    check(hair_look_of(kHairBaldCode) == kLookNone && beard_look_of(kBeardNoneCode) == kLookNone && hair_look_of(8193) == 155 &&
+              beard_look_of(355) == 46 && hair_look_of(kHairOwnCode) == 0 && hair_look_of(696) == 0 && beard_look_of(0) == 0,
+          "look of a code: 9998 / 510 -> none, a band code -> its id, anything else -> his own");
 }
 
 static void test_look_writes() {
@@ -604,6 +620,15 @@ static void test_look_writes() {
     check(look_writes(155, 46, banded, orig).empty(), "same choice again: nothing written");
     check(look_writes(999999, 259, cur, orig).empty(), "unlisted ids: nothing written");
     check(look_writes(155, 46, M{{"hairtypecode", 696}}, orig) == M{{"hairtypecode", 8193}}, "a table without facialhairtypecode: only hair");
+    // Turbo X bald
+    check(look_writes(kLookNone, kLookNone, cur, orig) == M{{"hairtypecode", kHairBaldCode}, {"facialhairtypecode", kBeardNoneCode}},
+          "bald + no beard -> 9998 / 510");
+    check(look_writes(kLookNone, 0, banded, orig) == M{{"hairtypecode", kHairBaldCode}, {"facialhairtypecode", 259}}, "bald, beard back to his own");
+    const M bald{{"hairtypecode", kHairBaldCode}, {"facialhairtypecode", kBeardNoneCode}};
+    check(look_writes(0, 0, bald, orig) == M{{"hairtypecode", 696}, {"facialhairtypecode", 259}}, "from bald / no beard back to his own: his originals");
+    check(look_writes(0, 0, bald, bald) == M{{"hairtypecode", 0}, {"facialhairtypecode", 0}}, "a bald / no-beard code is never written back as an original");
+    check(look_writes(kLookNone, kLookNone, bald, orig).empty(), "bald again: nothing written");
+    check(look_writes(155, 46, bald, orig) == M{{"hairtypecode", 8193}, {"facialhairtypecode", 355}}, "from bald to a band look");
     bool never_style = true;
     for (const auto& kv : look_writes(155, 46, M{{"hairtypecode", 1}, {"facialhairtypecode", 1}, {"hairstylecode", 3}}, M{}))
         never_style = never_style && kv.first != "hairstylecode";
@@ -771,6 +796,144 @@ print("LUARESULT " .. n .. " " .. bad)
     fs::remove(outp, ec);
 }
 
+// Turbo X bald: the v5 gate (synthetic stock, filled by the generator) and the v5 clean-scan functions (the template's @add rows on stock
+// line 2546) run in a real Lua 5.4 with mocks of the game's texture API: hairtypecode 9998 / facialhairtypecode 510 give hair 0 / beard 0,
+// 0 is a part for every splice expression, the scan is cleaned under it, and nothing is loaded for id 0 (SKIP without lua5.4)
+static void test_gate_v5_bald_in_lua() {
+    const std::string t5 = template_v5_text();
+    const size_t g0 = t5.find("--@@GATE-BEGIN\n"), g1 = t5.find("--@@GATE-END");
+    check(g0 != std::string::npos && g1 != std::string::npos, "v5 gate block found in the template");
+    if (g0 == std::string::npos || g1 == std::string::npos) return;
+    const std::string stock = stock_text("\n");
+    TOpts o;
+    o.stock_md5 = md5s(stock);
+    std::string tmpl = make_template(o);
+    const size_t s0 = tmpl.find("--@@GATE-BEGIN\n");
+    tmpl = tmpl.substr(0, s0) + t5.substr(g0, g1 + std::strlen("--@@GATE-END\n") - g0);
+    Table t;
+    t[230107] = Entry{155, 46, true, true, "baked"};
+    const Built b = generate_body(tmpl, stock, t);
+    check(b.ok, "synthetic v5 body builds (" + b.error + ")");
+    if (!b.ok) return;
+    const size_t a = b.bytes.find("local TURBO_GATE = {"), e = b.bytes.find("-- ===== END TURBO PER-PLAYER FACE GATE v5");
+    check(a != std::string::npos && e != std::string::npos, "generated v5 gate found");
+    if (a == std::string::npos || e == std::string::npos) return;
+    // the clean-scan functions: the TEXT of every "@add <tab> 2546 <tab> <md5> <tab> TEXT$" row, in order
+    std::string clean;
+    for (size_t p = t5.find("\n@add\t2546\t"); p != std::string::npos; p = t5.find("\n@add\t2546\t", p + 1)) {
+        const size_t q = t5.find('\n', p + 1);
+        std::string row = t5.substr(p + 1, q - p - 1);
+        size_t tab = 0;
+        for (int k = 0; k < 3 && tab != std::string::npos; ++k) tab = row.find('\t', tab + 1);
+        if (tab == std::string::npos || row.back() != '$') continue;
+        clean += row.substr(tab + 1, row.size() - tab - 2) + "\n";
+    }
+    check(clean.find("TURBO_GATE.cleanLoad = function(") != std::string::npos && clean.find("if hid ~= nil and hid > 0 then") != std::string::npos,
+          "clean-scan rows extracted (cleanLoad, the id-0 guard)");
+    const char* lua = std::getenv("LUA");
+    const std::string luabin = lua && *lua ? lua : "lua5.4";
+    if (std::system((luabin + " -v > " + (fs::temp_directory_path() / "turbo_lua_v5b.txt").string() + " 2>&1").c_str()) != 0) {
+        std::printf("  SKIP v5 bald gate in Lua (%s not found)\n", luabin.c_str());
+        return;
+    }
+    const std::string H155 = std::to_string(hair_band_code(155)), B46 = std::to_string(beard_band_code(46)), BALD = std::to_string(kHairBaldCode),
+                      NOB = std::to_string(kBeardNoneCode), OWNH = std::to_string(kHairOwnCode), OWNB = std::to_string(kBeardOwnCode);
+    std::string drv = "unpack = unpack or table.unpack\n" + b.bytes.substr(a, e - a) + clean + R"LUA(
+local n, bad = 0, 0
+local function ok(c, what) n = n + 1; if not c then bad = bad + 1; print("LUAFAIL " .. what) end end
+local function P(t) t.PlayerId = t.PlayerId or 1; t.HeadClass = t.HeadClass or 0; t.HairStyle = t.HairStyle or 0
+  t.Hair = t.Hair or 696; t.FacialHairType = t.FacialHairType or 259; return t end
+local function s(t) return table.concat(t, ",") end
+local G = TURBO_GATE
+ok(G.BALDH == )LUA" + BALD + R"LUA( and G.NOBEARDB == )LUA" + NOB + R"LUA( and G.OWNH == )LUA" + OWNH + R"LUA( and G.OWNB == )LUA" + OWNB + R"LUA(, "constants")
+ok(G.bandHair[G.BALDH - G.HB] == nil and G.bandBeard[G.NOBEARDB - G.BB] == nil, "9998 / 510 index no band slot")
+ok(G.hairId(P{Hair = G.BALDH}) == 0 and G.beardId(P{Hair = G.BALDH}) == nil, "bald: hair 0, beard stock")
+ok(G.beardId(P{FacialHairType = G.NOBEARDB}) == 0 and G.hairId(P{FacialHairType = G.NOBEARDB}) == nil, "no beard: beard 0, hair stock")
+ok(G.strandBeardId(P{FacialHairType = G.NOBEARDB}) == 0, "no beard on a real face: strand beard 0 (generic)")
+ok(G.hairColours(P{Hair = G.BALDH}) == nil and G.facialHairColours(P{Hair = G.BALDH}) == nil, "bald: colours stay stock")
+ok(G.facialHairColours(P{FacialHairType = G.NOBEARDB}) == nil, "no beard: colours stay stock")
+ok(G.hairId(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}) == 0 and G.beardId(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}) == 46 and
+   G.facialHairColours(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}) == true and G.hairColours(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}) == nil, "bald + band beard 46")
+ok(G.hairId(P{Hair = )LUA" + H155 + R"LUA(, FacialHairType = G.NOBEARDB}) == 155 and G.beardId(P{Hair = )LUA" + H155 + R"LUA(, FacialHairType = G.NOBEARDB}) == 0 and
+   G.hairColours(P{Hair = )LUA" + H155 + R"LUA(, FacialHairType = G.NOBEARDB}) == true, "band hair 155 + no beard")
+ok(G.hairId(P{Hair = G.BALDH, FacialHairType = G.NOBEARDB}) == 0 and G.beardId(P{Hair = G.BALDH, FacialHairType = G.NOBEARDB}) == 0, "bald + no beard")
+ok(G.get(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}) ~= G.get(P{Hair = G.OWNH, FacialHairType = )LUA" + B46 + R"LUA(}) and
+   G.get(P{Hair = G.OWNH, FacialHairType = )LUA" + B46 + R"LUA(}).hair == nil and G.get(P{Hair = G.BALDH, FacialHairType = )LUA" + B46 + R"LUA(}).hair == 0, "memo keeps 0 and nil apart")
+ok(G.get(P{FacialHairType = G.NOBEARDB}) ~= G.get(P{FacialHairType = G.OWNB}) and G.get(P{FacialHairType = G.OWNB}).beard == nil, "memo: no beard vs own beard")
+ok(G.get(P{Hair = G.BALDH}) == G.get(P{PlayerId = 7, Hair = G.BALDH}), "one memo entry per look (bald)")
+ok(G.hairId(P{PlayerId = 230107, Hair = G.BALDH}) == 0 and G.beardId(P{PlayerId = 230107, Hair = G.BALDH}) == nil, "bald beats the baked entry (its beard goes too, as any band code)")
+ok(G.get(P{HairStyle = 1, Hair = G.BALDH}) == nil and G.get(P{HeadClass = 1, Hair = G.BALDH, FacialHairType = G.NOBEARDB}) == nil, "not a real face / hair style: nothing")
+ok(G.hairId(P{Hair = G.BALDH + 0.0}) == 0, "float bald code")
+ok(G.get(P{Hair = 9997}) == nil and G.get(P{FacialHairType = 509}) == nil, "neighbours of 9998 / 510: nothing")
+-- the v4 splice expressions with a 0 part (stock lines 4752 / 4753 / 4787 / 4790 / 4798 / 5062 / 5064 / 5069, as the template inserts them)
+local tgHair = G.hairId(P{Hair = G.BALDH})
+ok(((nil or tgHair) and 1 or 0) == 1 and (nil or (tgHair or 696)) == 0, "4752 / 4753: bald -> head class 1, hair id 0 (a generic head with hair 0)")
+local ini = P{Hair = G.BALDH, FacialHairType = G.NOBEARDB}
+local th = G.hairId(ini)
+ok((G.strandBeardId(ini) or nil or ((th and G.beardId(ini)) or ini.FacialHairType)) == 0, "4787: strand facial hair 0")
+ok((G.strandBeardId(ini) and 1 or 0) == 1 and (G.strandBeardId(ini) and "generichead" or "starhead") == "generichead", "4790 / 4798: generic class and bundle")
+local tgBeard = G.beardId(ini)
+ok((false or tgBeard ~= nil) == true and (true and not tgBeard) == false and (tgBeard or 259) == 0, "5062 / 5064 / 5069: generic 3D beard with model 0")
+ok(s(G.cleanMasks(G.hairId(P{Hair = G.BALDH}), nil)) == "0,3,0,3" and s(G.cleanMasks(nil, G.beardId(P{FacialHairType = G.NOBEARDB}))) == "1,2,5", "a 0 part is cleaned (bald scalp, clean skin)")
+-- cleanLoad / cleanFace with mocks of the game's texture API
+brts = {generichead = "generichead", starhead = "starhead"}
+local loads, futures = {}, {}
+function loadAsync(b, name, allow, lane) loads[#loads + 1] = name; return {name = name} end
+function loadBatchAsync(b, names) return {batch = names} end
+function futureCall(f, ...) futures[#futures + 1] = {f = f, a = table.pack(...)}; return {future = #futures} end
+local function run(ini)
+  loads, futures = {}, {}
+  local gt = {}
+  local f, nr, sp = G.cleanLoad(ini, {}, 3, 2, 0, {"scan colour"}, {"scan normal"}, {"scan spec"}, gt)
+  return f, nr, sp, gt
+end
+local function loaded(pat) for _, x in ipairs(loads) do if x:find(pat, 1, true) then return true end end return false end
+local f, nr, sp, gt = run(P{Hair = G.BALDH, FacialHairType = G.NOBEARDB})
+ok(f ~= nil and nr ~= nil and sp ~= nil and #gt == 3, "bald + no beard: cleanLoad makes the three composites")
+ok(not loaded("hair_") and not loaded("facialhair_"), "nothing loaded for id 0 (no scalp, hairline, facial-hair colour / ambient): " .. table.concat(loads, " "))
+ok(futures[1].a[4] == 0 and futures[1].a[5] == 0 and futures[1].a[9] == nil and futures[1].a[10] == nil and futures[1].a[11] == nil, "cleanFace gets hid 0, bid 0, no layers")
+run(P{Hair = )LUA" + H155 + R"LUA(, FacialHairType = )LUA" + B46 + R"LUA(})
+ok(loaded("hair_155_1_0_scalp") and loaded("hair_155_1_0_hairline") and loaded("facialhair_46_color"), "band 155 / 46: scalp, hairline, facial-hair colour loaded as before")
+ok(run(P{}) == nil and #loads == 0, "EA codes: cleanLoad stock (nil, nothing loaded)")
+ok(run(P{Hair = G.OWNH}) == nil, "own code: cleanLoad stock")
+-- cleanFace itself: the layers it lays for bald + no beard
+local tex, layers = {}, {}
+local function layer() local l = {}; setmetatable(l, {__index = function() return function() end end}); return l end
+function createCryoTextureResourceMap() return {addTexture = function(self, t, name) tex[#tex + 1] = name end} end
+function createCryoTextureRecipe() return {addTextureLayer = function(self, _, name) layers[#layers + 1] = name; return layer() end} end
+function _getSkinHSL_Levels() return {}, {1, 2, 3} end
+function getArrayFromBatch(m) return {"m0", "m1", "m2", "m3", "m4", "m5", "m6", "m7"} end
+function _getHairColors() return 1, 2, 3 end
+function _getFacialHairColors() return 1, 2, 3 end
+function _getTextureSize() return 512, 512 end
+function createCryoTextureCompositor() return {setColorEncoding = function() end, setAstcParams = function() end, composite = function() return "composited" end} end
+enum = setmetatable({}, {__index = function(t, k) return k end})
+FaceCompositorDesc = {format = 1}
+local bi = P{Hair = G.BALDH, FacialHairType = G.NOBEARDB}
+ok(G.cleanFace(bi, {}, 3, 0, 0, "scan", "skin", {}, nil, nil, nil, nil) == "composited", "cleanFace runs for hair 0 / beard 0")
+local lj = table.concat(layers, ",")
+ok(lj:find("tg_fill_", 1, true) ~= nil and lj:find("tg_scalp", 1, true) == nil and lj:find("tg_hairline", 1, true) == nil and lj:find("tg_fh", 1, true) == nil,
+   "bald + no beard: skin fills under the masks, no scalp / hairline / facial-hair layer: " .. lj)
+local fills = 0; for _, x in ipairs(layers) do if x:find("tg_fill_", 1, true) then fills = fills + 1 end end
+ok(fills == 7, "7 fills (hair masks 0,3,0,3 + beard masks 1,2,5): " .. fills)
+print("LUARESULT " .. n .. " " .. bad)
+)LUA";
+    const fs::path f = fs::temp_directory_path() / ("turbo_gate_v5b_" + std::to_string(std::rand()) + ".lua");
+    const fs::path outp = f.string() + ".out";
+    write_file(f, drv);
+    const int rc = std::system((luabin + " \"" + f.string() + "\" > \"" + outp.string() + "\" 2>&1").c_str());
+    std::string out;
+    read_file(outp, out);
+    const size_t r = out.find("LUARESULT ");
+    int n = 0, bad = -1;
+    if (r != std::string::npos) std::sscanf(out.c_str() + r, "LUARESULT %d %d", &n, &bad);
+    check(rc == 0 && r != std::string::npos && n >= 30 && bad == 0, "v5 bald gate in Lua 5.4: " + std::to_string(n) + " checks, " + std::to_string(bad) + " failed");
+    if (bad != 0) std::printf("%s\n", out.c_str());
+    std::error_code ec;
+    fs::remove(f, ec);
+    fs::remove(outp, ec);
+}
+
 // The C++ generator against the harness-validated Python build (validate_gate_v4.py prints the same md5s)
 static void test_real_v4() {
     const char* env = std::getenv("TURBO_RESEARCH_DIR");
@@ -830,6 +993,7 @@ int main() {
     test_look_writes();
     test_live_looks_state();
     test_gate_v4_in_lua();
+    test_gate_v5_bald_in_lua();
     test_real_v4();
     std::printf("faces3d: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

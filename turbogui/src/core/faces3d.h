@@ -98,9 +98,16 @@ constexpr int64_t kBeardBandBase = 335;   // facialhairtypecode 336 .. 335 + 105
 // dropped without a restart. No model id (hair ids end at 8039, beard ids at 335), on no allow-list, in no EA row; inside 10000 / 512.
 // Like a band code it is ignored by the game's own file on a real face.
 constexpr int64_t kHairOwnCode = 9999, kBeardOwnCode = 511;
+// Turbo X bald (template v5): "Bald" / "No beard" on a real face (9998 / 510): the gate gives him generic hair 0 / beard 0 (the generic
+// path with id 0, as a generic head whose code is 0) and v5 cleans the scan under it. No model id, outside both bands (8040..9410,
+// 336..440), in no EA row (max 3022 / 304), inside 10000 / 512. Template v4 (hair_replace_off.txt) does not know them: his scan stays.
+constexpr int64_t kHairBaldCode = 9998, kBeardNoneCode = 510;
+// The look value of that generic none part in look_writes and the 3D section (generic ids are > 0, 0 = his own)
+constexpr int64_t kLookNone = -1;
 // preview_backup.json key of a manager's own codes: kManagerBackupKey + managerid (player ids stay far below)
 constexpr int64_t kManagerBackupKey = 1000000000000LL;
-// A Turbo code of that field (a band code or the "his own, live" code): never recorded as his own, replaced when he gets a new head
+// A Turbo code of that field (a band code, the "his own, live" code or the bald / no-beard code): never recorded as his own, replaced
+// when he gets a new head
 bool is_turbo_hair_code(int64_t hairtypecode);
 bool is_turbo_beard_code(int64_t facialhairtypecode);
 // The in-memory player_kit.lua of 2.16 (the hook calls exactly this at the boot capture): template v4 over the captured stock with the
@@ -123,11 +130,18 @@ int64_t hair_band_code(int64_t hair_id);    // 0 when the id is not on the list
 int64_t beard_band_code(int64_t beard_id);  // 0 when the id is not on the list
 int64_t hair_from_code(int64_t hairtypecode);          // the generic hair a band code selects, 0 = not a band code
 int64_t beard_from_code(int64_t facialhairtypecode);   // the generic beard a band code selects, 0 = not a band code
+// A look value (generic id > 0, kLookNone = bald / no beard) as the DB code a real face gets: the band code, kHairBaldCode /
+// kBeardNoneCode; 0 for his own (0) or an id not on the list
+int64_t hair_look_code(int64_t look);
+int64_t beard_look_code(int64_t look);
+// The look value a code selects: the band's generic id, kLookNone for kHairBaldCode / kBeardNoneCode, else 0 (his own)
+int64_t hair_look_of(int64_t hairtypecode);
+int64_t beard_look_of(int64_t facialhairtypecode);
 // The two fields a look writes (never hairstylecode: stock uses it in a real face's own asset names)
 extern const char* const kLookFields[2];  // hairtypecode, facialhairtypecode
-// What applying `hair` / `beard` (generic ids, 0 = his own) writes given his current codes and his recorded originals (field ->
-// value; only fields that change). A part set to his own leaves the band: his recorded original when it is not a band code, else 0
-// (a real face ignores that code; it only matters if the head ever becomes generic).
+// What applying `hair` / `beard` (generic ids, kLookNone = bald / no beard, 0 = his own) writes given his current codes and his recorded
+// originals (field -> value; only fields that change). A part set to his own leaves the band: his recorded original when it is not a
+// Turbo code, else 0 (a real face ignores that code; it only matters if the head ever becomes generic).
 std::map<std::string, int64_t> look_writes(int64_t hair, int64_t beard, const std::map<std::string, int64_t>& current,
                                            const std::map<std::string, int64_t>& original);
 // Can a look change show now (this game start)? st = the hook state (nullptr: no game hooks)

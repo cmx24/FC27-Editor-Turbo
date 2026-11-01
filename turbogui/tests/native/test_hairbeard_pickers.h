@@ -9,7 +9,9 @@
 //  E10  the grey beard tiles are catalogue ids with a 3D model and no picture anywhere ("3D only"): they stay grey (a lit picture
 //       would need an in-game capture, the brief's D3) but every grey tile now carries its reason (visual_picker_tile_reason),
 //       and the reason does not claim "no 3D model" for them.
-//  E12  hair 0 is "Bald" in the list, writable on a generic head (the real-face Bald is blocked on E2 / E13, not tested here).
+//  E12  hair 0 is "Bald" in the list, writable on a generic head.
+//  Turbo X bald: the real-face chooser (vp::open_choice) has tile 0 "Bald" / "No beard" AND "His scanned hair" / "His scanned beard"
+//       (the own code); it writes nothing (the 3D section writes 9998 / 510 / the band code). The in-game render is not tested here.
 //
 // Both catalogue branches are tested (catalogue ON = Cassio's GUI: gallery_entries from the asset catalogue; catalogue OFF = the hash list).
 // Included by test_main.cpp after test_visual_picker.h; hairbeard_test::ui_cases(app, ui, le) is called right after
@@ -177,6 +179,38 @@ inline void ui_cases(turbo::App& app, Ui& ui, const fs::path& le) {
         visual_picker_select(0);
         CHECK(visual_picker_apply(app) && app.db.get_int(*p, rec, "hairtypecode", -1) == 0, "Apply writes hair 0 (read back): " + visual_picker_ui().last_result);
         visual_apply(app, *p, rec, "hairtypecode", was);
+        wind_down();
+    });
+
+    run_case("UI: Turbo X bald: the real-face chooser offers Bald / No beard (0) AND his scanned hair / beard (own code); nothing is written", [&] {
+        if (!p || !rec || !p->has("hairtypecode")) return;
+        catalogue_on();
+        visual_pictures_override((test_tmp_dir("hb_choice_bald") / "nowhere").u8string());
+        visual_pictures_refresh(app);
+        const int64_t was = app.db.get_int(*p, rec, "hairtypecode", -1);
+        vp::open_choice(app, *p, rec, "hairtypecode", false, {155, 250}, faces3d::kHairOwnCode);
+        const std::vector<int64_t> codes = visual_picker_codes();
+        CHECK(codes.size() >= 2 && codes[0] == 0 && codes[1] == faces3d::kHairOwnCode, "hair chooser: Bald first, then his scanned hair");
+        CHECK(visual_picker_tile_name(0) == "Bald" && visual_picker_tile_name(faces3d::kHairOwnCode) == "His scanned hair",
+              "hair tiles named exactly: " + visual_picker_tile_name(0) + " / " + visual_picker_tile_name(faces3d::kHairOwnCode));
+        bool only = true;
+        for (int64_t c : codes) only = only && (c == 0 || c == faces3d::kHairOwnCode || c == 155 || c == 250);
+        CHECK(only, "only the band ids besides the two own tiles");
+        CHECK(visual_picker_ui().choice && visual_picker_ui().current == faces3d::kHairOwnCode, "opened as the chooser on his scanned hair");
+        visual_picker_select(0);
+        int64_t got = -1;
+        CHECK(visual_picker_apply(app) && vp::take_choice("hairtypecode", &got) && got == 0, "Bald hands back tile 0 (the section writes 9998)");
+        visual_picker_select(faces3d::kHairOwnCode);
+        CHECK(visual_picker_apply(app) && vp::take_choice("hairtypecode", &got) && got == faces3d::kHairOwnCode, "his scanned hair hands back the own code");
+        CHECK(app.db.get_int(*p, rec, "hairtypecode", -1) == was, "the chooser writes nothing");
+        visual_picker_close();
+        if (p->has("facialhairtypecode")) {
+            vp::open_choice(app, *p, rec, "facialhairtypecode", false, {46, 47}, 0);
+            CHECK(visual_picker_tile_name(0) == "No beard" && visual_picker_tile_name(faces3d::kBeardOwnCode) == "His scanned beard",
+                  "beard tiles named exactly: " + visual_picker_tile_name(0) + " / " + visual_picker_tile_name(faces3d::kBeardOwnCode));
+            CHECK(visual_picker_ui().current == 0, "opened on No beard");
+            every_grey_tile_has_a_reason("real-face beard chooser");
+        }
         wind_down();
     });
 

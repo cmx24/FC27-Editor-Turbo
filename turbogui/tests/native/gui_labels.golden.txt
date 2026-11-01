@@ -509,7 +509,8 @@ ui_faces3d_gate.cpp	Button	Apply hair & beard	2
 ui_faces3d_gate.cpp	Button	Choose...##pick	2
 ui_faces3d_gate.cpp	Button	Close##f3pickclose	1
 ui_faces3d_gate.cpp	Button	His own hair & beard	2
-ui_faces3d_gate.cpp	Button	None##pickclear	2
+ui_faces3d_gate.cpp	Button	His own##pickclear	1
+ui_faces3d_gate.cpp	Button	None##pickclear	1
 ui_faces3d_gate.cpp	InputTextWithHint	##f3search	1
 ui_faces3d_gate.cpp	OpenPopup	##f3pick	1
 ui_faces3d_gate.cpp	PushID	faces3d_gate	1
