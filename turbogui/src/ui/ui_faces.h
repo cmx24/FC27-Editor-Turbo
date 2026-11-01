@@ -75,6 +75,10 @@ bool faces3d_running();      // "Render all filtered heads" is running
 std::string faces3d_line();  // "3D heads: 120 / 2779, 2 failed" while it runs, else ""
 std::string faces3d_status();  // one line for the Status tab
 void faces3d_stop();         // stop sending (the request in flight still finishes)
+// Turbo X 1.0.3 lane CG: "Render all" pauses after capture::kSweepCapHeads heads (core/player_capture.h SweepCap) until Continue
+bool faces3d_sweep_held();           // Render all is running and waits for Continue
+void faces3d_sweep_continue();       // the user's Continue: the next kSweepCapHeads heads
+void faces3d_set_sweep_cap(size_t heads);  // tests: a smaller cap
 // Forget the chooser's cached 3D render of a head (turbo_output\cache\faces3d\p_<id>.dds / m_<id>.dds): after his look changed
 void faces3d_forget_render(App& app, bool manager, int64_t id);
 
