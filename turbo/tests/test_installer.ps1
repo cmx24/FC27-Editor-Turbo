@@ -90,5 +90,30 @@ Start-Sleep -Seconds 1
 Check ($LASTEXITCODE -eq 0) 'reinstall exit 0'
 Check (@(Get-ChildItem (Join-Path $fake 'turbo_backups') -Directory).Count -eq 2) 'two backup folders'
 
+Write-Host 'third install (X 2.0): the log file, then the cleanup: 2 backups kept, a stale older-version file kept in the newest backup, big log rotated, newest launcher kept'
+$stalerel = 'turbo\old_feature.dll'
+W $fake $stalerel 'OLD-FEATURE'
+$oldest = @(Get-ChildItem (Join-Path $fake 'turbo_backups') -Directory | Sort-Object Name)[0].FullName
+Add-Content -LiteralPath (Join-Path $oldest 'install_record.txt') -Value ('installed|' + $stalerel + '|' + (Get-FileHash (Join-Path $fake $stalerel) -Algorithm MD5).Hash)
+[IO.File]::WriteAllBytes((Join-Path $fake 'turbo_output\turbo_gui.log'), (New-Object byte[] (26MB)))
+W $fake '_INSTALL_TURBOX_A.cmd' 'old'
+(Get-Item (Join-Path $fake '_INSTALL_TURBOX_A.cmd')).LastWriteTime = (Get-Date).AddDays(-2)
+W $fake '_INSTALL_TURBOX_B.cmd' 'new'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $fake 'turbo\Cleanup-Turbo.ps1') -LeRoot $fake | Out-Host
+Check ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $fake $stalerel)) -and (Test-Path (Join-Path $fake '_INSTALL_TURBOX_A.cmd'))) 'cleanup without -Apply lists only (nothing changed)'
+Start-Sleep -Seconds 1
+$log = Join-Path $Work 'install_log.txt'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $inst -LeRoot $fake -Yes -LogFile $log | Out-Host
+Check ($LASTEXITCODE -eq 0) 'third install exit 0'
+Check ((Test-Path $log) -and ((Get-Content -LiteralPath $log -Raw) -match 'INSTALL PASS') -and ((Get-Content -LiteralPath $log -Raw) -match '\[6/7\]')) 'the log file has the steps and INSTALL PASS'
+$bd3 = @(Get-ChildItem (Join-Path $fake 'turbo_backups') -Directory | Sort-Object Name -Descending)
+Check ($bd3.Count -eq 2) 'cleanup kept the 2 newest install backups'
+Check (-not (Test-Path (Join-Path $fake $stalerel))) 'stale older-version file removed'
+Check ((Test-Path (Join-Path $bd3[0].FullName ('files\' + $stalerel))) -and ((Get-Content (Join-Path $bd3[0].FullName 'install_record.txt')) -contains ('backup|' + $stalerel + '|' + (Get-FileHash (Join-Path $bd3[0].FullName ('files\' + $stalerel)) -Algorithm MD5).Hash))) 'stale file kept in the newest backup and its record'
+Check ((Test-Path (Join-Path $fake 'turbo_output\turbo_gui.log.old')) -and -not (Test-Path (Join-Path $fake 'turbo_output\turbo_gui.log'))) 'big log rotated to .old'
+Check ((Test-Path (Join-Path $fake '_INSTALL_TURBOX_B.cmd')) -and -not (Test-Path (Join-Path $fake '_INSTALL_TURBOX_A.cmd'))) 'only the newest launcher kept'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $bd3[0].FullName 'Undo-Turbo.ps1') | Out-Host
+Check ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $fake $stalerel))) 'undo of the newest install puts the stale file back'
+
 Write-Host ''
 if ($fails -eq 0) { Write-Host 'ALL PASS' -ForegroundColor Green; exit 0 } else { Write-Host ($fails.ToString() + ' FAILED') -ForegroundColor Red; exit 1 }
