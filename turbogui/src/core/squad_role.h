@@ -109,6 +109,10 @@ struct Table {
     int count = 0;
     std::vector<Entry> entries;
     int index_of(int pid) const;  // -1 when absent (used entries only)
+    int occurrences(int pid) const;  // how many used entries hold this player
+    // X 2.0 (crash 2026-11-01): players that hold more than one used entry. Seen in game since 10-31 (player 211990, who had left the
+    // club, twice): the whole table used to be refused for it, which switched off the match crash guard and every role write.
+    std::vector<int> dup_pids;
 };
 
 struct Result {

@@ -2,6 +2,7 @@
 #include "squad_role.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <set>
 
@@ -75,6 +76,13 @@ static uint64_t manager(Memory& mem, uint64_t managers, int type) {
     return mem.chain(slot, {tl::kSlotHolder, 0});
 }
 
+int Table::occurrences(int pid) const {
+    int n = 0;
+    for (int i = 0; i < count && i < static_cast<int>(entries.size()); ++i)
+        if (entries[static_cast<size_t>(i)].pid == pid) ++n;
+    return n;
+}
+
 int Table::index_of(int pid) const {
     for (int i = 0; i < count && i < static_cast<int>(entries.size()); ++i)
         if (entries[static_cast<size_t>(i)].pid == pid) return i;
@@ -110,7 +118,8 @@ std::string read_table(Memory& mem, uint64_t psm, int user_team, Table& t) {
             if (en.pid <= 0) return "squad role entry " + num(i) + " of " + num(count) + " holds player id " + num(en.pid) + ": layout mismatch?";
             if (!((en.role >= kRoleMin && en.role <= kRoleMax) || en.role == kRoleNone))
                 return "squad role entry " + num(i) + " (player " + num(en.pid) + ") holds role " + num(en.role) + ": layout mismatch?";
-            if (!seen.insert(en.pid).second) return "player " + num(en.pid) + " has two squad role entries: nothing was written";
+            // X 2.0: a second entry of one player is recorded, not refused; run() refuses only a player of your club with two entries
+            if (!seen.insert(en.pid).second && std::find(t.dup_pids.begin(), t.dup_pids.end(), en.pid) == t.dup_pids.end()) t.dup_pids.push_back(en.pid);
         } else if (en.pid != -1) {
             return "squad role entry " + num(i) + " after the " + num(count) + " used ones holds player id " + num(en.pid) + " (-1 expected): layout mismatch?";
         }
@@ -164,6 +173,13 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
     if (!err.empty()) return fail(r, "validate", err);
     r.count = t.count;
     const uint64_t sub = r.psm + kPsmSub;
+    // X 2.0: a player with two entries is tolerated only when he is no longer at your club (a stale leftover: the game reads the entries of
+    // its own players only). Two entries of one of YOUR players = a table Turbo does not understand: nothing is written.
+    for (int dup : t.dup_pids) {
+        bool dup_in = false;
+        if (!call.in_team(r.dc, dup, r.user_team, dup_in, err)) return fail(r, "validate", "IsPlayerInTeam(" + num(dup) + "): " + err);
+        if (dup_in) return fail(r, "validate", "player " + num(dup) + " of your club has two squad role entries: nothing was written");
+    }
 
     if (stale) {
         // count only: entries whose player the game no longer sees in your club (he left without a PlayerLeftTeam event)
@@ -203,15 +219,17 @@ Result run(Memory& mem, Caller& call, const Fns& fns, const Request& req) {
             return fail(r, "validate", who + ": stale squad role entry not removed (kill switch turbo_output\\" + std::string(create_kill_switch_name()) + " is present)");
         if (!fns.remove) return fail(r, "validate", who + ": stale squad role entry not removed (signature psm_remove_entry not found on this game build)");
         bool removed = false;
+        const int occ = t.occurrences(req.player);  // X 2.0: a stale player may hold two entries; one Remove takes one of them
         if (!call.remove(sub, req.player, removed, err)) return fail(r, "call", "PlayerStatusData::Remove: " + err);
         Table t2;
         err = read_table(mem, r.psm, r.user_team, t2);
         if (!err.empty()) return fail(r, "check", "after the game's Remove of " + who + ": " + err);
-        if (!removed || t2.count != t.count - 1 || t2.index_of(req.player) >= 0)
+        if (!removed || t2.count != t.count - 1 || t2.occurrences(req.player) != occ - 1)
             return fail(r, "check", "the game's Remove of the stale entry of " + who + " freed no slot (returned " + num(removed) + ", count " + num(t.count) +
                                         " -> " + num(t2.count) + ")");
         uint64_t again = 1;
-        if (!call.find(sub, req.player, again, err) || again != 0) return fail(r, "check", who + ": the game's Find still finds his entry after Remove");
+        if (!call.find(sub, req.player, again, err) || (occ - 1 == 0 ? again != 0 : again == 0))
+            return fail(r, "check", who + ": the game's Find does not agree with the table after Remove");
         r.removed = true;
         r.role = 1;
         r.count = t2.count;

@@ -207,6 +207,32 @@ H.case("crash guard: nothing to add the second time", function()
     H.eq(added, 0, text); H.has(text, "have a squad status entry")
 end)
 
+-- X 2.0 (crash 2026-11-01): since 10-31 player 211990, gone from the club, held two entries; the whole table was refused
+-- ("entry 28 is not a player (211990)"), so the guard added nothing for that career. A stale player twice is now left alone.
+H.case("crash guard: a player who left the club holding two entries no longer switches the guard off", function()
+    sim = H.setup({ in_cm = true })
+    W.build(sim, { fc27_status = true, status_missing = { 1003 }, status_extra = { 7001, 7001 } })
+    local role = require 'imports/turbo/features/squad_role'
+    local st = role.psm_state(W.USER_TEAM)
+    H.eq(st ~= nil, true, "the table is accepted"); H.eq(st.dups[7001], 2, "the duplicate is counted"); H.eq(st.pids[7001], 0, "first entry")
+    local added, text, left = role.repair_entries(nil, false)
+    H.eq(added, 1, text); H.eq(left, 0, "none left"); H.has(text, "1003")
+    local e, count = status_entries(sim)
+    H.eq(e[1].pid, 7001); H.eq(e[2].pid, 7001, "the stale entries are left alone")
+    local lines = table.concat(require('imports/turbo/core/log').lines or {}, "\n")
+    H.has(lines, "7001 (2 entries)")
+end)
+
+H.case("crash guard: two entries of a player still at your club: nothing is written", function()
+    sim = H.setup({ in_cm = true })
+    W.build(sim, { fc27_status = true, status_missing = { 1003 }, status_extra = { W.USER_PLAYERS[2] } })
+    local role = require 'imports/turbo/features/squad_role'
+    local before = select(2, status_entries(sim))
+    local added, text = role.repair_entries(nil, false)
+    H.eq(added, nil, "refused"); H.has(text, "of your club has 2 squad status entries")
+    H.eq(select(2, status_entries(sim)), before, "count unchanged")
+end)
+
 H.case("crash guard: the bridge repair runs on the career events and logs it", function()
     sim = H.setup({ in_cm = true })
     W.build(sim, { fc27_status = true, status_missing = { 1005 } })

@@ -214,21 +214,40 @@ function M.psm_state(user_team)
     if not b or fin ~= b + span or cap ~= b + span or not mem.readable(b, span) then
         return nil, "PlayerStatusManager entries do not have the FC 27 layout (52 slots of 8 bytes)"
     end
-    local pids = {}
+    local pids, dups = {}, {}
     for i = 0, P.slots - 1 do
         local e = b + i * P.size
         local pid, role = mem.int(e), mem.byte(e + 4)
         if i < count then
-            if not pid or pid <= 0 or pids[pid] then return nil, string.format("PlayerStatusManager entry %d is not a player (%s)", i, tostring(pid)) end
+            if not pid or pid <= 0 then return nil, string.format("PlayerStatusManager entry %d is not a player (%s)", i, tostring(pid)) end
+            -- X 2.0 (crash 2026-11-01): a second entry of one player is recorded, not refused. Since 10-31 player 211990 (gone from the
+            -- club) held two entries, and refusing the whole table switched the match crash guard off for that career; the callers
+            -- refuse only when the player with two entries is at your club (M.club_dup)
+            if pids[pid] then dups[pid] = (dups[pid] or 1) + 1 end
             if not role or not ((role >= 1 and role <= 5) or role == 0xFF) then
                 return nil, string.format("PlayerStatusManager entry %d has role %s", i, tostring(role))
             end
-            pids[pid] = i
+            if not pids[pid] then pids[pid] = i end   -- the first entry: the one the game's Find returns
         elseif pid ~= -1 then
             return nil, string.format("PlayerStatusManager slot %d after the used ones is not empty", i)
         end
     end
-    return { mgr = mgr, begin = b, count = count, pids = pids }
+    return { mgr = mgr, begin = b, count = count, pids = pids, dups = dups }
+end
+
+-- A player of your club who holds two entries (nil when none): with one, Turbo writes nothing to the table
+function M.club_dup(st, club)
+    for pid in pairs(st.dups or {}) do
+        if club[pid] then return pid end
+    end
+    return nil
+end
+-- "player 211990 (2 entries)" for the log: the stale players that hold more than one entry
+local function dups_text(st)
+    local t = {}
+    for pid, n in pairs(st.dups or {}) do t[#t + 1] = string.format("%d (%d entries)", pid, n) end
+    table.sort(t)
+    return table.concat(t, ", ")
 end
 
 -- Every player linked to your club in teamplayerlinks (loaned-in players too: the game gives them an entry when they
@@ -333,6 +352,9 @@ function M.repair_entries(role_of, dry, opts)
     local st, err = M.psm_state(user_team)
     if not st then return nil, err end
     local club, n = M.club_players(user_team)
+    local cd = M.club_dup(st, club)
+    if cd then return nil, string.format("player %d of your club has %d squad status entries: nothing was written", cd, st.dups[cd]) end
+    if next(st.dups) then log.info("match crash guard: players no longer at your club still hold more than one entry (left alone, counted as stale): %s", dups_text(st)) end
     local function missing_of(state)
         local out = {}
         for pid in pairs(club) do
@@ -433,6 +455,7 @@ end
 -- read / members serve the report (team_mass's rule preview, the 2.0 counts): no byte is written until write() is called.
 local function memory_writer(ctx, club, user_team)
     local st = M.psm_state(user_team)
+    if st and M.club_dup(st, club) then st = nil end   -- X 2.0: two entries of one of your players: no byte is written
     if st then
         local function addr(pid)
             local i = st.pids[pid]

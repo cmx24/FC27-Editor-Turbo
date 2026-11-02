@@ -347,6 +347,29 @@ static void test_squad_role() {
         CHECK(r.ok && r.created && g.add_calls == 1 && w.count() == 4, "squad_role: all checks pass -> created");
     }
     {
+        // X 2.0 (crash 2026-11-01, player 211990 twice since 10-31): a player who LEFT the club holding two entries no longer blocks the
+        // table: roles of your players are written, the stale copies are counted and removed one at a time; two entries of a player
+        // still at your club are refused as before
+        StatusWorld w;
+        FakeStatusGame g(w);
+        g.squad = {1001, 1002};
+        w.set_entries({{1001, 4, 0}, {7777, 3, 0}, {1002, 3, 0}, {7777, 3, 0}});
+        Result r = run(w.mem, g, w.fns(), req_for(kActionSet, 1002, 5));
+        CHECK(r.ok && r.how == kHowWritten && w.entry(2).role == 5, "squad_role: a stale player twice: the role of a club player is written");
+        r = run(w.mem, g, w.fns(), req_for(kActionStale, 0));
+        CHECK(r.ok && r.stale == 2, "squad_role: both stale copies counted");
+        r = run(w.mem, g, w.fns(), req_for(kActionRemoveStale, 7777));
+        CHECK(r.ok && r.removed && w.count() == 3, "squad_role: Remove takes one stale copy (count 4 -> 3): " + r.message);
+        r = run(w.mem, g, w.fns(), req_for(kActionRemoveStale, 7777));
+        CHECK(r.ok && r.removed && w.count() == 2, "squad_role: the second Remove takes the other (count 3 -> 2): " + r.message);
+        r = run(w.mem, g, w.fns(), req_for(kActionRemoveStale, 7777));
+        CHECK(r.ok && !r.removed, "squad_role: nothing left to remove: " + r.message);
+        w.set_entries({{1001, 4, 0}, {1002, 3, 0}, {1001, 2, 0}});
+        r = run(w.mem, g, w.fns(), req_for(kActionSet, 1002, 5));
+        CHECK(!r.ok && r.message.find("of your club has two squad role entries") != std::string::npos && w.entry(1).role == 3,
+              "squad_role: two entries of a club player: refused, nothing written: " + r.message);
+    }
+    {
         // the words
         Request q = req_for(kActionSet, 1001, 4);
         int64_t a[4];
