@@ -26,6 +26,8 @@
 #include <string>
 #include <vector>
 
+#include "sigscan.h"
+
 namespace turbo {
 namespace crest_serve {
 
@@ -64,6 +66,24 @@ inline constexpr const char* kCaptureSitePattern =
 inline constexpr int kCaptureAsyncCall = 27;
 inline constexpr int kCaptureAsyncReturn = 32;
 
+// ---------------------------------------------------------------- any build (Turbo X 2.0.1)
+// The cs_* entries are exact_build (6AC07E31), so on a later title update (6AD922D1, 10-27) the signature table has none of them and
+// crest serve stayed off: modded crests then broke the match load again (Live Editor's stale async descriptor, section above). Now
+// install finds the three call sites on the running build itself: each site first by its exact pattern above, else by the same
+// instructions with the stack / frame displacements left open (a recompile may move a local; the instruction lengths and so every
+// offset below stay the same). Whatever matched, only the cross-check decides: the three async calls go to ONE function whose first
+// bytes are kBeginLoadAsyncPattern (BeginLoadAsync is taken from the calls, it needs no unique pattern of its own), both TryFindFile
+// calls go to one function, and the three sites differ (check_resolved).
+inline constexpr const char* kLoaderSiteRelaxed =
+    "48 8D 54 24 ?? 49 8B CC E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? 49 8B 07 89 5C 24 28 C7 44 24 20 10 00 00 00 45 33 C9 4D 8B C4 48 8B "
+    "54 24 ?? 49 8B CF FF 50 08 4C 8B E8 4C 89 64 24 20 4C 8B C8 4C 8B 44 24 ?? 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 48 89 44 24 ?? 4D 8B 17 "
+    "49 8B CF 48 85 C0 74";
+inline constexpr const char* kPromiseSiteRelaxed =
+    "48 8D 55 ?? 48 8B CF E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? 4C 8B 65 ?? 49 8B 07 89 5C 24 28 C7 44 24 20 10 00 00 00 45 33 C9 4C 8B "
+    "C7 49 8B D4 49 8B CF FF 50 08 4C 8B E8 48 89 7C 24 20 4C 8B C8 4D 8B C4 48 8D 4D ?? E8 ?? ?? ?? ?? 48 8B F8 48 8B C8 E8";
+inline constexpr const char* kCaptureSiteRelaxed =
+    "48 8B 44 24 ?? 48 83 E0 FC 48 89 44 24 20 4D 8B CE 4C 8B 44 24 ?? 48 8D 4C 24 ?? E8 ?? ?? ?? ?? 4C 8B E0 48 85 C0 75";
+
 // The bytes at BeginLoadAsync must be this function (checked before hooking)
 bool is_begin_load_async(const uint8_t* code, size_t n);
 
@@ -76,6 +96,20 @@ struct Resolved {
 };
 // "" when consistent: every address found, all three sites call BeginLoadAsync, both TryFindFile calls agree. Else why not.
 std::string check_resolved(const Resolved& r);
+
+// One unique-match scan of the game's code: Found (with .match) or why not (Missing / Ambiguous ...). The host's is
+// game_scan_signature; tests pass a buffer scan.
+using ScanFn = std::function<SigResult(const Signature&)>;
+// Reads n bytes of the game's code at addr; false when unreadable
+using ReadFn = std::function<bool(uint64_t addr, uint8_t* out, size_t n)>;
+struct Located {
+    Resolved res;       // every address, only when error is empty
+    std::string how;    // "loader exact, promise exact, capture relaxed" (for the log)
+    std::string error;  // "" = consistent (check_resolved passed and the bytes at BeginLoadAsync are the function)
+};
+// Finds the three sites (exact pattern, else relaxed), reads their calls (E8 rel32 at the documented offsets), takes BeginLoadAsync
+// from the three async calls when they agree and its bytes are kBeginLoadAsyncPattern, then check_resolved.
+Located locate(const ScanFn& scan, const ReadFn& read);
 
 // ---------------------------------------------------------------- config (turbo_config.json "crest_serve")
 struct Config {

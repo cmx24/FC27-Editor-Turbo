@@ -56,7 +56,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "X 2.0";
+constexpr const char* kGuiVersion = "X 2.0.1";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -200,6 +200,8 @@ public:
     // 2.16 gui/perf: hook_report() asked at most once a second; the pages that show it (Settings > Health and Technical
     // details, Job offers, Manager rules) read this every frame. An empty report while hook_report is unset.
     const HookReport& hook_report_cached();
+    // crest serve (win/crest_serve_win.cpp): "crest serve: on (...)" or why it is off; unset = none (shown on the crest editor)
+    std::function<std::string()> crest_serve_report;
     std::function<lualoader::Faces3dStatus()> faces3d_report;  // Lua loader / 3D hair+beard hook state (Windows host; unset = none)
     std::shared_ptr<capture::CaptureService> capture;   // miniface from the game's 3D model (Windows host; tests use a fake)
     // Standings refresh after a live table edit (core/standings_refresh.h; Windows host; tests use a fake; null = none)

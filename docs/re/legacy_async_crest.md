@@ -56,4 +56,21 @@ Live Editor's log shows one extra `TryFindFile <decoy>` (native, Result = true) 
 - Other modded legacy files on the async path (kits, heads): the same mechanism would serve them if their prefix is added to
   `crest_serve.paths`; not tested, not shipped by default.
 - A match hang with a non-crest cause (SUREFIRE s9: RKC v Vitesse hung with the crest absent).
-- Any build other than 6AC07E31 (the signatures are exact_build; the serve stays off and logs why).
+- (X 2.0.1: covered, section 4.)
+
+## 4. Any build (Turbo X 2.0.1, 2026-11-01)
+On build 6AD922D1-221A8000 (title update 10-27) the signature table had no cs_* entries (exact_build), so crest serve logged
+`crest serve: off (signature(s) not found exactly once: ...)` every session and modded crests in `mods\legacy` broke the match load
+again: the owner's Newcastle career crashed at every kick-off load (FC27.exe+0x1F4D3C4, a NULL resource registered on a job thread
+running player_kit.lua; 9 dumps 2026-11-01 19:18-20:03; no match had loaded since the club's custom crest was saved on 10-31).
+Moving the 100 crest files out was the stop-gap (turbo_backups\crests_off_20261101_2015, Restore-Crests.cmd).
+
+The fix: when the table lacks the cs_* entries, install_crest_serve looks for the three call sites on the running game in a
+background thread (`crest_serve::locate`): each site by its exact 6AC07E31 pattern, else by the relaxed pattern (the same bytes
+with the stack / frame displacements open: same length, so every call offset holds). BeginLoadAsync is the target of the three
+async calls, accepted only when they agree and its first 24 bytes are kBeginLoadAsyncPattern; both TryFindFile calls must agree;
+the three sites must differ (check_resolved). Anything else: off, with the reason. The hook goes on the resolved address
+(install_game_hook_at). Log: `crest serve: not in the signature table of build ...: looking for the call sites`, then
+`crest serve: on (...); build 6AD922D1-221A8000, call sites found on this build (loader exact|relaxed, ...)` or `crest serve: off (...)`.
+Native tests: `crest serve X 2.0.1: any build` (synthetic image: exact, moved locals, mixed, two targets, hooked function,
+TryFindFile disagreement, a site twice, a site missing, a broken call). Not yet seen on 6AD922D1 in game.

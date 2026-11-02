@@ -1088,6 +1088,17 @@ void crest_editor(App& app, int64_t teamid) {
     }
     ImGui::EndGroup();
     if (!ed.error.empty()) ImGui::TextColored(kWarn, "%s", ed.error.c_str());
+    // X 2.0.1: a custom crest reaches the match load only through Turbo's crest serve (Live Editor alone leaves the game's async loads
+    // waiting on a stale descriptor: a hang or a crash at kick-off), so the editor says plainly whether it runs on this game build
+    if (app.crest_serve_report) {
+        const std::string cs_state = app.crest_serve_report();
+        if (cs_state.rfind("crest serve: on", 0) == 0)
+            ImGui::TextDisabled("Custom crests reach matches through Turbo (crest serve is on).");
+        else if (cs_state.find("looking for") != std::string::npos)
+            ImGui::TextDisabled("Crest serve is still starting on this game build...");
+        else
+            ImGui::TextColored(kWarn, "Crest serve is OFF on this game build: a custom crest can hang or crash the match load. %s", cs_state.c_str());
+    }
 
     // ---- the game's files
     if (ImGui::TreeNodeEx("The game's crest files for this club", ImGuiTreeNodeFlags_DefaultOpen)) {

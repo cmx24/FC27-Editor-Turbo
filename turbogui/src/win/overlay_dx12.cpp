@@ -1351,6 +1351,7 @@ bool start_overlay(HMODULE) {
     // 2.18 crest serve (crest_serve_win.cpp): modded crests in mods\legacy served on the game's async legacy-file path (BeginLoadAsync),
     // which Live Editor leaves with a stale chunk descriptor; kill switch turbo_output\crest_serve_off.txt
     install_crest_serve();
+    g_app->crest_serve_report = []() { return crest_serve_status(); };
     start_devtools();
     return true;
 }

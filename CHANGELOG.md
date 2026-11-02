@@ -3,6 +3,18 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Turbo X 2.0.1 (2026-11-01) - custom crests on the current game build (match-load crash)
+
+- **Crest serve works on game build 6AD922D1 again.** Its code spots were known for build 6AC07E31 only, so on the 10-27 title
+  update it stayed off and every custom club crest in `mods\legacy` broke the match load (the Newcastle career crashed at every
+  kick-off load; crash dumps 2026-11-01). Turbo now finds the game's async file loader on the running build itself (exact
+  6AC07E31 bytes, else the same instructions with moved locals) and turns crest serve on only when every cross-check holds
+  (the three loaders call one function with BeginLoadAsync's bytes, both TryFindFile calls agree); otherwise it stays off and says
+  why. `turbo_gui.log`: `crest serve: on (...); build ..., call sites found on this build (...)`. Details:
+  `docs/re/legacy_async_crest.md` section 4. Native tests pass; NOT yet seen in game on 6AD922D1.
+- The crest editor (Club > crest) says whether crest serve is on for this game build, and warns when it is off.
+- Includes X 2.0 (layout customisation, crash-guard fix, read-only bench probe on 6AD922D1, review fixes).
+
 ## Turbo X 1.0.2 (2026-11-01, Turbo.dll e7a48c96) - pickers, tattoos, kept filters and sizes
 
 Installed on the owner's PC 2026-11-01 14:55. Notes: [`docs/turbo-x/RELEASE_NOTES.md`](docs/turbo-x/RELEASE_NOTES.md); resume point:

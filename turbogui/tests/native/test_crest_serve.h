@@ -36,6 +36,147 @@ inline cs::Probe present(uint64_t size) {
     return p;
 }
 
+// X 2.0.1: locate() on any build. A synthetic image: BeginLoadAsync's real first bytes, the three call sites (exact or with other stack
+// displacements), rel32s re-pointed inside the buffer; the scanner is resolve_signature over that buffer.
+struct LocImage {
+    std::vector<uint8_t> img = std::vector<uint8_t>(0x4000, 0xCC);
+    uint64_t base = 0x140001000;
+    size_t o_bla = 0x100, o_tryfind = 0x300, o_loader = 0x500, o_promise = 0x900, o_capture = 0xD00;
+    explicit LocImage(bool moved_locals) {
+        put(img, o_bla, cs::kBeginLoadAsyncPattern);
+        put(img, o_tryfind, "FF 25 8E 24 08 80 48 83 66 90");
+        put(img, o_loader, cs::kLoaderSitePattern);
+        put(img, o_promise, cs::kPromiseSitePattern);
+        put(img, o_capture, cs::kCaptureSitePattern);
+        if (moved_locals) {  // a recompile moved the locals: every wildcarded displacement of the relaxed patterns changes
+            img[o_loader + 4] = 0x50;    // lea rdx,[rsp+50] (was 40)
+            img[o_loader + 46] = 0x78;   // mov rdx,[rsp+78] (was 68)
+            img[o_loader + 68] = 0x78;   // mov r8,[rsp+78]
+            img[o_loader + 73] = 0x50;   // lea rcx,[rsp+50]
+            img[o_loader + 83] = 0x48;   // mov [rsp+48],rax (was 38)
+            img[o_promise + 3] = 0xE0;   // lea rdx,[rbp-20] (was F0)
+            img[o_promise + 23] = 0x28;  // mov r12,[rbp+28] (was 18)
+            img[o_promise + 71] = 0xE0;  // lea rcx,[rbp-20]
+            img[o_capture + 4] = 0x70;   // mov rax,[rsp+70] (was 60)
+            img[o_capture + 21] = 0x68;  // mov r8,[rsp+68] (was 58)
+            img[o_capture + 26] = 0x40;  // lea rcx,[rsp+40] (was 30)
+        }
+        point();
+    }
+    void point() {
+        rel32(img, o_loader + cs::kLoaderTryFindCall, o_tryfind);
+        rel32(img, o_loader + cs::kLoaderAsyncCall, o_bla);
+        rel32(img, o_promise + cs::kPromiseTryFindCall, o_tryfind);
+        rel32(img, o_promise + cs::kPromiseAsyncCall, o_bla);
+        rel32(img, o_capture + cs::kCaptureAsyncCall, o_bla);
+    }
+    cs::Located locate() const {
+        return cs::locate([this](const turbo::Signature& s) { return turbo::resolve_signature(s, img.data(), img.size(), base); },
+                          [this](uint64_t a, uint8_t* out, size_t n) {
+                              if (a < base || a - base + n > img.size()) return false;
+                              std::memcpy(out, img.data() + (a - base), n);
+                              return true;
+                          });
+    }
+};
+
+inline void locate_cases() {
+    using turbo::Signature;
+    using turbo::SigResult;
+    using turbo::SigState;
+    run_case("crest serve X 2.0.1: any build - the call sites found on the running game (exact, then relaxed), only the cross-check decides", [] {
+        // the real 6AC07E31 bytes: every site by its exact pattern
+        LocImage a(false);
+        cs::Located L = a.locate();
+        CHECK(L.error.empty(), "exact image: consistent (" + L.error + ")");
+        CHECK(L.how == "loader exact, promise exact, capture exact", "exact image: how = " + L.how);
+        CHECK(L.res.begin_load_async == a.base + a.o_bla && L.res.loader_async == a.base + a.o_bla && L.res.promise_async == a.base + a.o_bla &&
+                  L.res.capture_async == a.base + a.o_bla,
+              "BeginLoadAsync = the target of the three async calls");
+        CHECK(L.res.loader_tryfind == a.base + a.o_tryfind && L.res.promise_tryfind == a.base + a.o_tryfind, "TryFindFile from both calls");
+        CHECK(L.res.loader_ret == a.base + a.o_loader + 79 && L.res.promise_ret == a.base + a.o_promise + 77 && L.res.capture_ret == a.base + a.o_capture + 32,
+              "return addresses as on 6AC07E31");
+        CHECK(cs::classify_caller(L.res, L.res.promise_ret) == cs::Caller::Promise && !cs::caller_checks_null(cs::Caller::Promise),
+              "CallPromise recognised (never gets NULL)");
+
+        // a title update that moved the locals: the exact patterns miss, the relaxed ones find the same sites
+        LocImage b(true);
+        L = b.locate();
+        CHECK(L.error.empty(), "moved locals: consistent (" + L.error + ")");
+        CHECK(L.how == "loader relaxed, promise relaxed, capture relaxed", "moved locals: how = " + L.how);
+        CHECK(L.res.begin_load_async == b.base + b.o_bla && L.res.loader_ret == b.base + b.o_loader + 79 && L.res.capture_ret == b.base + b.o_capture + 32,
+              "moved locals: the same addresses");
+        SigResult ex = turbo::resolve_signature(Signature("x", cs::kLoaderSitePattern, "none", 0), b.img.data(), b.img.size(), b.base);
+        CHECK(ex.state == SigState::Missing, "moved locals: the exact loader pattern indeed misses");
+
+        // only one site moved: exact where it holds, relaxed where not
+        LocImage c(false);
+        c.img[c.o_capture + 26] = 0x40;
+        L = c.locate();
+        CHECK(L.error.empty() && L.how == "loader exact, promise exact, capture relaxed", "mixed: " + L.how + " " + L.error);
+
+        // the async calls go to two functions: refused
+        LocImage d(false);
+        put(d.img, 0x2000, cs::kBeginLoadAsyncPattern);
+        rel32(d.img, d.o_promise + cs::kPromiseAsyncCall, 0x2000);
+        L = d.locate();
+        CHECK(has(L.error, "do not go to one function") && L.res.begin_load_async == 0, "two targets: refused (" + L.error + ")");
+
+        // the common target is not BeginLoadAsync's first bytes: refused
+        LocImage e(false);
+        e.img[e.o_bla] = 0xE9;  // someone else's jmp at the function
+        L = e.locate();
+        CHECK(has(L.error, "is not BeginLoadAsync"), "a hooked or other function: refused (" + L.error + ")");
+
+        // the TryFindFile calls disagree: refused
+        LocImage f(false);
+        rel32(f.img, f.o_promise + cs::kPromiseTryFindCall, 0x3100);
+        L = f.locate();
+        CHECK(has(L.error, "TryFindFile calls disagree"), "TryFindFile disagreement: refused (" + L.error + ")");
+
+        // a site twice (exact and relaxed both ambiguous): refused, named
+        LocImage g(false);
+        put(g.img, 0x2400, cs::kCaptureSitePattern);
+        rel32(g.img, 0x2400 + cs::kCaptureAsyncCall, g.o_bla);
+        L = g.locate();
+        CHECK(has(L.error, "capture call site") && has(L.error, "ambiguous"), "a site twice: refused (" + L.error + ")");
+
+        // a site missing altogether: refused, named
+        LocImage h(false);
+        for (size_t i = 0; i < 40; ++i) h.img[h.o_capture + i] = 0x90;
+        L = h.locate();
+        CHECK(has(L.error, "capture call site") && has(L.error, "missing"), "a site missing: refused (" + L.error + ")");
+
+        // a call byte that is not E8 (unreadable call): refused
+        LocImage k(false);
+        k.img[k.o_loader + cs::kLoaderAsyncCall] = 0x90;
+        L = k.locate();
+        CHECK(!L.error.empty() && L.res.begin_load_async == 0, "a broken call: refused (" + L.error + ")");
+
+        // the relaxed patterns are the exact ones with only displacement bytes opened, same length
+        std::vector<uint8_t> eb, rb;
+        std::vector<bool> em, rm;
+        bool same = true;
+        const char* pairs[3][2] = {{cs::kLoaderSitePattern, cs::kLoaderSiteRelaxed},
+                                   {cs::kPromiseSitePattern, cs::kPromiseSiteRelaxed},
+                                   {cs::kCaptureSitePattern, cs::kCaptureSiteRelaxed}};
+        for (auto& p : pairs) {
+            same = same && turbo::parse_pattern(p[0], eb, em) && turbo::parse_pattern(p[1], rb, rm) && eb.size() == rb.size();
+            for (size_t i = 0; same && i < eb.size(); ++i)
+                if (rm[i] && (!em[i] || eb[i] != rb[i])) same = false;  // every fixed relaxed byte is a fixed exact byte
+        }
+        CHECK(same, "relaxed patterns = the exact bytes with some opened (same length, so the call offsets hold)");
+        // every call opcode the offsets point at stays fixed in the relaxed patterns
+        turbo::parse_pattern(cs::kLoaderSiteRelaxed, rb, rm);
+        CHECK(rm[cs::kLoaderTryFindCall] && rb[cs::kLoaderTryFindCall] == 0xE8 && rm[cs::kLoaderAsyncCall] && rb[cs::kLoaderAsyncCall] == 0xE8, "loader: E8 fixed");
+        turbo::parse_pattern(cs::kPromiseSiteRelaxed, rb, rm);
+        CHECK(rm[cs::kPromiseTryFindCall] && rb[cs::kPromiseTryFindCall] == 0xE8 && rm[cs::kPromiseAsyncCall] && rb[cs::kPromiseAsyncCall] == 0xE8,
+              "promise: E8 fixed");
+        turbo::parse_pattern(cs::kCaptureSiteRelaxed, rb, rm);
+        CHECK(rm[cs::kCaptureAsyncCall] && rb[cs::kCaptureAsyncCall] == 0xE8, "capture: E8 fixed");
+    });
+}
+
 inline void run() {
     using turbo::SignatureTable;
     using turbo::Signature;
@@ -265,6 +406,7 @@ inline void run() {
         SigResult amb = turbo::resolve_signature(*nb->find("cs_begin_load_async"), img.data(), img.size(), base);
         CHECK(amb.state == SigState::Ambiguous && amb.address == 0, std::string("two matches: ambiguous (") + turbo::sig_state_name(amb.state) + ")");
     });
+    locate_cases();
 }
 
 }  // namespace crest_serve_test

@@ -1,7 +1,8 @@
 // FC 27 LE Turbo GUI - crest serve inside FC27.exe (2.18; the Windows host of core/crest_serve.h, docs/re/legacy_async_crest.md).
 //
-//   * install_crest_serve(): after install_game_hooks(). Resolves the nine cs_* signatures (build 6AC07E31 only) and refuses (logs,
-//     does nothing) unless all three async callers call the BeginLoadAsync pattern, both TryFindFile calls agree and the bytes at
+//   * install_crest_serve(): after install_game_hooks(). Resolves the nine cs_* signatures (the 6AC07E31 table) or, on a build whose
+//     table lacks them (X 2.0.1), finds the three call sites on the running game in a background thread (crest_serve::locate: exact
+//     pattern, else relaxed) and refuses (logs, does nothing) unless all three async callers call the BeginLoadAsync pattern, both TryFindFile calls agree and the bytes at
 //     BeginLoadAsync are the expected function; reads turbo_config.json "crest_serve"; hooks BeginLoadAsync ("crest_serve").
 //   * the detour: a path under a configured prefix (default data/ui/imgAssets/crest/) whose file is in <LE folder>\mods\legacy with
 //     exactly the requested size is read into the caller's buffer, then the original BeginLoadAsync runs for a small native decoy file

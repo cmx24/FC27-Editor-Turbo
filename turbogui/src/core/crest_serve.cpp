@@ -65,6 +65,71 @@ std::string check_resolved(const Resolved& r) {
     return {};
 }
 
+Located locate(const ScanFn& scan, const ReadFn& read) {
+    Located out;
+    if (!scan || !read) {
+        out.error = "no scanner";
+        return out;
+    }
+    struct Site {
+        const char* name;
+        const char* exact;
+        const char* relaxed;
+        uint64_t match = 0;
+    };
+    Site sites[3] = {{"loader", kLoaderSitePattern, kLoaderSiteRelaxed},
+                     {"promise", kPromiseSitePattern, kPromiseSiteRelaxed},
+                     {"capture", kCaptureSitePattern, kCaptureSiteRelaxed}};
+    for (Site& s : sites) {
+        const SigResult a = scan(Signature(std::string("cs_") + s.name + "_site", s.exact, "none", 0));
+        if (a.state == SigState::Found && a.match) {
+            s.match = a.match;
+            out.how += std::string(out.how.empty() ? "" : ", ") + s.name + " exact";
+            continue;
+        }
+        const SigResult b = scan(Signature(std::string("cs_") + s.name + "_site_relaxed", s.relaxed, "none", 0));
+        if (b.state == SigState::Found && b.match) {
+            s.match = b.match;
+            out.how += std::string(out.how.empty() ? "" : ", ") + s.name + " relaxed";
+            continue;
+        }
+        out.error = std::string("the ") + s.name + " call site: exact pattern " + sig_state_name(a.state) + " (" + std::to_string(a.hits) +
+                    " match(es)), relaxed pattern " + sig_state_name(b.state) + " (" + std::to_string(b.hits) + " match(es))";
+        return out;
+    }
+    // E8 rel32 at `at`: the call's target, 0 when the bytes are not a call or unreadable
+    auto call_target = [&](uint64_t at) -> uint64_t {
+        uint8_t b[5] = {};
+        if (!read(at, b, sizeof(b)) || b[0] != 0xE8) return 0;
+        int32_t rel = 0;
+        std::memcpy(&rel, b + 1, sizeof(rel));
+        return at + 5 + static_cast<int64_t>(rel);
+    };
+    Resolved& r = out.res;
+    r.loader_tryfind = call_target(sites[0].match + kLoaderTryFindCall);
+    r.loader_async = call_target(sites[0].match + kLoaderAsyncCall);
+    r.loader_ret = sites[0].match + kLoaderAsyncReturn;
+    r.promise_tryfind = call_target(sites[1].match + kPromiseTryFindCall);
+    r.promise_async = call_target(sites[1].match + kPromiseAsyncCall);
+    r.promise_ret = sites[1].match + kPromiseAsyncReturn;
+    r.capture_async = call_target(sites[2].match + kCaptureAsyncCall);
+    r.capture_ret = sites[2].match + kCaptureAsyncReturn;
+    if (r.loader_async && r.loader_async == r.promise_async && r.loader_async == r.capture_async) {
+        uint8_t code[32] = {};
+        if (read(r.loader_async, code, sizeof(code)) && is_begin_load_async(code, sizeof(code)))
+            r.begin_load_async = r.loader_async;
+        else {
+            out.error = "the function the three async calls go to is not BeginLoadAsync (its first bytes differ)";
+            return out;
+        }
+    } else {
+        out.error = "the three async calls do not go to one function (or a call could not be read)";
+        return out;
+    }
+    out.error = check_resolved(r);
+    return out;
+}
+
 Config parse_config(const std::string& json_text, std::string* err) {
     Config c;
     auto describe = [](const Config& k) {

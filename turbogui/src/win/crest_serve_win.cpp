@@ -207,16 +207,69 @@ std::string crest_serve_status() {
     return g_status + b;
 }
 
+namespace {
+
+void turn_off(const std::string& why) {
+    set_status("crest serve: off (" + why + ")");
+    log("crest serve: off (%s)", why.c_str());
+}
+
+// The install tail, for addresses check_resolved accepted: the bytes at BeginLoadAsync, the config, the hook
+void finish_install(const cs::Resolved& r, const std::string& how) {
+    uint8_t code[32] = {};
+    ProcessMemory mem;
+    if (!mem.read(r.begin_load_async, code, sizeof(code)) || !cs::is_begin_load_async(code, sizeof(code)))
+        return turn_off("the bytes at BeginLoadAsync " + rva(r.begin_load_async) + " are not the expected function (another hook?)");
+    std::string err;
+    g_cfg = cs::parse_config(read_text(le_root() / "turbo_config.json"), &err);
+    if (!err.empty()) log("crest serve: turbo_config.json: %s", err.c_str());
+    g_res = r;
+    g_try_find = reinterpret_cast<TryFindFileFn>(r.loader_tryfind);
+    if (!install_game_hook_at(kHook, reinterpret_cast<void*>(r.begin_load_async), reinterpret_cast<void*>(&hk_begin_load_async),
+                              reinterpret_cast<void**>(&o_begin)))
+        return turn_off("the hook on BeginLoadAsync " + rva(r.begin_load_async) + " was refused (see the game hooks lines above)");
+    g_handle.store(game_hook_handle(kHook), std::memory_order_release);
+    set_status(std::string("crest serve: ") + (g_cfg.enabled ? "on" : "installed but OFF in turbo_config.json") + " (" + g_cfg.note +
+               "; build " + game_build_key() + ", " + how + ")");
+    log("crest serve: %s (%s); build %s, %s; BeginLoadAsync %s, TryFindFile %s, callers ChunkFileLoaderData %s / CallPromise %s / "
+        "ChunkFileAsyncLoad %s; mods folder %s; kill switches turbo_output\\crest_serve_off.txt, hook_crest_serve_off.txt",
+        g_cfg.enabled ? "on" : "installed, OFF in turbo_config.json", g_cfg.note.c_str(), game_build_key().c_str(), how.c_str(),
+        rva(r.begin_load_async).c_str(), rva(r.loader_tryfind).c_str(), rva(r.loader_ret).c_str(), rva(r.promise_ret).c_str(),
+        rva(r.capture_ret).c_str(), (le_root() / "mods" / "legacy").string().c_str());
+}
+
+// Any build (X 2.0.1): the call sites found on the running game by pattern, off the render thread (a scan reads the whole code)
+DWORD WINAPI locate_thread(LPVOID) {
+    try {
+        const double t0 = static_cast<double>(GetTickCount64());
+        ProcessMemory mem;
+        const cs::Located L = cs::locate([](const turbo::Signature& s) { return game_scan_signature(s); },
+                                         [&mem](uint64_t a, uint8_t* out, size_t n) { return mem.read(a, out, n); });
+        const double secs = (static_cast<double>(GetTickCount64()) - t0) / 1000.0;
+        if (!L.error.empty()) {
+            turn_off(L.error + " (build " + game_build_key() + ", searched in " + std::to_string(static_cast<int>(secs + 0.5)) +
+                     " s; modded crests in mods\\legacy can hang or crash a match load on this build)");
+            return 0;
+        }
+        char took[48];
+        std::snprintf(took, sizeof(took), "%.1f s", secs);
+        finish_install(L.res, "call sites found on this build (" + L.how + ", " + took + ")");
+    } catch (const std::exception& e) {
+        turn_off(std::string("error while looking for the call sites: ") + e.what());
+    } catch (...) {
+        turn_off("unknown error while looking for the call sites");
+    }
+    return 0;
+}
+
+}  // namespace
+
 void install_crest_serve() {
-    auto off = [](const std::string& why) {
-        set_status("crest serve: off (" + why + ")");
-        log("crest serve: off (%s)", why.c_str());
-    };
     try {
         g_off_file = (le_root() / "turbo_output" / "crest_serve_off.txt").wstring();
         g_mods = (le_root() / "mods" / "legacy").wstring();
-        if (killed()) return off("turbo_output\\crest_serve_off.txt present");
-        if (!game_hooks_allowed()) return off("game hooks are off: " + game_hooks_report().note);
+        if (killed()) return turn_off("turbo_output\\crest_serve_off.txt present");
+        if (!game_hooks_allowed()) return turn_off("game hooks are off: " + game_hooks_report().note);
         g_image = game_image_base();
         cs::Resolved r;
         r.begin_load_async = game_signature("cs_begin_load_async");
@@ -229,30 +282,19 @@ void install_crest_serve() {
         r.capture_async = game_signature("cs_capture_async_call");
         r.capture_ret = game_signature("cs_capture_async_ret");
         const std::string bad = cs::check_resolved(r);
-        if (!bad.empty()) return off(bad + " (build " + game_build_key() + "; verified on 6AC07E31 only)");
-        uint8_t code[32] = {};
-        ProcessMemory mem;
-        if (!mem.read(r.begin_load_async, code, sizeof(code)) || !cs::is_begin_load_async(code, sizeof(code)))
-            return off("the bytes at BeginLoadAsync " + rva(r.begin_load_async) + " are not the expected function (another hook?)");
-
-        std::string err;
-        g_cfg = cs::parse_config(read_text(le_root() / "turbo_config.json"), &err);
-        if (!err.empty()) log("crest serve: turbo_config.json: %s", err.c_str());
-        g_res = r;
-        g_try_find = reinterpret_cast<TryFindFileFn>(r.loader_tryfind);
-        if (!install_game_hook(kHook, "cs_begin_load_async", reinterpret_cast<void*>(&hk_begin_load_async), reinterpret_cast<void**>(&o_begin)))
-            return off("the hook on BeginLoadAsync " + rva(r.begin_load_async) + " was refused (see the game hooks lines above)");
-        g_handle.store(game_hook_handle(kHook), std::memory_order_release);
-        set_status(std::string("crest serve: ") + (g_cfg.enabled ? "on" : "installed but OFF in turbo_config.json") + " (" + g_cfg.note + ")");
-        log("crest serve: %s (%s); BeginLoadAsync %s, TryFindFile %s, callers ChunkFileLoaderData %s / CallPromise %s / ChunkFileAsyncLoad %s; "
-            "mods folder %s; kill switches turbo_output\\crest_serve_off.txt, hook_crest_serve_off.txt",
-            g_cfg.enabled ? "on" : "installed, OFF in turbo_config.json", g_cfg.note.c_str(), rva(r.begin_load_async).c_str(),
-            rva(r.loader_tryfind).c_str(), rva(r.loader_ret).c_str(), rva(r.promise_ret).c_str(), rva(r.capture_ret).c_str(),
-            (le_root() / "mods" / "legacy").string().c_str());
+        if (bad.empty()) return finish_install(r, "signature table");
+        // Not in this build's table (the cs_* entries are exact_build 6AC07E31): find the call sites on the running game
+        set_status("crest serve: looking for the game's async legacy loader on build " + game_build_key() + " ...");
+        log("crest serve: not in the signature table of build %s (%s): looking for the call sites on the running game",
+            game_build_key().c_str(), bad.c_str());
+        if (HANDLE th = CreateThread(nullptr, 0, locate_thread, nullptr, 0, nullptr))
+            CloseHandle(th);
+        else
+            turn_off("could not start the search thread");
     } catch (const std::exception& e) {
-        off(std::string("error while installing: ") + e.what());
+        turn_off(std::string("error while installing: ") + e.what());
     } catch (...) {
-        off("unknown error while installing");
+        turn_off("unknown error while installing");
     }
 }
 
