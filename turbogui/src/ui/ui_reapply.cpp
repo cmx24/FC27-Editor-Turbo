@@ -126,18 +126,19 @@ void App::remember_kit_colour(const Table& t, uint64_t rec, const std::string& p
     const int64_t kitid = db.get_int(t, rec, "teamkitid", -1);
     const std::string when = time_stamp();
     static const char ch[3] = {'r', 'g', 'b'};
-    for (int c = 0; c < 3; ++c) reapply.set_kit_field(tid, type, kitid, model.team_name(tid), when, prefix + ch[c], rgb[c]);
+    const std::string scope = identity_kept_scope();  // X 2.0.2: "global" with no career loaded (the squads file: every save)
+    for (int c = 0; c < 3; ++c) reapply.set_kit_field_in(scope, tid, type, kitid, model.team_name(tid), when, prefix + ch[c], rgb[c]);
     save_reapply();
 }
 
 bool App::remember_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, int64_t value, bool save) {
     if (teamtechid <= 0 || kittype < 0 || !kit_kept_field(field)) return false;
-    reapply.set_kit_field(teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, value);
+    reapply.set_kit_field_in(identity_kept_scope(), teamtechid, kittype, teamkitid, model.team_name(teamtechid), time_stamp(), field, value);
     return save ? save_reapply() : true;
 }
 
 bool App::restore_kept_kit_field(int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field, const int64_t* value, bool save) {
-    return restore_kept_kit_field_in(reapply.edit_scope(), teamtechid, kittype, teamkitid, field, value, save);
+    return restore_kept_kit_field_in(identity_kept_scope(), teamtechid, kittype, teamkitid, field, value, save);
 }
 
 bool App::restore_kept_kit_field_in(const std::string& scope, int64_t teamtechid, int64_t kittype, int64_t teamkitid, const std::string& field,

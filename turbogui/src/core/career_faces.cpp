@@ -1,6 +1,7 @@
 // FC 27 LE Turbo GUI - career faces (see career_faces.h)
 #include "career_faces.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -122,8 +123,8 @@ bool load_manifest(const Paths& p, Manifest& m, std::string* err) {
         x.fnv = e.value("fnv", std::string());
         x.size = e.value("size", uint64_t(0));
         x.base = e.value("base", std::string());
-        if (!is_face_path(x.rel) || x.fnv.empty()) {
-            if (err) *err = f.string() + ": an entry is not a face picture record";
+        if (!is_career_file(x.rel) || x.fnv.empty()) {
+            if (err) *err = f.string() + ": an entry is not a face / crest / minikit record";
             return false;
         }
         m.entries.push_back(x);
@@ -154,27 +155,34 @@ bool save_manifest(const Paths& p, const Manifest& m, std::string* err) {
 
 std::string hash_of(const std::string& bytes) { return hex64(fnv1a64(bytes)); }
 
-// The career's wanted pictures: rel -> bytes
+// The career's wanted files (faces, X 2.0.2: crests and minikits too): rel -> bytes. Every file under careers\<id>\ whose path below
+// it, read as data/ui/imgAssets/<path>, is a career file (heads\p1.dds, crest\dark\l13.dds, crest16x16\light\l13.dds, kits\j0_13_0.dds);
+// _undo, heads_own.json and anything else is not.
 std::map<std::string, std::string> wanted(const Paths& p, const std::string& career, std::vector<std::string>& errors) {
     std::map<std::string, std::string> out;
     if (!is_career_id(career)) return out;
     const fs::path root = careers_dir(p) / career;
-    for (const char* sub : {"heads", "heads_staff"}) {
-        const fs::path d = root / sub;
-        std::error_code ec;
-        if (!fs::is_directory(d, ec)) continue;
-        for (fs::directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
-            if (!it->is_regular_file(ec)) continue;
-            const std::string name = it->path().filename().u8string();
-            const std::string rel = std::string(kImgAssets) + sub + "/" + name;
-            if (!is_face_path(rel)) continue;  // .tmp and anything else
-            std::string bytes;
-            if (!read_bytes(it->path(), bytes) || bytes.empty()) {
-                errors.push_back("cannot read the career's copy " + it->path().string());
-                continue;
-            }
-            out[rel] = bytes;
+    std::error_code ec;
+    if (!fs::is_directory(root, ec)) return out;
+    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        if (it.depth() == 0 && it->is_directory(ec) && it->path().filename() == "_undo") {
+            it.disable_recursion_pending();
+            continue;
         }
+        if (it.depth() > 3) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (!it->is_regular_file(ec)) continue;
+        const std::string below = it->path().lexically_relative(root).generic_u8string();
+        const std::string rel = std::string(kImgAssets) + below;
+        if (!is_career_file(rel)) continue;  // .tmp, heads_own.json and anything else
+        std::string bytes;
+        if (!read_bytes(it->path(), bytes) || bytes.empty()) {
+            errors.push_back("cannot read the career's copy " + it->path().string());
+            continue;
+        }
+        out[rel] = bytes;
     }
     return out;
 }
@@ -205,6 +213,53 @@ bool is_face_path(const std::string& rel_in) {
         if (static_cast<unsigned char>(c) < 0x20) return false;
     return true;
 }
+
+// X 2.0.2: the crest and minikit files a club identity edit writes (core/legacy.h crest / minikit paths)
+static std::string normal_lower(const std::string& rel_in) {
+    std::string rel = rel_in;
+    for (char& c : rel)
+        if (c == '\\') c = '/';
+    return lower(rel);
+}
+static bool safe_name(const std::string& n) {
+    if (n.empty() || n == "." || n == ".." || n.find(':') != std::string::npos) return false;
+    for (char c : n)
+        if (static_cast<unsigned char>(c) < 0x20) return false;
+    return true;
+}
+
+bool is_crest_path(const std::string& rel_in) {
+    if (rel_in.empty() || rel_in.size() > 400) return false;
+    const std::string l = normal_lower(rel_in);
+    const std::string pre = "data/ui/imgassets/";
+    if (l.compare(0, pre.size(), pre) != 0) return false;
+    const std::string rest = l.substr(pre.size());  // crest<size>/<folder>/l<id>.dds
+    const size_t a = rest.find('/');
+    if (a == std::string::npos) return false;
+    const size_t b = rest.find('/', a + 1);
+    if (b == std::string::npos || rest.find('/', b + 1) != std::string::npos) return false;
+    const std::string dir = rest.substr(0, a), folder = rest.substr(a + 1, b - a - 1), name = rest.substr(b + 1);
+    if (dir.compare(0, 5, "crest") != 0) return false;
+    if (dir != "crest" && dir != "crest16x16" && dir != "crest32x32" && dir != "crest50x50" && dir != "crest512x512" && dir != "crest1024x1024")
+        return false;
+    if (folder != "light" && folder != "dark" && folder != "custom") return false;
+    if (name.size() < 6 || name[0] != 'l' || name.compare(name.size() - 4, 4, ".dds") != 0) return false;
+    for (size_t i = 1; i + 4 < name.size(); ++i)
+        if (name[i] < '0' || name[i] > '9') return false;
+    return true;
+}
+
+bool is_minikit_path(const std::string& rel_in) {
+    if (rel_in.empty() || rel_in.size() > 400) return false;
+    const std::string l = normal_lower(rel_in);
+    const std::string pre = "data/ui/imgassets/kits/";
+    if (l.compare(0, pre.size(), pre) != 0) return false;
+    const std::string name = l.substr(pre.size());
+    if (name.find('/') != std::string::npos || !safe_name(name)) return false;
+    return name.size() > 4 && name.compare(name.size() - 4, 4, ".dds") == 0;
+}
+
+bool is_career_file(const std::string& rel) { return is_face_path(rel) || is_crest_path(rel) || is_minikit_path(rel); }
 
 fs::path careers_dir(const Paths& p) { return p.turbo_output / "careers"; }
 fs::path manifest_file(const Paths& p) { return careers_dir(p) / "active.json"; }
@@ -241,8 +296,8 @@ bool save_overlay(const Paths& p, const std::string& career, const std::string& 
         if (err) *err = "no career identified";
         return false;
     }
-    if (!is_face_path(rel)) {
-        if (err) *err = "not a face picture path: " + rel;
+    if (!is_career_file(rel)) {
+        if (err) *err = "not a face, crest or minikit path: " + rel;
         return false;
     }
     if (bytes.empty()) {
@@ -263,7 +318,7 @@ bool save_overlay(const Paths& p, const std::string& career, const std::string& 
 
 bool remove_overlay(const Paths& p, const std::string& career, const std::string& rel, std::string* err, fs::path* undo_backup) {
     if (undo_backup) undo_backup->clear();
-    if (!is_career_id(career) || !is_face_path(rel)) {
+    if (!is_career_id(career) || !is_career_file(rel)) {
         if (err) *err = "no career copy for " + rel;
         return false;
     }
@@ -288,11 +343,11 @@ bool remove_overlay(const Paths& p, const std::string& career, const std::string
 }
 
 bool has_overlay(const Paths& p, const std::string& career, const std::string& rel) {
-    return is_career_id(career) && is_face_path(rel) && regular(overlay_file(p, career, rel));
+    return is_career_id(career) && is_career_file(rel) && regular(overlay_file(p, career, rel));
 }
 
 bool restore_overlay(const Paths& p, const std::string& career, const std::string& rel, const fs::path& undo_backup, std::string* err) {
-    if (!is_career_id(career) || !is_face_path(rel)) {
+    if (!is_career_id(career) || !is_career_file(rel)) {
         if (err) *err = "no career copy for " + rel;
         return false;
     }
@@ -445,6 +500,109 @@ SyncResult sync(const Paths& p, const std::string& career_in) {
     // the career in effect (also when it has no pictures: the log line names it, "career none" only outside a career)
     r.career = m.career.empty() ? career : m.career;
     return r;
+}
+
+// ---------------------------------------------------------------- X 2.0.2 moving a club's files between global and a career
+static fs::path moved_copy(const Paths& p, const std::string& rel) {
+    std::time_t t = std::time(nullptr);
+    std::tm tmv{};
+#ifdef _WIN32
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmv);
+    return free_name(careers_dir(p) / "_moved" / stamp / fs::u8path(rel));
+}
+
+static bool keep_moved(const Paths& p, const std::string& rel, const fs::path& from, std::string* err) {
+    const fs::path to = moved_copy(p, rel);
+    std::error_code ec;
+    fs::create_directories(to.parent_path(), ec);
+    fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
+    if (ec || !regular(to)) {
+        if (err) *err = "cannot keep a copy of " + from.string() + " in turbo_output\\careers\\_moved";
+        return false;
+    }
+    return true;
+}
+
+bool move_to_career(const Paths& p, const std::string& career, const std::string& rel, std::string* err) {
+    if (!is_career_id(career) || !is_career_file(rel)) {
+        if (err) *err = "not a career or not a face / crest / minikit path: " + rel;
+        return false;
+    }
+    if (!active_career(p).empty()) {
+        if (err) *err = "a career's files are still in mods\\legacy (sync first)";
+        return false;
+    }
+    const fs::path g = mods_file(p, rel);
+    std::string bytes;
+    if (!regular(g) || !read_bytes(g, bytes) || bytes.empty()) {
+        if (err) *err = "there is no global " + rel;
+        return false;
+    }
+    if (has_overlay(p, career, rel)) {
+        if (err) *err = "the career already has its own " + rel + " (kept; the global one stays)";
+        return false;
+    }
+    if (!keep_moved(p, rel, g, err)) return false;
+    fs::path undo;
+    if (!save_overlay(p, career, rel, std::vector<uint8_t>(bytes.begin(), bytes.end()), err, &undo)) return false;
+    std::error_code ec;
+    fs::remove(g, ec);
+    if (regular(g)) {
+        std::string e2;
+        restore_overlay(p, career, rel, undo, &e2);  // back as it was: the global file stays global
+        if (err) *err = "cannot remove the global " + g.string();
+        return false;
+    }
+    forget_global(p, rel, nullptr);
+    return true;
+}
+
+bool move_to_global(const Paths& p, const std::string& career, const std::string& rel, std::string* err) {
+    if (!is_career_id(career) || !is_career_file(rel)) {
+        if (err) *err = "not a career or not a face / crest / minikit path: " + rel;
+        return false;
+    }
+    if (!active_career(p).empty()) {
+        if (err) *err = "a career's files are still in mods\\legacy (sync first)";
+        return false;
+    }
+    std::string bytes;
+    if (!read_bytes(overlay_file(p, career, rel), bytes) || bytes.empty()) {
+        if (err) *err = "career " + career + " has no " + rel;
+        return false;
+    }
+    const fs::path g = mods_file(p, rel);
+    if (regular(g) && !keep_moved(p, rel, g, err)) return false;
+    if (!record_global(p, rel, bytes, err)) return false;
+    if (!write_atomic(g, bytes, err)) {
+        forget_global(p, rel, nullptr);
+        return false;
+    }
+    fs::path undo;
+    if (!remove_overlay(p, career, rel, err, &undo)) return false;  // the global file is written: the career's copy would only shadow it
+    return true;
+}
+
+std::vector<std::string> careers_with(const Paths& p, const std::string& rel) {
+    std::vector<std::string> out;
+    std::error_code ec;
+    for (fs::directory_iterator it(careers_dir(p), ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string id = it->path().filename().u8string();
+        if (is_career_id(id) && has_overlay(p, id, rel)) out.push_back(id);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+std::vector<std::string> career_files(const Paths& p, const std::string& career) {
+    std::vector<std::string> errors, out;
+    for (const auto& kv : wanted(p, career, errors)) out.push_back(kv.first);
+    return out;
 }
 
 // ---------------------------------------------------------------- 2.20 faces safety

@@ -331,6 +331,9 @@ void editor_changes(App& app, void*) {
     form_label_width(S(170.0f));
     changes_undo_summary(app);
     section_safety(app);
+    // X 2.0.2: where each club's name, crest and kits live (global / one career), open on this page
+    if (!g_unframed) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    club_scope_section(app);
     // 2.15: where the kept rows apply (global / this career / not assigned yet), open on this page
     if (!g_unframed) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     kept_edit_scopes_section(app);

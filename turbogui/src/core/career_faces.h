@@ -30,11 +30,24 @@
 namespace turbo {
 namespace career_faces {
 
+// X 2.0.2 (Cassio 2026-11-01): the same route carries a club's CREST and MINIKIT files, so a club identity edit made in a career
+// (name + crest + kit) lives in that career only, and one made with no career loaded (the squads file) is global:
+//     careers\<id>\crest\dark\l13.dds, careers\<id>\crest16x16\light\l13.dds, careers\<id>\kits\j0_13_0.dds
+// are copied into mods\legacy only while that career is identified, exactly like its face pictures (one safety record, one sync).
+// A global crest / minikit is a plain file in mods\legacy (recorded in global_own.json when Turbo wrote it). move_to_career and
+// move_to_global carry a club's files between the two (the "Where club edits live" panel).
+
 // The career scope is a 16-digit lower-case hex id (career_identity_id); anything else is no career
 bool is_career_id(const std::string& id);
 // A face picture this store keeps per career: a safe relative legacy path under data/ui/imgAssets/heads/ or heads_staff/,
 // ending in .dds (any letter case), no "..", no drive, no backslash after normalising
 bool is_face_path(const std::string& rel);
+// X 2.0.2: data/ui/imgAssets/crest[16x16|32x32|50x50|512x512|1024x1024]/(light|dark|custom)/l<digits>.dds (any letter case)
+bool is_crest_path(const std::string& rel);
+// X 2.0.2: data/ui/imgAssets/kits/<name>.dds (one level, no "..", any letter case)
+bool is_minikit_path(const std::string& rel);
+// What the career route carries: a face picture, a crest or a minikit
+bool is_career_file(const std::string& rel);
 
 struct Paths {
     std::filesystem::path turbo_output;  // <LE>\turbo_output
@@ -74,6 +87,20 @@ struct SyncResult {
 SyncResult sync(const Paths& p, const std::string& career);
 // The career the safety record says is in mods\legacy now ("" = none or no record)
 std::string active_career(const Paths& p);
+
+// ---------------------------------------------------------------- X 2.0.2 moving a club's files between global and a career
+// Both need no career copy in mods\legacy (active_career(p) == ""): the caller syncs "" first and its career again after.
+// move_to_career: mods\legacy\<rel> (any owner: Turbo's global copy or an older untracked custom file) becomes careers\<career>\...;
+// the global file is kept in careers\_moved\<stamp>\<rel> and removed from mods\legacy, its global_own record forgotten.
+// Refused when the file is absent, or the career already has its own copy (its own wins: nothing is overwritten).
+bool move_to_career(const Paths& p, const std::string& career, const std::string& rel, std::string* err);
+// move_to_global: careers\<career>\... becomes mods\legacy\<rel> (recorded as Turbo's global copy); an earlier global file is kept in
+// careers\_moved\<stamp>\<rel> first; the career's copy goes to its _undo folder. Refused when the career has no copy.
+bool move_to_global(const Paths& p, const std::string& career, const std::string& rel, std::string* err);
+// Every career id that keeps its own copy of rel (sorted)
+std::vector<std::string> careers_with(const Paths& p, const std::string& rel);
+// Every career file rel (data/ui/imgAssets/...) a career keeps (sorted)
+std::vector<std::string> career_files(const Paths& p, const std::string& career);
 
 // ---------------------------------------------------------------- 2.20 faces safety (Cassio 2026-10-19 10:56)
 // "EDITING PLAYER'S HEADS CANNOT OVERWRITE OR DELETE THE ORIGINAL, IN-GAME ASSET. importing 3d heads should NEVER override a real

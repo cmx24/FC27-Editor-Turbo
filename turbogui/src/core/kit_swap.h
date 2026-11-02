@@ -435,7 +435,12 @@ struct SlotState {
     bool keep_crest = true;   // ... but not the crest_* ones (the game's club badge stays)
     bool share_club = false;  // serve textures the game shares with this club's other kits
     bool share_other = false; // 2.13: serve textures the game shares with other clubs' kits ("share_other_clubs"; a file without it: off)
+    // X 2.0.2: where the kit lives: "" or "global" = every save (a file without it: global, as before); "career:<id>" = only while that
+    // career is the identified one (Runtime::set_career). One staged kit per club and slot.
+    std::string scope{};
 };
+// X 2.0.2: is a kit of `scope` in the table while `career` (16 hex digits, "" = none identified) is loaded?
+bool slot_in_effect(const std::string& scope, const std::string& career);
 struct ItemStatus {
     int team = -1, slot = -1;
     std::string res, kind, role, reason;
@@ -633,6 +638,22 @@ public:
     void rebuild();
     std::filesystem::path plan_path(int team, int slot) const;  // turbo_output\kits\<team>\<slot>\swap_plan_4.bin
     bool is_active(int team, int slot, Mode* mode = nullptr) const;
+    // X 2.0.2 scopes: the scope a kit switched on from now gets (the host sets it from the career in effect: "global" outside a career,
+    // "career:<id>" in one); a kit already in swap_state.json keeps its own
+    void set_next_scope(const std::string& scope) {
+        std::lock_guard<std::mutex> lk(m_);
+        next_scope_ = scope;
+    }
+    // The identified career ("" = none): only kits in effect for it are in the table; a change publishes the table again (milliseconds)
+    void set_career(const std::string& career);
+    std::string career() const {
+        std::lock_guard<std::mutex> lk(m_);
+        return career_;
+    }
+    // The scopes of the club's kits in swap_state.json ("" shown as "global"), and moving all of them to `scope` (saved, published
+    // again); returns how many kits changed
+    std::vector<std::string> scopes_of(int team) const;
+    int set_team_scope(int team, const std::string& scope);
     Status status() const;
     // The kill switch: raised, it stops a running scan / build and the hot path; released, a build that was skipped because of it runs
     void set_killed(bool k);
@@ -683,6 +704,8 @@ private:
     OodleFn oodle_;
     mutable std::mutex m_;
     std::vector<SlotState> slots_;
+    std::string next_scope_ = "global";  // X 2.0.2 (m_)
+    std::string career_;                 // X 2.0.2: the identified career (m_)
     std::vector<ItemStatus> items_;
     std::vector<FolderVerdict> folders_;
     std::string state_ = "off", message_;

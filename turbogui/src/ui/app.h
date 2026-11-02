@@ -56,7 +56,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "X 2.0.1";
+constexpr const char* kGuiVersion = "X 2.0.2";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -71,6 +71,22 @@ struct Toast {
     bool error = false;
     double until = 0.0;
 };
+
+// X 2.0.2: where one club's identity edits live (ui_club_scope.cpp)
+class App;
+struct ClubScopeRow {
+    int64_t teamid = 0;
+    std::string name;
+    int64_t league = -1;
+    std::vector<std::string> name_scopes;      // team_names.json scopes of the club
+    int crest_global = 0, kit_global = 0;      // global crest / minikit files in mods\legacy
+    std::vector<std::string> crest_careers;    // careers keeping their own crest
+    std::vector<std::string> kit_careers;      // careers keeping their own minikit
+    std::vector<std::string> kept_kit_scopes;  // reapply_edits.json kit rows of the club
+    std::vector<std::string> kit3d_scopes;     // 3D kits (swap_state.json)
+};
+bool is_italian_club_league(int64_t league);  // Serie A (31), Serie B (32)
+void club_scope_section(App& app);             // the "Where club edits live" panel
 
 class App {
 public:
@@ -502,6 +518,29 @@ public:
     void set_asset_scope(const std::string& picker, assets::Scope s);
     std::filesystem::path turbo_output() const { return bridge.root() / "turbo_output"; }
 
+    // ---- X 2.0.2 club identity scope (ui_club_scope.cpp): a club NAME / CREST / KIT edit made with no career loaded is GLOBAL
+    // (every save, like the squads file); one made in a career lives in that career only
+    // "global" outside a career, "career:<id>" in an identified one; "" (refuse = why) in a career Turbo has not identified
+    std::string identity_scope(std::string* refuse = nullptr) const;
+    // The scope of a kept kit row written now: "global" outside a career, else reapply.edit_scope() (as before)
+    std::string identity_kept_scope() const;
+    // A crest / minikit file of a club identity edit: global = mods\legacy (recorded in careers\global_own.json); career = the
+    // career's copy (careers\<id>\...) put into mods\legacy while that career is loaded. where = "global" / "this career"
+    // backup = the earlier file the write replaced (global: kit_backups / crest_backups copy; career: the career's earlier copy)
+    bool write_identity_file(const std::string& rel, const std::vector<uint8_t>& bytes, std::string* err, std::string* where = nullptr,
+                             std::filesystem::path* backup = nullptr);
+    // Undo of a career write: the career's copy back to `backup` ("" = the career had none: its copy goes), then synced
+    bool undo_identity_file(const std::string& rel, const std::string& scope, const std::string& backup, std::string* err);
+    // Removes the edit of the scope in effect (a global file is never removed from inside a career: err says so). removed = a file went
+    bool remove_identity_file(const std::string& rel, std::string* err, bool* removed = nullptr);
+    ClubScopeRow club_scope_row(int64_t teamid) const;
+    std::vector<int64_t> clubs_with_identity_edits() const;
+    // Moves the club's name, crest + minikit files, kept kit rows and 3D kits to `to` ("global" or "career:<id>")
+    bool move_club_identity(int64_t teamid, const std::string& to, std::string* msg);
+    // The career a club's edits belong to: the one career holding any of them, else the career whose own club it is (its label);
+    // "" (why) when none or several
+    std::string owner_career_of(int64_t teamid, std::string* why = nullptr) const;
+
     // ---- 2.19 career faces (core/career_faces.h): a face picture chosen in a career lives only in that career
     career_faces::Paths career_faces_paths() const;
     // The career whose face pictures belong in mods\legacy now: the identified career while one is loaded and its identity is
@@ -523,6 +562,8 @@ public:
 
 private:
     std::string career_faces_active_;    // the career career_faces_sync last ran for ("" = none)
+    std::string kit_swap_career_ = "-";     // X 2.0.2: the career last given to kit_swap->set_career ("-" = never)
+    std::string kit_swap_next_scope_;       // X 2.0.2: the scope last given to kit_swap->set_next_scope
     bool career_faces_ticked_ = false;   // the first tick (the start-up restore's log line goes to the host log there)
     std::string career_faces_start_line_;
     shell::Place place_{shell::Area::Home, shell::Page::Home};  // 3.0: the app opens on Home

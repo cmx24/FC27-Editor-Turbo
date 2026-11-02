@@ -3,6 +3,22 @@
 All notable changes to FC 27 LE Turbo. "Verified in game" means seen working in a test FC 27 Manager Career.
 Feature-by-feature status: [`docs/fc26-parity.md`](docs/fc26-parity.md).
 
+## Turbo X 2.0.2 (2026-11-01) - global vs career club edits (name, crest, kits)
+
+- **Each club edit now lives where it was made.** With no career loaded (the main menu, like editing the squads file) a club's
+  name, crest, minikit, kit colours / settings and 3D kits are GLOBAL: every save. Made in a career, they live in THAT career only.
+  A career Turbo has not identified yet refuses the edit (it could not be kept with it). Before: a crest or minikit written in a
+  career changed every save, a name saved at the main menu was "not assigned", a career name stayed in Live Editor's
+  custom_team_names.csv (shown in every save), and 3D kits had no scope.
+- Career crests and minikits ride the career-faces route: kept in `turbo_output\careers\<id>\crest...\` / `kits\`, copied into
+  `mods\legacy` only while that career is identified, the global file put back byte for byte when it is left (same safety record).
+- **Where club edits live** (Turbo settings > Changes, and the crest editor's line): every club with an edit, where its name / crest /
+  kits / 3D kits live, Global / This career per club, and one button: **Italian clubs (Serie A, Serie B) Global, every other club this
+  career**. Moves keep a copy of every file they take out (`turbo_output\careers\_moved`); a name made career-only comes out of
+  custom_team_names.csv (backup kept).
+- 3D kits: `swap_state.json` entries carry a scope; a career's kit is in the table only while that career is identified.
+- Native tests: club scope core + UI cases. NOT yet seen in game.
+
 ## Turbo X 2.0.1 (2026-11-01) - custom crests on the current game build (match-load crash)
 
 - **Crest serve works on game build 6AD922D1 again.** Its code spots were known for build 6AC07E31 only, so on the 10-27 title

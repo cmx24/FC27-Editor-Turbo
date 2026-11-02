@@ -125,6 +125,9 @@ struct ImportRecord {
     bool minikit = false;            // a custom minikit was written
     bool minikit_had_custom = false; // there was a custom minikit before the first import
     std::string minikit_backup;      // its copy (kit_backups), when there was one
+    // X 2.0.2: where the minikit was written ("global" = mods\legacy; "career:<id>" = that career's copy, careers\<id>\kits\...;
+    // "" = an older record: global)
+    std::string minikit_scope;
     const Db* field(const std::string& f) const {
         for (const Db& d : db)
             if (d.field == f) return &d;
@@ -165,6 +168,7 @@ static bool load_record(App& app, int64_t teamid, Slot s, ImportRecord& r) {
         r.minikit = it->value("written", false);
         r.minikit_had_custom = it->value("had_custom", false);
         r.minikit_backup = it->value("backup", std::string());
+        r.minikit_scope = it->value("scope", std::string());
     }
     return true;
 }
@@ -180,7 +184,7 @@ static bool save_record(App& app, const ImportRecord& r, std::string* err) {
               {"teamid", r.teamid}, {"team", r.team}, {"slot", kits::slot_folder(r.slot)}, {"teamkittypetechid", kits::slot_type(r.slot)},
               {"teamkitid", r.teamkitid}, {"source", r.source}, {"when", r.when}, {"db", db}, {"kept_before", kept},
               {"minikit", {{"path", kits::minikit_path(r.teamid, r.slot)}, {"written", r.minikit}, {"had_custom", r.minikit_had_custom},
-                           {"backup", r.minikit_backup}}}};
+                           {"backup", r.minikit_backup}, {"scope", r.minikit_scope}}}};
     if (!r.kept_scope.empty()) j["kept_scope"] = r.kept_scope;
     return write_text_atomic(record_path(app, r.teamid, r.slot), j.dump(2, ' ', false, json::error_handler_t::replace) + "\n", err);
 }
@@ -267,7 +271,7 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
     const uint64_t row = kt ? kit_row(app, teamid, s, &kitid) : 0;
     rec.teamkitid = kitid;
     // 2.15: the kept fields this import writes go to the row of this career's scope (App::remember_kit_field / write_colour)
-    rec.kept_scope = app.reapply.edit_scope();
+    rec.kept_scope = app.identity_kept_scope();  // X 2.0.2: "global" with no career loaded
     // an earlier import's kept values count only for the same row (scope); one made in another career keeps its own row there
     const bool same_kept_row = had_record && old.kept_scope == rec.kept_scope;
     // what a field held and was kept as before this import (a second import keeps the first one's: Undo goes back to the game)
@@ -400,11 +404,12 @@ KitApply apply_kit_import(App& app, int64_t teamid, Slot s, const KitPackage& pk
             fs::path backup;
             if (dds.empty()) {
                 res.minikit_note = err.empty() ? std::string("the file could not be made") : err;
-            } else if (!app.legacy.save_custom(mpath, dds, &err, &backup)) {
+            } else if (!app.write_identity_file(mpath, dds, &err, nullptr, &backup)) {  // X 2.0.2: global / this career only
                 res.minikit_note = "not written: " + err;
             } else {
                 res.minikit = true;
                 rec.minikit = true;
+                rec.minikit_scope = app.identity_scope();
                 mini_replaced = first_write && !backup.empty();
                 // the custom minikit there before the first write (Undo brings it back); a record from an import that wrote none
                 // (a game without the file, the club switched off) gets it now
@@ -556,7 +561,13 @@ bool undo_kit_import(App& app, int64_t teamid, Slot s, std::string* msg) {
     if (r.minikit) {
         std::string err;
         std::string bytes;
-        if (r.minikit_had_custom && !r.minikit_backup.empty() && read_all(text_path(r.minikit_backup), bytes)) {
+        if (scope_kind(r.minikit_scope) == ScopeKind::Career) {
+            // X 2.0.2: the career's own copy as it was (its earlier copy, or none), whatever career is loaded now
+            if (app.undo_identity_file(mpath, r.minikit_scope, r.minikit_had_custom ? r.minikit_backup : std::string(), &err))
+                mini = r.minikit_had_custom ? "the career's earlier minikit is back" : "the career's minikit is removed";
+            else
+                failed.push_back("minikit: " + err);
+        } else if (r.minikit_had_custom && !r.minikit_backup.empty() && read_all(text_path(r.minikit_backup), bytes)) {
             if (app.legacy.save_custom(mpath, std::vector<uint8_t>(bytes.begin(), bytes.end()), &err)) mini = "the earlier custom minikit is back";
             else failed.push_back("minikit: " + err);
         } else if (!app.legacy.custom_file(mpath).empty()) {

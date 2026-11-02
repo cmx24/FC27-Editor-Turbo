@@ -3436,6 +3436,7 @@ struct FakeCapture : capture::CaptureService {
 #include "test_miniface_show.h"  // 1.2.5: minifaces that did not show up (Lua prompted, Reload, retries, reasons; after FakeCapture)
 #include "test_image_crop.h"  // 3.1 R2: the looks studio's full-body crop (content box, margin, fit to height)
 #include "test_capture_sequence.h"  // 2.17 looks C: full-body picture request + the resumable write -> picture -> save sequence
+#include "test_club_scope.h"  // X 2.0.2: club identity scope (global / this career): crests, minikits, names, 3D kits
 #include "test_crest_serve.h"  // 2.18: crest serve (config, path filter, decision, buffer fill, decoy, cs_* signatures)
 #include "test_compdata_profile.h"  // 2.21: compdata guard (record, disk, seeded careers, decision) + launcher-hint rank
 #include "test_crest2d.h"  // 2.20 K2: shirt-crest list, the crest splices of the generated player_kit.lua, the checkbox (crest2d_test::run)
@@ -4992,9 +4993,13 @@ static void test_ui() {
             struct NoCareer {
                 App& a;
                 std::string was;
-                ~NoCareer() { a.reapply.career = was; }
+                ~NoCareer() {
+                    a.reapply.career = was;
+                    a.bridge.test_set_in_cm(true);
+                }
             } no_career{app, app.reapply.career};
             app.reapply.career.clear();
+            app.bridge.test_set_in_cm(false);  // X 2.0.2: no career loaded = the squads file: a name saved now is global
             const fs::path store = tnames::store_path(le);
             fs::remove(store);
             app.team_names = tnames::Store{};
@@ -5214,6 +5219,12 @@ static void test_ui() {
         club_fields_test::ui_cases(app, ui, le);  // test_club_fields.h (2.20 K3): the club, crowd, stadium and kit fields (the database is still connected here)
 
         run_case("UI: Teams > Crest: picture -> custom files in each game variant's own format, backups, copy, remove", [&] {
+            // X 2.0.2: written with no career loaded (the squads file): a global file with its backup; in a career it would be that career's
+            struct MainMenu {
+                App& a;
+                ~MainMenu() { a.bridge.test_set_in_cm(true); }
+            } main_menu{app};
+            app.bridge.test_set_in_cm(false);
             // the game's crest files for Everton (7) and Arsenal (1), as the Lua side exports them, in mixed formats
             fs::path cache = le / "turbo_output" / "cache" / "legacy";
             auto game_file = [&](const std::string& path, const DdsFormat& f) {
@@ -6931,6 +6942,7 @@ static void test_ui() {
         });
 
         career_faces_test::ui_cases(app, ui, le);  // test_career_faces.h (2.19)
+        club_scope_test::ui_cases(app, ui, le);    // test_club_scope.h (X 2.0.2)
 
         run_case("UI: a TYPED head id offers 'Apply the linked fields' (2.20: the old 'Use the matching miniface' copied the donor's picture "
                  "over his own); a generic head offers nothing",
@@ -15890,6 +15902,7 @@ int main(int argc, char** argv) {
     compdata_profile_test::run();  // test_compdata_profile.h (2.21)
     crest2d_test::run();  // test_crest2d.h (2.20 K2)
     career_faces_test::run();  // test_career_faces.h (2.19)
+    club_scope_test::run();    // test_club_scope.h (X 2.0.2)
     test_bodytype_thumbs();  // test_bodytype_thumbs.h (2.17 looks T)
     test_hairbeard_thumbs();  // test_hairbeard_thumbs.h (5.0c E10 lit capture)
     test_gear_thumbs();  // test_gear_thumbs.h (Turbo X gear pictures)

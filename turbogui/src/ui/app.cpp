@@ -1044,8 +1044,24 @@ void App::tick(double t) {
         career_faces_ticked_ = true;
         if (log_hook && !career_faces_start_line_.empty()) log_hook(career_faces_start_line_);
     }
-    if (const std::string want = career_faces_wanted(); want != career_faces_active_)
+    if (const std::string want = career_faces_wanted(); want != career_faces_active_) {
         career_faces_sync(want, want.empty() ? "no identified career loaded" : "career identified");
+        // X 2.0.2 club identity scope: the names, crests and 3D kits in effect follow the career at once (also with Turbo hidden)
+        if (team_names_service) team_names_service->publish(team_names.in_effect(want));
+    }
+    if (kit_swap) {
+        const std::string want = career_faces_wanted();
+        if (want != kit_swap_career_) {
+            kit_swap_career_ = want;
+            kit_swap->set_career(want);
+        }
+        std::string refuse;
+        const std::string sc = identity_scope(&refuse);
+        if (!sc.empty() && sc != kit_swap_next_scope_) {
+            kit_swap_next_scope_ = sc;
+            kit_swap->set_next_scope(sc);
+        }
+    }
     if (!visible) legacy.not_prompting();
     {
         // Lua went quiet while pictures on screen wait: said once in the log (the boxes say it on screen)
@@ -1437,8 +1453,10 @@ bool App::career_faces_refused(std::string* why) const {
 bool App::write_face_picture(const std::string& rel, const std::vector<uint8_t>& bytes, std::string* err, UndoStep::Picture* rec) {
     if (rec) *rec = UndoStep::Picture{rel, fs::path(), std::string()};
     const bool face = career_faces::is_face_path(rel);
-    if (face && career_faces_refused(err)) return false;
-    const std::string career = face ? career_faces_wanted() : std::string();
+    // X 2.0.2: a crest / minikit written through the picture tools follows the same career route as a face (global with no career)
+    const bool career_file = career_faces::is_career_file(rel);
+    if (career_file && career_faces_refused(err)) return false;
+    const std::string career = career_file ? career_faces_wanted() : std::string();
     if (career.empty()) {  // outside a career (or not a face picture): the global mods\legacy file
         // 2.20 faces safety (a): a face picture there is replaced ONLY when it is absent or Turbo's own (careers\global_own.json,
         // same hash); the record is written before the file, so Turbo's own copy is always known
@@ -1475,7 +1493,7 @@ bool App::write_face_picture(const std::string& rel, const std::vector<uint8_t>&
     fs::path undo_copy;
     if (!career_faces::save_overlay(career_faces_paths(), career, rel, bytes, err, &undo_copy)) return false;
     log("career faces: " + rel + " written for career " + career + " only (turbo_output\\careers\\" + career + ")"); faces_to_gui_log(*this);
-    career_faces_sync(career, "a face picture written in this career");
+    career_faces_sync(career, face ? "a face picture written in this career" : "a club identity file written in this career");
     if (rec) {
         rec->backup = undo_copy;
         rec->career = career;

@@ -2891,7 +2891,8 @@ void Runtime::save_state_locked() {
     json j = {{"version", 2}, {"kits", json::array()}, {"watch_club", options.watch_club}};
     for (const auto& s : slots_)
         j["kits"].push_back({{"team", s.team}, {"slot", slot_folder_name(s.slot)}, {"slot_type", s.slot}, {"mode", mode_name(s.mode)}, {"decals", s.decals},
-                             {"keep_game_crest", s.keep_crest}, {"share_within_club", s.share_club}, {"share_other_clubs", s.share_other}});
+                             {"keep_game_crest", s.keep_crest}, {"share_within_club", s.share_club}, {"share_other_clubs", s.share_other},
+                             {"scope", s.scope.empty() ? std::string("global") : s.scope}});
     std::error_code ec;
     fs::create_directories(state_path().parent_path(), ec);
     const fs::path tmp = state_path().string() + ".tmp";
@@ -2934,6 +2935,7 @@ void Runtime::start() {
                     s.keep_crest = k.value("keep_game_crest", true);
                     s.share_club = k.value("share_within_club", false);
                     s.share_other = k.value("share_other_clubs", false);  // 2.13: a file written before has none: off
+                    s.scope = k.value("scope", std::string("global"));    // X 2.0.2: a file written before has none: global
                     if (s.team >= 0 && s.slot >= 0 && s.slot <= 4) slots_.push_back(s);
                 }
             }
@@ -3104,11 +3106,61 @@ bool Runtime::activate(int team, int slot, Mode mode, std::string* err) {
         bool found = false;
         for (auto& s : slots_)
             if (s.team == team && s.slot == slot) { s.mode = mode; found = true; }
-        if (!found) slots_.push_back({team, slot, mode});
+        if (!found) {
+            SlotState n{team, slot, mode};
+            n.scope = next_scope_;  // X 2.0.2: the career in effect when it was switched on (global outside a career)
+            slots_.push_back(n);
+        }
         save_state_locked();
     }
     request_plan(team, slot);  // 2.20: kept when its plan matches (switching on is then instant), else planned now: the user asked for it
     return true;
+}
+
+bool slot_in_effect(const std::string& scope, const std::string& career) {
+    if (scope.empty() || scope == "global") return true;
+    const std::string pre = "career:";
+    if (scope.compare(0, pre.size(), pre) != 0) return false;  // a scope this Turbo does not know: never in the table
+    return !career.empty() && scope.substr(pre.size()) == career;
+}
+
+void Runtime::set_career(const std::string& career) {
+    bool changed = false, any_career_kit = false;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        if (career_ == career) return;
+        career_ = career;
+        for (const auto& s : slots_) any_career_kit = any_career_kit || !(s.scope.empty() || s.scope == "global");
+        changed = any_career_kit && !build_skipped_;
+    }
+    if (changed) rebuild_async();  // only when a career's kit can enter or leave the table
+}
+
+std::vector<std::string> Runtime::scopes_of(int team) const {
+    std::lock_guard<std::mutex> lk(m_);
+    std::vector<std::string> out;
+    for (const auto& s : slots_)
+        if (s.team == team) {
+            const std::string sc = s.scope.empty() ? std::string("global") : s.scope;
+            if (std::find(out.begin(), out.end(), sc) == out.end()) out.push_back(sc);
+        }
+    return out;
+}
+
+int Runtime::set_team_scope(int team, const std::string& scope) {
+    int n = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_);
+        for (auto& s : slots_)
+            if (s.team == team && s.scope != scope) {
+                s.scope = scope;
+                ++n;
+            }
+        if (n) save_state_locked();
+        if (!n || build_skipped_) return n;
+    }
+    rebuild_async();
+    return n;
 }
 
 void Runtime::deactivate(int team, int slot) {
@@ -3418,7 +3470,9 @@ void Runtime::worker() {
             t_load0 = now_s();
             {
                 std::lock_guard<std::mutex> lk(m_);
-                slots = slots_;
+                slots.clear();  // X 2.0.2: only the kits in effect for the identified career (global ones always)
+                for (const SlotState& x : slots_)
+                    if (slot_in_effect(x.scope, career_)) slots.push_back(x);
                 auto_seen = auto_planned_;
             }
             // the start path: the table from the kits' plans, nothing scanned or planned

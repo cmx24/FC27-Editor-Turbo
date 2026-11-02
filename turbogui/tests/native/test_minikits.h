@@ -163,6 +163,12 @@ static std::string read_text(const fs::path& p) {
 
 static void ui_cases(App& app, Ui& ui, const fs::path& le) {
     run_case("minikits (2.20): every slot writes the zip's minikit in the MK1 form; drawn fallback; Undo restores; backups", [&] {
+        // X 2.0.2: written with no career loaded (the squads file): a global file with its backup; in a career it would be that career's
+        struct MainMenu {
+            App& a;
+            ~MainMenu() { a.bridge.test_set_in_cm(true); }
+        } main_menu{app};
+        app.bridge.test_set_in_cm(false);
         const auto& spec = small_spec();
         kit_panel_spec(&spec);
         const int64_t team = 241;

@@ -111,9 +111,17 @@ TeamNameSave save_team_name(App& app, int64_t teamid, const std::string& name, c
     e.text[tnames::Abbr3] = c3.empty() ? team_code_from(full) : c3;
     const std::string lng = tnames::clean_long_name(long_name);
     if (lng != full) e.long_name = lng;  // the same as the name = not set (it follows the name)
-    // 2.15: a name saved in an identified career belongs to it (core/reapply.h scopes); else not assigned (every career)
-    e.scope = app.reapply.edit_scope();
-    const bool career_only = !e.scope.empty();
+    // X 2.0.2 club identity scope: a name saved in an identified career belongs to it; with no career loaded it is GLOBAL (every save,
+    // like the squads file); in a career Turbo has not identified it is refused (it could not be kept with that career)
+    {
+        std::string refuse;
+        e.scope = app.identity_scope(&refuse);
+        if (e.scope.empty()) {
+            res.line = "Not saved: " + refuse + ".";
+            return res;
+        }
+    }
+    const bool career_only = scope_kind(e.scope) == ScopeKind::Career;
 
     // 1. Turbo's names: published to the hook first (the game's next lookup shows them), then saved for the next starts
     std::string problems, err;
@@ -736,10 +744,17 @@ bool apply_crest(App& app, int64_t teamid, const Rgba& src0, const Framing& fram
         if (msg) *msg = "the game has no crest files for this team that Turbo can write";
         return false;
     }
+    {
+        std::string refuse;
+        if (app.identity_scope(&refuse).empty()) {
+            if (msg) *msg = refuse;
+            return false;
+        }
+    }
     Rgba src = src0;
     if (remove_bg) remove_plain_background(src, tolerance);
     int written = 0;
-    std::string notes;
+    std::string notes, scope_word;
     for (const auto& it : plan.items) {
         if (it.game != LegacyImages::State::Game || !it.note.empty()) {
             if (it.game == LegacyImages::State::Game) notes += "; " + it.variant.path + ": " + it.note;
@@ -756,16 +771,17 @@ bool apply_crest(App& app, int64_t teamid, const Rgba& src0, const Framing& fram
             notes += "; " + it.variant.path + ": " + err;
             continue;
         }
-        fs::path backup;
-        if (!app.legacy.save_custom(it.variant.path, dds, &err, &backup)) {
+        std::string where;
+        if (!app.write_identity_file(it.variant.path, dds, &err, &where)) {  // X 2.0.2: global with no career, else this career only
             if (msg) *msg = it.variant.path + ": " + err + (written ? " (" + std::to_string(written) + " files already written)" : "");
             return false;
         }
         app.textures.forget(app.legacy.custom_file(it.variant.path));
         ++written;
+        scope_word = where;
     }
-    if (msg) *msg = std::to_string(written) + " crest files written to mods\\legacy (" + std::to_string(plan.missing) +
-                    " variants the game does not have were skipped)" + notes;
+    if (msg) *msg = std::to_string(written) + " crest files written, " + (scope_word == "global" ? "GLOBAL (every save)" : "for THIS CAREER only") + " (" +
+                    std::to_string(plan.missing) + " variants the game does not have were skipped)" + notes;
     return written > 0;
 }
 
@@ -801,7 +817,7 @@ bool copy_crest(App& app, int64_t from_team, int64_t to_team, std::string* msg) 
             continue;
         }
         std::string err;
-        if (!app.legacy.save_custom(dst.variant.path, bytes, &err)) {
+        if (!app.write_identity_file(dst.variant.path, bytes, &err)) {  // X 2.0.2: global with no career, else this career only
             if (msg) *msg = dst.variant.path + ": " + err;
             return false;
         }
@@ -822,12 +838,13 @@ bool remove_crest(App& app, int64_t teamid, std::string* msg) {
         fs::path old = app.legacy.custom_file(v.path);
         if (old.empty()) continue;
         std::string err;
-        if (!app.legacy.remove_custom(v.path, &err)) {
+        bool gone = false;
+        if (!app.remove_identity_file(v.path, &err, &gone)) {  // X 2.0.2: the scope in effect only (a global crest never from a career)
             if (msg) *msg = v.path + ": " + err;
             return false;
         }
         app.textures.forget(old);
-        ++removed;
+        if (gone) ++removed;
     }
     if (msg) *msg = removed ? std::to_string(removed) + " custom crest files removed (copies in turbo_output\\crest_backups); the game's own are used again"
                             : "there is no custom crest";
@@ -1073,6 +1090,17 @@ void crest_editor(App& app, int64_t teamid) {
     if (!has_custom) ImGui::BeginDisabled();
     if (ImGui::Button("Remove custom crest")) ImGui::OpenPopup("##rmcrest");
     if (!has_custom) ImGui::EndDisabled();
+    {  // X 2.0.2: where a crest saved now lives (one short word beside the buttons; the whole sentence on hover)
+        std::string refuse;
+        const std::string sc = app.identity_scope(&refuse);
+        ImGui::SameLine();
+        if (sc.empty()) ImGui::TextColored(kWarn, "Career not identified yet");
+        else ImGui::TextDisabled(sc == kScopeGlobal ? "Saves: Global" : "Saves: this career");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", sc.empty() ? refuse.c_str()
+                                    : sc == kScopeGlobal ? "No career is loaded: a crest saved now is GLOBAL (every save and the main menu)."
+                                                         : "A crest saved now is for THIS CAREER only. Global crests: save with no career loaded.");
+    }
     if (ImGui::BeginPopupModal("##rmcrest", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Remove every custom crest file of this club (copies go to turbo_output\\crest_backups)?");
         if (ImGui::Button("Remove")) {
@@ -1295,7 +1323,20 @@ bool App::move_team_name(int64_t teamid, const std::string& from, const std::str
             note = "; custom_team_names.csv: " + err;
         }
     } else {
-        note = "; custom_team_names.csv not changed (a name it already holds is still shown there when live names are off)";
+        // X 2.0.2: a name of one career comes OUT of Live Editor's file (Live Editor reads it in every save); a backup is kept
+        TeamNamesCsv csv;
+        std::string err;
+        const fs::path file = team_names_file(bridge.root());
+        std::string full, a3, a10, a15;
+        if (!csv.load(file, &err)) {
+            note = "; custom_team_names.csv: " + err;
+        } else if (csv.team_names(teamid, full, a3, a10, a15), full.empty() && a3.empty() && a10.empty() && a15.empty()) {
+            note = "; not in custom_team_names.csv";
+        } else {
+            csv.set_team_names(teamid, "", "", "", "");
+            note = csv.save(file, team_names_backup_dir(bridge.root()), &err) ? "; taken out of Live Editor's team names file (a backup copy is kept)"
+                                                                              : "; custom_team_names.csv: " + err;
+        }
     }
     log("team names: " + model.team_name(teamid) + " (" + std::to_string(teamid) + "): now " + reapply.scope_label(to) + note);
     return true;

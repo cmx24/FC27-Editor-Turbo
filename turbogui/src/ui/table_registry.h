@@ -80,6 +80,7 @@ inline const std::vector<Spec>& all() {
         {"##chgrows", "Career > Changes and undo > This session (2.16)", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##chgkept", "Career > Changes and undo > Remembered for every career load (2.16)", kData | ImGuiTableFlags_SizingFixedFit, false},
         {"##chgelsewhere", "Career > Changes and undo > Undo buttons on other pages (2.16)", kData | ImGuiTableFlags_SizingFixedFit, false},
+        {"##club_scope", "Turbo settings > Changes > Where club edits live", kData | ImGuiTableFlags_ScrollY, true},
         {"##clubrows", "Club search dropdown (popup under the box)", ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_BordersInnerV, true, true},
         {"##keptplayer", "Players > kept edits tooltip (auto-sizing, cannot be clicked)", ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, false, true},
         {"##pidtable", "Players > Create player > Use a hidden player's id (auto-sizing modal)",

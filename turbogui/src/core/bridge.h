@@ -123,6 +123,8 @@ public:
     // Re-read Lua files when they changed. Returns true if anything new was loaded.
     bool poll_files();
     const BridgeState& state() const { return state_; }
+    // Tests only (X 2.0.2 club scope cases): a career loaded or not without writing bridge_state.json
+    void test_set_in_cm(bool in_cm) { state_.in_cm = in_cm; }
     const DbMeta& meta() const { return meta_; }
     bool meta_loaded() const { return !meta_.empty(); }
     std::string meta_error() const { return meta_error_; }
