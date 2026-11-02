@@ -56,7 +56,7 @@ namespace labels {
 struct CodeUsers;  // core/field_labels.h
 }
 
-constexpr const char* kGuiVersion = "X 2.0.2";
+constexpr const char* kGuiVersion = "X 2.0.3";
 
 // UI scale (window height and the user's "UI size" setting): every fixed size in the panels goes through S()
 extern float g_ui_scale;
@@ -522,6 +522,11 @@ public:
     // (every save, like the squads file); one made in a career lives in that career only
     // "global" outside a career, "career:<id>" in an identified one; "" (refuse = why) in a career Turbo has not identified
     std::string identity_scope(std::string* refuse = nullptr) const;
+    // X 2.0.3 post-match crash: Turbo's automatic database writes (kept edits re-applied at a career load, the Shown OVR pin) wait while a
+    // match is on and for kPostMatchQuiet game seconds after it ends, while the game itself writes the match results, growth and ratings
+    // (2026-11-01 21:57: the pin and the re-apply wrote 2 s after the match and the game died). true = hold (why says it)
+    bool game_writes_held(std::string* why = nullptr);
+    static constexpr double kPostMatchQuiet = 60.0;  // game clock (Live Editor's speed x3: about 20 real seconds)
     // The scope of a kept kit row written now: "global" outside a career, else reapply.edit_scope() (as before)
     std::string identity_kept_scope() const;
     // A crest / minikit file of a club identity edit: global = mods\legacy (recorded in careers\global_own.json); career = the
@@ -564,6 +569,9 @@ private:
     std::string career_faces_active_;    // the career career_faces_sync last ran for ("" = none)
     std::string kit_swap_career_ = "-";     // X 2.0.2: the career last given to kit_swap->set_career ("-" = never)
     std::string kit_swap_next_scope_;       // X 2.0.2: the scope last given to kit_swap->set_next_scope
+    std::string writes_phase_;              // X 2.0.3: the match phase last seen (game_writes_held)
+    double writes_hold_until_ = 0.0;        // X 2.0.3: App::now until which automatic writes wait
+    bool writes_hold_logged_ = false;
     bool career_faces_ticked_ = false;   // the first tick (the start-up restore's log line goes to the host log there)
     std::string career_faces_start_line_;
     shell::Place place_{shell::Area::Home, shell::Page::Home};  // 3.0: the app opens on Home

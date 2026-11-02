@@ -258,6 +258,7 @@ std::string App::reapply_key() const {
 bool App::reapply_due() const {
     const auto& st = bridge.state();
     if (!st.loaded || !st.in_cm || reapply_key() == reapplied_key_) return false;
+    if (st.match_phase == "match" || now < writes_hold_until_) return false;  // X 2.0.3: due again once the match has settled
     // the Shown OVR pin (ovr_pin_tick) needs the newly loaded career's database too, also while the window is hidden
     return !reapply.empty() || ovr_pin_files_;
 }
@@ -300,8 +301,34 @@ void App::ovr_pin_rescan() {
     ovr_pin_files_ = any_mask_file(turbo_output());
 }
 
+bool App::game_writes_held(std::string* why) {
+    const std::string ph = bridge.state().match_phase;
+    if (ph != writes_phase_) {
+        // a match (or its pre-match screens) just ended: the game writes the results, growth and ratings now
+        if (writes_phase_ == "match" || writes_phase_ == "prematch") writes_hold_until_ = now + kPostMatchQuiet;
+        writes_phase_ = ph;
+    }
+    std::string w;
+    if (ph == "match") w = "a match is on";
+    else if (now < writes_hold_until_) w = "the game is still finishing the match";
+    if (w.empty()) {
+        if (writes_hold_logged_) log("automatic writes: the game is done with the match; kept edits and OVR pins are written now");
+        writes_hold_logged_ = false;
+        return false;
+    }
+    if (!writes_hold_logged_) {
+        writes_hold_logged_ = true;
+        const std::string line = "automatic writes: waiting (" + w + "): kept edits and OVR pins are written after it";
+        log(line);
+        if (log_hook) log_hook(line);
+    }
+    if (why) *why = w;
+    return true;
+}
+
 void App::ovr_pin_tick(bool force) {
     if (!ovr_pin_scanned_) ovr_pin_rescan();
+    if (game_writes_held()) return;  // X 2.0.3: never while the game writes a match's results (the next tick after it pins)
     if (!force && now < ovr_pin_next_) return;
     ovr_pin_next_ = now + ovr_pin::kPollSeconds;
     const auto& st = bridge.state();
@@ -546,6 +573,7 @@ void App::maybe_reapply() {
     // the same career load again (the Refresh button, the window shown, the manager's new club): what the user changed
     // since then stays as it is
     if (key == reapplied_key_) return;
+    if (game_writes_held()) return;  // X 2.0.3: after the match settles (the key stays due until then)
     reapplied_key_ = key;
     if (!reapply.empty()) reapply_stored_edits();
 }

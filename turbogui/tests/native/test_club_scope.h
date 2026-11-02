@@ -249,6 +249,27 @@ inline void ui_cases(App& app, Ui& ui, const fs::path& le) {
         CHECK(app.owner_career_of(424242, &why).empty() && !why.empty(), "no career holds anything: none (" + why + ")");
     });
 
+    run_case("UI X 2.0.3 post-match crash: automatic writes (re-apply, OVR pin) wait during a match and while the game finishes it", [&] {
+        struct Back {
+            App& a;
+            ~Back() { a.bridge.test_set_phase("hub"); }
+        } back{app};
+        app.bridge.test_set_phase("hub");
+        app.now += App::kPostMatchQuiet + 1.0;
+        std::string why;
+        CHECK(!app.game_writes_held(&why), "in the hub, long after any match: writes go");
+        app.bridge.test_set_phase("match");
+        CHECK(app.game_writes_held(&why) && why == "a match is on", "during the match: held (" + why + ")");
+        CHECK(!app.reapply_due(), "no career-load re-apply is due during a match");
+        app.bridge.test_set_phase("hub");
+        CHECK(app.game_writes_held(&why) && why.find("finishing") != std::string::npos, "right after the match: held (" + why + ")");
+        app.now += App::kPostMatchQuiet - 1.0;
+        CHECK(app.game_writes_held(), "still held just before the quiet time ends");
+        app.now += 2.0;
+        CHECK(!app.game_writes_held(), "after the quiet time: writes go");
+        CHECK(log_has_any(app, "automatic writes: waiting (") && log_has_any(app, "automatic writes: the game is done with the match"), "logged");
+    });
+
     run_case("UI X 2.0.2 club scope: a team name saved with no career is GLOBAL; in a career it is that career's; Serie A / B are Italian", [&] {
         CHECK(is_italian_club_league(31) && is_italian_club_league(32) && !is_italian_club_league(13) && !is_italian_club_league(-1), "Serie A 31, Serie B 32");
         const std::string was = app.reapply.career;
