@@ -229,9 +229,9 @@ bool in_image(const Anchors& a, uint64_t addr) {
 }
 
 std::string check_anchors(Memory& mem, const Anchors& a) {
-    if (a.build != kBuild)
-        return "game build " + (a.build.empty() ? std::string("unknown") : a.build) + " is not " + kBuild +
-               " (the only build channel E's layout was verified on)";
+    if (a.build.empty()) return "game build unknown";
+    // X 2.0: another build is not refused here: with every signature found and every guard below passing, channel E reads (read only:
+    // apply_plan / apply_bench refuse a build that is not build_verified)
     if (const char* m = a.missing()) return std::string("signature ") + m + " was not found on this game build";
     if (a.set_body != a.set) return "teamsheet_set_body is not at SetSheet (" + hex(a.set_body) + " vs " + hex(a.set) + ")";
     if (a.update_body != a.update) return "teamsheet_update_body is not at UpdateSheet (" + hex(a.update_body) + " vs " + hex(a.update) + ")";
@@ -1327,6 +1327,9 @@ ApplyResult apply_plan(Memory& game, uint64_t svc, const Anchors& a, const Plan&
         r.reads = mem.reads;
         return r;
     };
+    if (!build_verified(a.build))
+        return fail("build", "game build " + a.build + " is read only for channel E: writes are verified on " + kBuild +
+                                 " only (the reads on this build are being checked; nothing was written)");
     try {
         // 1. L1-L4 again (pointers can move between frames), the working copies with them
         PageCache walk(mem);
@@ -1608,6 +1611,9 @@ BenchResult apply_bench(Memory& game, uint64_t svc, const Anchors& a, const Benc
         r.reads = mem.reads;
         return r;
     };
+    if (!build_verified(a.build))
+        return fail("build", "game build " + a.build + " is read only for channel E: the bench is kept on " + kBuild +
+                                 " only until this build's layout is verified in game (nothing was written)");
     try {
         // L1-L4 and G5 of your map sheet again (pointers can move between frames), the working copy, then the plan against both
         PageCache walk(mem);
@@ -2506,7 +2512,8 @@ std::string CoreService::anchors_status() {
             anchors_why_ = h_.mem ? check_anchors(*h_.mem, h_.anchors) : "no game memory";
             anchors_checked_ = true;
             line = anchors_why_.empty() ? "channel E: anchors ok on build " + h_.anchors.build + " (VT1 " + hex(h_.anchors.vt1) + ", SetSheet " +
-                                              hex(h_.anchors.set) + ", UpdateSheet " + hex(h_.anchors.update) + ", registry " + hex(h_.anchors.registry) + ")"
+                                              hex(h_.anchors.set) + ", UpdateSheet " + hex(h_.anchors.update) + ", registry " + hex(h_.anchors.registry) + ")" +
+                                              (build_verified(h_.anchors.build) ? std::string() : std::string(" - READ ONLY: this build is not verified for writes yet"))
                                         : "channel E: not available on this build (" + anchors_why_ + ")";
         }
         why = anchors_why_;

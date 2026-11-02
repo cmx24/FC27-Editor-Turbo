@@ -61,6 +61,10 @@ namespace tsheet {
 
 // ------------------------------------------------------------------------------------------------ constants (report sections 2 / 3)
 constexpr const char* kBuild = "6AC07E31-2145C000";  // the only build the layout was verified on [V]
+// X 2.0 (Cassio 11-01: "save the order of the bench and reserves once and for all"): on another build whose team sheet signatures are all
+// found and whose guards pass (check_anchors), channel E READS (the bench probe: is the layout the same?) but never writes: apply_plan
+// and apply_bench refuse until the build is verified in game and added here.
+inline bool build_verified(const std::string& build) { return build == kBuild; }
 constexpr uint32_t kServiceId = 0x113EA820;          // ENUM_djb2TeamSheetService_CLSS (Live Editor enums.lua) [V]
 constexpr uint64_t kRegistryFindSlot = 0x38;         // registry vtable +0x38 = Find(registry, id): the call MCOPY makes [V-code]
 // VT1 slots (report 2.2) [V]

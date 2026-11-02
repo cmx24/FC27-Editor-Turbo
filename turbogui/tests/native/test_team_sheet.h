@@ -586,7 +586,15 @@ static void run() {
         for (const char* n : anchor_signatures()) CHECK(nb->find(n) && nb->find(n)->exact_build, std::string(n) + " is built in for 6AC07E31");
         CHECK(nb->find("teamsheet_ctor") != nullptr, "the ctor too");
         const SignatureTable a = adapt_signature_table(*nb, "6B000000-21500000");
-        CHECK(a.sigs.size() == nb->sigs.size() - 20 && !a.find("teamsheet_set") && !a.find("service_registry"), "auto-adapt leaves them out");
+        // X 2.0: the 11 channel E entries are carried (optional, marked unverified: channel E reads there, never writes); the 9 crest serve
+        // entries are left out
+        CHECK(a.sigs.size() == nb->sigs.size() - 9, fmt("auto-adapt carries the 11 channel E entries, leaves the 9 crest serve out (%d of %d)",
+                                                       int(a.sigs.size()), int(nb->sigs.size())));
+        for (const char* n : anchor_signatures()) {
+            const Signature* s = a.find(n);
+            CHECK(s && !s->exact_build && s->adapt_optional && s->note.find("UNVERIFIED") != std::string::npos,
+                  std::string(n) + ": carried as optional and unverified");
+        }
         for (const auto& s : nb->sigs) {
             if (!s.exact_build) continue;
             std::vector<uint8_t> b;
@@ -646,7 +654,17 @@ static void run() {
         CHECK(check_anchors(w.mem, a).empty(), "the simulated build passes: " + check_anchors(w.mem, a));
         Anchors b = a;
         b.build = "6B000000-21500000";
-        CHECK(check_anchors(w.mem, b).find("is not 6AC07E31-2145C000") != std::string::npos, "another build is refused: " + check_anchors(w.mem, b));
+        // X 2.0: another build passes the anchors (reads: the bench probe) but every write refuses it
+        CHECK(check_anchors(w.mem, b).empty(), "another build with every signature and guard: anchors ok (read only): " + check_anchors(w.mem, b));
+        CHECK(!build_verified(b.build) && build_verified(a.build), "only 6AC07E31-2145C000 is verified for writes");
+        {
+            const ApplyResult pr = apply_plan(w.mem, SheetWorld::kSvc, b, Plan{});
+            CHECK(!pr.ok && pr.stage == "build" && pr.message.find("read only") != std::string::npos, "apply_plan refuses an unverified build: " + pr.message);
+            const BenchResult br = apply_bench(w.mem, SheetWorld::kSvc, b, BenchPlan{}, nullptr);
+            CHECK(!br.ok && br.stage == "build" && br.message.find("read only") != std::string::npos, "apply_bench refuses an unverified build: " + br.message);
+        }
+        b.build = "";
+        CHECK(check_anchors(w.mem, b).find("unknown") != std::string::npos, "an unknown build is refused");
         b = a;
         b.vt2 = 0;
         CHECK(check_anchors(w.mem, b).find("teamsheet_vt2") != std::string::npos, "a missing signature is named");

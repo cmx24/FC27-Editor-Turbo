@@ -902,6 +902,16 @@ SignatureTable adapt_signature_table(const SignatureTable& from, const std::stri
     t.build = build;
     t.game = from.game;
     for (const auto& s : from.sigs) {
+        // X 2.0: the team sheet entries (tactics channel E) ARE carried, optional and marked unverified: found exactly once with their
+        // layout guards on the new build, channel E reads there (bench probe) and writes nothing (tsheet::build_verified). Every other
+        // exact-build entry is left out as before.
+        if (s.exact_build && (s.name.rfind("teamsheet_", 0) == 0 || s.name.rfind("service_registry", 0) == 0)) {
+            t.sigs.push_back(s);
+            t.sigs.back().exact_build = false;
+            t.sigs.back().adapt_optional = true;
+            t.sigs.back().note = "adapted from " + from.build + " (UNVERIFIED on this build: channel E reads only):" + (s.note.empty() ? std::string() : " " + s.note);
+            continue;
+        }
         if (s.exact_build) continue;  // verified on from.build alone: never carried to another build
         t.sigs.push_back(s);
         t.sigs.back().note = "adapted from " + from.build + ":" + (s.note.empty() ? std::string() : " " + s.note);
