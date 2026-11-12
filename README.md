@@ -3,6 +3,12 @@
 **FC 27 LE Turbo X 1.0** (2026-11-01): an in-game overlay for **FC 27 Live Editor** (v27.1.x) that edits players, managers,
 clubs and careers live — redesigned from the ground up in Turbo X.
 
+> **What this repository holds (updated 2026-11-12).** `main` is Turbo X 1.0.2 as of 2026-11-01, written for FC 27 game
+> builds before the 2026-11-10 title update. Development has continued since and is not published here yet: the current
+> builds are **Turbo X 4.4.7 TEST** (2026-11-11, for FC 27 build 6AEC0E6A and Live Editor v27.1.9) and **Turbo Pro 1.0
+> TEST**, a standalone version that starts the game without Live Editor (not proven in game). Everything below describes
+> the code on `main`.
+
 Release notes (what is seen in game and what is only built): [`docs/turbo-x/RELEASE_NOTES.md`](docs/turbo-x/RELEASE_NOTES.md).
 Day-by-day build record: [`docs/turbo-x/BUILD_LOG.md`](docs/turbo-x/BUILD_LOG.md). Older history: [`CHANGELOG.md`](CHANGELOG.md).
 

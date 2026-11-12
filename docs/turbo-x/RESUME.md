@@ -1,3 +1,7 @@
+> **Historical (state of 2026-11-01/02).** This resume point matches the code on `main` (Turbo X 1.0.2). Later work
+> (Turbo X 2.0 to 4.4.7 TEST, Turbo Pro 1.0 TEST) is not published in this repository yet; see the note at the top of
+> [`README.md`](../../README.md).
+
 # Turbo X — RESUME HERE (state at 2026-11-01 15:00 EST, Turbo X 1.0.2 installed)
 
 Read this first if you are an LLM/agent picking up the Turbo project. It is the single entry point; it links everything else.
